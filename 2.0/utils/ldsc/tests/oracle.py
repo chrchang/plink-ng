@@ -15,13 +15,24 @@ import sys
 # ***** linear algebra (at most 2 parameters, so this is all closed-form) *****
 
 def solve(mat, vec):
-    """Solves mat * out = vec for a 1x1 or 2x2 system."""
+    """Solves mat * out = vec by Gauss-Jordan with partial pivoting."""
     p = len(vec)
-    if p == 1:
-        return [vec[0] / mat[0][0]]
-    det = mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0]
-    return [(vec[0] * mat[1][1] - vec[1] * mat[0][1]) / det,
-            (vec[1] * mat[0][0] - vec[0] * mat[1][0]) / det]
+    aug = [list(mat[i]) + [vec[i]] for i in range(p)]
+    for col in range(p):
+        pivot = max(range(col, p), key=lambda r: abs(aug[r][col]))
+        if aug[pivot][col] == 0.0:
+            raise ZeroDivisionError('singular design matrix')
+        aug[col], aug[pivot] = aug[pivot], aug[col]
+        inv = 1.0 / aug[col][col]
+        aug[col] = [v * inv for v in aug[col]]
+        for row in range(p):
+            if row == col:
+                continue
+            factor = aug[row][col]
+            if factor:
+                aug[row] = [aug[row][j] - factor * aug[col][j]
+                            for j in range(p + 1)]
+    return [aug[i][p] for i in range(p)]
 
 
 def xtx_xty(x, y, w2, lo, hi):
@@ -102,6 +113,7 @@ def clamp(val, lo, hi):
 
 
 def hsq_weights(ld, w_ld, n, m, hsq, intercept, idxs):
+    """ld is the total LD Score per variant (summed over annotations)."""
     hsq = clamp(hsq, 0.0, 1.0)
     out = []
     for i in idxs:
@@ -134,12 +146,16 @@ def gencov_weights(ld, w_ld, n1, n2, m, h1, h2, rho_g, intercept,
 class Reg(object):
     """Shared LD Score regression body."""
 
-    def __init__(self, kind, y, ld, w_ld, n, m, n_blocks, intercept=None,
-                 twostep=None, step1_filter=None, gencov_args=None):
+    def __init__(self, kind, y, ld_mat, w_ld, n, m_vec, n_blocks,
+                 intercept=None, twostep=None, step1_filter=None,
+                 gencov_args=None):
         self.kind = kind
         self.gencov_args = gencov_args
         n_snp = len(y)
+        n_annot = len(ld_mat[0])
+        m = sum(m_vec)
         self.nbar = sum(n) / n_snp
+        ld = [sum(row) for row in ld_mat]
         null_intercept = 1.0 if kind == 'hsq' else 0.0
         agg_int = intercept if intercept is not None else null_intercept
         mean_y = sum(y) / n_snp
@@ -147,23 +163,36 @@ class Reg(object):
         tot_agg = m * (mean_y - agg_int) / mean_ldn
         all_idxs = list(range(n_snp))
         initial_w = self._weights(tot_agg, agg_int, ld, w_ld, n, m, all_idxs)
-        x_scaled = [n[i] * ld[i] / self.nbar for i in range(n_snp)]
+        x_scaled = [[n[i] * ld_mat[i][j] / self.nbar for j in range(n_annot)]
+                    for i in range(n_snp)]
 
-        if intercept is not None:
+        if n_annot > 1:
+            # The reference implementation's old_weights path: weights from
+            # the aggregate estimate, no reweighting.
+            w = [wi ** 0.5 for wi in initial_w]
+            if intercept is not None:
+                yp = [yi - intercept for yi in y]
+                design = x_scaled
+            else:
+                yp = y
+                design = [row + [1.0] for row in x_scaled]
+            est, delete_values = lstsq_jknife(
+                design, yp, w, separators(n_snp, n_blocks))
+        elif intercept is not None:
             yp = [yi - intercept for yi in y]
-            design = [[xi] for xi in x_scaled]
+            design = [[row[0]] for row in x_scaled]
             est, delete_values = self._irwls(
                 design, yp, initial_w, ld, w_ld, n, m, all_idxs, intercept,
                 separators(n_snp, n_blocks))
         elif twostep is None:
-            design = [[xi, 1.0] for xi in x_scaled]
+            design = [[row[0], 1.0] for row in x_scaled]
             est, delete_values = self._irwls(
                 design, y, initial_w, ld, w_ld, n, m, all_idxs, None,
                 separators(n_snp, n_blocks))
         else:
             step1_idxs = [i for i in range(n_snp) if step1_filter[i] < twostep]
             n1 = len(step1_idxs)
-            design1 = [[x_scaled[i], 1.0] for i in step1_idxs]
+            design1 = [[x_scaled[i][0], 1.0] for i in step1_idxs]
             y1 = [y[i] for i in step1_idxs]
             w1 = [initial_w[i] for i in step1_idxs]
             sep1 = separators(n1, n_blocks)
@@ -171,12 +200,13 @@ class Reg(object):
                                         step1_idxs, None, sep1)
             step1_int = est1[1]
             yp = [yi - step1_int for yi in y]
-            design2 = [[xi] for xi in x_scaled]
+            design2 = [[row[0]] for row in x_scaled]
             sep2 = [0] + [step1_idxs[sep1[b]] for b in range(1, n_blocks)] + [n_snp]
             est2, delete2 = self._irwls(design2, yp, initial_w, ld, w_ld, n, m,
                                         all_idxs, step1_int, sep2)
-            c_num = sum(initial_w[i] * x_scaled[i] for i in range(n_snp))
-            c_den = sum(initial_w[i] * x_scaled[i] ** 2 for i in range(n_snp))
+            c_num = sum(initial_w[i] * x_scaled[i][0] for i in range(n_snp))
+            c_den = sum(initial_w[i] * x_scaled[i][0] ** 2
+                        for i in range(n_snp))
             c = c_num / c_den
             est = [est2[0], step1_int]
             delete_values = [[delete2[b][0] - c * (delete1[b][1] - step1_int),
@@ -184,17 +214,35 @@ class Reg(object):
 
         _, cov, se, _ = jknife_from_delete(est, delete_values)
         self.est = est
-        self.coef = est[0] / self.nbar
-        self.tot = m * self.coef
-        self.tot_se = (m * m * cov[0][0] / self.nbar ** 2) ** 0.5
+        self.n_annot = n_annot
+        self.coefs = [est[j] / self.nbar for j in range(n_annot)]
+        self.coef_ses = [(cov[j][j] / self.nbar ** 2) ** 0.5
+                         for j in range(n_annot)]
+        self.cat = [m_vec[j] * self.coefs[j] for j in range(n_annot)]
+        self.tot = sum(self.cat)
+        tot_cov = sum(m_vec[j] * m_vec[k] * cov[j][k] / self.nbar ** 2
+                      for j in range(n_annot) for k in range(n_annot))
+        self.tot_se = tot_cov ** 0.5
         if intercept is not None:
             self.intercept = intercept
             self.intercept_se = None
         else:
-            self.intercept = est[1]
-            self.intercept_se = se[1]
-        self.tot_delete_values = [d[0] * m / self.nbar for d in delete_values]
+            self.intercept = est[n_annot]
+            self.intercept_se = se[n_annot]
+        self.tot_delete_values = [
+            sum(d[j] * m_vec[j] for j in range(n_annot)) / self.nbar
+            for d in delete_values]
         self.n_blocks = len(delete_values)
+        self.prop = [c / self.tot for c in self.cat]
+        self.prop_ses = []
+        self.enrichment = []
+        m_tot = sum(m_vec)
+        for j in range(n_annot):
+            numer = [d[j] * m_vec[j] / self.nbar for d in delete_values]
+            self.prop_ses.append(ratio_jknife(self.prop[j], numer,
+                                              self.tot_delete_values))
+            self.enrichment.append((self.cat[j] / m_vec[j]) /
+                                   (self.tot / m_tot))
 
     def _weights(self, param, intercept, ld, w_ld, n, m, idxs):
         if self.kind == 'hsq':
@@ -236,10 +284,13 @@ def read_table(path):
 
 
 def read_ldscore(path):
+    """Returns (ids, rows of LD Scores); every non-position column counts."""
     header, rows = read_table(path)
     id_col = header.index('SNP') if 'SNP' in header else header.index('ID')
-    l2_col = header.index('L2')
-    return [r[id_col] for r in rows], [float(r[l2_col]) for r in rows]
+    skip = {'SNP', 'ID', 'CHR', 'CHROM', 'BP', 'POS', 'MAF', 'CM'}
+    l2_cols = [i for i, name in enumerate(header) if name not in skip]
+    return ([r[id_col] for r in rows],
+            [[float(r[c]) for c in l2_cols] for r in rows])
 
 
 def read_sumstats(path):
@@ -275,30 +326,45 @@ def main():
     ap.add_argument('--w-ld', required=True)
     ap.add_argument('--sumstats', required=True,
                     help='one file, or two comma-separated for rg')
-    ap.add_argument('--M', type=float, required=True)
+    ap.add_argument('--M', required=True,
+                    help='one value, or one per annotation, comma-separated')
     ap.add_argument('--n-blocks', type=int, default=200)
     ap.add_argument('--intercept-h2', type=float, default=None)
     ap.add_argument('--two-step', type=float, default=None)
     ap.add_argument('--no-two-step', action='store_true')
     args = ap.parse_args()
 
+    m_vec = [float(x) for x in args.M.split(',')]
     ref_ids, ref_l2 = read_ldscore(args.ref_ld)
     w_ids, w_l2 = read_ldscore(args.w_ld)
-    w_map = dict(zip(w_ids, w_l2))
+    w_map = dict((w_ids[i], w_l2[i][0]) for i in range(len(w_ids)))
     paths = args.sumstats.split(',')
     ss1 = read_sumstats(paths[0])
     ss2 = read_sumstats(paths[1]) if args.mode == 'rg' else None
     ld, w, z1, n1, z2, n2 = merge(ref_ids, ref_l2, w_map, ss1, ss2)
+    n_annot = len(m_vec)
+    if n_annot > 1:
+        # The reference implementation drops the high-chi^2 tail in the
+        # partitioned case instead of running the two-step estimator.
+        chisq_max = max(0.001 * max(n1), 80.0)
+        keep = [i for i in range(len(ld)) if z1[i] ** 2 < chisq_max]
+        ld = [ld[i] for i in keep]
+        w = [w[i] for i in keep]
+        z1 = [z1[i] for i in keep]
+        n1 = [n1[i] for i in keep]
+        if z2:
+            z2 = [z2[i] for i in keep]
+            n2 = [n2[i] for i in keep]
     n_snp = len(ld)
     n_blocks = min(args.n_blocks, n_snp)
     twostep = args.two_step
     if twostep is None and not args.no_two_step and args.intercept_h2 is None:
         twostep = 30.0
-    if args.no_two_step or args.intercept_h2 is not None:
+    if args.no_two_step or args.intercept_h2 is not None or n_annot > 1:
         twostep = None
 
     chisq1 = [zi * zi for zi in z1]
-    hsq1 = Reg('hsq', chisq1, ld, w, n1, args.M, n_blocks,
+    hsq1 = Reg('hsq', chisq1, ld, w, n1, m_vec, n_blocks,
                intercept=args.intercept_h2, twostep=twostep,
                step1_filter=chisq1)
     if args.mode == 'h2':
@@ -312,16 +378,24 @@ def main():
                 print('ratio %.12g' % ((hsq1.intercept - 1) / (mean_chisq - 1)))
                 print('ratio_se %.12g' % (hsq1.intercept_se / (mean_chisq - 1)))
         print('mean_chisq %.12g' % mean_chisq)
+        if n_annot > 1:
+            # One row per annotation, in .results order.
+            for j in range(n_annot):
+                print('Coefficient_%d %.12g' % (j, hsq1.coefs[j]))
+                print('Coefficient_std_error_%d %.12g' % (j, hsq1.coef_ses[j]))
+                print('Prop._h2_%d %.12g' % (j, hsq1.prop[j]))
+                print('Prop._h2_std_error_%d %.12g' % (j, hsq1.prop_ses[j]))
+                print('Enrichment_%d %.12g' % (j, hsq1.enrichment[j]))
         return
 
     chisq2 = [zi * zi for zi in z2]
-    hsq2 = Reg('hsq', chisq2, ld, w, n2, args.M, n_blocks,
+    hsq2 = Reg('hsq', chisq2, ld, w, n2, m_vec, n_blocks,
                intercept=args.intercept_h2, twostep=twostep,
                step1_filter=chisq2)
     y = [z1[i] * z2[i] for i in range(n_snp)]
     sqrt_n1n2 = [(n1[i] * n2[i]) ** 0.5 for i in range(n_snp)]
     step1_filter = [max(chisq1[i], chisq2[i]) for i in range(n_snp)]
-    gencov = Reg('gencov', y, ld, w, sqrt_n1n2, args.M, n_blocks,
+    gencov = Reg('gencov', y, ld, w, sqrt_n1n2, m_vec, n_blocks,
                  intercept=None, twostep=twostep, step1_filter=step1_filter,
                  gencov_args=(hsq1.tot, hsq2.tot, hsq1.intercept,
                               hsq2.intercept, n1, n2))

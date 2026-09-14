@@ -70,7 +70,45 @@ $L --h2 trait1.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
    --out t_h2_mfile
 diff -q t_h2.h2 t_h2_mfile.h2
 
-# 9. A missing Z column is an error, not a silent wrong answer.
+# 9. Partitioned (stratified) LD Scores: one coefficient per annotation, and
+#    the per-category output that follows from them.
+$L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_w --out t_part
+python3 check.py t_part.h2,t_part.results oracle.py h2 \
+   --ref-ld part_ref.l2.ldscore --w-ld part_w.l2.ldscore \
+   --sumstats part_trait.sumstats --M 3000,2000,1000
+grep -q "Categories: 3" t_part.log
+# The partitioned regression drops the two-step estimator for a chi^2 ceiling.
+if grep -q "Using two-step estimator" t_part.log; then
+    echo "the partitioned regression must not use the two-step estimator"
+    exit 1
+fi
+grep -q "Removed .* variants with chi^2 >" t_part.log
+python3 - << 'PYEOF'
+import csv
+row = next(csv.DictReader(open('t_part.h2'), delimiter='\t'))
+est, se = float(row['h2']), float(row['h2_se'])
+truth = 0.18 + 0.09 + 0.04
+if abs(est - truth) > 4 * se:
+    raise SystemExit('partitioned h2: %g is more than 4 SE (%g) from %g'
+                     % (est, se, truth))
+rows = list(csv.DictReader(open('t_part.results'), delimiter='\t'))
+if len(rows) != 3:
+    raise SystemExit('expected 3 category rows, got %d' % len(rows))
+prop_sum = sum(float(r['Prop._h2']) for r in rows)
+if abs(prop_sum - 1.0) > 1e-9:
+    raise SystemExit('category h2 proportions sum to %g, not 1' % prop_sum)
+print('partitioned h2 is within 4 SE, and its category proportions sum to 1')
+PYEOF
+
+# 10. --w-ld has to name exactly one LD Score column.
+if $L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_ref \
+      --out t_bad3 2> tmp_err3.txt; then
+    echo "expected ldsc to reject multi-column --w-ld"
+    exit 1
+fi
+grep -q "must name a single LD Score column" tmp_err3.txt
+
+# 11. A missing Z column is an error, not a silent wrong answer.
 cut -f1,2,3,5 trait1.sumstats > no_z.sumstats
 if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad 2> tmp_err.txt; then
@@ -79,7 +117,7 @@ if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
 fi
 grep -q "must have SNP, Z and N columns" tmp_err.txt
 
-# 10. --rg needs at least two filesets.
+# 12. --rg needs at least two filesets.
 if $L --rg trait1.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad2 2> tmp_err2.txt; then
     echo "expected ldsc to reject a single-file --rg"

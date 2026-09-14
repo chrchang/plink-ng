@@ -53,9 +53,9 @@ namespace plink2 {
 
 static const char kLdscVersion[] = "ldsc (plink-ng) v0.1";
 
-// Every regression here has at most two parameters: one LD Score coefficient
-// and one intercept.  (Partitioned LD Score regression is what needs more.)
-static const uint32_t kLdscMaxP = 2;
+// A partitioned regression has one coefficient per annotation, plus the
+// intercept, so the parameter count is only bounded by the annotation count.
+static const uint32_t kLdscMaxAnnot = 256;
 
 static const uint32_t kLdscChrCt = 22;
 
@@ -63,10 +63,12 @@ static const double kLdscSqrt2Pi = 2.5066282746310002;
 
 // ***** small-matrix and distribution helpers *****
 
-// Solves mat * out = vec by Gauss-Jordan with partial pivoting.  dim is 1 or
-// 2 here, so a dedicated small-matrix routine beats calling out to LAPACK.
+// Solves mat * out = vec by Gauss-Jordan with partial pivoting.  dim is the
+// parameter count, a small number even for the partitioned regression, so a
+// dedicated small-matrix routine beats calling out to LAPACK.
 BoolErr LdscSolve(uint32_t dim, const double* mat, const double* vec, double* out) {
-  double aug[kLdscMaxP * (kLdscMaxP + 1)];
+  std::vector<double> aug_buf(S_CAST(uintptr_t, dim) * (dim + 1));
+  double* aug = &(aug_buf[0]);
   const uint32_t width = dim + 1;
   for (uint32_t i = 0; i != dim; ++i) {
     for (uint32_t j = 0; j != dim; ++j) {
@@ -198,11 +200,11 @@ double LdscLiabilityFactor(double samp_prev, double pop_prev) {
 typedef struct LdscJknifeStruct {
   uint32_t n_blocks;
   uint32_t p;
-  double est[kLdscMaxP];
-  double jknife_est[kLdscMaxP];
-  double jknife_se[kLdscMaxP];
-  double jknife_cov[kLdscMaxP * kLdscMaxP];
-  std::vector<double> delete_values;  // n_blocks x p, row-major
+  std::vector<double> est;
+  std::vector<double> jknife_est;
+  std::vector<double> jknife_se;
+  std::vector<double> jknife_cov;      // p x p, row-major
+  std::vector<double> delete_values;   // n_blocks x p, row-major
 } LdscJknife;
 
 // Turns delete values and the whole-data estimate into the jackknife estimate
@@ -210,6 +212,9 @@ typedef struct LdscJknifeStruct {
 void LdscFinishJknife(LdscJknife* jkp) {
   const uint32_t n_blocks = jkp->n_blocks;
   const uint32_t p = jkp->p;
+  jkp->jknife_est.resize(p);
+  jkp->jknife_se.resize(p);
+  jkp->jknife_cov.assign(S_CAST(uintptr_t, p) * p, 0.0);
   std::vector<double> pseudo(S_CAST(uintptr_t, n_blocks) * p);
   for (uint32_t b = 0; b != n_blocks; ++b) {
     for (uint32_t j = 0; j != p; ++j) {
@@ -269,8 +274,10 @@ BoolErr LdscLstsqJknifeFast(const double* x, const double* y, uint32_t p, const 
       }
     }
   }
-  double xtx_tot[kLdscMaxP * kLdscMaxP];
-  double xty_tot[kLdscMaxP];
+  std::vector<double> xtx_tot_buf(pp);
+  std::vector<double> xty_tot_buf(p);
+  double* xtx_tot = &(xtx_tot_buf[0]);
+  double* xty_tot = &(xty_tot_buf[0]);
   for (uint32_t j = 0; j != pp; ++j) {
     double acc = 0.0;
     for (uint32_t b = 0; b != n_blocks; ++b) {
@@ -287,12 +294,15 @@ BoolErr LdscLstsqJknifeFast(const double* x, const double* y, uint32_t p, const 
   }
   jkp->n_blocks = n_blocks;
   jkp->p = p;
-  if (LdscSolve(p, xtx_tot, xty_tot, jkp->est)) {
+  jkp->est.resize(p);
+  if (LdscSolve(p, xtx_tot, xty_tot, &(jkp->est[0]))) {
     return 1;
   }
   jkp->delete_values.assign(S_CAST(uintptr_t, n_blocks) * p, 0.0);
-  double xtx_del[kLdscMaxP * kLdscMaxP];
-  double xty_del[kLdscMaxP];
+  std::vector<double> xtx_del_buf(pp);
+  std::vector<double> xty_del_buf(p);
+  double* xtx_del = &(xtx_del_buf[0]);
+  double* xty_del = &(xty_del_buf[0]);
   for (uint32_t b = 0; b != n_blocks; ++b) {
     for (uint32_t j = 0; j != pp; ++j) {
       xtx_del[j] = xtx_tot[j] - xtx_blocks[S_CAST(uintptr_t, b) * pp + j];
@@ -313,7 +323,7 @@ void LdscRatioJknife(double est, const double* numer_delete, const double* denom
   LdscJknife jk;
   jk.n_blocks = n_blocks;
   jk.p = 1;
-  jk.est[0] = est;
+  jk.est.assign(1, est);
   jk.delete_values.resize(n_blocks);
   for (uint32_t b = 0; b != n_blocks; ++b) {
     jk.delete_values[b] = numer_delete[b] / denom_delete[b];
@@ -322,7 +332,6 @@ void LdscRatioJknife(double est, const double* numer_delete, const double* denom
   *jknife_est_ptr = jk.jknife_est[0];
   *jknife_se_ptr = jk.jknife_se[0];
 }
-
 // ***** regression weights and IRWLS *****
 
 typedef enum { kLdscHsq, kLdscGencov } LdscRegKind;
@@ -332,12 +341,14 @@ typedef enum { kLdscHsq, kLdscGencov } LdscRegKind;
 // estimator's first step can run on a subset without copying the inputs.
 typedef struct LdscRegCtxStruct {
   LdscRegKind kind;
-  const double* ld;
+  const double* ld_mat;  // n_snp x n_annot, row-major
+  const double* ld_tot;  // row sums of ld_mat; what the weights use
   const double* w_ld;
   const double* n_vec;
   const double* n1;
   const double* n2;
   const uint32_t* row_idxs;
+  uint32_t n_annot;
   double m_tot;
   double nbar;
   double hsq1;
@@ -348,21 +359,28 @@ typedef struct LdscRegCtxStruct {
   double fixed_intercept;
 } LdscRegCtx;
 
+// The weights are a function of the total heritability (or genetic
+// covariance) and the total LD Score, not of the per-annotation split, so
+// they stay scalar even in the partitioned regression.
 void LdscUpdateWeights(const LdscRegCtx* ctx, const double* coef, uint32_t p, uint32_t n, double* w_out) {
   const double m_tot = ctx->m_tot;
-  const double param = m_tot * coef[0] / ctx->nbar;
+  double param = 0.0;
+  for (uint32_t j = 0; j != ctx->n_annot; ++j) {
+    param += coef[j];
+  }
+  param = m_tot * param / ctx->nbar;
   double intercept;
   if (ctx->constrain_intercept) {
     intercept = ctx->fixed_intercept;
   } else {
-    assert(p == 2);
-    intercept = coef[1];
+    assert(p == ctx->n_annot + 1);
+    intercept = coef[p - 1];
   }
   if (ctx->kind == kLdscHsq) {
     const double hsq = LdscClamp(param, 0.0, 1.0);
     for (uint32_t i = 0; i != n; ++i) {
       const uint32_t uidx = ctx->row_idxs[i];
-      const double ld = MAXV(ctx->ld[uidx], 1.0);
+      const double ld = MAXV(ctx->ld_tot[uidx], 1.0);
       const double w_ld = MAXV(ctx->w_ld[uidx], 1.0);
       const double c = hsq * ctx->n_vec[uidx] / m_tot;
       const double denom = intercept + c * ld;
@@ -375,7 +393,7 @@ void LdscUpdateWeights(const LdscRegCtx* ctx, const double* coef, uint32_t p, ui
   const double h2 = LdscClamp(ctx->hsq2, 0.0, 1.0);
   for (uint32_t i = 0; i != n; ++i) {
     const uint32_t uidx = ctx->row_idxs[i];
-    const double ld = MAXV(ctx->ld[uidx], 1.0);
+    const double ld = MAXV(ctx->ld_tot[uidx], 1.0);
     const double w_ld = MAXV(ctx->w_ld[uidx], 1.0);
     const double cur_n1 = ctx->n1[uidx];
     const double cur_n2 = ctx->n2[uidx];
@@ -390,8 +408,10 @@ void LdscUpdateWeights(const LdscRegCtx* ctx, const double* coef, uint32_t p, ui
 // reference implementation normalizes the weights to sum 1 first; that
 // cancels out of the solution.)
 BoolErr LdscWls(const double* x, const double* y, const double* w, uint32_t n, uint32_t p, double* coef) {
-  double xtx[kLdscMaxP * kLdscMaxP];
-  double xty[kLdscMaxP];
+  std::vector<double> xtx_buf(S_CAST(uintptr_t, p) * p);
+  std::vector<double> xty_buf(p);
+  double* xtx = &(xtx_buf[0]);
+  double* xty = &(xty_buf[0]);
   for (uint32_t j = 0; j != p * p; ++j) {
     xtx[j] = 0.0;
   }
@@ -411,31 +431,9 @@ BoolErr LdscWls(const double* x, const double* y, const double* w, uint32_t n, u
   return LdscSolve(p, xtx, xty, coef);
 }
 
-// Iteratively reweighted least squares, two updates, then the block jackknife
-// on the finally-weighted design.  This is the reference implementation's
-// IRWLS.irwls().
-BoolErr LdscIrwls(const LdscRegCtx* ctx, const double* x, const double* y, const double* initial_w, uint32_t n, uint32_t p, const std::vector<uint32_t>& sep, LdscJknife* jkp) {
-  std::vector<double> w(n);
-  for (uint32_t i = 0; i != n; ++i) {
-    if (initial_w[i] <= 0.0) {
-      return 1;
-    }
-    w[i] = sqrt(initial_w[i]);
-  }
-  double coef[kLdscMaxP];
-  std::vector<double> new_w(n);
-  for (uint32_t iter = 0; iter != 2; ++iter) {
-    if (LdscWls(x, y, &(w[0]), n, p, coef)) {
-      return 1;
-    }
-    LdscUpdateWeights(ctx, coef, p, n, &(new_w[0]));
-    for (uint32_t i = 0; i != n; ++i) {
-      if (!(new_w[i] > 0.0)) {
-        return 1;
-      }
-      w[i] = sqrt(new_w[i]);
-    }
-  }
+// Weights the rows of a design matrix and its response, then runs the block
+// jackknife on them.
+BoolErr LdscWeightedJknife(const double* x, const double* y, const double* w, uint32_t n, uint32_t p, const std::vector<uint32_t>& sep, LdscJknife* jkp) {
   std::vector<double> xw(S_CAST(uintptr_t, n) * p);
   std::vector<double> yw(n);
   for (uint32_t i = 0; i != n; ++i) {
@@ -447,12 +445,39 @@ BoolErr LdscIrwls(const LdscRegCtx* ctx, const double* x, const double* y, const
   return LdscLstsqJknifeFast(&(xw[0]), &(yw[0]), p, sep, jkp);
 }
 
+// Iteratively reweighted least squares, two updates, then the block jackknife
+// on the finally-weighted design.  This is the reference implementation's
+// IRWLS.irwls().
+BoolErr LdscIrwls(const LdscRegCtx* ctx, const double* x, const double* y, const double* initial_w, uint32_t n, uint32_t p, const std::vector<uint32_t>& sep, LdscJknife* jkp) {
+  std::vector<double> w(n);
+  for (uint32_t i = 0; i != n; ++i) {
+    if (initial_w[i] <= 0.0) {
+      return 1;
+    }
+    w[i] = sqrt(initial_w[i]);
+  }
+  std::vector<double> coef(p);
+  std::vector<double> new_w(n);
+  for (uint32_t iter = 0; iter != 2; ++iter) {
+    if (LdscWls(x, y, &(w[0]), n, p, &(coef[0]))) {
+      return 1;
+    }
+    LdscUpdateWeights(ctx, &(coef[0]), p, n, &(new_w[0]));
+    for (uint32_t i = 0; i != n; ++i) {
+      if (!(new_w[i] > 0.0)) {
+        return 1;
+      }
+      w[i] = sqrt(new_w[i]);
+    }
+  }
+  return LdscWeightedJknife(x, y, &(w[0]), n, p, sep, jkp);
+}
+
 // ***** the regressions *****
 
 typedef struct LdscHsqResultStruct {
   double tot;
   double tot_se;
-  double coef;
   double intercept;
   double intercept_se;
   double mean_chisq;
@@ -462,7 +487,17 @@ typedef struct LdscHsqResultStruct {
   uint32_t constrain_intercept;
   uint32_t ratio_valid;
   uint32_t n_blocks;
+  uint32_t n_annot;
   std::vector<double> tot_delete_values;
+  // Partitioned output, one entry per annotation.
+  std::vector<double> coefs;
+  std::vector<double> coef_ses;
+  std::vector<double> cat;
+  std::vector<double> cat_ses;
+  std::vector<double> prop;
+  std::vector<double> prop_ses;
+  std::vector<double> enrichment;
+  std::vector<double> m_prop;
 } LdscHsqResult;
 
 // Combines the free-intercept first step and the constrained-intercept second
@@ -472,6 +507,7 @@ void LdscCombineTwostep(const LdscJknife* step1, const LdscJknife* step2, double
   const uint32_t n_blocks = step1->n_blocks;
   out->n_blocks = n_blocks;
   out->p = 2;
+  out->est.resize(2);
   out->est[0] = step2->est[0];
   out->est[1] = step1_int;
   out->delete_values.assign(S_CAST(uintptr_t, n_blocks) * 2, 0.0);
@@ -486,9 +522,17 @@ void LdscCombineTwostep(const LdscJknife* step1, const LdscJknife* step2, double
 // The shared LD Score regression body: aggregate estimate, initial weights,
 // IRWLS (optionally two-step), then the jackknife.  y is chi^2 for h2 and
 // z1*z2 for genetic covariance.
+//
+// With more than one annotation the weights are computed once from the
+// aggregate estimate and left there, rather than being iterated: that is what
+// the reference implementation does (its old_weights path), since the
+// per-annotation coefficients do not pin down a single conditional variance
+// to reweight by.
 BoolErr LdscRegress(const LdscRegCtx* base_ctx, const double* y, uint32_t n_snp, uint32_t n_blocks, const double* fixed_intercept, const double* twostep, const double* step1_filter, double null_intercept, LdscJknife* jkp, double* nbar_ptr) {
   const double m_tot = base_ctx->m_tot;
-  const double* ld = base_ctx->ld;
+  const uint32_t n_annot = base_ctx->n_annot;
+  const double* ld_mat = base_ctx->ld_mat;
+  const double* ld_tot = base_ctx->ld_tot;
   const double* n_vec = base_ctx->n_vec;
   double nbar = 0.0;
   double y_sum = 0.0;
@@ -496,7 +540,7 @@ BoolErr LdscRegress(const LdscRegCtx* base_ctx, const double* y, uint32_t n_snp,
   for (uint32_t i = 0; i != n_snp; ++i) {
     nbar += n_vec[i];
     y_sum += y[i];
-    ldn_sum += ld[i] * n_vec[i];
+    ldn_sum += ld_tot[i] * n_vec[i];
   }
   nbar /= u31tod(n_snp);
   *nbar_ptr = nbar;
@@ -512,25 +556,22 @@ BoolErr LdscRegress(const LdscRegCtx* base_ctx, const double* y, uint32_t n_snp,
   agg_ctx.row_idxs = &(all_idxs[0]);
   agg_ctx.constrain_intercept = 1;
   agg_ctx.fixed_intercept = intercept_for_agg;
+  agg_ctx.n_annot = 1;
   // aggregate estimate -> initial weights.  The weight update takes a
   // coefficient on the N-scaled scale, so invert that scaling here.
-  double agg_coef[kLdscMaxP];
-  agg_coef[0] = tot_agg * nbar / m_tot;
-  agg_coef[1] = intercept_for_agg;
+  double agg_coef = tot_agg * nbar / m_tot;
   std::vector<double> initial_w(n_snp);
-  LdscUpdateWeights(&agg_ctx, agg_coef, 1, n_snp, &(initial_w[0]));
+  LdscUpdateWeights(&agg_ctx, &agg_coef, 1, n_snp, &(initial_w[0]));
 
   // x is N-scaled to keep the condition number low.
-  std::vector<double> x_scaled(n_snp);
+  std::vector<double> x_scaled(S_CAST(uintptr_t, n_snp) * n_annot);
   for (uint32_t i = 0; i != n_snp; ++i) {
-    x_scaled[i] = n_vec[i] * ld[i] / nbar;
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      x_scaled[S_CAST(uintptr_t, i) * n_annot + j] = n_vec[i] * ld_mat[S_CAST(uintptr_t, i) * n_annot + j] / nbar;
+    }
   }
 
   if (fixed_intercept) {
-    // The two-step estimator exists to keep a free intercept from being
-    // dragged around by the high-chi^2 variants; with the intercept
-    // constrained there is nothing for it to do.  (The reference
-    // implementation errors out on this combination instead.)
     std::vector<double> yp(n_snp);
     for (uint32_t i = 0; i != n_snp; ++i) {
       yp[i] = y[i] - (*fixed_intercept);
@@ -542,26 +583,49 @@ BoolErr LdscRegress(const LdscRegCtx* base_ctx, const double* y, uint32_t n_snp,
     ctx.fixed_intercept = *fixed_intercept;
     std::vector<uint32_t> sep;
     LdscGetSeparators(n_snp, n_blocks, &sep);
+    if (n_annot > 1) {
+      std::vector<double> w(n_snp);
+      for (uint32_t i = 0; i != n_snp; ++i) {
+        if (!(initial_w[i] > 0.0)) {
+          return 1;
+        }
+        w[i] = sqrt(initial_w[i]);
+      }
+      return LdscWeightedJknife(&(x_scaled[0]), &(yp[0]), &(w[0]), n_snp, n_annot, sep, jkp);
+    }
     return LdscIrwls(&ctx, &(x_scaled[0]), &(yp[0]), &(initial_w[0]), n_snp, 1, sep, jkp);
   }
 
-  std::vector<double> design(S_CAST(uintptr_t, n_snp) * 2);
+  const uint32_t p = n_annot + 1;
+  std::vector<double> design(S_CAST(uintptr_t, n_snp) * p);
   for (uint32_t i = 0; i != n_snp; ++i) {
-    design[S_CAST(uintptr_t, i) * 2] = x_scaled[i];
-    design[S_CAST(uintptr_t, i) * 2 + 1] = 1.0;
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      design[S_CAST(uintptr_t, i) * p + j] = x_scaled[S_CAST(uintptr_t, i) * n_annot + j];
+    }
+    design[S_CAST(uintptr_t, i) * p + n_annot] = 1.0;
   }
 
-  if (!twostep) {
+  if ((!twostep) || (n_annot > 1)) {
     LdscRegCtx ctx = *base_ctx;
     ctx.nbar = nbar;
     ctx.row_idxs = &(all_idxs[0]);
     ctx.constrain_intercept = 0;
     std::vector<uint32_t> sep;
     LdscGetSeparators(n_snp, n_blocks, &sep);
-    return LdscIrwls(&ctx, &(design[0]), y, &(initial_w[0]), n_snp, 2, sep, jkp);
+    if (n_annot > 1) {
+      std::vector<double> w(n_snp);
+      for (uint32_t i = 0; i != n_snp; ++i) {
+        if (!(initial_w[i] > 0.0)) {
+          return 1;
+        }
+        w[i] = sqrt(initial_w[i]);
+      }
+      return LdscWeightedJknife(&(design[0]), y, &(w[0]), n_snp, p, sep, jkp);
+    }
+    return LdscIrwls(&ctx, &(design[0]), y, &(initial_w[0]), n_snp, p, sep, jkp);
   }
 
-  // Two-step: a free-intercept regression on the low-signal SNPs, then a
+  // Two-step: a free-intercept regression on the low-signal variants, then a
   // constrained-intercept regression on all of them.
   std::vector<uint32_t> step1_idxs;
   for (uint32_t i = 0; i != n_snp; ++i) {
@@ -627,15 +691,21 @@ BoolErr LdscRegress(const LdscRegCtx* base_ctx, const double* y, uint32_t n_snp,
   return 0;
 }
 
-BoolErr LdscHsqFit(const double* chisq, const double* ld, const double* w_ld, const double* n_vec, uint32_t n_snp, double m_tot, uint32_t n_blocks, const double* fixed_intercept, const double* twostep, LdscHsqResult* out) {
+BoolErr LdscHsqFit(const double* chisq, const double* ld_mat, const double* ld_tot, const double* w_ld, const double* n_vec, uint32_t n_snp, uint32_t n_annot, const double* m_vec, uint32_t n_blocks, const double* fixed_intercept, const double* twostep, LdscHsqResult* out) {
+  double m_tot = 0.0;
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    m_tot += m_vec[j];
+  }
   LdscRegCtx ctx;
   ctx.kind = kLdscHsq;
-  ctx.ld = ld;
+  ctx.ld_mat = ld_mat;
+  ctx.ld_tot = ld_tot;
   ctx.w_ld = w_ld;
   ctx.n_vec = n_vec;
   ctx.n1 = nullptr;
   ctx.n2 = nullptr;
   ctx.row_idxs = nullptr;
+  ctx.n_annot = n_annot;
   ctx.m_tot = m_tot;
   ctx.nbar = 0.0;
   ctx.hsq1 = 0.0;
@@ -650,21 +720,75 @@ BoolErr LdscHsqFit(const double* chisq, const double* ld, const double* w_ld, co
     return 1;
   }
   out->constrain_intercept = (fixed_intercept != nullptr);
-  out->coef = jk.est[0] / nbar;
-  out->tot = m_tot * out->coef;
-  const double coef_var = jk.jknife_cov[0] / (nbar * nbar);
-  out->tot_se = sqrt(m_tot * m_tot * coef_var);
+  out->n_annot = n_annot;
+  out->n_blocks = jk.n_blocks;
+  // Per-annotation coefficients, and the per-annotation heritability they
+  // imply: cat_j = M_j * coef_j.
+  out->coefs.resize(n_annot);
+  out->coef_ses.resize(n_annot);
+  out->cat.resize(n_annot);
+  out->cat_ses.resize(n_annot);
+  const uint32_t p = jk.p;
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    out->coefs[j] = jk.est[j] / nbar;
+    const double coef_var = jk.jknife_cov[j * p + j] / (nbar * nbar);
+    out->coef_ses[j] = sqrt(coef_var);
+    out->cat[j] = m_vec[j] * out->coefs[j];
+    out->cat_ses[j] = sqrt(m_vec[j] * m_vec[j] * coef_var);
+  }
+  double tot = 0.0;
+  double tot_cov = 0.0;
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    tot += out->cat[j];
+    for (uint32_t k = 0; k != n_annot; ++k) {
+      tot_cov += m_vec[j] * m_vec[k] * jk.jknife_cov[j * p + k] / (nbar * nbar);
+    }
+  }
+  out->tot = tot;
+  out->tot_se = sqrt(tot_cov);
   if (fixed_intercept) {
     out->intercept = *fixed_intercept;
     out->intercept_se = 0.0 / 0.0;
   } else {
-    out->intercept = jk.est[1];
-    out->intercept_se = jk.jknife_se[1];
+    out->intercept = jk.est[n_annot];
+    out->intercept_se = jk.jknife_se[n_annot];
   }
-  out->n_blocks = jk.n_blocks;
-  out->tot_delete_values.resize(jk.n_blocks);
+  // Delete values for the total, which is what the genetic-correlation ratio
+  // jackknife needs.
+  out->tot_delete_values.assign(jk.n_blocks, 0.0);
   for (uint32_t b = 0; b != jk.n_blocks; ++b) {
-    out->tot_delete_values[b] = jk.delete_values[S_CAST(uintptr_t, b) * jk.p] * m_tot / nbar;
+    double acc = 0.0;
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      acc += jk.delete_values[S_CAST(uintptr_t, b) * p + j] * m_vec[j];
+    }
+    out->tot_delete_values[b] = acc / nbar;
+  }
+  // Proportion of heritability per annotation, jackknifed as a ratio, plus
+  // the enrichment that proportion implies.
+  out->prop.assign(n_annot, 0.0 / 0.0);
+  out->prop_ses.assign(n_annot, 0.0 / 0.0);
+  out->enrichment.assign(n_annot, 0.0 / 0.0);
+  out->m_prop.resize(n_annot);
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    out->m_prop[j] = m_vec[j] / m_tot;
+  }
+  if (n_annot > 1) {
+    std::vector<double> numer(jk.n_blocks);
+    std::vector<double> denom(jk.n_blocks);
+    for (uint32_t b = 0; b != jk.n_blocks; ++b) {
+      denom[b] = out->tot_delete_values[b];
+    }
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      for (uint32_t b = 0; b != jk.n_blocks; ++b) {
+        numer[b] = m_vec[j] * jk.delete_values[S_CAST(uintptr_t, b) * p + j] / nbar;
+      }
+      double prop_est;
+      double prop_se;
+      LdscRatioJknife(out->cat[j] / tot, &(numer[0]), &(denom[0]), jk.n_blocks, &prop_est, &prop_se);
+      out->prop[j] = out->cat[j] / tot;
+      out->prop_ses[j] = prop_se;
+      out->enrichment[j] = (out->cat[j] / m_vec[j]) / (tot / m_tot);
+    }
   }
   double chisq_sum = 0.0;
   for (uint32_t i = 0; i != n_snp; ++i) {
@@ -696,7 +820,11 @@ typedef struct LdscGencovResultStruct {
   std::vector<double> tot_delete_values;
 } LdscGencovResult;
 
-BoolErr LdscGencovFit(const double* z1, const double* z2, const double* ld, const double* w_ld, const double* n1, const double* n2, uint32_t n_snp, double m_tot, uint32_t n_blocks, double hsq1, double hsq2, double intercept_hsq1, double intercept_hsq2, const double* fixed_intercept, const double* twostep, LdscGencovResult* out) {
+BoolErr LdscGencovFit(const double* z1, const double* z2, const double* ld_mat, const double* ld_tot, const double* w_ld, const double* n1, const double* n2, uint32_t n_snp, uint32_t n_annot, const double* m_vec, uint32_t n_blocks, double hsq1, double hsq2, double intercept_hsq1, double intercept_hsq2, const double* fixed_intercept, const double* twostep, LdscGencovResult* out) {
+  double m_tot = 0.0;
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    m_tot += m_vec[j];
+  }
   std::vector<double> y(n_snp);
   std::vector<double> sqrt_n1n2(n_snp);
   std::vector<double> step1_filter(n_snp);
@@ -709,12 +837,14 @@ BoolErr LdscGencovFit(const double* z1, const double* z2, const double* ld, cons
   }
   LdscRegCtx ctx;
   ctx.kind = kLdscGencov;
-  ctx.ld = ld;
+  ctx.ld_mat = ld_mat;
+  ctx.ld_tot = ld_tot;
   ctx.w_ld = w_ld;
   ctx.n_vec = &(sqrt_n1n2[0]);
   ctx.n1 = n1;
   ctx.n2 = n2;
   ctx.row_idxs = nullptr;
+  ctx.n_annot = n_annot;
   ctx.m_tot = m_tot;
   ctx.nbar = 0.0;
   ctx.hsq1 = hsq1;
@@ -729,21 +859,32 @@ BoolErr LdscGencovFit(const double* z1, const double* z2, const double* ld, cons
     return 1;
   }
   out->constrain_intercept = (fixed_intercept != nullptr);
-  const double coef = jk.est[0] / nbar;
-  out->tot = m_tot * coef;
-  const double coef_var = jk.jknife_cov[0] / (nbar * nbar);
-  out->tot_se = sqrt(m_tot * m_tot * coef_var);
+  const uint32_t p = jk.p;
+  double tot = 0.0;
+  double tot_cov = 0.0;
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    tot += m_vec[j] * jk.est[j] / nbar;
+    for (uint32_t k = 0; k != n_annot; ++k) {
+      tot_cov += m_vec[j] * m_vec[k] * jk.jknife_cov[j * p + k] / (nbar * nbar);
+    }
+  }
+  out->tot = tot;
+  out->tot_se = sqrt(tot_cov);
   if (fixed_intercept) {
     out->intercept = *fixed_intercept;
     out->intercept_se = 0.0 / 0.0;
   } else {
-    out->intercept = jk.est[1];
-    out->intercept_se = jk.jknife_se[1];
+    out->intercept = jk.est[n_annot];
+    out->intercept_se = jk.jknife_se[n_annot];
   }
   out->n_blocks = jk.n_blocks;
-  out->tot_delete_values.resize(jk.n_blocks);
+  out->tot_delete_values.assign(jk.n_blocks, 0.0);
   for (uint32_t b = 0; b != jk.n_blocks; ++b) {
-    out->tot_delete_values[b] = jk.delete_values[S_CAST(uintptr_t, b) * jk.p] * m_tot / nbar;
+    double acc_del = 0.0;
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      acc_del += jk.delete_values[S_CAST(uintptr_t, b) * p + j] * m_vec[j];
+    }
+    out->tot_delete_values[b] = acc_del / nbar;
   }
   double acc = 0.0;
   for (uint32_t i = 0; i != n_snp; ++i) {
@@ -935,12 +1076,33 @@ BoolErr LdscReadSumstats(const char* fname, uint32_t need_alleles, std::unordere
   *dropped_ct_ptr = dropped_ct;
   return ret;
 }
+// Defined with the other argument handling, below.
+void LdscSplitComma(const char* arg, std::vector<std::string>* dst);
 
-// Reads one LD Score file, appending to ids/l2s in file order: that order is
-// what the jackknife blocks are cut on, so it has to be preserved.
-BoolErr LdscReadLdscoreFile(const char* fname, std::vector<std::string>* ids, std::vector<double>* l2s) {
-  static const char* kIdNames[] = {"SNP", "ID", nullptr};
-  static const char* kL2Names[] = {"L2", "LDSCORE", nullptr};
+// One or more LD Score columns, plus the variant IDs they belong to.
+typedef struct LdscScoresStruct {
+  std::vector<std::string> ids;
+  std::vector<std::string> annot_names;
+  std::vector<double> l2;  // ids.size() x annot_names.size(), row-major
+} LdscScores;
+
+// Rows of one LD Score fileset, before sorting.
+typedef struct LdscRawScoresStruct {
+  std::vector<std::string> ids;
+  std::vector<int64_t> chrom;
+  std::vector<int64_t> bp;
+  std::vector<double> l2;
+  std::vector<std::string> annot_names;
+  uint32_t has_pos;
+} LdscRawScores;
+
+// Reads one LD Score file, appending its rows.  Every column other than the
+// variant ID, the position columns and MAF/CM is an annotation.
+BoolErr LdscReadLdscoreFile(const char* fname, LdscRawScores* dst) {
+  static const char* kIdNames[] = {"SNP", "ID", "RSID", nullptr};
+  static const char* kChromNames[] = {"CHR", "CHROM", nullptr};
+  static const char* kPosNames[] = {"BP", "POS", nullptr};
+  static const char* kSkipNames[] = {"MAF", "CM", nullptr};
   TextStream txs;
   PreinitTextStream(&txs);
   PglErr reterr = TextStreamOpen(fname, &txs);
@@ -954,7 +1116,10 @@ BoolErr LdscReadLdscoreFile(const char* fname, std::vector<std::string>* ids, st
     return 1;
   }
   uint32_t col_id = UINT32_MAX;
-  uint32_t col_l2 = UINT32_MAX;
+  uint32_t col_chrom = UINT32_MAX;
+  uint32_t col_pos = UINT32_MAX;
+  std::vector<uint32_t> annot_cols;
+  std::vector<std::string> annot_names;
   uint32_t col_ct = 0;
   {
     const char* iter = FirstNonTspace(header);
@@ -966,17 +1131,44 @@ BoolErr LdscReadLdscoreFile(const char* fname, std::vector<std::string>* ids, st
       const uint32_t slen = token_end - iter;
       if ((col_id == UINT32_MAX) && LdscMatchCol(iter, slen, kIdNames)) {
         col_id = col_ct;
-      } else if ((col_l2 == UINT32_MAX) && LdscMatchCol(iter, slen, kL2Names)) {
-        col_l2 = col_ct;
+      } else if ((col_chrom == UINT32_MAX) && LdscMatchCol(iter, slen, kChromNames)) {
+        col_chrom = col_ct;
+      } else if ((col_pos == UINT32_MAX) && LdscMatchCol(iter, slen, kPosNames)) {
+        col_pos = col_ct;
+      } else if (!LdscMatchCol(iter, slen, kSkipNames)) {
+        annot_cols.push_back(col_ct);
+        annot_names.push_back(std::string(iter, slen));
       }
       iter = FirstNonTspace(token_end);
     }
   }
-  if ((col_id == UINT32_MAX) || (col_l2 == UINT32_MAX)) {
-    fprintf(stderr, "Error: %s must have SNP (or ID) and L2 columns.  Note that only\nunpartitioned LD Scores are supported.\n", fname);
+  if (col_id == UINT32_MAX) {
+    fprintf(stderr, "Error: %s must have a SNP (or ID) column.\n", fname);
     return 1;
   }
-  const uint32_t max_col = MAXV(col_id, col_l2);
+  if (annot_cols.empty()) {
+    fprintf(stderr, "Error: %s has no LD Score column.\n", fname);
+    return 1;
+  }
+  const uint32_t n_annot = annot_cols.size();
+  if (dst->annot_names.empty()) {
+    dst->annot_names = annot_names;
+    dst->has_pos = (col_chrom != UINT32_MAX) && (col_pos != UINT32_MAX);
+  } else if (dst->annot_names != annot_names) {
+    fprintf(stderr, "Error: %s does not have the same LD Score columns as the other files in\nits fileset.\n", fname);
+    return 1;
+  }
+  uint32_t max_col = col_id;
+  if (col_chrom != UINT32_MAX) {
+    max_col = MAXV(max_col, col_chrom);
+  }
+  if (col_pos != UINT32_MAX) {
+    max_col = MAXV(max_col, col_pos);
+  }
+  for (uint32_t i = 0; i != n_annot; ++i) {
+    max_col = MAXV(max_col, annot_cols[i]);
+  }
+  std::vector<double> cur_vals(n_annot);
   BoolErr ret = 0;
   while (1) {
     const char* line_start = TextGet(&txs);
@@ -989,7 +1181,9 @@ BoolErr LdscReadLdscoreFile(const char* fname, std::vector<std::string>* ids, st
     }
     const char* id_start = nullptr;
     uint32_t id_slen = 0;
-    double l2 = 0.0;
+    int64_t chrom = 0;
+    int64_t bp = 0;
+    uint32_t annot_idx = 0;
     uint32_t ok = 1;
     for (uint32_t col_idx = 0; col_idx <= max_col; ++col_idx) {
       if (IsEolnKns(*iter)) {
@@ -1000,21 +1194,38 @@ BoolErr LdscReadLdscoreFile(const char* fname, std::vector<std::string>* ids, st
       if (col_idx == col_id) {
         id_start = iter;
         id_slen = token_end - iter;
-      }
-      if (col_idx == col_l2) {
-        if (!ScanadvDouble(iter, &l2)) {
+      } else if (col_idx == col_chrom) {
+        double cur;
+        // Nonnumeric chromosome codes sort after the numeric ones, in the
+        // order they are seen, which is the order the file is in.
+        chrom = ScanadvDouble(iter, &cur)? S_CAST(int64_t, cur) : INT64_MAX;
+      } else if (col_idx == col_pos) {
+        double cur;
+        if (!ScanadvDouble(iter, &cur)) {
           ok = 0;
           break;
         }
+        bp = S_CAST(int64_t, cur);
+      }
+      if ((annot_idx != n_annot) && (col_idx == annot_cols[annot_idx])) {
+        if (!ScanadvDouble(iter, &(cur_vals[annot_idx]))) {
+          ok = 0;
+          break;
+        }
+        ++annot_idx;
       }
       iter = FirstNonTspace(token_end);
     }
-    if (!ok) {
+    if ((!ok) || (annot_idx != n_annot)) {
       // NA LD Scores (monomorphic variants, in plink2's output) are dropped.
       continue;
     }
-    ids->push_back(std::string(id_start, id_slen));
-    l2s->push_back(l2);
+    dst->ids.push_back(std::string(id_start, id_slen));
+    dst->chrom.push_back(chrom);
+    dst->bp.push_back(bp);
+    for (uint32_t i = 0; i != n_annot; ++i) {
+      dst->l2.push_back(cur_vals[i]);
+    }
   }
   reterr = kPglRetSuccess;
   CleanupTextStream(&txs, &reterr);
@@ -1048,10 +1259,10 @@ uint32_t LdscFileExists(const std::string& path) {
 }
 
 // Accepts both the reference implementation's naming (<base>.l2.ldscore, with
-// or without a .gz) and a literal path, so plink2 --ld-score output can be
-// handed over directly.
-BoolErr LdscResolveLdscorePath(const std::string& base, std::string* out) {
-  static const char* kSuffixes[] = {".l2.ldscore", ".l2.ldscore.gz", ".l2.ldscore.zst", "", ".ldscore", ".ldscore.gz", ".ldscore.zst", nullptr};
+// or without a compression suffix) and a literal path, so plink2 --ld-score
+// output can be handed over directly.
+BoolErr LdscFindLdscorePath(const std::string& base, uint32_t allow_literal, std::string* out) {
+  static const char* kSuffixes[] = {".l2.ldscore", ".l2.ldscore.gz", ".l2.ldscore.zst", ".ldscore", ".ldscore.gz", ".ldscore.zst", nullptr};
   for (uint32_t i = 0; kSuffixes[i]; ++i) {
     const std::string cand = base + kSuffixes[i];
     if (LdscFileExists(cand)) {
@@ -1059,97 +1270,212 @@ BoolErr LdscResolveLdscorePath(const std::string& base, std::string* out) {
       return 0;
     }
   }
-  fprintf(stderr, "Error: Could not find LD Scores at %s[.l2.ldscore/.gz/.zst].\n", base.c_str());
+  if (allow_literal && LdscFileExists(base)) {
+    *out = base;
+    return 0;
+  }
   return 1;
 }
 
-// Reads the LD Scores named by --ref-ld/--w-ld (a single fileset) or
-// --ref-ld-chr/--w-ld-chr (one per chromosome, concatenated in chromosome
-// order).
-BoolErr LdscReadLdscores(const char* arg, uint32_t is_chr_split, std::vector<std::string>* ids, std::vector<double>* l2s) {
-  if (!is_chr_split) {
-    std::string path;
-    if (LdscResolveLdscorePath(std::string(arg), &path)) {
-      return 1;
-    }
-    return LdscReadLdscoreFile(path.c_str(), ids, l2s);
+// Sorts one fileset's rows by position and drops repeated variant IDs, as the
+// reference implementation does ("SEs will be wrong unless sorted": the
+// jackknife blocks are cut on this order).
+void LdscSortAndDedup(LdscRawScores* raw) {
+  const uintptr_t row_ct = raw->ids.size();
+  const uint32_t n_annot = raw->annot_names.size();
+  std::vector<uint32_t> order(row_ct);
+  for (uintptr_t i = 0; i != row_ct; ++i) {
+    order[i] = i;
   }
-  uint32_t found_ct = 0;
-  for (uint32_t chr_idx = 1; chr_idx <= kLdscChrCt; ++chr_idx) {
-    const std::string base = LdscSubChr(arg, chr_idx);
-    std::string path;
-    static const char* kSuffixes[] = {".l2.ldscore", ".l2.ldscore.gz", ".l2.ldscore.zst", ".ldscore", ".ldscore.gz", ".ldscore.zst", nullptr};
-    uint32_t found = 0;
-    for (uint32_t i = 0; kSuffixes[i]; ++i) {
-      const std::string cand = base + kSuffixes[i];
-      if (LdscFileExists(cand)) {
-        path = cand;
-        found = 1;
-        break;
+  if (raw->has_pos) {
+    const std::vector<int64_t>& chrom = raw->chrom;
+    const std::vector<int64_t>& bp = raw->bp;
+    std::stable_sort(order.begin(), order.end(), [&chrom, &bp](uint32_t a, uint32_t b) {
+      if (chrom[a] != chrom[b]) {
+        return chrom[a] < chrom[b];
       }
-    }
-    if (!found) {
+      return bp[a] < bp[b];
+    });
+  }
+  std::vector<std::string> new_ids;
+  std::vector<double> new_l2;
+  std::unordered_map<std::string, uint32_t> seen;
+  new_ids.reserve(row_ct);
+  new_l2.reserve(row_ct * n_annot);
+  for (uintptr_t i = 0; i != row_ct; ++i) {
+    const uint32_t uidx = order[i];
+    if (!seen.emplace(raw->ids[uidx], 1).second) {
       continue;
     }
-    if (LdscReadLdscoreFile(path.c_str(), ids, l2s)) {
+    new_ids.push_back(raw->ids[uidx]);
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      new_l2.push_back(raw->l2[S_CAST(uintptr_t, uidx) * n_annot + j]);
+    }
+  }
+  raw->ids.swap(new_ids);
+  raw->l2.swap(new_l2);
+  raw->chrom.clear();
+  raw->bp.clear();
+}
+
+// Reads one LD Score fileset: a single file, or one per chromosome
+// concatenated.
+BoolErr LdscReadOneFileset(const std::string& base, uint32_t is_chr_split, LdscRawScores* raw) {
+  if (!is_chr_split) {
+    std::string path;
+    if (LdscFindLdscorePath(base, 1, &path)) {
+      fprintf(stderr, "Error: Could not find LD Scores at %s[.l2.ldscore/.gz/.zst].\n", base.c_str());
       return 1;
     }
-    ++found_ct;
+    if (LdscReadLdscoreFile(path.c_str(), raw)) {
+      return 1;
+    }
+  } else {
+    uint32_t found_ct = 0;
+    for (uint32_t chr_idx = 1; chr_idx <= kLdscChrCt; ++chr_idx) {
+      std::string path;
+      if (LdscFindLdscorePath(LdscSubChr(base.c_str(), chr_idx), 0, &path)) {
+        continue;
+      }
+      if (LdscReadLdscoreFile(path.c_str(), raw)) {
+        return 1;
+      }
+      ++found_ct;
+    }
+    if (!found_ct) {
+      fprintf(stderr, "Error: No LD Score files found for %s (expected\n%s<chr>.l2.ldscore[.gz]).\n", base.c_str(), base.c_str());
+      return 1;
+    }
   }
-  if (!found_ct) {
-    fprintf(stderr, "Error: No LD Score files found for %s (expected\n%s<chr>.l2.ldscore[.gz]).\n", arg, arg);
+  LdscSortAndDedup(raw);
+  return 0;
+}
+
+// Reads the LD Scores named by --ref-ld/--w-ld (which may be a comma-
+// separated list of filesets, concatenated sideways into one annotation set)
+// or --ref-ld-chr/--w-ld-chr (one fileset per chromosome).
+BoolErr LdscReadLdscores(const char* arg, uint32_t is_chr_split, LdscScores* dst) {
+  std::vector<std::string> bases;
+  LdscSplitComma(arg, &bases);
+  for (uintptr_t file_idx = 0; file_idx != bases.size(); ++file_idx) {
+    LdscRawScores raw;
+    raw.has_pos = 0;
+    if (LdscReadOneFileset(bases[file_idx], is_chr_split, &raw)) {
+      return 1;
+    }
+    const uint32_t cur_annot_ct = raw.annot_names.size();
+    if (!file_idx) {
+      dst->ids.swap(raw.ids);
+      dst->l2.swap(raw.l2);
+      dst->annot_names = raw.annot_names;
+      if (bases.size() > 1) {
+        // The reference implementation suffixes the column names with the
+        // fileset index, since separate filesets can reuse a name.
+        for (uint32_t j = 0; j != cur_annot_ct; ++j) {
+          dst->annot_names[j] += "_0";
+        }
+      }
+      continue;
+    }
+    if (raw.ids != dst->ids) {
+      fprintf(stderr, "Error: LD Score filesets for concatenation must cover the same variants in\nthe same order; %s does not match %s.\n", bases[file_idx].c_str(), bases[0].c_str());
+      return 1;
+    }
+    const uint32_t prev_annot_ct = dst->annot_names.size();
+    const uintptr_t row_ct = dst->ids.size();
+    std::vector<double> merged(row_ct * (prev_annot_ct + cur_annot_ct));
+    for (uintptr_t i = 0; i != row_ct; ++i) {
+      for (uint32_t j = 0; j != prev_annot_ct; ++j) {
+        merged[i * (prev_annot_ct + cur_annot_ct) + j] = dst->l2[i * prev_annot_ct + j];
+      }
+      for (uint32_t j = 0; j != cur_annot_ct; ++j) {
+        merged[i * (prev_annot_ct + cur_annot_ct) + prev_annot_ct + j] = raw.l2[i * cur_annot_ct + j];
+      }
+    }
+    dst->l2.swap(merged);
+    char suffix[16];
+    snprintf(suffix, sizeof(suffix), "_%" PRIuPTR, file_idx);
+    for (uint32_t j = 0; j != cur_annot_ct; ++j) {
+      dst->annot_names.push_back(raw.annot_names[j] + suffix);
+    }
+  }
+  if (dst->annot_names.size() > kLdscMaxAnnot) {
+    fprintf(stderr, "Error: %" PRIuPTR " LD Score columns exceeds the %u-annotation limit.\n", S_CAST(uintptr_t, dst->annot_names.size()), kLdscMaxAnnot);
     return 1;
   }
   return 0;
 }
 
-// Reads the .l2.M_5_50 (or .l2.M) files holding the number of variants the LD
-// Scores were computed from.
-BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, double* m_ptr) {
-  const char* suffix = not_m_5_50? ".l2.M" : ".l2.M_5_50";
-  double acc = 0.0;
-  uint32_t found_ct = 0;
-  const uint32_t chr_end = is_chr_split? (kLdscChrCt + 1) : 1;
-  for (uint32_t chr_idx = 0; chr_idx != chr_end; ++chr_idx) {
-    std::string path;
-    if (is_chr_split) {
-      path = LdscSubChr(arg, chr_idx + 1) + suffix;
-    } else {
-      path = std::string(arg) + suffix;
-    }
-    if (!LdscFileExists(path)) {
-      continue;
-    }
-    FILE* f = fopen(path.c_str(), FOPEN_RB);
-    if (!f) {
-      continue;
-    }
-    char buf[256];
-    if (!fgets(buf, sizeof(buf), f)) {
-      fclose(f);
-      continue;
-    }
+// Reads one .l{2}.M[_5_50] file: one value per annotation.
+BoolErr LdscReadMFile(const std::string& path, std::vector<double>* dst) {
+  FILE* f = fopen(path.c_str(), FOPEN_RB);
+  if (!f) {
+    return 1;
+  }
+  char buf[16384];
+  if (!fgets(buf, sizeof(buf), f)) {
     fclose(f);
+    return 1;
+  }
+  fclose(f);
+  dst->clear();
+  const char* iter = FirstNonTspace(buf);
+  while (!IsEolnKns(*iter)) {
     double cur;
-    if (!ScanadvDouble(buf, &cur)) {
+    if (!ScanadvDouble(iter, &cur)) {
       fprintf(stderr, "Error: Malformed %s.\n", path.c_str());
       return 1;
     }
-    // A second value would mean partitioned LD Scores.
-    const char* iter = FirstNonTspace(buf);
+    dst->push_back(cur);
     iter = FirstNonTspace(CurTokenEnd(iter));
-    if (!IsEolnKns(*iter)) {
-      fprintf(stderr, "Error: %s has more than one entry; only unpartitioned LD Scores are\nsupported.\n", path.c_str());
+  }
+  return dst->empty();
+}
+
+// Reads the .l2.M_5_50 (or .l2.M) files holding the number of variants the LD
+// Scores were computed from, one value per annotation, summed over
+// chromosomes and concatenated over filesets.
+BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, std::vector<double>* m_vec) {
+  const char* suffix = not_m_5_50? ".l2.M" : ".l2.M_5_50";
+  std::vector<std::string> bases;
+  LdscSplitComma(arg, &bases);
+  m_vec->clear();
+  for (uintptr_t file_idx = 0; file_idx != bases.size(); ++file_idx) {
+    std::vector<double> acc;
+    uint32_t found_ct = 0;
+    const uint32_t chr_end = is_chr_split? (kLdscChrCt + 1) : 1;
+    for (uint32_t chr_idx = 0; chr_idx != chr_end; ++chr_idx) {
+      std::string path;
+      if (is_chr_split) {
+        path = LdscSubChr(bases[file_idx].c_str(), chr_idx + 1) + suffix;
+      } else {
+        path = bases[file_idx] + suffix;
+      }
+      std::vector<double> cur;
+      if (LdscReadMFile(path, &cur)) {
+        continue;
+      }
+      if (!found_ct) {
+        acc = cur;
+      } else {
+        if (cur.size() != acc.size()) {
+          fprintf(stderr, "Error: %s has %" PRIuPTR " entries, but the other chromosomes have %" PRIuPTR ".\n", path.c_str(), S_CAST(uintptr_t, cur.size()), S_CAST(uintptr_t, acc.size()));
+          return 1;
+        }
+        for (uintptr_t j = 0; j != acc.size(); ++j) {
+          acc[j] += cur[j];
+        }
+      }
+      ++found_ct;
+    }
+    if (!found_ct) {
       return 1;
     }
-    acc += cur;
-    ++found_ct;
+    for (uintptr_t j = 0; j != acc.size(); ++j) {
+      m_vec->push_back(acc[j]);
+    }
   }
-  if (!found_ct) {
-    return 1;
-  }
-  *m_ptr = acc;
-  return 0;
+  return m_vec->empty();
 }
 
 // ***** logging *****
@@ -1184,7 +1510,9 @@ const char* LdscFmt(double val, char* buf, uintptr_t buf_size) {
 // One row per variant that made it through every merge, in LD Score file
 // order.
 typedef struct LdscDataStruct {
-  std::vector<double> ld;
+  std::vector<double> ld;      // n_snp x n_annot, row-major
+  std::vector<double> ld_tot;  // row sums
+  uint32_t n_annot;
   std::vector<double> w_ld;
   std::vector<double> z1;
   std::vector<double> n1;
@@ -1197,19 +1525,27 @@ typedef struct LdscDataStruct {
 
 // Inner-joins the LD Scores, the regression weight LD Scores and one trait's
 // summary statistics, keeping the LD Score file's order.
-void LdscMerge(const std::vector<std::string>& ref_ids, const std::vector<double>& ref_l2, const std::unordered_map<std::string, double>& w_ld_map, const std::unordered_map<std::string, LdscSumstatRow>& sumstats, uint32_t keep_alleles, LdscData* dst) {
-  const uintptr_t ref_ct = ref_ids.size();
+void LdscMerge(const LdscScores& ref, const std::unordered_map<std::string, double>& w_ld_map, const std::unordered_map<std::string, LdscSumstatRow>& sumstats, uint32_t keep_alleles, LdscData* dst) {
+  const uintptr_t ref_ct = ref.ids.size();
+  const uint32_t n_annot = ref.annot_names.size();
+  dst->n_annot = n_annot;
   for (uintptr_t i = 0; i != ref_ct; ++i) {
-    const std::unordered_map<std::string, LdscSumstatRow>::const_iterator ss_it = sumstats.find(ref_ids[i]);
+    const std::unordered_map<std::string, LdscSumstatRow>::const_iterator ss_it = sumstats.find(ref.ids[i]);
     if (ss_it == sumstats.end()) {
       continue;
     }
-    const std::unordered_map<std::string, double>::const_iterator w_it = w_ld_map.find(ref_ids[i]);
+    const std::unordered_map<std::string, double>::const_iterator w_it = w_ld_map.find(ref.ids[i]);
     if (w_it == w_ld_map.end()) {
       continue;
     }
-    dst->ids.push_back(ref_ids[i]);
-    dst->ld.push_back(ref_l2[i]);
+    dst->ids.push_back(ref.ids[i]);
+    double acc = 0.0;
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      const double cur = ref.l2[i * n_annot + j];
+      dst->ld.push_back(cur);
+      acc += cur;
+    }
+    dst->ld_tot.push_back(acc);
     dst->w_ld.push_back(w_it->second);
     dst->z1.push_back(ss_it->second.z);
     dst->n1.push_back(ss_it->second.n);
@@ -1246,6 +1582,9 @@ void LdscPrintHsq(const LdscHsqResult* hsq, const char* label, const double* sam
     LdscLog("\n%s\n", label);
   }
   LdscLog("Total %s scale h2: %s (%s)\n", scale, LdscFmt(c * hsq->tot, buf1, sizeof(buf1)), LdscFmt(c * hsq->tot_se, buf2, sizeof(buf2)));
+  if (hsq->n_annot > 1) {
+    LdscLog("Categories: %u (see the .results file for the per-category estimates)\n", hsq->n_annot);
+  }
   LdscLog("Lambda GC: %s\n", LdscFmt(hsq->lambda_gc, buf1, sizeof(buf1)));
   LdscLog("Mean Chi^2: %s\n", LdscFmt(hsq->mean_chisq, buf1, sizeof(buf1)));
   if (hsq->constrain_intercept) {
@@ -1312,7 +1651,8 @@ const double* LdscOptAt(const std::vector<double>& vals, uint32_t idx) {
 // Applies --chisq-max, then reports how many variants it removed, as the
 // reference implementation does.
 void LdscFilterChisq(double chisq_max, LdscData* data, uint32_t use_both_z) {
-  const uint32_t orig_ct = data->ld.size();
+  const uint32_t n_annot = data->n_annot;
+  const uint32_t orig_ct = data->ld_tot.size();
   uint32_t write_idx = 0;
   for (uint32_t i = 0; i != orig_ct; ++i) {
     uint32_t keep;
@@ -1325,7 +1665,10 @@ void LdscFilterChisq(double chisq_max, LdscData* data, uint32_t use_both_z) {
     if (!keep) {
       continue;
     }
-    data->ld[write_idx] = data->ld[i];
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      data->ld[S_CAST(uintptr_t, write_idx) * n_annot + j] = data->ld[S_CAST(uintptr_t, i) * n_annot + j];
+    }
+    data->ld_tot[write_idx] = data->ld_tot[i];
     data->w_ld[write_idx] = data->w_ld[i];
     data->z1[write_idx] = data->z1[i];
     data->n1[write_idx] = data->n1[i];
@@ -1335,7 +1678,8 @@ void LdscFilterChisq(double chisq_max, LdscData* data, uint32_t use_both_z) {
     }
     ++write_idx;
   }
-  data->ld.resize(write_idx);
+  data->ld.resize(S_CAST(uintptr_t, write_idx) * n_annot);
+  data->ld_tot.resize(write_idx);
   data->w_ld.resize(write_idx);
   data->z1.resize(write_idx);
   data->n1.resize(write_idx);
@@ -1352,7 +1696,12 @@ void LdscWarnLength(uint32_t n_snp) {
   }
 }
 
-BoolErr LdscEstimateH2(const char* sumstats_fname, const std::vector<std::string>& ref_ids, const std::vector<double>& ref_l2, const std::unordered_map<std::string, double>& w_ld_map, double m_tot, const LdscOpts* opts, const char* out_prefix) {
+BoolErr LdscEstimateH2(const char* sumstats_fname, const LdscScores& ref, const std::unordered_map<std::string, double>& w_ld_map, const std::vector<double>& m_vec, const LdscOpts* opts, const char* out_prefix) {
+  const uint32_t n_annot = ref.annot_names.size();
+  double m_tot = 0.0;
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    m_tot += m_vec[j];
+  }
   std::unordered_map<std::string, LdscSumstatRow> sumstats;
   uint32_t dropped_ct;
   if (LdscReadSumstats(sumstats_fname, 0, &sumstats, &dropped_ct)) {
@@ -1364,8 +1713,8 @@ BoolErr LdscEstimateH2(const char* sumstats_fname, const std::vector<std::string
   }
   LdscLog(".\n");
   LdscData data;
-  LdscMerge(ref_ids, ref_l2, w_ld_map, sumstats, 0, &data);
-  uint32_t n_snp = data.ld.size();
+  LdscMerge(ref, w_ld_map, sumstats, 0, &data);
+  uint32_t n_snp = data.ld_tot.size();
   if (!n_snp) {
     fprintf(stderr, "Error: No variants remain after merging the summary statistics with the LD\nScores.\n");
     return 1;
@@ -1382,9 +1731,22 @@ BoolErr LdscEstimateH2(const char* sumstats_fname, const std::vector<std::string
       fixed_intercept = &fixed_intercept_val;
     }
   }
-  if (opts->have_chisq_max) {
-    LdscFilterChisq(opts->chisq_max, &data, 0);
-    n_snp = data.ld.size();
+  uint32_t have_chisq_max = opts->have_chisq_max;
+  double chisq_max = opts->chisq_max;
+  if ((!have_chisq_max) && (n_annot > 1)) {
+    // With more than one annotation the reference implementation drops the
+    // high-chi^2 tail instead of running the two-step estimator, since the
+    // latter is not defined for a partitioned regression.
+    double max_n = 0.0;
+    for (uint32_t i = 0; i != n_snp; ++i) {
+      max_n = MAXV(max_n, data.n1[i]);
+    }
+    chisq_max = MAXV(0.001 * max_n, 80.0);
+    have_chisq_max = 1;
+  }
+  if (have_chisq_max) {
+    LdscFilterChisq(chisq_max, &data, 0);
+    n_snp = data.ld_tot.size();
     if (!n_snp) {
       fprintf(stderr, "Error: --chisq-max removed every variant.\n");
       return 1;
@@ -1396,11 +1758,14 @@ BoolErr LdscEstimateH2(const char* sumstats_fname, const std::vector<std::string
   if (opts->have_two_step) {
     two_step_val = opts->two_step;
     two_step = &two_step_val;
-  } else if (!fixed_intercept) {
+  } else if ((!fixed_intercept) && (n_annot == 1)) {
     two_step = &two_step_val;
   }
   if (two_step && fixed_intercept) {
     LdscLog("Ignoring --two-step: it only applies when the intercept is free.\n");
+    two_step = nullptr;
+  } else if (two_step && (n_annot > 1)) {
+    LdscLog("Ignoring --two-step: it is not defined for a partitioned regression.\n");
     two_step = nullptr;
   } else if (two_step) {
     LdscLog("Using two-step estimator with cutoff at %g.\n", *two_step);
@@ -1411,7 +1776,7 @@ BoolErr LdscEstimateH2(const char* sumstats_fname, const std::vector<std::string
     chisq[i] = data.z1[i] * data.z1[i];
   }
   LdscHsqResult hsq;
-  if (LdscHsqFit(&(chisq[0]), &(data.ld[0]), &(data.w_ld[0]), &(data.n1[0]), n_snp, m_tot, n_blocks, fixed_intercept, two_step, &hsq)) {
+  if (LdscHsqFit(&(chisq[0]), &(data.ld[0]), &(data.ld_tot[0]), &(data.w_ld[0]), &(data.n1[0]), n_snp, n_annot, &(m_vec[0]), n_blocks, fixed_intercept, two_step, &hsq)) {
     fprintf(stderr, "Error: Heritability regression failed (singular design, or nonpositive\nregression weights).\n");
     return 1;
   }
@@ -1437,13 +1802,38 @@ BoolErr LdscEstimateH2(const char* sumstats_fname, const std::vector<std::string
     return 1;
   }
   LdscLog("\nResults written to %s .\n", h2_path.c_str());
+
+  if (n_annot > 1) {
+    // Per-annotation output, in the reference implementation's .results
+    // columns.  The proportions and enrichments assume the annotations do not
+    // overlap; --overlap-annot, which corrects for overlap from the .annot
+    // files, is not implemented.
+    const std::string results_path = std::string(out_prefix) + ".results";
+    FILE* results_file = fopen(results_path.c_str(), FOPEN_WB);
+    if (!results_file) {
+      fprintf(stderr, "Error: Failed to open %s.\n", results_path.c_str());
+      return 1;
+    }
+    fputs("Category\tProp._SNPs\tProp._h2\tProp._h2_std_error\tEnrichment\tCoefficient\tCoefficient_std_error\tCoefficient_z-score\n", results_file);
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      fprintf(results_file, "%s\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\n", ref.annot_names[j].c_str(), hsq.m_prop[j], hsq.prop[j], hsq.prop_ses[j], hsq.enrichment[j], liab_factor * hsq.coefs[j], liab_factor * hsq.coef_ses[j], hsq.coefs[j] / hsq.coef_ses[j]);
+    }
+    if (fclose(results_file)) {
+      fprintf(stderr, "Error: Failed to write %s.\n", results_path.c_str());
+      return 1;
+    }
+    LdscLog("Per-category results written to %s .\n", results_path.c_str());
+    LdscLog("Note: the proportions and enrichments there assume the annotations do not\noverlap.  Overlap correction (ldsc's --overlap-annot) is not implemented.\n");
+  }
   return 0;
 }
 
 // Merges a second trait into the first trait's rows, flipping its Z where the
 // alleles are swapped and dropping variants whose alleles do not match.
 BoolErr LdscMergeSecondTrait(const LdscData* base, const std::unordered_map<std::string, LdscSumstatRow>& sumstats2, uint32_t no_check_alleles, LdscData* dst) {
-  const uint32_t n_base = base->ld.size();
+  const uint32_t n_base = base->ld_tot.size();
+  const uint32_t n_annot = base->n_annot;
+  dst->n_annot = n_annot;
   uint32_t bad_allele_ct = 0;
   for (uint32_t i = 0; i != n_base; ++i) {
     const std::unordered_map<std::string, LdscSumstatRow>::const_iterator it = sumstats2.find(base->ids[i]);
@@ -1476,7 +1866,10 @@ BoolErr LdscMergeSecondTrait(const LdscData* base, const std::unordered_map<std:
       }
     }
     dst->ids.push_back(base->ids[i]);
-    dst->ld.push_back(base->ld[i]);
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      dst->ld.push_back(base->ld[S_CAST(uintptr_t, i) * n_annot + j]);
+    }
+    dst->ld_tot.push_back(base->ld_tot[i]);
     dst->w_ld.push_back(base->w_ld[i]);
     dst->z1.push_back(base->z1[i]);
     dst->n1.push_back(base->n1[i]);
@@ -1486,14 +1879,15 @@ BoolErr LdscMergeSecondTrait(const LdscData* base, const std::unordered_map<std:
   if (bad_allele_ct) {
     LdscLog("Dropped %u variants with mismatched or strand-ambiguous alleles.\n", bad_allele_ct);
   }
-  if (dst->ld.empty()) {
+  if (dst->ld_tot.empty()) {
     fprintf(stderr, "Error: No variants in common between the two summary statistic files.\n");
     return 1;
   }
   return 0;
 }
 
-BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const std::vector<std::string>& ref_ids, const std::vector<double>& ref_l2, const std::unordered_map<std::string, double>& w_ld_map, double m_tot, const LdscOpts* opts, const char* out_prefix) {
+BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const LdscScores& ref, const std::unordered_map<std::string, double>& w_ld_map, const std::vector<double>& m_vec, const LdscOpts* opts, const char* out_prefix) {
+  const uint32_t n_annot = ref.annot_names.size();
   const uint32_t pheno_ct = rg_paths.size();
   std::unordered_map<std::string, LdscSumstatRow> sumstats1;
   uint32_t dropped_ct;
@@ -1502,12 +1896,12 @@ BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const std::vect
   }
   LdscLog("Read summary statistics for %" PRIuPTR " variants from %s.\n", S_CAST(uintptr_t, sumstats1.size()), rg_paths[0].c_str());
   LdscData base;
-  LdscMerge(ref_ids, ref_l2, w_ld_map, sumstats1, 1, &base);
-  if (base.ld.empty()) {
+  LdscMerge(ref, w_ld_map, sumstats1, 1, &base);
+  if (base.ld_tot.empty()) {
     fprintf(stderr, "Error: No variants remain after merging %s with the LD Scores.\n", rg_paths[0].c_str());
     return 1;
   }
-  LdscLog("After merging with reference panel LD and regression weight LD, %" PRIuPTR "\nvariants remain.\n", S_CAST(uintptr_t, base.ld.size()));
+  LdscLog("After merging with reference panel LD and regression weight LD, %" PRIuPTR "\nvariants remain.\n", S_CAST(uintptr_t, base.ld_tot.size()));
 
   double two_step_val = 30.0;
   const double* two_step = nullptr;
@@ -1515,8 +1909,12 @@ BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const std::vect
   if (opts->have_two_step) {
     two_step_val = opts->two_step;
     two_step = &two_step_val;
-  } else if (intercept_h2_free) {
+  } else if (intercept_h2_free && (n_annot == 1)) {
     two_step = &two_step_val;
+  }
+  if (two_step && (n_annot > 1)) {
+    LdscLog("Ignoring --two-step: it is not defined for a partitioned regression.\n");
+    two_step = nullptr;
   }
   if (two_step) {
     LdscLog("Using two-step estimator with cutoff at %g.  It applies to whichever of\nthe three regressions has a free intercept.\n", *two_step);
@@ -1546,11 +1944,11 @@ BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const std::vect
     if (LdscMergeSecondTrait(&base, sumstats2, opts->no_check_alleles, &data)) {
       return 1;
     }
-    uint32_t n_snp = data.ld.size();
+    uint32_t n_snp = data.ld_tot.size();
     LdscLog("%u variants with valid alleles in both files.\n", n_snp);
     if (opts->have_chisq_max) {
       LdscFilterChisq(opts->chisq_max, &data, 1);
-      n_snp = data.ld.size();
+      n_snp = data.ld_tot.size();
       if (!n_snp) {
         fprintf(stderr, "Error: --chisq-max removed every variant.\n");
         return 1;
@@ -1595,13 +1993,13 @@ BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const std::vect
     }
     LdscHsqResult hsq1;
     LdscHsqResult hsq2;
-    if (LdscHsqFit(&(chisq1[0]), &(data.ld[0]), &(data.w_ld[0]), &(data.n1[0]), n_snp, m_tot, n_blocks, fixed_h2_1, two_step, &hsq1) ||
-        LdscHsqFit(&(chisq2[0]), &(data.ld[0]), &(data.w_ld[0]), &(data.n2[0]), n_snp, m_tot, n_blocks, fixed_h2_2, two_step, &hsq2)) {
+    if (LdscHsqFit(&(chisq1[0]), &(data.ld[0]), &(data.ld_tot[0]), &(data.w_ld[0]), &(data.n1[0]), n_snp, n_annot, &(m_vec[0]), n_blocks, fixed_h2_1, two_step, &hsq1) ||
+        LdscHsqFit(&(chisq2[0]), &(data.ld[0]), &(data.ld_tot[0]), &(data.w_ld[0]), &(data.n2[0]), n_snp, n_annot, &(m_vec[0]), n_blocks, fixed_h2_2, two_step, &hsq2)) {
       fprintf(stderr, "Error: Heritability regression failed for phenotype pair 1/%u.\n", pheno_idx + 1);
       return 1;
     }
     LdscGencovResult gencov;
-    if (LdscGencovFit(&(data.z1[0]), &(data.z2[0]), &(data.ld[0]), &(data.w_ld[0]), &(data.n1[0]), &(data.n2[0]), n_snp, m_tot, n_blocks, hsq1.tot, hsq2.tot, hsq1.intercept, hsq2.intercept, fixed_gencov, two_step, &gencov)) {
+    if (LdscGencovFit(&(data.z1[0]), &(data.z2[0]), &(data.ld[0]), &(data.ld_tot[0]), &(data.w_ld[0]), &(data.n1[0]), &(data.n2[0]), n_snp, n_annot, &(m_vec[0]), n_blocks, hsq1.tot, hsq2.tot, hsq1.intercept, hsq2.intercept, fixed_gencov, two_step, &gencov)) {
       fprintf(stderr, "Error: Genetic covariance regression failed for phenotype pair 1/%u.\n", pheno_idx + 1);
       return 1;
     }
@@ -1840,7 +2238,14 @@ int main(int argc, char** argv) {
             "             strand-ambiguous variants are dropped.\n"
             "  --ref-ld   LD Scores for the regression, with SNP (or ID) and L2\n"
             "             columns.  plink2 --ld-score output can be used directly,\n"
-            "             and so can ldsc's <prefix>.l2.ldscore[.gz].\n"
+            "             and so can ldsc's <prefix>.l2.ldscore[.gz].  Every column\n"
+            "             other than the ID, the position and MAF/CM is taken as an\n"
+            "             annotation, and a comma-separated list of filesets is\n"
+            "             concatenated sideways, so a partitioned (stratified)\n"
+            "             regression is what you get from partitioned LD Scores.\n"
+            "             That needs the .l2.M_5_50 files, and turns the two-step\n"
+            "             estimator off in favour of a chi^2 ceiling, as in the\n"
+            "             reference implementation.\n"
             "  --ref-ld-chr  One LD Score fileset per chromosome; '@' in the\n"
             "             argument is replaced by the chromosome number, and\n"
             "             otherwise it is appended.\n"
@@ -1869,7 +2274,8 @@ int main(int argc, char** argv) {
             "             safe if both files are known to be on the same strand\n"
             "             with the same effect alleles.\n"
             "  --out      Output prefix; writes <prefix>.log plus <prefix>.h2 or\n"
-            "             <prefix>.rg with the estimates at full precision.\n",
+            "             <prefix>.rg with the estimates at full precision, and\n"
+            "             <prefix>.results for a partitioned regression.\n",
             kLdscVersion);
     return 1;
   }
@@ -1885,40 +2291,63 @@ int main(int argc, char** argv) {
   }
   LdscLog("%s\n", kLdscVersion);
 
-  std::vector<std::string> ref_ids;
-  std::vector<double> ref_l2;
-  if (LdscReadLdscores(ref_ld_arg, ref_ld_chr_split, &ref_ids, &ref_l2)) {
+  LdscScores ref;
+  if (LdscReadLdscores(ref_ld_arg, ref_ld_chr_split, &ref)) {
     return 1;
   }
-  LdscLog("Read reference panel LD Scores for %" PRIuPTR " variants.\n", S_CAST(uintptr_t, ref_ids.size()));
-  if (ref_ids.empty()) {
+  if (ref.ids.empty()) {
     fprintf(stderr, "Error: No LD Scores read.\n");
     return 1;
   }
-  std::vector<std::string> w_ids;
-  std::vector<double> w_l2;
-  if (LdscReadLdscores(w_ld_arg, w_ld_chr_split, &w_ids, &w_l2)) {
+  const uint32_t n_annot = ref.annot_names.size();
+  LdscLog("Read reference panel LD Scores for %" PRIuPTR " variants", S_CAST(uintptr_t, ref.ids.size()));
+  if (n_annot == 1) {
+    LdscLog(".\n");
+  } else {
+    LdscLog(" in %u annotations.\n", n_annot);
+  }
+  LdscScores w_scores;
+  if (LdscReadLdscores(w_ld_arg, w_ld_chr_split, &w_scores)) {
     return 1;
   }
-  LdscLog("Read regression weight LD Scores for %" PRIuPTR " variants.\n", S_CAST(uintptr_t, w_ids.size()));
+  if (w_scores.annot_names.size() != 1) {
+    fprintf(stderr, "Error: --w-ld/--w-ld-chr must name a single LD Score column; %" PRIuPTR " were\nfound.  The regression weights come from one sum of r^2, taken over the\nregression variants.\n", S_CAST(uintptr_t, w_scores.annot_names.size()));
+    return 1;
+  }
+  LdscLog("Read regression weight LD Scores for %" PRIuPTR " variants.\n", S_CAST(uintptr_t, w_scores.ids.size()));
   std::unordered_map<std::string, double> w_ld_map;
-  for (uintptr_t i = 0; i != w_ids.size(); ++i) {
-    w_ld_map.emplace(w_ids[i], w_l2[i]);
+  for (uintptr_t i = 0; i != w_scores.ids.size(); ++i) {
+    w_ld_map.emplace(w_scores.ids[i], w_scores.l2[i]);
   }
 
-  double m_tot;
+  std::vector<double> m_vec;
   if (opts.m_override > 0.0) {
-    m_tot = opts.m_override;
-  } else if (!LdscReadM(ref_ld_arg, ref_ld_chr_split, opts.not_m_5_50, &m_tot)) {
-    LdscLog("Read M = %g from the %s files.\n", m_tot, opts.not_m_5_50? ".l2.M" : ".l2.M_5_50");
+    if (n_annot != 1) {
+      fprintf(stderr, "Error: --M takes one value per annotation; use the .l2.M%s files for a\npartitioned regression.\n", opts.not_m_5_50? "" : "_5_50");
+      return 1;
+    }
+    m_vec.assign(1, opts.m_override);
+  } else if (!LdscReadM(ref_ld_arg, ref_ld_chr_split, opts.not_m_5_50, &m_vec)) {
+    if (m_vec.size() != n_annot) {
+      fprintf(stderr, "Error: the %s files have %" PRIuPTR " entries, but there are %u LD Score\ncolumns.\n", opts.not_m_5_50? ".l2.M" : ".l2.M_5_50", S_CAST(uintptr_t, m_vec.size()), n_annot);
+      return 1;
+    }
+    double m_sum = 0.0;
+    for (uint32_t j = 0; j != n_annot; ++j) {
+      m_sum += m_vec[j];
+    }
+    LdscLog("Read M = %g from the %s files.\n", m_sum, opts.not_m_5_50? ".l2.M" : ".l2.M_5_50");
+  } else if (n_annot != 1) {
+    fprintf(stderr, "Error: A partitioned regression needs the %s files, which name the\nvariant count per annotation; none were found next to --ref-ld.\n", opts.not_m_5_50? ".l2.M" : ".l2.M_5_50");
+    return 1;
   } else {
-    m_tot = u31tod(ref_ids.size());
-    LdscLog("No %s file found; taking M to be the %g LD Scores read.  Pass --M if the\nLD Scores were computed from a different variant set.\n", opts.not_m_5_50? ".l2.M" : ".l2.M_5_50", m_tot);
+    m_vec.assign(1, u31tod(ref.ids.size()));
+    LdscLog("No %s file found; taking M to be the %g LD Scores read.  Pass --M if the\nLD Scores were computed from a different variant set.\n", opts.not_m_5_50? ".l2.M" : ".l2.M_5_50", m_vec[0]);
   }
 
   BoolErr ret;
   if (h2_fname) {
-    ret = LdscEstimateH2(h2_fname, ref_ids, ref_l2, w_ld_map, m_tot, &opts, out_prefix);
+    ret = LdscEstimateH2(h2_fname, ref, w_ld_map, m_vec, &opts, out_prefix);
   } else {
     std::vector<std::string> rg_paths;
     LdscSplitComma(rg_arg, &rg_paths);
@@ -1926,7 +2355,7 @@ int main(int argc, char** argv) {
       fprintf(stderr, "Error: --rg needs at least two summary statistic files.\n");
       return 1;
     }
-    ret = LdscEstimateRg(rg_paths, ref_ids, ref_l2, w_ld_map, m_tot, &opts, out_prefix);
+    ret = LdscEstimateRg(rg_paths, ref, w_ld_map, m_vec, &opts, out_prefix);
   }
   if (fclose(g_ldsc_logfile)) {
     fprintf(stderr, "Error: Failed to write %s.\n", log_path.c_str());

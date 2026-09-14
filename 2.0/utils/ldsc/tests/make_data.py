@@ -28,6 +28,11 @@ INTERCEPT1 = 1.08
 INTERCEPT2 = 1.04
 GENCOV_INTERCEPT = 0.03
 ALLELE_PAIRS = (('A', 'G'), ('C', 'T'), ('A', 'C'), ('G', 'T'))
+# Partitioned fixture: three non-overlapping annotations with different
+# per-variant heritability.
+PART_M = (3000.0, 2000.0, 1000.0)
+PART_H2 = (0.18, 0.09, 0.04)
+PART_INTERCEPT = 1.05
 
 
 def main():
@@ -110,6 +115,41 @@ def main():
             f.write('CHR\tSNP\tL2\n')
             for j in range(lo, hi):
                 f.write('%d\t%s\t%.6f\n' % (chrom, ids[j], w_ld[j]))
+
+    # A partitioned LD Score fileset: one L2 column per annotation, with the
+    # per-annotation variant counts in the .l2.M_5_50 file, plus a trait
+    # simulated from tau_c = h2_c / M_c.
+    part_l2 = []
+    for j in range(M):
+        part_l2.append([0.2 - 2.0 * (math.log(rand.random()) +
+                                     math.log(rand.random()))
+                        for _ in range(len(PART_M))])
+    tau = [PART_H2[c] / PART_M[c] for c in range(len(PART_M))]
+    part_z = []
+    for j in range(M):
+        var = PART_INTERCEPT + N1 * sum(part_l2[j][c] * tau[c]
+                                        for c in range(len(PART_M)))
+        part_z.append(math.sqrt(var) * rand.gauss(0.0, 1.0))
+    with open('part_ref.l2.ldscore', 'w') as f:
+        f.write('CHR\tSNP\tBP\tannotAL2\tannotBL2\tannotCL2\n')
+        for j in range(M):
+            f.write('1\t%s\t%d\t%.6f\t%.6f\t%.6f\n'
+                    % (ids[j], j + 1, part_l2[j][0], part_l2[j][1],
+                       part_l2[j][2]))
+    with open('part_ref.l2.M_5_50', 'w') as f:
+        f.write('%g %g %g\n' % PART_M)
+    with open('part_w.l2.ldscore', 'w') as f:
+        f.write('CHR\tSNP\tBP\tL2\n')
+        for j in range(M):
+            f.write('1\t%s\t%d\t%.6f\n'
+                    % (ids[j], j + 1, sum(part_l2[j]) * rand.uniform(0.85,
+                                                                     1.15)))
+    with open('part_trait.sumstats', 'w') as f:
+        f.write('SNP\tA1\tA2\tZ\tN\n')
+        for j in range(M):
+            a1, a2 = alleles[j]
+            f.write('%s\t%s\t%s\t%.6f\t%g\n'
+                    % (ids[j], a1, a2, part_z[j], N1))
 
     print('%d variants' % M)
 

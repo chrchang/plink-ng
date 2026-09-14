@@ -5,16 +5,26 @@ import sys
 
 
 def read_result(path):
+    """One-row file -> {column: value}; multi-row -> {column_rowidx: value}."""
     with open(path) as f:
-        header = f.readline().split()
-        values = f.readline().split()
-    return dict(zip(header, values))
+        header = f.readline().split('\t')
+        header = [h.strip() for h in header]
+        rows = [line.rstrip('\n').split('\t') for line in f if line.strip()]
+    if len(rows) == 1:
+        return dict(zip(header, rows[0]))
+    out = {}
+    for row_idx, row in enumerate(rows):
+        for col_idx, name in enumerate(header):
+            out['%s_%d' % (name, row_idx)] = row[col_idx]
+    return out
 
 
 def main():
     result_path = sys.argv[1]
     oracle_cmd = sys.argv[2:]
-    got = read_result(result_path)
+    got = {}
+    for path in result_path.split(','):
+        got.update(read_result(path))
     out = subprocess.run([sys.executable] + oracle_cmd, check=True,
                          capture_output=True, text=True).stdout
     want = {}
@@ -28,6 +38,8 @@ def main():
         if key not in got:
             sys.exit('%s: oracle reported %s, which %s does not contain' %
                      (key, key, result_path))
+        if got[key] == 'NA':
+            sys.exit('%s: expected %.12g, got NA' % (key, expected))
         actual = float(got[key])
         scale = max(abs(expected), 1e-12)
         if abs(actual - expected) / scale > 1e-6:

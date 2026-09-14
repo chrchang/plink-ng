@@ -5,3 +5,4 @@
 *.rg
 *.log
 tmp_*.txt
+*.results
