@@ -233,14 +233,19 @@ class Reg(object):
             sum(d[j] * m_vec[j] for j in range(n_annot)) / self.nbar
             for d in delete_values]
         self.n_blocks = len(delete_values)
+        self.coef_cov = [[cov[j][k] / self.nbar ** 2 for k in range(n_annot)]
+                         for j in range(n_annot)]
         self.prop = [c / self.tot for c in self.cat]
         self.prop_ses = []
         self.enrichment = []
         m_tot = sum(m_vec)
+        prop_delete = [[d[j] * m_vec[j] / self.nbar / self.tot_delete_values[b]
+                        for j in range(n_annot)]
+                       for b, d in enumerate(delete_values)]
+        _, self.prop_cov, prop_se, _ = jknife_from_delete(self.prop,
+                                                          prop_delete)
+        self.prop_ses = prop_se
         for j in range(n_annot):
-            numer = [d[j] * m_vec[j] / self.nbar for d in delete_values]
-            self.prop_ses.append(ratio_jknife(self.prop[j], numer,
-                                              self.tot_delete_values))
             self.enrichment.append((self.cat[j] / m_vec[j]) /
                                    (self.tot / m_tot))
 
@@ -274,6 +279,65 @@ def ratio_jknife(est, numer_delete, denom_delete):
     return se[0]
 
 
+# ***** the Student-t tail, for the enrichment test *****
+
+def betacf(a, b, x):
+    """Continued fraction for the incomplete beta function (Lentz)."""
+    tiny = 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < tiny:
+        d = tiny
+    d = 1.0 / d
+    h = d
+    for m in range(1, 300):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < tiny:
+            d = tiny
+        c = 1.0 + aa / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < tiny:
+            d = tiny
+        c = 1.0 + aa / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            break
+    return h
+
+
+def betainc(a, b, x):
+    """Regularized incomplete beta function I_x(a, b)."""
+    import math
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) +
+                     a * math.log(x) + b * math.log1p(-x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * betacf(a, b, x) / a
+    return 1.0 - math.exp(math.lgamma(a + b) - math.lgamma(a) -
+                          math.lgamma(b) + b * math.log1p(-x) +
+                          a * math.log(x)) * betacf(b, a, 1.0 - x) / b
+
+
+def t_two_sided_p(t, df):
+    """P(|T| > |t|) for a t distribution with df degrees of freedom."""
+    return betainc(df / 2.0, 0.5, df / (df + t * t))
+
+
 # ***** file reading (the same inner joins, in LD Score file order) *****
 
 def read_table(path):
@@ -299,6 +363,37 @@ def read_sumstats(path):
     z_col = header.index('Z')
     n_col = header.index('N')
     return {r[id_col]: (float(r[z_col]), float(r[n_col])) for r in rows}
+
+
+def read_annot(path, frq_path):
+    """Annotation overlap matrix A'A, and the variant count behind it."""
+    frq = {}
+    if frq_path is not None:
+        header, rows = read_table(frq_path)
+        id_col = header.index('SNP')
+        frq_col = (header.index('FRQ') if 'FRQ' in header
+                   else header.index('MAF'))
+        frq = dict((r[id_col], float(r[frq_col])) for r in rows)
+    header, rows = read_table(path)
+    id_col = header.index('SNP')
+    skip = {'SNP', 'ID', 'CHR', 'CHROM', 'BP', 'POS', 'CM'}
+    cols = [i for i, name in enumerate(header) if name not in skip]
+    n_annot = len(cols)
+    overlap = [[0.0] * n_annot for _ in range(n_annot)]
+    row_ct = 0
+    for r in rows:
+        if frq_path is not None:
+            cur = frq[r[id_col]]
+            if not (0.05 < cur < 0.95):
+                continue
+        vals = [float(r[c]) for c in cols]
+        for j in range(n_annot):
+            if vals[j] == 0.0:
+                continue
+            for k in range(n_annot):
+                overlap[j][k] += vals[j] * vals[k]
+        row_ct += 1
+    return overlap, float(row_ct)
 
 
 def merge(ref_ids, ref_l2, w_map, ss1, ss2=None):
@@ -332,6 +427,9 @@ def main():
     ap.add_argument('--intercept-h2', type=float, default=None)
     ap.add_argument('--two-step', type=float, default=None)
     ap.add_argument('--no-two-step', action='store_true')
+    ap.add_argument('--annot', default=None,
+                    help='.annot file, for the overlap correction')
+    ap.add_argument('--frqfile', default=None)
     args = ap.parse_args()
 
     m_vec = [float(x) for x in args.M.split(',')]
@@ -378,7 +476,7 @@ def main():
                 print('ratio %.12g' % ((hsq1.intercept - 1) / (mean_chisq - 1)))
                 print('ratio_se %.12g' % (hsq1.intercept_se / (mean_chisq - 1)))
         print('mean_chisq %.12g' % mean_chisq)
-        if n_annot > 1:
+        if n_annot > 1 and args.annot is None:
             # One row per annotation, in .results order.
             for j in range(n_annot):
                 print('Coefficient_%d %.12g' % (j, hsq1.coefs[j]))
@@ -386,6 +484,42 @@ def main():
                 print('Prop._h2_%d %.12g' % (j, hsq1.prop[j]))
                 print('Prop._h2_std_error_%d %.12g' % (j, hsq1.prop_ses[j]))
                 print('Enrichment_%d %.12g' % (j, hsq1.enrichment[j]))
+        elif n_annot > 1:
+            overlap, m_tot = read_annot(args.annot, args.frqfile)
+            # overlap_prop[i][j]: the share of annotation j's variants that
+            # are also in annotation i.
+            overlap_prop = [[overlap[i][j] / m_vec[j] for j in range(n_annot)]
+                            for i in range(n_annot)]
+            prop_m = [m_vec[i] / m_tot for i in range(n_annot)]
+            for i in range(n_annot):
+                prop = sum(overlap_prop[i][j] * hsq1.prop[j]
+                           for j in range(n_annot))
+                var = sum(overlap_prop[i][j] * hsq1.prop_cov[j][k] *
+                          overlap_prop[i][k]
+                          for j in range(n_annot) for k in range(n_annot))
+                se = max(var, 0.0) ** 0.5
+                diff_row = [0.0] * n_annot
+                if m_tot != m_vec[i]:
+                    diff_row = [overlap[i][j] / m_vec[i] -
+                                (m_vec[j] - overlap[i][j]) / (m_tot - m_vec[i])
+                                for j in range(n_annot)]
+                diff_est = sum(diff_row[j] * hsq1.coefs[j]
+                               for j in range(n_annot))
+                diff_var = sum(diff_row[j] * hsq1.coef_cov[j][k] * diff_row[k]
+                               for j in range(n_annot)
+                               for k in range(n_annot))
+                diff_se = max(diff_var, 0.0) ** 0.5
+                print('Prop._SNPs_%d %.12g' % (i, prop_m[i]))
+                print('Prop._h2_%d %.12g' % (i, prop))
+                print('Prop._h2_std_error_%d %.12g' % (i, se))
+                print('Enrichment_%d %.12g' % (i, prop / prop_m[i]))
+                print('Enrichment_std_error_%d %.12g' % (i, se / prop_m[i]))
+                if diff_se > 0:
+                    print('Enrichment_p_%d %.12g'
+                          % (i, t_two_sided_p(diff_est / diff_se,
+                                              hsq1.n_blocks)))
+                print('Coefficient_%d %.12g' % (i, hsq1.coefs[i]))
+                print('Coefficient_std_error_%d %.12g' % (i, hsq1.coef_ses[i]))
         return
 
     chisq2 = [zi * zi for zi in z2]

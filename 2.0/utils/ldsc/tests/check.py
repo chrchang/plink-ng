@@ -41,8 +41,12 @@ def main():
         if got[key] == 'NA':
             sys.exit('%s: expected %.12g, got NA' % (key, expected))
         actual = float(got[key])
-        scale = max(abs(expected), 1e-12)
-        if abs(actual - expected) / scale > 1e-6:
+        # Relative, with a small absolute floor: a few of these quantities are
+        # exactly zero up to cancellation (the standard error of a proportion
+        # that has to be 1, for instance), and the two implementations round
+        # that cancellation differently.
+        scale = max(abs(expected), abs(actual))
+        if abs(actual - expected) > 1e-6 * scale + 1e-9:
             sys.exit('%s: expected %.12g, got %.12g' % (key, expected, actual))
         checked += 1
     if not checked:

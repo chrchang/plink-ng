@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "../../include/plink2_base.h"
+#include "../../include/plink2_stats.h"
 #include "../../include/plink2_string.h"
 #include "../../include/plink2_text.h"
 
@@ -318,6 +319,24 @@ BoolErr LdscLstsqJknifeFast(const double* x, const double* y, uint32_t p, const 
   return 0;
 }
 
+// Block jackknife for several ratios at once, giving their covariance.  The
+// numerators vary by ratio; the denominator is shared.
+void LdscRatioJknifeMulti(const double* est, const double* numer_delete, const double* denom_delete, uint32_t n_blocks, uint32_t p, std::vector<double>* cov, std::vector<double>* se) {
+  LdscJknife jk;
+  jk.n_blocks = n_blocks;
+  jk.p = p;
+  jk.est.assign(est, &(est[p]));
+  jk.delete_values.resize(S_CAST(uintptr_t, n_blocks) * p);
+  for (uint32_t b = 0; b != n_blocks; ++b) {
+    for (uint32_t j = 0; j != p; ++j) {
+      jk.delete_values[S_CAST(uintptr_t, b) * p + j] = numer_delete[S_CAST(uintptr_t, b) * p + j] / denom_delete[b];
+    }
+  }
+  LdscFinishJknife(&jk);
+  cov->swap(jk.jknife_cov);
+  se->swap(jk.jknife_se);
+}
+
 // Block jackknife for a ratio of two jackknifed quantities.
 void LdscRatioJknife(double est, const double* numer_delete, const double* denom_delete, uint32_t n_blocks, double* jknife_est_ptr, double* jknife_se_ptr) {
   LdscJknife jk;
@@ -498,6 +517,8 @@ typedef struct LdscHsqResultStruct {
   std::vector<double> prop_ses;
   std::vector<double> enrichment;
   std::vector<double> m_prop;
+  std::vector<double> coef_cov;  // n_annot x n_annot
+  std::vector<double> prop_cov;  // n_annot x n_annot
 } LdscHsqResult;
 
 // Combines the free-intercept first step and the constrained-intercept second
@@ -772,23 +793,28 @@ BoolErr LdscHsqFit(const double* chisq, const double* ld_mat, const double* ld_t
   for (uint32_t j = 0; j != n_annot; ++j) {
     out->m_prop[j] = m_vec[j] / m_tot;
   }
+  out->coef_cov.assign(S_CAST(uintptr_t, n_annot) * n_annot, 0.0);
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    for (uint32_t k = 0; k != n_annot; ++k) {
+      out->coef_cov[j * n_annot + k] = jk.jknife_cov[j * p + k] / (nbar * nbar);
+    }
+  }
   if (n_annot > 1) {
-    std::vector<double> numer(jk.n_blocks);
+    std::vector<double> numer(S_CAST(uintptr_t, jk.n_blocks) * n_annot);
     std::vector<double> denom(jk.n_blocks);
     for (uint32_t b = 0; b != jk.n_blocks; ++b) {
       denom[b] = out->tot_delete_values[b];
+      for (uint32_t j = 0; j != n_annot; ++j) {
+        numer[S_CAST(uintptr_t, b) * n_annot + j] = m_vec[j] * jk.delete_values[S_CAST(uintptr_t, b) * p + j] / nbar;
+      }
     }
     for (uint32_t j = 0; j != n_annot; ++j) {
-      for (uint32_t b = 0; b != jk.n_blocks; ++b) {
-        numer[b] = m_vec[j] * jk.delete_values[S_CAST(uintptr_t, b) * p + j] / nbar;
-      }
-      double prop_est;
-      double prop_se;
-      LdscRatioJknife(out->cat[j] / tot, &(numer[0]), &(denom[0]), jk.n_blocks, &prop_est, &prop_se);
       out->prop[j] = out->cat[j] / tot;
-      out->prop_ses[j] = prop_se;
       out->enrichment[j] = (out->cat[j] / m_vec[j]) / (tot / m_tot);
     }
+    std::vector<double> prop_se;
+    LdscRatioJknifeMulti(&(out->prop[0]), &(numer[0]), &(denom[0]), jk.n_blocks, n_annot, &(out->prop_cov), &prop_se);
+    out->prop_ses = prop_se;
   }
   double chisq_sum = 0.0;
   for (uint32_t i = 0; i != n_snp; ++i) {
@@ -1083,6 +1109,7 @@ void LdscSplitComma(const char* arg, std::vector<std::string>* dst);
 typedef struct LdscScoresStruct {
   std::vector<std::string> ids;
   std::vector<std::string> annot_names;
+  std::vector<uint32_t> per_file_annot_ct;  // one entry per --ref-ld fileset
   std::vector<double> l2;  // ids.size() x annot_names.size(), row-major
 } LdscScores;
 
@@ -1364,6 +1391,7 @@ BoolErr LdscReadLdscores(const char* arg, uint32_t is_chr_split, LdscScores* dst
       return 1;
     }
     const uint32_t cur_annot_ct = raw.annot_names.size();
+    dst->per_file_annot_ct.push_back(cur_annot_ct);
     if (!file_idx) {
       dst->ids.swap(raw.ids);
       dst->l2.swap(raw.l2);
@@ -1430,6 +1458,323 @@ BoolErr LdscReadMFile(const std::string& path, std::vector<double>* dst) {
     iter = FirstNonTspace(CurTokenEnd(iter));
   }
   return dst->empty();
+}
+
+// ***** annotation overlap *****
+
+// Reads one .frq file into an ID-keyed map.  (The reference implementation
+// aligns the .annot and .frq files by row position; matching on the variant
+// ID instead gives the same answer whenever that assumption holds, and a
+// correct one when it does not.)
+BoolErr LdscReadFrq(const char* fname, std::unordered_map<std::string, double>* dst) {
+  static const char* kIdNames[] = {"SNP", "ID", nullptr};
+  static const char* kFrqNames[] = {"FRQ", "MAF", nullptr};
+  TextStream txs;
+  PreinitTextStream(&txs);
+  PglErr reterr = TextStreamOpen(fname, &txs);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to open %s.\n", fname);
+    return 1;
+  }
+  const char* header = TextGet(&txs);
+  if (!header) {
+    fprintf(stderr, "Error: %s is empty.\n", fname);
+    return 1;
+  }
+  uint32_t col_id = UINT32_MAX;
+  uint32_t col_frq = UINT32_MAX;
+  uint32_t col_ct = 0;
+  {
+    const char* iter = FirstNonTspace(header);
+    if (*iter == '#') {
+      ++iter;
+    }
+    for (; !IsEolnKns(*iter); ++col_ct) {
+      const char* token_end = CurTokenEnd(iter);
+      const uint32_t slen = token_end - iter;
+      if ((col_id == UINT32_MAX) && LdscMatchCol(iter, slen, kIdNames)) {
+        col_id = col_ct;
+      } else if ((col_frq == UINT32_MAX) && LdscMatchCol(iter, slen, kFrqNames)) {
+        col_frq = col_ct;
+      }
+      iter = FirstNonTspace(token_end);
+    }
+  }
+  if ((col_id == UINT32_MAX) || (col_frq == UINT32_MAX)) {
+    fprintf(stderr, "Error: %s must have SNP and FRQ (or MAF) columns.\n", fname);
+    return 1;
+  }
+  const uint32_t max_col = MAXV(col_id, col_frq);
+  while (1) {
+    const char* line_start = TextGet(&txs);
+    if (!line_start) {
+      break;
+    }
+    const char* iter = FirstNonTspace(line_start);
+    if (IsEolnKns(*iter)) {
+      continue;
+    }
+    const char* id_start = nullptr;
+    uint32_t id_slen = 0;
+    double frq = 0.0;
+    uint32_t ok = 1;
+    for (uint32_t col_idx = 0; col_idx <= max_col; ++col_idx) {
+      if (IsEolnKns(*iter)) {
+        ok = 0;
+        break;
+      }
+      const char* token_end = CurTokenEnd(iter);
+      if (col_idx == col_id) {
+        id_start = iter;
+        id_slen = token_end - iter;
+      } else if (col_idx == col_frq) {
+        if (!ScanadvDouble(iter, &frq)) {
+          ok = 0;
+          break;
+        }
+      }
+      iter = FirstNonTspace(token_end);
+    }
+    if (!ok) {
+      continue;
+    }
+    dst->emplace(std::string(id_start, id_slen), frq);
+  }
+  reterr = kPglRetSuccess;
+  CleanupTextStream(&txs, &reterr);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to read %s.\n", fname);
+    return 1;
+  }
+  return 0;
+}
+
+// Reads one .annot file, accumulating A'A over its rows and counting them.
+// Only the common variants are kept when a .frq map is supplied, matching the
+// 5%-50% minor allele frequency band the .l2.M_5_50 counts use.
+BoolErr LdscAccumAnnotFile(const char* fname, const std::unordered_map<std::string, double>* frq_map, uint32_t n_annot, uint32_t annot_offset, uint32_t total_annot, std::vector<double>* overlap, double* row_ct_ptr, std::vector<std::vector<double> >* rows_out) {
+  static const char* kIdNames[] = {"SNP", "ID", nullptr};
+  static const char* kSkipNames[] = {"CHR", "CHROM", "BP", "POS", "CM", nullptr};
+  TextStream txs;
+  PreinitTextStream(&txs);
+  PglErr reterr = TextStreamOpen(fname, &txs);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to open %s.\n", fname);
+    return 1;
+  }
+  const char* header = TextGet(&txs);
+  if (!header) {
+    fprintf(stderr, "Error: %s is empty.\n", fname);
+    return 1;
+  }
+  uint32_t col_id = UINT32_MAX;
+  std::vector<uint32_t> annot_cols;
+  uint32_t col_ct = 0;
+  {
+    const char* iter = FirstNonTspace(header);
+    if (*iter == '#') {
+      ++iter;
+    }
+    for (; !IsEolnKns(*iter); ++col_ct) {
+      const char* token_end = CurTokenEnd(iter);
+      const uint32_t slen = token_end - iter;
+      if ((col_id == UINT32_MAX) && LdscMatchCol(iter, slen, kIdNames)) {
+        col_id = col_ct;
+      } else if (!LdscMatchCol(iter, slen, kSkipNames)) {
+        annot_cols.push_back(col_ct);
+      }
+      iter = FirstNonTspace(token_end);
+    }
+  }
+  if (annot_cols.size() != n_annot) {
+    fprintf(stderr, "Error: %s has %" PRIuPTR " annotation columns, but its LD Score fileset has\n%u.\n", fname, S_CAST(uintptr_t, annot_cols.size()), n_annot);
+    return 1;
+  }
+  if (frq_map && (col_id == UINT32_MAX)) {
+    fprintf(stderr, "Error: %s needs a SNP column to be matched against the .frq file.\n", fname);
+    return 1;
+  }
+  uint32_t max_col = col_id;
+  if (max_col == UINT32_MAX) {
+    max_col = 0;
+  }
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    max_col = MAXV(max_col, annot_cols[j]);
+  }
+  std::vector<double> cur(n_annot);
+  uintptr_t row_idx = 0;
+  while (1) {
+    const char* line_start = TextGet(&txs);
+    if (!line_start) {
+      break;
+    }
+    const char* iter = FirstNonTspace(line_start);
+    if (IsEolnKns(*iter)) {
+      continue;
+    }
+    const char* id_start = nullptr;
+    uint32_t id_slen = 0;
+    uint32_t annot_idx = 0;
+    uint32_t ok = 1;
+    for (uint32_t col_idx = 0; col_idx <= max_col; ++col_idx) {
+      if (IsEolnKns(*iter)) {
+        ok = 0;
+        break;
+      }
+      const char* token_end = CurTokenEnd(iter);
+      if (col_idx == col_id) {
+        id_start = iter;
+        id_slen = token_end - iter;
+      }
+      if ((annot_idx != n_annot) && (col_idx == annot_cols[annot_idx])) {
+        if (!ScanadvDouble(iter, &(cur[annot_idx]))) {
+          ok = 0;
+          break;
+        }
+        ++annot_idx;
+      }
+      iter = FirstNonTspace(token_end);
+    }
+    if ((!ok) || (annot_idx != n_annot)) {
+      fprintf(stderr, "Error: Malformed line in %s.\n", fname);
+      return 1;
+    }
+    if (frq_map) {
+      const std::unordered_map<std::string, double>::const_iterator frq_it = frq_map->find(std::string(id_start, id_slen));
+      if (frq_it == frq_map->end()) {
+        continue;
+      }
+      const double frq = frq_it->second;
+      if ((frq <= 0.05) || (frq >= 0.95)) {
+        continue;
+      }
+    }
+    if (rows_out) {
+      // First fileset of several: the rows have to be held so the later
+      // filesets' columns can be paired with them.
+      if (rows_out->size() <= row_idx) {
+        rows_out->resize(row_idx + 1);
+      }
+      std::vector<double>& dst_row = (*rows_out)[row_idx];
+      dst_row.resize(total_annot, 0.0);
+      for (uint32_t j = 0; j != n_annot; ++j) {
+        dst_row[annot_offset + j] = cur[j];
+      }
+    } else {
+      for (uint32_t j = 0; j != n_annot; ++j) {
+        for (uint32_t k = 0; k != n_annot; ++k) {
+          (*overlap)[S_CAST(uintptr_t, annot_offset + j) * total_annot + annot_offset + k] += cur[j] * cur[k];
+        }
+      }
+    }
+    ++row_idx;
+  }
+  reterr = kPglRetSuccess;
+  CleanupTextStream(&txs, &reterr);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to read %s.\n", fname);
+    return 1;
+  }
+  *row_ct_ptr = u31tod(row_idx);
+  return 0;
+}
+
+// Builds the annotation overlap matrix A'A and the variant count behind it,
+// from the .annot files next to --ref-ld.
+BoolErr LdscReadAnnot(const char* ref_arg, uint32_t is_chr_split, const char* frq_arg, uint32_t frq_is_chr_split, uint32_t total_annot, const std::vector<uint32_t>& per_file_annot_ct, std::vector<double>* overlap, double* m_tot_ptr) {
+  std::vector<std::string> bases;
+  LdscSplitComma(ref_arg, &bases);
+  if (bases.size() != per_file_annot_ct.size()) {
+    fprintf(stderr, "Error: internal error: LD Score fileset count mismatch.\n");
+    return 1;
+  }
+  overlap->assign(S_CAST(uintptr_t, total_annot) * total_annot, 0.0);
+  double m_tot = 0.0;
+  const uint32_t chr_end = is_chr_split? (kLdscChrCt + 1) : 1;
+  for (uint32_t chr_idx = 0; chr_idx != chr_end; ++chr_idx) {
+    std::unordered_map<std::string, double> frq_map;
+    if (frq_arg) {
+      std::string frq_path;
+      const std::string frq_base = frq_is_chr_split? LdscSubChr(frq_arg, chr_idx + 1) : std::string(frq_arg);
+      static const char* kFrqSuffixes[] = {".frq", ".frq.gz", ".frq.zst", "", nullptr};
+      uint32_t found = 0;
+      for (uint32_t i = 0; kFrqSuffixes[i]; ++i) {
+        const std::string cand = frq_base + kFrqSuffixes[i];
+        if (LdscFileExists(cand)) {
+          frq_path = cand;
+          found = 1;
+          break;
+        }
+      }
+      if (!found) {
+        if (is_chr_split) {
+          continue;
+        }
+        fprintf(stderr, "Error: Could not find %s[.frq].\n", frq_base.c_str());
+        return 1;
+      }
+      if (LdscReadFrq(frq_path.c_str(), &frq_map)) {
+        return 1;
+      }
+    }
+    // With several filesets the rows have to be paired up before A'A can be
+    // accumulated, since an overlap entry can span two filesets.
+    std::vector<std::vector<double> > rows;
+    const uint32_t multi = (bases.size() > 1);
+    uint32_t annot_offset = 0;
+    uint32_t any_found = 0;
+    double cur_row_ct = 0.0;
+    for (uintptr_t file_idx = 0; file_idx != bases.size(); ++file_idx) {
+      const std::string base = is_chr_split? LdscSubChr(bases[file_idx].c_str(), chr_idx + 1) : bases[file_idx];
+      std::string path;
+      static const char* kSuffixes[] = {".annot", ".annot.gz", ".annot.zst", nullptr};
+      uint32_t found = 0;
+      for (uint32_t i = 0; kSuffixes[i]; ++i) {
+        const std::string cand = base + kSuffixes[i];
+        if (LdscFileExists(cand)) {
+          path = cand;
+          found = 1;
+          break;
+        }
+      }
+      if (!found) {
+        if (is_chr_split && (!file_idx)) {
+          break;
+        }
+        fprintf(stderr, "Error: Could not find %s.annot[.gz].  --overlap-annot needs one .annot\nfile per LD Score fileset.\n", base.c_str());
+        return 1;
+      }
+      any_found = 1;
+      if (LdscAccumAnnotFile(path.c_str(), frq_arg? &frq_map : nullptr, per_file_annot_ct[file_idx], annot_offset, total_annot, overlap, &cur_row_ct, multi? &rows : nullptr)) {
+        return 1;
+      }
+      annot_offset += per_file_annot_ct[file_idx];
+    }
+    if (!any_found) {
+      continue;
+    }
+    if (multi) {
+      for (uintptr_t i = 0; i != rows.size(); ++i) {
+        const std::vector<double>& row = rows[i];
+        for (uint32_t j = 0; j != total_annot; ++j) {
+          if (row[j] == 0.0) {
+            continue;
+          }
+          for (uint32_t k = 0; k != total_annot; ++k) {
+            (*overlap)[S_CAST(uintptr_t, j) * total_annot + k] += row[j] * row[k];
+          }
+        }
+      }
+      cur_row_ct = u31tod(rows.size());
+    }
+    m_tot += cur_row_ct;
+  }
+  if (m_tot == 0.0) {
+    fprintf(stderr, "Error: No .annot rows read.\n");
+    return 1;
+  }
+  *m_tot_ptr = m_tot;
+  return 0;
 }
 
 // Reads the .l2.M_5_50 (or .l2.M) files holding the number of variants the LD
@@ -1631,6 +1976,9 @@ typedef struct LdscOptsStruct {
   uint32_t no_intercept;
   uint32_t not_m_5_50;
   uint32_t no_check_alleles;
+  uint32_t overlap_annot;
+  const char* frq_arg;
+  uint32_t frq_is_chr_split;
   double m_override;
   std::vector<double> intercept_h2;     // NaN where unspecified
   std::vector<double> intercept_gencov;
@@ -1696,7 +2044,7 @@ void LdscWarnLength(uint32_t n_snp) {
   }
 }
 
-BoolErr LdscEstimateH2(const char* sumstats_fname, const LdscScores& ref, const std::unordered_map<std::string, double>& w_ld_map, const std::vector<double>& m_vec, const LdscOpts* opts, const char* out_prefix) {
+BoolErr LdscEstimateH2(const char* sumstats_fname, const LdscScores& ref, const char* ref_ld_arg, uint32_t ref_ld_chr_split, const std::unordered_map<std::string, double>& w_ld_map, const std::vector<double>& m_vec, const LdscOpts* opts, const char* out_prefix) {
   const uint32_t n_annot = ref.annot_names.size();
   double m_tot = 0.0;
   for (uint32_t j = 0; j != n_annot; ++j) {
@@ -1805,25 +2153,115 @@ BoolErr LdscEstimateH2(const char* sumstats_fname, const LdscScores& ref, const 
 
   if (n_annot > 1) {
     // Per-annotation output, in the reference implementation's .results
-    // columns.  The proportions and enrichments assume the annotations do not
-    // overlap; --overlap-annot, which corrects for overlap from the .annot
-    // files, is not implemented.
+    // columns.  Without --overlap-annot the proportions and enrichments are
+    // only right for a partition of the variants; with it they are corrected
+    // using the annotation overlap matrix from the .annot files.
+    std::vector<double> prop = hsq.prop;
+    std::vector<double> prop_ses = hsq.prop_ses;
+    std::vector<double> enrichment = hsq.enrichment;
+    std::vector<double> enrichment_ses;
+    std::vector<double> enrichment_ln_p;
+    std::vector<double> m_prop = hsq.m_prop;
+    if (opts->overlap_annot) {
+      std::vector<double> overlap;
+      double annot_m_tot;
+      if (LdscReadAnnot(ref_ld_arg, ref_ld_chr_split, opts->frq_arg, opts->frq_is_chr_split, n_annot, ref.per_file_annot_ct, &overlap, &annot_m_tot)) {
+        return 1;
+      }
+      LdscLog("Read annotation overlap for %g variants.\n", annot_m_tot);
+      // overlap_prop[i][j] is the fraction of annotation j's variants that
+      // are also in annotation i.
+      std::vector<double> overlap_prop(S_CAST(uintptr_t, n_annot) * n_annot);
+      for (uint32_t i = 0; i != n_annot; ++i) {
+        for (uint32_t j = 0; j != n_annot; ++j) {
+          overlap_prop[S_CAST(uintptr_t, i) * n_annot + j] = overlap[S_CAST(uintptr_t, i) * n_annot + j] / m_vec[j];
+        }
+      }
+      for (uint32_t i = 0; i != n_annot; ++i) {
+        double acc = 0.0;
+        for (uint32_t j = 0; j != n_annot; ++j) {
+          acc += overlap_prop[S_CAST(uintptr_t, i) * n_annot + j] * hsq.prop[j];
+        }
+        prop[i] = acc;
+        double var = 0.0;
+        for (uint32_t j = 0; j != n_annot; ++j) {
+          for (uint32_t k = 0; k != n_annot; ++k) {
+            var += overlap_prop[S_CAST(uintptr_t, i) * n_annot + j] * hsq.prop_cov[S_CAST(uintptr_t, j) * n_annot + k] * overlap_prop[S_CAST(uintptr_t, i) * n_annot + k];
+          }
+        }
+        prop_ses[i] = sqrt(MAXV(var, 0.0));
+        m_prop[i] = m_vec[i] / annot_m_tot;
+      }
+      enrichment.resize(n_annot);
+      enrichment_ses.resize(n_annot);
+      enrichment_ln_p.assign(n_annot, 0.0 / 0.0);
+      for (uint32_t i = 0; i != n_annot; ++i) {
+        enrichment[i] = prop[i] / m_prop[i];
+        enrichment_ses[i] = prop_ses[i] / m_prop[i];
+      }
+      // The enrichment test compares each annotation's coefficient against
+      // the rest of the genome, which is a linear combination of the
+      // coefficients: inside-annotation share minus outside-annotation share.
+      std::vector<double> diff(S_CAST(uintptr_t, n_annot) * n_annot, 0.0);
+      for (uint32_t i = 0; i != n_annot; ++i) {
+        if (annot_m_tot == m_vec[i]) {
+          continue;
+        }
+        for (uint32_t j = 0; j != n_annot; ++j) {
+          const double cur_overlap = overlap[S_CAST(uintptr_t, i) * n_annot + j];
+          diff[S_CAST(uintptr_t, i) * n_annot + j] = cur_overlap / m_vec[i] - (m_vec[j] - cur_overlap) / (annot_m_tot - m_vec[i]);
+        }
+      }
+      for (uint32_t i = 0; i != n_annot; ++i) {
+        double est = 0.0;
+        for (uint32_t j = 0; j != n_annot; ++j) {
+          est += diff[S_CAST(uintptr_t, i) * n_annot + j] * hsq.coefs[j];
+        }
+        double var = 0.0;
+        for (uint32_t j = 0; j != n_annot; ++j) {
+          for (uint32_t k = 0; k != n_annot; ++k) {
+            var += diff[S_CAST(uintptr_t, i) * n_annot + j] * hsq.coef_cov[S_CAST(uintptr_t, j) * n_annot + k] * diff[S_CAST(uintptr_t, i) * n_annot + k];
+          }
+        }
+        const double se = sqrt(MAXV(var, 0.0));
+        if (se > 0.0) {
+          enrichment_ln_p[i] = TstatToLnP(est / se, hsq.n_blocks);
+        }
+      }
+    }
     const std::string results_path = std::string(out_prefix) + ".results";
     FILE* results_file = fopen(results_path.c_str(), FOPEN_WB);
     if (!results_file) {
       fprintf(stderr, "Error: Failed to open %s.\n", results_path.c_str());
       return 1;
     }
-    fputs("Category\tProp._SNPs\tProp._h2\tProp._h2_std_error\tEnrichment\tCoefficient\tCoefficient_std_error\tCoefficient_z-score\n", results_file);
+    fputs("Category\tProp._SNPs\tProp._h2\tProp._h2_std_error\tEnrichment", results_file);
+    if (opts->overlap_annot) {
+      fputs("\tEnrichment_std_error\tEnrichment_p", results_file);
+    }
+    fputs("\tCoefficient\tCoefficient_std_error\tCoefficient_z-score\n", results_file);
     for (uint32_t j = 0; j != n_annot; ++j) {
-      fprintf(results_file, "%s\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\n", ref.annot_names[j].c_str(), hsq.m_prop[j], hsq.prop[j], hsq.prop_ses[j], hsq.enrichment[j], liab_factor * hsq.coefs[j], liab_factor * hsq.coef_ses[j], hsq.coefs[j] / hsq.coef_ses[j]);
+      fprintf(results_file, "%s\t%.9g\t%.9g\t%.9g\t%.9g", ref.annot_names[j].c_str(), m_prop[j], prop[j], prop_ses[j], enrichment[j]);
+      if (opts->overlap_annot) {
+        fprintf(results_file, "\t%.9g", enrichment_ses[j]);
+        if (enrichment_ln_p[j] == enrichment_ln_p[j]) {
+          fprintf(results_file, "\t%.9g", exp(enrichment_ln_p[j]));
+        } else {
+          // An annotation that covers every variant has no complement to be
+          // compared against.
+          fputs("\tNA", results_file);
+        }
+      }
+      fprintf(results_file, "\t%.9g\t%.9g\t%.9g\n", liab_factor * hsq.coefs[j], liab_factor * hsq.coef_ses[j], hsq.coefs[j] / hsq.coef_ses[j]);
     }
     if (fclose(results_file)) {
       fprintf(stderr, "Error: Failed to write %s.\n", results_path.c_str());
       return 1;
     }
     LdscLog("Per-category results written to %s .\n", results_path.c_str());
-    LdscLog("Note: the proportions and enrichments there assume the annotations do not\noverlap.  Overlap correction (ldsc's --overlap-annot) is not implemented.\n");
+    if (!opts->overlap_annot) {
+      LdscLog("Note: the proportions and enrichments there are only right for annotations\nthat do not overlap.  Add --overlap-annot (with the .annot files, and\n--frqfile[-chr] to restrict to common variants) to correct for overlap.\n");
+    }
   }
   return 0;
 }
@@ -2145,6 +2583,9 @@ int main(int argc, char** argv) {
   opts.no_intercept = 0;
   opts.not_m_5_50 = 0;
   opts.no_check_alleles = 0;
+  opts.overlap_annot = 0;
+  opts.frq_arg = nullptr;
+  opts.frq_is_chr_split = 0;
   opts.m_override = 0.0;
   for (int argi = 1; argi < argc; ++argi) {
     const char* cur = argv[argi];
@@ -2197,6 +2638,14 @@ int main(int argc, char** argv) {
       opts.no_intercept = 1;
     } else if (!strcmp(cur, "--no-check-alleles")) {
       opts.no_check_alleles = 1;
+    } else if (!strcmp(cur, "--overlap-annot")) {
+      opts.overlap_annot = 1;
+    } else if ((!strcmp(cur, "--frqfile")) && (argi + 1 < argc)) {
+      opts.frq_arg = argv[++argi];
+      opts.frq_is_chr_split = 0;
+    } else if ((!strcmp(cur, "--frqfile-chr")) && (argi + 1 < argc)) {
+      opts.frq_arg = argv[++argi];
+      opts.frq_is_chr_split = 1;
     } else if ((!strcmp(cur, "--intercept-h2")) && (argi + 1 < argc)) {
       if (LdscParseNumList(argv[++argi], "--intercept-h2", &opts.intercept_h2)) {
         return 1;
@@ -2270,6 +2719,13 @@ int main(int argc, char** argv) {
             "  --samp-prev, --pop-prev  Sample and population prevalence per\n"
             "             phenotype; both together convert the observed-scale\n"
             "             estimates to the liability scale.\n"
+            "  --overlap-annot  Correct the partitioned proportions and\n"
+            "             enrichments for annotations that overlap, using the\n"
+            "             .annot files next to --ref-ld.  Adds an enrichment\n"
+            "             standard error and p-value to the .results file.\n"
+            "  --frqfile[-chr]  Allele frequencies, to restrict the overlap\n"
+            "             counts to variants with 5%% < MAF < 50%%, which is the\n"
+            "             band the .l2.M_5_50 counts use.\n"
             "  --no-check-alleles  Skip the allele-matching step of --rg.  Only\n"
             "             safe if both files are known to be on the same strand\n"
             "             with the same effect alleles.\n"
@@ -2347,7 +2803,7 @@ int main(int argc, char** argv) {
 
   BoolErr ret;
   if (h2_fname) {
-    ret = LdscEstimateH2(h2_fname, ref, w_ld_map, m_vec, &opts, out_prefix);
+    ret = LdscEstimateH2(h2_fname, ref, ref_ld_arg, ref_ld_chr_split, w_ld_map, m_vec, &opts, out_prefix);
   } else {
     std::vector<std::string> rg_paths;
     LdscSplitComma(rg_arg, &rg_paths);

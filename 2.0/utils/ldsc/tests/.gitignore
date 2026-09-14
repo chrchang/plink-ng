@@ -6,3 +6,6 @@
 *.log
 tmp_*.txt
 *.results
+*.annot
+*.frq
+__pycache__/

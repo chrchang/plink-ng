@@ -33,6 +33,11 @@ ALLELE_PAIRS = (('A', 'G'), ('C', 'T'), ('A', 'C'), ('G', 'T'))
 PART_M = (3000.0, 2000.0, 1000.0)
 PART_H2 = (0.18, 0.09, 0.04)
 PART_INTERCEPT = 1.05
+# Overlapping fixture: a baseline annotation covering everything, plus two
+# that overlap each other.  Written with .annot and .frq files, so the overlap
+# correction has something to correct with.
+OV_FRAC = (1.0, 0.40, 0.25)
+OV_H2 = (0.15, 0.08, 0.05)
 
 
 def main():
@@ -150,6 +155,60 @@ def main():
             a1, a2 = alleles[j]
             f.write('%s\t%s\t%s\t%.6f\t%g\n'
                     % (ids[j], a1, a2, part_z[j], N1))
+
+    # Overlapping annotations, with the .annot and .frq files --overlap-annot
+    # needs.  Only the common variants (5% < MAF < 50%) count, as in the
+    # .l2.M_5_50 convention.
+    ov_frq = [rand.uniform(0.01, 0.5) for _ in range(M)]
+    ov_annot = []
+    for j in range(M):
+        ov_annot.append([1.0] + [1.0 if rand.random() < OV_FRAC[c] else 0.0
+                                 for c in range(1, len(OV_FRAC))])
+    common = [j for j in range(M) if 0.05 < ov_frq[j] < 0.95]
+    ov_m = [sum(ov_annot[j][c] for j in common) for c in range(len(OV_FRAC))]
+    ov_tau = [OV_H2[c] / ov_m[c] for c in range(len(OV_FRAC))]
+    ov_l2 = []
+    for j in range(M):
+        row = []
+        for c in range(len(OV_FRAC)):
+            base = 0.1 - 2.0 * (math.log(rand.random()) +
+                                math.log(rand.random()))
+            row.append(base * (0.3 + 0.7 * ov_annot[j][c]))
+        ov_l2.append(row)
+    ov_z = []
+    for j in range(M):
+        var = 1.03 + N1 * sum(ov_l2[j][c] * ov_tau[c]
+                              for c in range(len(OV_FRAC)))
+        ov_z.append(math.sqrt(var) * rand.gauss(0.0, 1.0))
+    with open('ov_ref.l2.ldscore', 'w') as f:
+        f.write('CHR\tSNP\tBP\tbaseL2\tannotBL2\tannotCL2\n')
+        for j in range(M):
+            f.write('1\t%s\t%d\t%.6f\t%.6f\t%.6f\n'
+                    % (ids[j], j + 1, ov_l2[j][0], ov_l2[j][1], ov_l2[j][2]))
+    with open('ov_ref.l2.M_5_50', 'w') as f:
+        f.write('%g %g %g\n' % tuple(ov_m))
+    with open('ov_ref.annot', 'w') as f:
+        f.write('CHR\tBP\tSNP\tCM\tbase\tannotB\tannotC\n')
+        for j in range(M):
+            f.write('1\t%d\t%s\t0\t%g\t%g\t%g\n'
+                    % (j + 1, ids[j], ov_annot[j][0], ov_annot[j][1],
+                       ov_annot[j][2]))
+    with open('ov_ref.frq', 'w') as f:
+        f.write('CHR\tSNP\tA1\tA2\tMAF\tNCHROBS\n')
+        for j in range(M):
+            f.write('1\t%s\tA\tG\t%.6f\t1000\n' % (ids[j], ov_frq[j]))
+    with open('ov_w.l2.ldscore', 'w') as f:
+        f.write('CHR\tSNP\tBP\tL2\n')
+        for j in range(M):
+            f.write('1\t%s\t%d\t%.6f\n'
+                    % (ids[j], j + 1,
+                       sum(ov_l2[j]) * rand.uniform(0.85, 1.15)))
+    with open('ov_trait.sumstats', 'w') as f:
+        f.write('SNP\tA1\tA2\tZ\tN\n')
+        for j in range(M):
+            a1, a2 = alleles[j]
+            f.write('%s\t%s\t%s\t%.6f\t%g\n'
+                    % (ids[j], a1, a2, ov_z[j], N1))
 
     print('%d variants' % M)
 

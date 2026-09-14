@@ -37,7 +37,7 @@ else
   else
     BASEFLAGS += -mavx2 -mbmi -mbmi2 -mfma -mlzcnt
   endif
-  CXXFLAGS = -std=c++11
+  CXXFLAGS = -std=c++17
 endif
 BASEFLAGS += ${ARCH32}
 
@@ -96,11 +96,17 @@ SFX ?= ""
 
 all: ldsc$(SFX)
 
-ldsc$(SFX): $(CSRC3) $(ZCSRC3) $(ZSSRC3) $(TEXTLIB_CCSRC3) ldsc.cc
+# The t-distribution tail, for the overlapping-annotation difference test,
+# plus what it depends on.
+STATSSRC = ../../include/plink2_float.cc \
+           ../../include/plink2_highprec.cc \
+           ../../include/plink2_stats.cc
+
+ldsc$(SFX): $(CSRC3) $(ZCSRC3) $(ZSSRC3) $(TEXTLIB_CCSRC3) $(STATSSRC) ldsc.cc
 	$(CC) $(CFLAGS) $(CSRC3) -c
 	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC3) $(ZSSRC3) -c
-	$(CXX) $(CXXFLAGS) $(TEXTLIB_CCSRC3) ldsc.cc -c
-	$(CXX) $(TEXTLIB_OBJL) ldsc.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
+	$(CXX) $(CXXFLAGS) $(TEXTLIB_CCSRC3) $(STATSSRC) ldsc.cc -c
+	$(CXX) $(TEXTLIB_OBJL) plink2_float.o plink2_highprec.o plink2_stats.o ldsc.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
 
 .PHONY: clean
 clean:

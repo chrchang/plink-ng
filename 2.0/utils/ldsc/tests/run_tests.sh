@@ -100,7 +100,41 @@ if abs(prop_sum - 1.0) > 1e-9:
 print('partitioned h2 is within 4 SE, and its category proportions sum to 1')
 PYEOF
 
-# 10. --w-ld has to name exactly one LD Score column.
+# 10. --overlap-annot: annotations that overlap, corrected with the .annot
+#     and .frq files.  The base annotation covers every variant, so its
+#     proportion is 1 with no complement to test against.
+$L --h2 ov_trait.sumstats --ref-ld ov_ref --w-ld ov_w --overlap-annot \
+   --frqfile ov_ref --out t_ov
+# The same run without the correction, to check the correction changes it.
+$L --h2 ov_trait.sumstats --ref-ld ov_ref --w-ld ov_w --out t_ov_raw
+M_OV=$(tr ' ' ',' < ov_ref.l2.M_5_50 | tr -d '\n')
+python3 check.py t_ov.h2,t_ov.results oracle.py h2 \
+   --ref-ld ov_ref.l2.ldscore --w-ld ov_w.l2.ldscore \
+   --sumstats ov_trait.sumstats --M "$M_OV" --annot ov_ref.annot \
+   --frqfile ov_ref.frq
+python3 - << 'PYEOF'
+import csv
+rows = list(csv.DictReader(open('t_ov.results'), delimiter='\t'))
+base = rows[0]
+if abs(float(base['Prop._h2']) - 1.0) > 1e-9:
+    raise SystemExit('the all-variant annotation must hold all the h2, got %s'
+                     % base['Prop._h2'])
+if base['Enrichment_p'] != 'NA':
+    raise SystemExit('the all-variant annotation has no complement to test '
+                     'against, so its enrichment p must be NA, got %s'
+                     % base['Enrichment_p'])
+# The correction has to actually change the answer.
+raw = list(csv.DictReader(open('t_ov_raw.results'), delimiter='\t'))
+changed = [abs(float(rows[i]['Prop._h2']) - float(raw[i]['Prop._h2']))
+           for i in range(len(rows))]
+if max(changed) < 1e-6:
+    raise SystemExit('--overlap-annot left every proportion unchanged')
+print('overlap correction: base holds all h2, its p is NA, and the '
+      'corrected proportions differ from the uncorrected ones by up to %.3g'
+      % max(changed))
+PYEOF
+
+# 11. --w-ld has to name exactly one LD Score column.
 if $L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_ref \
       --out t_bad3 2> tmp_err3.txt; then
     echo "expected ldsc to reject multi-column --w-ld"
@@ -108,7 +142,7 @@ if $L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_ref \
 fi
 grep -q "must name a single LD Score column" tmp_err3.txt
 
-# 11. A missing Z column is an error, not a silent wrong answer.
+# 12. A missing Z column is an error, not a silent wrong answer.
 cut -f1,2,3,5 trait1.sumstats > no_z.sumstats
 if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad 2> tmp_err.txt; then
@@ -117,7 +151,7 @@ if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
 fi
 grep -q "must have SNP, Z and N columns" tmp_err.txt
 
-# 12. --rg needs at least two filesets.
+# 13. --rg needs at least two filesets.
 if $L --rg trait1.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad2 2> tmp_err2.txt; then
     echo "expected ldsc to reject a single-file --rg"
