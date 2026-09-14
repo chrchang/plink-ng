@@ -1300,27 +1300,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      than a silent omission.\n\n"
               );
     HelpPrint("blocks\0blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0", &help_ctrl, 1,
-"  --blocks ['no-pheno-req'] ['no-small-max-span']\n"
+"  --blocks ['no-small-max-span']\n"
 "    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
 "    definition suggested by Gabriel S et al. (2002) The Structure of Haplotype\n"
 "    Blocks in the Human Genome.\n"
-"    * Samples with missing phenotypes are not considered unless\n"
-"      'no-pheno-req' is specified; only founders are used either way.\n"
-"    * Size-2 blocks may not span more than 20kb and size-3 blocks more than\n"
-"      30kb; 'no-small-max-span' removes those limits.\n"
-"    * Variants with MAF below --blocks-min-maf are ignored outright, as\n"
-"      Haploview does.  Multiallelic variants and haploid chromosomes are\n"
-"      skipped.\n\n"
-              );
-    HelpPrint("blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0blocks\0", &help_ctrl, 0,
-"  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span (def. 200).\n"
-"  --blocks-min-maf <cutoff>  : Adjust --blocks MAF minimum (default 0.05).\n"
-"  --blocks-strong-lowci <x>  : Set --blocks \"strong LD\" CI thresholds (defaults\n"
-"  --blocks-strong-highci <x>   0.70 and 0.98).\n"
-"  --blocks-recomb-highci <x> : Set \'recombination\' CI threshold (def. 0.90).\n"
-"  --blocks-inform-frac <x>   : Force haploblock <strong LD pairs>:<total\n"
-"                               informative pairs> ratios to be larger than this\n"
-"                               value (default 0.95).\n"
+"    * It is now necessary to explicitly specify a --blocks-max-kb value for use\n"
+"      with this command; the old default of 200 is frequently too short.\n"
+"    * By default, size-2 blocks may not span more than 20kb and size-3 blocks\n"
+"      more than 30kb; 'no-small-max-span' removes those limits.\n"
+"    * Multiallelic variants are kept, with the major allele taken against the\n"
+"      rest.  Haploid chromosomes are skipped.\n\n"
               );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] ['cols='<column set descriptor>]\n"
@@ -3239,6 +3228,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
 "  --tag-kb <kbs>       : Set --show-tags max tag kb distance (default 250).\n"
 "  --tag-r2 <val>       : Set --show-tags min tag r^2 (default 0.8).\n"
+              );
+    HelpPrint("blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0blocks\0", &help_ctrl, 0,
+"  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span.\n"
+"  --blocks-min-maf <cutoff>  : Adjust --blocks MAF minimum (default 0.05).\n"
+"  --blocks-strong-lowci <x>  : Set --blocks \"strong LD\" CI thresholds (defaults\n"
+"  --blocks-strong-highci <x>   0.70 and 0.98).\n"
+"  --blocks-recomb-highci <x> : Set \'recombination\' CI threshold (def. 0.90).\n"
+"  --blocks-inform-frac <x>   : Force haploblock <strong LD pairs>:<total\n"
+"                               informative pairs> ratios to be larger than this\n"
+"                               value (default 0.95).\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,

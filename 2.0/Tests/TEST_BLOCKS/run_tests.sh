@@ -41,7 +41,7 @@ compare() {
 
 # 1. Defaults ('no-pheno-req' because the fixture has no phenotype).
 plink --bfile tmp_data --blocks no-pheno-req --out plink19
-$1/plink2 $2 $3 --bfile tmp_data --blocks no-pheno-req --out plink2
+$1/plink2 $2 $3 --bfile tmp_data --blocks --blocks-max-kb 200 --out plink2
 compare plink19.blocks plink2.blocks plink19.blocks.det plink2.blocks.det
 
 # 2. Each parameter flag, one at a time.
@@ -51,31 +51,35 @@ compare plink19.blocks plink2.blocks plink19.blocks.det plink2.blocks.det
 # choose between overlapping candidates of equal length.
 for opt in "--blocks-max-kb 4" "--blocks-max-kb 8" "--blocks-max-kb 10" \
            "--blocks-max-kb 12" "--blocks-max-kb 14" "--blocks-max-kb 16" \
-           "--blocks-max-kb 30" "--blocks-max-kb 100" "--blocks-min-maf 0.2" \
-           "--blocks-min-maf 0.4" "--blocks-strong-lowci 0.75" \
-           "--blocks-strong-highci 0.9" "--blocks-recomb-highci 0.8" \
-           "--blocks-inform-frac 0.9" "--blocks-inform-frac 0.99"
+           "--blocks-max-kb 30" "--blocks-max-kb 100" \
+           "--blocks-max-kb 200 --blocks-min-maf 0.2" \
+           "--blocks-max-kb 200 --blocks-min-maf 0.4" \
+           "--blocks-max-kb 200 --blocks-strong-lowci 0.75" \
+           "--blocks-max-kb 200 --blocks-strong-highci 0.9" \
+           "--blocks-max-kb 200 --blocks-recomb-highci 0.8" \
+           "--blocks-max-kb 200 --blocks-inform-frac 0.9" \
+           "--blocks-max-kb 200 --blocks-inform-frac 0.99"
 do
     plink --bfile tmp_data --blocks no-pheno-req $opt --out plink19_opt
-    $1/plink2 $2 $3 --bfile tmp_data --blocks no-pheno-req $opt --out plink2_opt
+    $1/plink2 $2 $3 --bfile tmp_data --blocks $opt --out plink2_opt
     compare plink19_opt.blocks plink2_opt.blocks plink19_opt.blocks.det plink2_opt.blocks.det
 done
 
 # 2b. A threshold strict enough to reject everything: both should find nothing.
 plink --bfile tmp_data --blocks no-pheno-req --blocks-recomb-highci 0.7 --out plink19_none
-$1/plink2 $2 $3 --bfile tmp_data --blocks no-pheno-req --blocks-recomb-highci 0.7 --out plink2_none
+$1/plink2 $2 $3 --bfile tmp_data --blocks --blocks-max-kb 200 --blocks-recomb-highci 0.7 --out plink2_none
 test "$(grep -vc '^#' plink19_none.blocks)" -eq 0
 test "$(grep -vc '^#' plink2_none.blocks)" -eq 0
 
 # 3. 'no-small-max-span'.
 plink --bfile tmp_data --blocks no-pheno-req no-small-max-span --out plink19_nsms
-$1/plink2 $2 $3 --bfile tmp_data --blocks no-pheno-req no-small-max-span --out plink2_nsms
+$1/plink2 $2 $3 --bfile tmp_data --blocks no-small-max-span --blocks-max-kb 200 --out plink2_nsms
 compare plink19_nsms.blocks plink2_nsms.blocks plink19_nsms.blocks.det plink2_nsms.blocks.det
 
 # 4. The result must not depend on --threads.
 for t in 1 3 8
 do
-    $1/plink2 $2 $3 --bfile tmp_data --blocks no-pheno-req --threads $t --out plink2_t$t
+    $1/plink2 $2 $3 --bfile tmp_data --blocks --blocks-max-kb 200 --threads $t --out plink2_t$t
     diff -q plink2.blocks plink2_t$t.blocks
     diff -q plink2.blocks.det plink2_t$t.blocks.det
 done
@@ -83,5 +87,5 @@ done
 # 5. Multiallelic variants are kept, one allele against the rest, so splitting
 #    a variant into a biallelic pair must not change the blocks it is in.
 $1/plink2 $2 $3 --bfile tmp_data --make-pgen --out plink2_pgen
-$1/plink2 $2 $3 --pfile plink2_pgen --blocks no-pheno-req --out plink2_frompgen
+$1/plink2 $2 $3 --pfile plink2_pgen --blocks --blocks-max-kb 200 --out plink2_frompgen
 diff -q plink2.blocks plink2_frompgen.blocks

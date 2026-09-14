@@ -115,6 +115,17 @@ void CleanupClump(ClumpInfo* clump_ip) {
   free_cond(clump_ip->ln_bin_boundaries);
 }
 
+void InitBlocks(BlocksInfo* bip) {
+  bip->flags = kfBlocks0;
+  bip->max_bp = 0;
+  bip->strong_lowci_outer = 71;
+  bip->strong_lowci = 72;
+  bip->strong_highci = 97;
+  bip->recomb_highci = 89;
+  bip->min_maf = 0.05;
+  bip->inform_frac = 0.95;
+}
+
 void InitVcor(VcorInfo* vcip) {
   vcip->ld_snp_list_fname = nullptr;
   InitRangeList(&(vcip->ld_snp_range_list));
@@ -13467,10 +13478,6 @@ void CleanupTwolocus(TwolocusInfo* tlip) {
 // classification of a pair's D' confidence interval is what --blocks is built
 // on, and its early exits are what make it affordable, so this is a faithful
 // port rather than a reimplementation.
-static const double kSmallishEpsilonB = 0.00000000002910383045673370361328125;
-static const double kRecip2m53B = 0.00000000000000011102230246251565404236316680908203125;
-
-
 
 uint32_t BlocksEmPhaseHethet(double known11, double known12, double known21, double known22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr, uint32_t* onside_sol_ct_ptr) {
   // Returns 1 if at least one SNP is monomorphic over all valid observations;
@@ -13525,10 +13532,10 @@ uint32_t BlocksEmPhaseHethet(double known11, double known12, double known21, dou
   if (center_ct) {
     if ((prod_1122 != 0.0) || (prod_1221 != 0.0)) {
       sol_end_idx = CubicRealRoots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * prod_1122, solutions);
-      while (sol_end_idx && (solutions[sol_end_idx - 1] > half_hethet_share + kSmallishEpsilonB)) {
+      while (sol_end_idx && (solutions[sol_end_idx - 1] > half_hethet_share + k2m35)) {
         sol_end_idx--;
       }
-      while ((sol_start_idx < sol_end_idx) && (solutions[sol_start_idx] < -kSmallishEpsilonB)) {
+      while ((sol_start_idx < sol_end_idx) && (solutions[sol_start_idx] < -k2m35)) {
         sol_start_idx++;
       }
       if (sol_start_idx == sol_end_idx) {
@@ -13552,7 +13559,7 @@ uint32_t BlocksEmPhaseHethet(double known11, double known12, double known21, dou
       // bugfix (6 Oct 2017): need to use all nonzero values here
       const double nonzero_freq_xx = freq11 + freq22;
       const double nonzero_freq_xy = freq12 + freq21;
-      if ((nonzero_freq_xx + kSmallishEpsilonB < half_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + kSmallishEpsilonB < half_hethet_share + nonzero_freq_xx)) {
+      if ((nonzero_freq_xx + k2m35 < half_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + k2m35 < half_hethet_share + nonzero_freq_xx)) {
         sol_end_idx = 3;
         solutions[1] = (half_hethet_share + nonzero_freq_xy - nonzero_freq_xx) * 0.5;
         solutions[2] = half_hethet_share;
@@ -13590,22 +13597,22 @@ uint32_t BlocksEmPhaseHethet(double known11, double known12, double known21, dou
       // direction changes within the main interval
       // this should exactly match HaploviewBlocksClassify()'s D sign check
       if ((freq11 + best_sol) - freqx1 * freq1x >= 0.0) {
-        if (best_sol > dxx + kSmallishEpsilonB) {
-          lbound = dxx + kSmallishEpsilonB;
+        if (best_sol > dxx + k2m35) {
+          lbound = dxx + k2m35;
         } else {
           lbound = dxx;
         }
-        if (best_sol < half_hethet_share - kSmallishEpsilonB) {
-          half_hethet_share -= kSmallishEpsilonB;
+        if (best_sol < half_hethet_share - k2m35) {
+          half_hethet_share -= k2m35;
         }
       } else {
-        if (best_sol > kSmallishEpsilonB) {
-          lbound = kSmallishEpsilonB;
+        if (best_sol > k2m35) {
+          lbound = k2m35;
         } else {
           lbound = 0.0;
         }
-        if (best_sol < dxx - kSmallishEpsilonB) {
-          half_hethet_share = dxx - kSmallishEpsilonB;
+        if (best_sol < dxx - k2m35) {
+          half_hethet_share = dxx - k2m35;
         } else {
           half_hethet_share = dxx;
         }
@@ -13823,7 +13830,7 @@ uint32_t HaploviewBlocksClassify(uint32_t* counts, uint32_t lowci_max, uint32_t 
                   }
                   dyy = right_sum[lowci_min] * (20.0 / 19.0);
                   while (total_prob < dyy) {
-                    if ((!quantile) || (dxx <= kRecip2m53B)) {
+                    if ((!quantile) || (dxx <= k2m53)) {
                       total_prob *= 0.95;
                       if (total_prob >= right_sum[strong_lowci_outer]) {
                         // lowCI < 0.70
@@ -13949,20 +13956,6 @@ uint32_t HaploviewBlocksClassify(uint32_t* counts, uint32_t lowci_max, uint32_t 
     return 3;
   }
   return 4;
-}
-
-
-
-
-void InitBlocks(BlocksInfo* bip) {
-  bip->flags = kfBlocks0;
-  bip->max_bp = 200000;
-  bip->strong_lowci_outer = 71;
-  bip->strong_lowci = 72;
-  bip->strong_highci = 97;
-  bip->recomb_highci = 89;
-  bip->min_maf = 0.05;
-  bip->inform_frac = 0.95;
 }
 
 // --blocks: Haploview's reading of the Gabriel et al. (2002) haplotype block
@@ -14110,7 +14103,7 @@ THREAD_FUNC_DECL BlocksThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const PhenoCol* pheno_cols, const BlocksInfo* bip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t pheno_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const BlocksInfo* bip, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   FILE* outfile_det = nullptr;
@@ -14118,7 +14111,10 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
   ThreadGroup tg;
   PreinitThreads(&tg);
   {
-    const uint32_t no_pheno_req = (bip->flags / kfBlocksNoPhenoReq) & 1;
+    if (founder_ct < 2) {
+      logerrputs("Warning: Skipping --blocks, since there are less than two founders.\n");
+      goto HaploviewBlocks_ret_1;
+    }
     const uint32_t no_small_max_span = (bip->flags / kfBlocksNoSmallMaxSpan) & 1;
     const uint32_t max_window_bp = bip->max_bp;
     const uint32_t max_window_bp1 = no_small_max_span? 0x7fffffff : 20000;
@@ -14128,30 +14124,11 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
     const uint32_t strong_lowci = bip->strong_lowci;
     const uint32_t strong_lowci_outer = bip->strong_lowci_outer;
     const double recomb_fast_ln_thresh = -log(u31tod((100 - recomb_highci) * 20));
-    const double inform_frac = bip->inform_frac + kSmallishEpsilonB;
+    const double inform_frac = bip->inform_frac + k2m35;
     const uint32_t inform_thresh_two = 1 + S_CAST(uint32_t, 3 * inform_frac);
     const uint32_t inform_thresh_three = S_CAST(uint32_t, 6 * inform_frac);
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    uintptr_t* founder_pnm;
-    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_pnm))) {
-      goto HaploviewBlocks_ret_NOMEM;
-    }
-    memcpy(founder_pnm, founder_info, raw_sample_ctl * sizeof(intptr_t));
-    if (!no_pheno_req) {
-      // PLINK 1.x restricts to samples with a nonmissing phenotype unless told
-      // otherwise; any phenotype counts, as there it is a single column.
-      if (unlikely(!pheno_ct)) {
-        logerrputs("Warning: Skipping --blocks, since no phenotype is loaded.  ('no-pheno-req'\nremoves the phenotype restriction.)\n");
-        goto HaploviewBlocks_ret_1;
-      }
-      BitvecAnd(pheno_cols[0].nonmiss, raw_sample_ctl, founder_pnm);
-    }
-    const uint32_t founder_ct = PopcountWords(founder_pnm, raw_sample_ctl);
-    if (founder_ct < 2) {
-      logerrputs("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.\n");
-      goto HaploviewBlocks_ret_1;
-    }
 
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include;
@@ -14229,7 +14206,7 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
                  bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec))) {
       goto HaploviewBlocks_ret_NOMEM;
     }
-    FillCumulativePopcounts(founder_pnm, raw_sample_ctl, founder_cumulative_popcounts);
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_cumulative_popcounts);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(founder_cumulative_popcounts, simple_pgrp, &pssi);
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
@@ -14370,7 +14347,7 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
             ++window_start_cidx;
           }
           const uint32_t cur_slot = cidx % ring_size;
-          reterr = PgrGetInv1(founder_pnm, pssi, founder_ct, cur_uidx, maj_alleles[cur_uidx], simple_pgrp, genovec);
+          reterr = PgrGetInv1(founder_info, pssi, founder_ct, cur_uidx, maj_alleles[cur_uidx], simple_pgrp, genovec);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, cur_uidx);
             goto HaploviewBlocks_ret_1;

@@ -156,6 +156,7 @@ static const char notestr_null_calc2[] =
 "     --indep-pairwise           LD-based variant pruning\n"
 "     --r-phased, --r2-phased    pairwise LD; --r[2]-unphased for unphased\n"
 "     --ld-score                 per-variant LD Score\n"
+"     --blocks                   haplotype blocks, Gabriel et al. (2002)\n"
 "     --flip-scan                find strand-inconsistent variants, using MAF/LD\n"
 "\n"
 "  -- Relatedness and population structure\n"
@@ -3262,7 +3263,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --blocks requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
           return kPglRetInconsistentInput;
         }
-        reterr = HaploviewBlocks(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, pheno_cols, &(pcp->blocks_info), raw_sample_ct, raw_variant_ct, variant_ct, pheno_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = HaploviewBlocks(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, &(pcp->blocks_info), raw_sample_ct, founder_ct, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -5043,7 +5044,7 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "no-pheno-req", cur_modif_slen)) {
-              pc.blocks_info.flags |= kfBlocksNoPhenoReq;
+              logputs("Note: --blocks 'no-pheno-req' modifier is no longer necessary; phenotypes are\nalways ignored now.\n");
             } else if (likely(strequal_k(cur_modif, "no-small-max-span", cur_modif_slen))) {
               pc.blocks_info.flags |= kfBlocksNoSmallMaxSpan;
             } else {
@@ -5054,16 +5055,24 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Blocks;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "locks-max-kb")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-max-kb must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           double dxx;
-          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0) || (dxx > 2147483.646))) {
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.001) || (dxx > 2147483.646))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks-max-kb argument '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.blocks_info.max_bp = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
         } else if (strequal_k_unsafe(flagname_p2, "locks-min-maf")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-min-maf must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5074,6 +5083,10 @@ int main(int argc, char** argv) {
           }
           pc.blocks_info.min_maf = dxx;
         } else if (strequal_k_unsafe(flagname_p2, "locks-inform-frac")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-inform-frac must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5084,6 +5097,10 @@ int main(int argc, char** argv) {
           }
           pc.blocks_info.inform_frac = dxx;
         } else if (strequal_k_unsafe(flagname_p2, "locks-strong-lowci")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-strong-lowci must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5101,6 +5118,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
         } else if (strequal_k_unsafe(flagname_p2, "locks-strong-highci")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-strong-highci must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5115,6 +5136,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
         } else if (strequal_k_unsafe(flagname_p2, "locks-recomb-highci")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-recomb-highci must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -14260,9 +14285,15 @@ int main(int argc, char** argv) {
       logerrputs("Error: --list-all must be used with --show-tags.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if ((pc.command_flags1 & kfCommand1Blocks) && (pc.blocks_info.recomb_highci > pc.blocks_info.strong_highci)) {
-      logerrputs("Error: --blocks-recomb-highci value cannot be larger than\n--blocks-strong-highci value.\n");
-      goto main_ret_INVALID_CMDLINE_A;
+    if (pc.command_flags1 & kfCommand1Blocks) {
+      if (unlikely(pc.blocks_info.max_bp == 0)) {
+        logerrputs("Error: --blocks-max-kb must be explicitly specified when using --blocks.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely(pc.blocks_info.recomb_highci > pc.blocks_info.strong_highci)) {
+        logerrputs("Error: --blocks-recomb-highci value cannot be larger than\n--blocks-strong-highci value.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
     }
     if (!outname_end) {
       outname_end = &(outname[6]);
