@@ -210,6 +210,75 @@ def main():
             f.write('%s\t%s\t%s\t%.6f\t%g\n'
                     % (ids[j], a1, a2, ov_z[j], N1))
 
+    # Raw summary statistics for --munge, with the problems it has to catch:
+    # nonstandard column names, a low INFO score, a rare variant, a p-value
+    # out of range, a missing p-value, a strand-ambiguous variant, a
+    # duplicated ID, and a low sample size.
+    munge_rows = []
+    for j in range(M):
+        beta = rand.gauss(0.0, 0.05)
+        se = 0.03
+        z = beta / se
+        p = math.erfc(abs(z) / math.sqrt(2.0))
+        info = rand.uniform(0.85, 1.0)
+        frq = rand.uniform(0.005, 0.5)
+        n = rand.choice([90000, 95000, 100000, 40000])
+        a1, a2 = alleles[j]
+        munge_rows.append((ids[j], a1, a2, beta, se, p, info, frq, n))
+    with open('raw.txt', 'w') as f:
+        f.write('MarkerName\tEffect_allele\tOther_allele\tBeta\tSE\t'
+                'P-value\tINFO\tEAF\tWeight\n')
+        for r in munge_rows:
+            f.write('%s\t%s\t%s\t%.6f\t%.4f\t%.6g\t%.4f\t%.4f\t%g\n'
+                    % r)
+        f.write('%s\tA\tG\t0.01\t0.03\t0.5\t0.99\t0.3\t100000\n'
+                % ids[0])                                     # duplicate ID
+        f.write('rs_ambig\tA\tT\t0.01\t0.03\t0.5\t0.99\t0.3\t100000\n')
+        f.write('rs_badp\tA\tG\t0.01\t0.03\t2.0\t0.99\t0.3\t100000\n')
+        f.write('rs_nop\tA\tG\t0.01\t0.03\tNA\t0.99\t0.3\t100000\n')
+
+    # Case/control counts that vary by variant, with an odds ratio as the
+    # signed statistic.
+    with open('raw_cc.txt', 'w') as f:
+        f.write('SNP\tA1\tA2\tOR\tP\tN_CAS\tN_CON\tFRQ\n')
+        for j in range(M):
+            beta = munge_rows[j][3]
+            p = munge_rows[j][5]
+            n_cas = rand.choice([9000, 10000, 11000])
+            n_con = rand.choice([40000, 45000, 50000])
+            f.write('%s\t%s\t%s\t%.6f\t%.6g\t%d\t%d\t%.4f\n'
+                    % (ids[j], alleles[j][0], alleles[j][1], math.exp(beta),
+                       p, n_cas, n_con, munge_rows[j][7]))
+
+    # A variant list for --merge-alleles: half the variants, a quarter of them
+    # with the alleles the other way round, plus one the input does not have.
+    with open('merge_alleles.txt', 'w') as f:
+        f.write('SNP\tA1\tA2\n')
+        for j in range(0, M, 2):
+            a1, a2 = alleles[j]
+            if j % 4 == 0:
+                a1, a2 = a2, a1
+            f.write('%s\t%s\t%s\n' % (ids[j], a1, a2))
+        f.write('rs_absent\tA\tG\n')
+
+    # PGC daner format: the case and control counts live in the column names.
+    with open('raw_daner.txt', 'w') as f:
+        f.write('SNP\tA1\tA2\tOR\tSE\tP\tFRQ_A_12345\tFRQ_U_67890\t'
+                'INFO\n')
+        for j in range(M):
+            f.write('%s\t%s\t%s\t%.6f\t0.03\t%.6g\t%.4f\t%.4f\t0.98\n'
+                    % (ids[j], alleles[j][0], alleles[j][1],
+                       math.exp(munge_rows[j][3]), munge_rows[j][5],
+                       munge_rows[j][7], munge_rows[j][7]))
+
+    # No signed statistic at all: A1 is the trait-increasing allele.
+    with open('raw_a1inc.txt', 'w') as f:
+        f.write('SNP\tA1\tA2\tP\tN\n')
+        for j in range(M):
+            f.write('%s\t%s\t%s\t%.6g\t100000\n'
+                    % (ids[j], alleles[j][0], alleles[j][1],
+                       munge_rows[j][5]))
+
     print('%d variants' % M)
 
 

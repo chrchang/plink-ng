@@ -134,7 +134,62 @@ print('overlap correction: base holds all h2, its p is NA, and the '
       % max(changed))
 PYEOF
 
-# 11. --w-ld has to name exactly one LD Score column.
+# 11. --munge: the quality control that turns a raw GWAS file into
+#     .sumstats, checked against munge_oracle.py, which re-derives which
+#     variants should survive and what their Z and N should be.
+$L --munge raw.txt --out t_munge
+python3 munge_oracle.py --raw raw.txt --munged t_munge.sumstats
+grep -q "Removed 1 variants that were not SNPs or were strand-ambiguous" \
+   t_munge.log
+grep -q "Removed 1 variants with out-of-bounds p-values" t_munge.log
+grep -q "Removed 1 variants with missing values" t_munge.log
+grep -q "variants with duplicated IDs" t_munge.log
+grep -q "Median BETA was" t_munge.log
+
+# 11b. Case/control counts, an odds ratio as the signed statistic, and the
+#      frequency column kept.
+$L --munge raw_cc.txt --keep-maf --out t_munge_cc
+python3 munge_oracle.py --raw raw_cc.txt --munged t_munge_cc.sumstats \
+   --keep-maf
+head -1 t_munge_cc.sumstats | grep -q "FRQ"
+
+# 11c. --merge-alleles: the output covers the list, in its order, with the
+#      variants it could not fill in left missing.
+$L --munge raw_cc.txt --merge-alleles merge_alleles.txt --out t_munge_merge
+python3 munge_oracle.py --raw raw_cc.txt --munged t_munge_merge.sumstats \
+   --merge-alleles merge_alleles.txt
+grep -q "^rs_absent	NA	NA	NA	NA$" t_munge_merge.sumstats
+
+# 11d. --daner takes the case and control counts from the column names, and
+#      --a1-inc accepts a file with no signed statistic.
+$L --munge raw_daner.txt --daner --out t_munge_daner
+python3 munge_oracle.py --raw raw_daner.txt --munged t_munge_daner.sumstats \
+   --daner
+grep -q "N_cas = 12345, N_con = 67890" t_munge_daner.log
+$L --munge raw_a1inc.txt --a1-inc --out t_munge_a1inc
+python3 munge_oracle.py --raw raw_a1inc.txt --munged t_munge_a1inc.sumstats \
+   --a1-inc
+# With --a1-inc every Z is positive, since nothing says otherwise.
+if awk 'NR > 1 && $4 < 0 { found = 1 } END { exit !found }' \
+      t_munge_a1inc.sumstats; then
+    echo "--a1-inc should not produce negative Z values"
+    exit 1
+fi
+
+# 11e. A munged file feeds straight back into --h2.
+$L --h2 t_munge.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
+   --M 6000 --out t_munge_h2
+grep -q "Total Observed scale h2" t_munge_h2.log
+
+# 11f. A file with two signed statistics is ambiguous, and --ignore resolves
+#      it.
+if $L --munge raw_daner.txt --out t_bad4 2> tmp_err4.txt; then
+    echo "expected ldsc to reject a file with no determinable sample size"
+    exit 1
+fi
+grep -q "sample size" tmp_err4.txt
+
+# 12. --w-ld has to name exactly one LD Score column.
 if $L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_ref \
       --out t_bad3 2> tmp_err3.txt; then
     echo "expected ldsc to reject multi-column --w-ld"
@@ -142,7 +197,7 @@ if $L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_ref \
 fi
 grep -q "must name a single LD Score column" tmp_err3.txt
 
-# 12. A missing Z column is an error, not a silent wrong answer.
+# 13. A missing Z column is an error, not a silent wrong answer.
 cut -f1,2,3,5 trait1.sumstats > no_z.sumstats
 if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad 2> tmp_err.txt; then
@@ -151,7 +206,7 @@ if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
 fi
 grep -q "must have SNP, Z and N columns" tmp_err.txt
 
-# 13. --rg needs at least two filesets.
+# 14. --rg needs at least two filesets.
 if $L --rg trait1.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad2 2> tmp_err2.txt; then
     echo "expected ldsc to reject a single-file --rg"

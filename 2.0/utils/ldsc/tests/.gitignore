@@ -9,3 +9,5 @@ tmp_*.txt
 *.annot
 *.frq
 __pycache__/
+raw*.txt
+merge_alleles.txt

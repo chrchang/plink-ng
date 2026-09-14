@@ -1965,6 +1965,1013 @@ void LdscPrintGencov(const LdscGencovResult* gencov, const double* samp_prev1, c
   }
 }
 
+// ***** munge: raw GWAS summary statistics to .sumstats *****
+//
+// The reference implementation's munge_sumstats.py: detect the columns, throw
+// out what LD Score regression should not see (low imputation quality, rare
+// variants, out-of-range p-values, strand-ambiguous or non-SNP alleles,
+// duplicated IDs, low sample size), turn the p-value and the signed statistic
+// into a signed Z, and write SNP/A1/A2/Z/N.
+
+typedef enum {
+  kMungeFieldNone = 0,
+  kMungeFieldSnp,
+  kMungeFieldP,
+  kMungeFieldA1,
+  kMungeFieldA2,
+  kMungeFieldN,
+  kMungeFieldNCas,
+  kMungeFieldNCon,
+  kMungeFieldNStudy,
+  kMungeFieldInfo,
+  kMungeFieldFrq,
+  kMungeFieldZ,
+  kMungeFieldOr,
+  kMungeFieldBeta,
+  kMungeFieldLogOdds,
+  kMungeFieldSigned
+} MungeField;
+
+typedef struct MungeAliasStruct {
+  const char* name;
+  MungeField field;
+} MungeAlias;
+
+// The reference implementation's default_cnames, with its aliases.
+static const MungeAlias kMungeAliases[] = {
+  {"SNP", kMungeFieldSnp}, {"MARKERNAME", kMungeFieldSnp}, {"SNPID", kMungeFieldSnp},
+  {"RS", kMungeFieldSnp}, {"RSID", kMungeFieldSnp}, {"RS_NUMBER", kMungeFieldSnp},
+  {"RS_NUMBERS", kMungeFieldSnp},
+  {"NSTUDY", kMungeFieldNStudy}, {"N_STUDY", kMungeFieldNStudy},
+  {"NSTUDIES", kMungeFieldNStudy}, {"N_STUDIES", kMungeFieldNStudy},
+  {"P", kMungeFieldP}, {"PVALUE", kMungeFieldP}, {"P_VALUE", kMungeFieldP},
+  {"PVAL", kMungeFieldP}, {"P_VAL", kMungeFieldP}, {"GC_PVALUE", kMungeFieldP},
+  {"A1", kMungeFieldA1}, {"ALLELE1", kMungeFieldA1}, {"ALLELE_1", kMungeFieldA1},
+  {"EFFECT_ALLELE", kMungeFieldA1}, {"REFERENCE_ALLELE", kMungeFieldA1},
+  {"INC_ALLELE", kMungeFieldA1}, {"EA", kMungeFieldA1},
+  {"A2", kMungeFieldA2}, {"ALLELE2", kMungeFieldA2}, {"ALLELE_2", kMungeFieldA2},
+  {"OTHER_ALLELE", kMungeFieldA2}, {"NON_EFFECT_ALLELE", kMungeFieldA2},
+  {"DEC_ALLELE", kMungeFieldA2}, {"NEA", kMungeFieldA2},
+  {"N", kMungeFieldN}, {"WEIGHT", kMungeFieldN},
+  {"NCASE", kMungeFieldNCas}, {"CASES_N", kMungeFieldNCas}, {"N_CASE", kMungeFieldNCas},
+  {"N_CASES", kMungeFieldNCas}, {"N_CAS", kMungeFieldNCas},
+  {"N_CONTROLS", kMungeFieldNCon}, {"N_CON", kMungeFieldNCon},
+  {"NCONTROL", kMungeFieldNCon}, {"CONTROLS_N", kMungeFieldNCon},
+  {"N_CONTROL", kMungeFieldNCon},
+  {"ZSCORE", kMungeFieldZ}, {"Z_SCORE", kMungeFieldZ}, {"GC_ZSCORE", kMungeFieldZ},
+  {"Z", kMungeFieldZ},
+  {"OR", kMungeFieldOr},
+  {"B", kMungeFieldBeta}, {"BETA", kMungeFieldBeta}, {"EFFECTS", kMungeFieldBeta},
+  {"EFFECT", kMungeFieldBeta},
+  {"LOG_ODDS", kMungeFieldLogOdds},
+  {"INFO", kMungeFieldInfo},
+  {"EAF", kMungeFieldFrq}, {"FRQ", kMungeFieldFrq}, {"MAF", kMungeFieldFrq},
+  {"FRQ_U", kMungeFieldFrq}, {"F_U", kMungeFieldFrq},
+  {nullptr, kMungeFieldNone}
+};
+
+// Uppercases, and maps '-' and '.' to '_', as the reference implementation's
+// clean_header() does.
+std::string LdscCleanHeader(const char* tok, uint32_t slen) {
+  std::string out;
+  out.reserve(slen);
+  for (uint32_t i = 0; i != slen; ++i) {
+    char c = tok[i];
+    if ((c >= 'a') && (c <= 'z')) {
+      c -= 32;
+    } else if ((c == '-') || (c == '.')) {
+      c = '_';
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
+// The value a signed statistic takes when there is no effect.
+double LdscSignedNull(MungeField field) {
+  return (field == kMungeFieldOr)? 1.0 : 0.0;
+}
+
+const char* LdscSignedName(MungeField field) {
+  switch (field) {
+  case kMungeFieldZ: return "Z";
+  case kMungeFieldOr: return "OR";
+  case kMungeFieldBeta: return "BETA";
+  case kMungeFieldLogOdds: return "LOG_ODDS";
+  default: return "SIGNED_SUMSTAT";
+  }
+}
+
+// The reference implementation writes an integral sample size without a
+// fractional part, and a scaled one to three decimals.
+void LdscWriteN(double n, uint32_t integral_column, FILE* out_file) {
+  if (integral_column) {
+    fprintf(out_file, "%.0f", n);
+  } else {
+    fprintf(out_file, "%.3f", n);
+  }
+}
+
+typedef struct MungeRowStruct {
+  std::string id;
+  char a1;
+  char a2;
+  double p;
+  double signed_stat;
+  double n;
+  double n_cas;
+  double n_con;
+  double frq;
+  double nstudy;
+} MungeRow;
+
+typedef struct MungeOptsStruct {
+  const char* fname;
+  const char* merge_alleles;
+  const char* snp_col;
+  const char* a1_col;
+  const char* a2_col;
+  const char* p_col;
+  const char* n_col;
+  const char* n_cas_col;
+  const char* n_con_col;
+  const char* frq_col;
+  const char* info_col;
+  const char* info_list;
+  const char* nstudy_col;
+  const char* signed_sumstats;  // "<column>,<null value>"
+  const char* ignore;
+  double n_override;
+  double n_cas_override;
+  double n_con_override;
+  double info_min;
+  double maf_min;
+  double n_min;
+  uint32_t have_n_min;
+  double nstudy_min;
+  uint32_t have_nstudy_min;
+  uint32_t a1_inc;
+  uint32_t no_alleles;
+  uint32_t keep_maf;
+  uint32_t daner;
+} MungeOpts;
+
+// An allele pair the reference implementation would keep: two different ACGT
+// alleles that are not each other's complement.
+uint32_t LdscMungeValidSnp(char a1, char a2) {
+  return LdscIsValidSnp(a1, a2);
+}
+
+// The .sumstats-format allele list --merge-alleles restricts to.
+typedef struct MungeMergeListStruct {
+  std::vector<std::string> ids;
+  std::vector<char> a1;
+  std::vector<char> a2;
+  std::unordered_map<std::string, uint32_t> id_to_idx;
+} MungeMergeList;
+
+BoolErr LdscReadMergeAlleles(const char* fname, MungeMergeList* dst) {
+  static const char* kIdNames[] = {"SNP", "ID", nullptr};
+  static const char* kA1Names[] = {"A1", nullptr};
+  static const char* kA2Names[] = {"A2", nullptr};
+  TextStream txs;
+  PreinitTextStream(&txs);
+  PglErr reterr = TextStreamOpen(fname, &txs);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to open %s.\n", fname);
+    return 1;
+  }
+  const char* header = TextGet(&txs);
+  if (!header) {
+    fprintf(stderr, "Error: %s is empty.\n", fname);
+    return 1;
+  }
+  uint32_t col_id = UINT32_MAX;
+  uint32_t col_a1 = UINT32_MAX;
+  uint32_t col_a2 = UINT32_MAX;
+  uint32_t col_ct = 0;
+  {
+    const char* iter = FirstNonTspace(header);
+    if (*iter == '#') {
+      ++iter;
+    }
+    for (; !IsEolnKns(*iter); ++col_ct) {
+      const char* token_end = CurTokenEnd(iter);
+      const uint32_t slen = token_end - iter;
+      if ((col_id == UINT32_MAX) && LdscMatchCol(iter, slen, kIdNames)) {
+        col_id = col_ct;
+      } else if ((col_a1 == UINT32_MAX) && LdscMatchCol(iter, slen, kA1Names)) {
+        col_a1 = col_ct;
+      } else if ((col_a2 == UINT32_MAX) && LdscMatchCol(iter, slen, kA2Names)) {
+        col_a2 = col_ct;
+      }
+      iter = FirstNonTspace(token_end);
+    }
+  }
+  if ((col_id == UINT32_MAX) || (col_a1 == UINT32_MAX) || (col_a2 == UINT32_MAX)) {
+    fprintf(stderr, "Error: --merge-alleles file must have SNP, A1 and A2 columns.\n");
+    return 1;
+  }
+  uint32_t max_col = MAXV(col_id, MAXV(col_a1, col_a2));
+  while (1) {
+    const char* line_start = TextGet(&txs);
+    if (!line_start) {
+      break;
+    }
+    const char* iter = FirstNonTspace(line_start);
+    if (IsEolnKns(*iter)) {
+      continue;
+    }
+    const char* id_start = nullptr;
+    uint32_t id_slen = 0;
+    char a1 = '\0';
+    char a2 = '\0';
+    uint32_t ok = 1;
+    for (uint32_t col_idx = 0; col_idx <= max_col; ++col_idx) {
+      if (IsEolnKns(*iter)) {
+        ok = 0;
+        break;
+      }
+      const char* token_end = CurTokenEnd(iter);
+      const uint32_t slen = token_end - iter;
+      if (col_idx == col_id) {
+        id_start = iter;
+        id_slen = slen;
+      } else if (col_idx == col_a1) {
+        if (slen != 1) {
+          ok = 0;
+          break;
+        }
+        a1 = LdscUpcase(*iter);
+      } else if (col_idx == col_a2) {
+        if (slen != 1) {
+          ok = 0;
+          break;
+        }
+        a2 = LdscUpcase(*iter);
+      }
+      iter = FirstNonTspace(token_end);
+    }
+    if (!ok) {
+      continue;
+    }
+    const std::string id(id_start, id_slen);
+    if (!dst->id_to_idx.emplace(id, dst->ids.size()).second) {
+      continue;
+    }
+    dst->ids.push_back(id);
+    dst->a1.push_back(a1);
+    dst->a2.push_back(a2);
+  }
+  reterr = kPglRetSuccess;
+  CleanupTextStream(&txs, &reterr);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to read %s.\n", fname);
+    return 1;
+  }
+  return dst->ids.empty();
+}
+
+BoolErr LdscMungeSumstats(const MungeOpts* mopts, const char* out_prefix) {
+  MungeMergeList merge_list;
+  if (mopts->merge_alleles) {
+    if (mopts->no_alleles) {
+      fprintf(stderr, "Error: --no-alleles and --merge-alleles cannot be used together.\n");
+      return 1;
+    }
+    if (LdscReadMergeAlleles(mopts->merge_alleles, &merge_list)) {
+      fprintf(stderr, "Error: No usable rows in %s.\n", mopts->merge_alleles);
+      return 1;
+    }
+    LdscLog("Read %" PRIuPTR " variants for allele merge from %s.\n", S_CAST(uintptr_t, merge_list.ids.size()), mopts->merge_alleles);
+  }
+
+  // Column detection: the flag overrides first, then the alias table.
+  std::unordered_map<std::string, MungeField> cname_map;
+  for (uint32_t i = 0; kMungeAliases[i].name; ++i) {
+    cname_map[kMungeAliases[i].name] = kMungeAliases[i].field;
+  }
+  std::vector<std::string> ignore_names;
+  if (mopts->ignore) {
+    std::vector<std::string> parts;
+    LdscSplitComma(mopts->ignore, &parts);
+    for (uintptr_t i = 0; i != parts.size(); ++i) {
+      ignore_names.push_back(LdscCleanHeader(parts[i].c_str(), parts[i].size()));
+    }
+  }
+  double signed_null = 0.0;
+  uint32_t have_signed_flag = 0;
+  std::string signed_flag_name;
+  if (mopts->signed_sumstats) {
+    const char* comma = strrchr(mopts->signed_sumstats, ',');
+    if (!comma) {
+      fprintf(stderr, "Error: --signed-sumstats takes <column name>,<null value>.\n");
+      return 1;
+    }
+    if (!ScanadvDouble(&(comma[1]), &signed_null)) {
+      fprintf(stderr, "Error: Invalid --signed-sumstats null value '%s'.\n", &(comma[1]));
+      return 1;
+    }
+    signed_flag_name = LdscCleanHeader(mopts->signed_sumstats, comma - mopts->signed_sumstats);
+    have_signed_flag = 1;
+  }
+  struct {
+    const char* arg;
+    MungeField field;
+  } flag_cols[] = {
+    {mopts->snp_col, kMungeFieldSnp},
+    {mopts->a1_col, kMungeFieldA1},
+    {mopts->a2_col, kMungeFieldA2},
+    {mopts->p_col, kMungeFieldP},
+    {mopts->n_col, kMungeFieldN},
+    {mopts->n_cas_col, kMungeFieldNCas},
+    {mopts->n_con_col, kMungeFieldNCon},
+    {mopts->frq_col, kMungeFieldFrq},
+    {mopts->info_col, kMungeFieldInfo},
+    {mopts->nstudy_col, kMungeFieldNStudy}
+  };
+  std::unordered_map<std::string, MungeField> flag_map;
+  for (uint32_t i = 0; i != sizeof(flag_cols) / sizeof(flag_cols[0]); ++i) {
+    if (flag_cols[i].arg) {
+      flag_map[LdscCleanHeader(flag_cols[i].arg, strlen(flag_cols[i].arg))] = flag_cols[i].field;
+    }
+  }
+  if (mopts->info_list) {
+    std::vector<std::string> parts;
+    LdscSplitComma(mopts->info_list, &parts);
+    for (uintptr_t i = 0; i != parts.size(); ++i) {
+      flag_map[LdscCleanHeader(parts[i].c_str(), parts[i].size())] = kMungeFieldInfo;
+    }
+  }
+  if (have_signed_flag) {
+    flag_map[signed_flag_name] = kMungeFieldSigned;
+  }
+
+  TextStream txs;
+  PreinitTextStream(&txs);
+  PglErr reterr = TextStreamOpen(mopts->fname, &txs);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to open %s.\n", mopts->fname);
+    return 1;
+  }
+  const char* header = TextGet(&txs);
+  if (!header) {
+    fprintf(stderr, "Error: %s is empty.\n", mopts->fname);
+    return 1;
+  }
+  std::vector<MungeField> col_fields;
+  std::vector<std::string> col_names;
+  double daner_n_cas = 0.0;
+  double daner_n_con = 0.0;
+  {
+    const char* iter = FirstNonTspace(header);
+    if (*iter == '#') {
+      ++iter;
+    }
+    for (; !IsEolnKns(*iter); ) {
+      const char* token_end = CurTokenEnd(iter);
+      const uint32_t slen = token_end - iter;
+      const std::string cleaned = LdscCleanHeader(iter, slen);
+      col_names.push_back(cleaned);
+      MungeField field = kMungeFieldNone;
+      const std::unordered_map<std::string, MungeField>::const_iterator flag_it = flag_map.find(cleaned);
+      if (flag_it != flag_map.end()) {
+        field = flag_it->second;
+      } else {
+        uint32_t ignored = 0;
+        for (uintptr_t i = 0; i != ignore_names.size(); ++i) {
+          if (ignore_names[i] == cleaned) {
+            ignored = 1;
+            break;
+          }
+        }
+        if (!ignored) {
+          const std::unordered_map<std::string, MungeField>::const_iterator it = cname_map.find(cleaned);
+          if (it != cname_map.end()) {
+            field = it->second;
+          }
+        }
+      }
+      if (mopts->daner) {
+        // PGC daner format: the case and control counts are in the FRQ_A_/
+        // FRQ_U_ column names, and FRQ_U_ is the frequency column.
+        if (!cleaned.compare(0, 6, "FRQ_A_")) {
+          double cur;
+          if (ScanadvDouble(&(cleaned.c_str()[6]), &cur)) {
+            daner_n_cas = cur;
+          }
+          field = kMungeFieldNone;
+        } else if (!cleaned.compare(0, 6, "FRQ_U_")) {
+          double cur;
+          if (ScanadvDouble(&(cleaned.c_str()[6]), &cur)) {
+            daner_n_con = cur;
+          }
+          field = kMungeFieldFrq;
+        }
+      }
+      col_fields.push_back(field);
+      iter = FirstNonTspace(token_end);
+    }
+  }
+  const uint32_t col_ct = col_fields.size();
+  if (mopts->daner) {
+    if ((daner_n_cas <= 0.0) || (daner_n_con <= 0.0)) {
+      fprintf(stderr, "Error: --daner needs FRQ_A_<case count> and FRQ_U_<control count>\ncolumns.\n");
+      return 1;
+    }
+    LdscLog("Inferred N_cas = %g, N_con = %g from the FRQ_[A/U] column names.\n", daner_n_cas, daner_n_con);
+  }
+
+  // One signed statistic, and no field claimed twice.
+  MungeField signed_field = kMungeFieldNone;
+  std::string signed_col_name;
+  {
+    std::unordered_map<int, uint32_t> field_counts;
+    for (uint32_t i = 0; i != col_ct; ++i) {
+      if (col_fields[i] == kMungeFieldNone) {
+        continue;
+      }
+      if (++field_counts[S_CAST(int, col_fields[i])] > 1) {
+        fprintf(stderr, "Error: %s has two columns mapping to the same field (%s).  Use --ignore, or\nname the column you want with the matching flag.\n", mopts->fname, col_names[i].c_str());
+        return 1;
+      }
+    }
+    if (!mopts->a1_inc) {
+      for (uint32_t i = 0; i != col_ct; ++i) {
+        const MungeField field = col_fields[i];
+        const uint32_t is_signed = (field == kMungeFieldSigned) || (field == kMungeFieldZ) || (field == kMungeFieldOr) || (field == kMungeFieldBeta) || (field == kMungeFieldLogOdds);
+        if (!is_signed) {
+          continue;
+        }
+        if (signed_field != kMungeFieldNone) {
+          fprintf(stderr, "Error: %s has more than one signed summary statistic column (%s and %s).\nPick one with --signed-sumstats, or drop one with --ignore.\n", mopts->fname, signed_col_name.c_str(), col_names[i].c_str());
+          return 1;
+        }
+        signed_field = field;
+        signed_col_name = col_names[i];
+        if (field != kMungeFieldSigned) {
+          signed_null = LdscSignedNull(field);
+        }
+      }
+      if (signed_field == kMungeFieldNone) {
+        fprintf(stderr, "Error: Could not find a signed summary statistic column in %s (Z, OR, BETA\nor LOG_ODDS).  Name one with --signed-sumstats, or pass --a1-inc if A1 is\nalways the trait-increasing allele.\n", mopts->fname);
+        return 1;
+      }
+    }
+  }
+  // Column -> row field.
+  uint32_t col_snp = UINT32_MAX;
+  uint32_t col_p = UINT32_MAX;
+  uint32_t col_a1 = UINT32_MAX;
+  uint32_t col_a2 = UINT32_MAX;
+  uint32_t col_n = UINT32_MAX;
+  uint32_t col_n_cas = UINT32_MAX;
+  uint32_t col_n_con = UINT32_MAX;
+  uint32_t col_nstudy = UINT32_MAX;
+  uint32_t col_frq = UINT32_MAX;
+  uint32_t col_signed = UINT32_MAX;
+  std::vector<uint32_t> info_cols;
+  for (uint32_t i = 0; i != col_ct; ++i) {
+    switch (col_fields[i]) {
+    case kMungeFieldSnp: col_snp = i; break;
+    case kMungeFieldP: col_p = i; break;
+    case kMungeFieldA1: col_a1 = i; break;
+    case kMungeFieldA2: col_a2 = i; break;
+    case kMungeFieldN: col_n = i; break;
+    case kMungeFieldNCas: col_n_cas = i; break;
+    case kMungeFieldNCon: col_n_con = i; break;
+    case kMungeFieldNStudy: col_nstudy = i; break;
+    case kMungeFieldFrq: col_frq = i; break;
+    case kMungeFieldInfo: info_cols.push_back(i); break;
+    default:
+      if (col_fields[i] == signed_field) {
+        col_signed = i;
+      }
+      break;
+    }
+  }
+  if (mopts->daner) {
+    col_n = UINT32_MAX;
+    col_n_cas = UINT32_MAX;
+    col_n_con = UINT32_MAX;
+  }
+  if (col_snp == UINT32_MAX) {
+    fprintf(stderr, "Error: Could not find a variant ID column in %s.\n", mopts->fname);
+    return 1;
+  }
+  if (col_p == UINT32_MAX) {
+    fprintf(stderr, "Error: Could not find a p-value column in %s.\n", mopts->fname);
+    return 1;
+  }
+  if ((!mopts->no_alleles) && ((col_a1 == UINT32_MAX) || (col_a2 == UINT32_MAX))) {
+    fprintf(stderr, "Error: Could not find A1/A2 columns in %s.  Pass --no-alleles if the file\nreally has none.\n", mopts->fname);
+    return 1;
+  }
+  // The reference implementation drops NSTUDY once N is available.
+  const uint32_t have_n_cols = (col_n != UINT32_MAX) || ((col_n_cas != UINT32_MAX) && (col_n_con != UINT32_MAX));
+  if (have_n_cols) {
+    col_nstudy = UINT32_MAX;
+  }
+  const uint32_t have_n_flags = (mopts->n_override > 0.0) || ((mopts->n_cas_override > 0.0) && (mopts->n_con_override > 0.0)) || mopts->daner;
+  if ((!have_n_cols) && (!have_n_flags) && (col_nstudy == UINT32_MAX)) {
+    fprintf(stderr, "Error: Could not determine the sample size for %s.  Pass --N, or --N-cas\nwith --N-con.\n", mopts->fname);
+    return 1;
+  }
+
+  LdscLog("Interpreting %s columns as follows:\n", mopts->fname);
+  for (uint32_t i = 0; i != col_ct; ++i) {
+    const char* desc = nullptr;
+    switch (col_fields[i]) {
+    case kMungeFieldSnp: desc = (col_snp == i)? "variant ID" : nullptr; break;
+    case kMungeFieldP: desc = (col_p == i)? "p-value" : nullptr; break;
+    case kMungeFieldA1: desc = "A1 (the allele the signed statistic refers to)"; break;
+    case kMungeFieldA2: desc = "A2"; break;
+    case kMungeFieldN: desc = (col_n == i)? "sample size" : nullptr; break;
+    case kMungeFieldNCas: desc = (col_n_cas == i)? "case count" : nullptr; break;
+    case kMungeFieldNCon: desc = (col_n_con == i)? "control count" : nullptr; break;
+    case kMungeFieldNStudy: desc = (col_nstudy == i)? "number of studies" : nullptr; break;
+    case kMungeFieldFrq: desc = "allele frequency"; break;
+    case kMungeFieldInfo: desc = "imputation INFO score"; break;
+    default:
+      if (col_signed == i) {
+        desc = "signed summary statistic";
+      }
+      break;
+    }
+    if (desc) {
+      LdscLog("  %s:\t%s\n", col_names[i].c_str(), desc);
+    }
+  }
+  if (col_signed != UINT32_MAX) {
+    LdscLog("  (%s is signed, with %g meaning no effect.)\n", signed_col_name.c_str(), signed_null);
+  }
+
+  uint32_t max_col = MAXV(col_snp, col_p);
+  const uint32_t opt_cols[] = {col_a1, col_a2, col_n, col_n_cas, col_n_con, col_nstudy, col_frq, col_signed};
+  for (uint32_t i = 0; i != sizeof(opt_cols) / sizeof(opt_cols[0]); ++i) {
+    if (opt_cols[i] != UINT32_MAX) {
+      max_col = MAXV(max_col, opt_cols[i]);
+    }
+  }
+  for (uintptr_t i = 0; i != info_cols.size(); ++i) {
+    max_col = MAXV(max_col, info_cols[i]);
+  }
+
+  std::vector<MungeRow> rows;
+  uintptr_t read_ct = 0;
+  uintptr_t drop_na = 0;
+  uintptr_t drop_merge = 0;
+  uintptr_t drop_info = 0;
+  uintptr_t drop_frq = 0;
+  uintptr_t drop_p = 0;
+  uintptr_t drop_alleles = 0;
+  uintptr_t bad_info_ct = 0;
+  uintptr_t bad_frq_ct = 0;
+  uintptr_t bad_p_ct = 0;
+  while (1) {
+    const char* line_start = TextGet(&txs);
+    if (!line_start) {
+      break;
+    }
+    const char* iter = FirstNonTspace(line_start);
+    if (IsEolnKns(*iter)) {
+      continue;
+    }
+    ++read_ct;
+    MungeRow row;
+    row.a1 = '\0';
+    row.a2 = '\0';
+    row.p = 0.0;
+    row.signed_stat = 0.0;
+    row.n = -1.0;
+    row.n_cas = -1.0;
+    row.n_con = -1.0;
+    row.frq = -1.0;
+    row.nstudy = -1.0;
+    double info_sum = 0.0;
+    uint32_t info_ct = 0;
+    const char* id_start = nullptr;
+    uint32_t id_slen = 0;
+    uint32_t ok = 1;
+    uint32_t info_idx = 0;
+    for (uint32_t col_idx = 0; col_idx <= max_col; ++col_idx) {
+      if (IsEolnKns(*iter)) {
+        ok = 0;
+        break;
+      }
+      const char* token_end = CurTokenEnd(iter);
+      const uint32_t slen = token_end - iter;
+      const uint32_t is_missing = ((slen == 1) && ((*iter == '.') || (*iter == '?'))) || ((slen == 2) && (((iter[0] == 'N') && (iter[1] == 'A')) || ((iter[0] == 'n') && (iter[1] == 'a'))));
+      if (col_idx == col_snp) {
+        id_start = iter;
+        id_slen = slen;
+      } else if (col_idx == col_p) {
+        if (is_missing || (!ScanadvDouble(iter, &row.p))) {
+          ok = 0;
+        }
+      } else if (col_idx == col_a1) {
+        if (is_missing || (slen != 1)) {
+          ok = 0;
+        } else {
+          row.a1 = LdscUpcase(*iter);
+        }
+      } else if (col_idx == col_a2) {
+        if (is_missing || (slen != 1)) {
+          ok = 0;
+        } else {
+          row.a2 = LdscUpcase(*iter);
+        }
+      } else if (col_idx == col_signed) {
+        if (is_missing || (!ScanadvDouble(iter, &row.signed_stat))) {
+          ok = 0;
+        }
+      } else if (col_idx == col_n) {
+        if (is_missing || (!ScanadvDouble(iter, &row.n))) {
+          ok = 0;
+        }
+      } else if (col_idx == col_n_cas) {
+        if (is_missing || (!ScanadvDouble(iter, &row.n_cas))) {
+          ok = 0;
+        }
+      } else if (col_idx == col_n_con) {
+        if (is_missing || (!ScanadvDouble(iter, &row.n_con))) {
+          ok = 0;
+        }
+      } else if (col_idx == col_nstudy) {
+        if (is_missing || (!ScanadvDouble(iter, &row.nstudy))) {
+          ok = 0;
+        }
+      } else if (col_idx == col_frq) {
+        if (is_missing || (!ScanadvDouble(iter, &row.frq))) {
+          ok = 0;
+        }
+      } else if ((info_idx != info_cols.size()) && (col_idx == info_cols[info_idx])) {
+        double cur;
+        // An unparsable INFO is left out of the average rather than dropping
+        // the variant, as in the reference implementation.
+        if ((!is_missing) && ScanadvDouble(iter, &cur)) {
+          info_sum += cur;
+          ++info_ct;
+        }
+        ++info_idx;
+      }
+      if (!ok) {
+        break;
+      }
+      iter = FirstNonTspace(token_end);
+    }
+    if (!ok) {
+      ++drop_na;
+      continue;
+    }
+    row.id.assign(id_start, id_slen);
+    if (mopts->merge_alleles) {
+      if (merge_list.id_to_idx.find(row.id) == merge_list.id_to_idx.end()) {
+        ++drop_merge;
+        continue;
+      }
+    }
+    if (!info_cols.empty()) {
+      if (info_ct != info_cols.size()) {
+        // Missing INFO is not a reason to drop a variant.
+        info_ct = info_cols.size();
+      }
+      const double info_mean = info_sum / u31tod(info_ct);
+      if ((info_mean > 2.0) || (info_mean < 0.0)) {
+        ++bad_info_ct;
+      }
+      if (!(info_mean >= mopts->info_min)) {
+        ++drop_info;
+        continue;
+      }
+    }
+    if (col_frq != UINT32_MAX) {
+      if ((row.frq < 0.0) || (row.frq > 1.0)) {
+        ++bad_frq_ct;
+        ++drop_frq;
+        continue;
+      }
+      if (!(MINV(row.frq, 1.0 - row.frq) > mopts->maf_min)) {
+        ++drop_frq;
+        continue;
+      }
+    }
+    if ((!(row.p > 0.0)) || (row.p > 1.0)) {
+      ++bad_p_ct;
+      ++drop_p;
+      continue;
+    }
+    if (!mopts->no_alleles) {
+      if (!LdscMungeValidSnp(row.a1, row.a2)) {
+        ++drop_alleles;
+        continue;
+      }
+    }
+    rows.push_back(row);
+  }
+  reterr = kPglRetSuccess;
+  CleanupTextStream(&txs, &reterr);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to read %s.\n", mopts->fname);
+    return 1;
+  }
+  LdscLog("Read %" PRIuPTR " variants from %s.\n", read_ct, mopts->fname);
+  if (mopts->merge_alleles) {
+    LdscLog("Removed %" PRIuPTR " variants not in --merge-alleles.\n", drop_merge);
+  }
+  LdscLog("Removed %" PRIuPTR " variants with missing values.\n", drop_na);
+  if (!info_cols.empty()) {
+    if (bad_info_ct) {
+      LdscLog("WARNING: %" PRIuPTR " variants had INFO outside [0, 2].  The INFO column may be\nmislabeled.\n", bad_info_ct);
+    }
+    LdscLog("Removed %" PRIuPTR " variants with INFO < %g.\n", drop_info, mopts->info_min);
+  }
+  if (col_frq != UINT32_MAX) {
+    if (bad_frq_ct) {
+      LdscLog("WARNING: %" PRIuPTR " variants had a frequency outside [0, 1].  The frequency\ncolumn may be mislabeled.\n", bad_frq_ct);
+    }
+    LdscLog("Removed %" PRIuPTR " variants with MAF <= %g.\n", drop_frq, mopts->maf_min);
+  }
+  if (bad_p_ct) {
+    LdscLog("WARNING: %" PRIuPTR " variants had p outside (0, 1].  The p-value column may be\nmislabeled.\n", bad_p_ct);
+  }
+  LdscLog("Removed %" PRIuPTR " variants with out-of-bounds p-values.\n", drop_p);
+  if (!mopts->no_alleles) {
+    LdscLog("Removed %" PRIuPTR " variants that were not SNPs or were strand-ambiguous.\n", drop_alleles);
+  }
+  if (rows.empty()) {
+    fprintf(stderr, "Error: No variants remain after filtering.\n");
+    return 1;
+  }
+
+  // Duplicated IDs: keep the first.
+  {
+    std::unordered_map<std::string, uint32_t> seen;
+    uintptr_t write_idx = 0;
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      if (!seen.emplace(rows[i].id, 1).second) {
+        continue;
+      }
+      if (write_idx != i) {
+        rows[write_idx] = rows[i];
+      }
+      ++write_idx;
+    }
+    const uintptr_t dup_ct = rows.size() - write_idx;
+    rows.resize(write_idx);
+    LdscLog("Removed %" PRIuPTR " variants with duplicated IDs (%" PRIuPTR " remain).\n", dup_ct, S_CAST(uintptr_t, rows.size()));
+  }
+
+  // Sample size.  With case and control counts, the effective size is scaled
+  // by the case fraction relative to the best-powered variants, as in the
+  // reference implementation.
+  if ((col_n_cas != UINT32_MAX) && (col_n_con != UINT32_MAX)) {
+    double max_n = 0.0;
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      max_n = MAXV(max_n, rows[i].n_cas + rows[i].n_con);
+    }
+    double frac_sum = 0.0;
+    uint32_t frac_ct = 0;
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      const double cur_n = rows[i].n_cas + rows[i].n_con;
+      if (cur_n == max_n) {
+        frac_sum += rows[i].n_cas / cur_n;
+        ++frac_ct;
+      }
+    }
+    const double ref_frac = frac_sum / u31tod(frac_ct);
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      const double cur_n = rows[i].n_cas + rows[i].n_con;
+      rows[i].n = cur_n * (rows[i].n_cas / cur_n) / ref_frac;
+    }
+  }
+  if ((col_n != UINT32_MAX) || ((col_n_cas != UINT32_MAX) && (col_n_con != UINT32_MAX))) {
+    double n_min = mopts->n_min;
+    if (!mopts->have_n_min) {
+      // The reference implementation's default: the 90th percentile over 1.5.
+      std::vector<double> ns(rows.size());
+      for (uintptr_t i = 0; i != rows.size(); ++i) {
+        ns[i] = rows[i].n;
+      }
+      std::sort(ns.begin(), ns.end());
+      // numpy's default quantile interpolation.
+      const double pos = 0.9 * u31tod(ns.size() - 1);
+      const uintptr_t lo = S_CAST(uintptr_t, pos);
+      const double frac = pos - u31tod(lo);
+      const double q90 = (lo + 1 < ns.size())? (ns[lo] * (1 - frac) + ns[lo + 1] * frac) : ns[lo];
+      n_min = q90 / 1.5;
+    }
+    uintptr_t write_idx = 0;
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      if (rows[i].n < n_min) {
+        continue;
+      }
+      if (write_idx != i) {
+        rows[write_idx] = rows[i];
+      }
+      ++write_idx;
+    }
+    const uintptr_t removed = rows.size() - write_idx;
+    rows.resize(write_idx);
+    LdscLog("Removed %" PRIuPTR " variants with N < %g (%" PRIuPTR " remain).\n", removed, n_min, S_CAST(uintptr_t, rows.size()));
+  } else if (col_nstudy != UINT32_MAX) {
+    double nstudy_min = mopts->nstudy_min;
+    if (!mopts->have_nstudy_min) {
+      nstudy_min = 0.0;
+      for (uintptr_t i = 0; i != rows.size(); ++i) {
+        nstudy_min = MAXV(nstudy_min, rows[i].nstudy);
+      }
+    }
+    uintptr_t write_idx = 0;
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      if (rows[i].nstudy < nstudy_min) {
+        continue;
+      }
+      if (write_idx != i) {
+        rows[write_idx] = rows[i];
+      }
+      ++write_idx;
+    }
+    const uintptr_t removed = rows.size() - write_idx;
+    rows.resize(write_idx);
+    LdscLog("Removed %" PRIuPTR " variants genotyped in fewer than %g studies (%" PRIuPTR "\nremain).\n", removed, nstudy_min, S_CAST(uintptr_t, rows.size()));
+  }
+  if (rows.empty()) {
+    fprintf(stderr, "Error: No variants remain after filtering.\n");
+    return 1;
+  }
+  if ((col_n == UINT32_MAX) && ((col_n_cas == UINT32_MAX) || (col_n_con == UINT32_MAX))) {
+    double n_val;
+    if (mopts->daner) {
+      n_val = daner_n_cas + daner_n_con;
+    } else if (mopts->n_override > 0.0) {
+      n_val = mopts->n_override;
+      LdscLog("Using N = %g.\n", n_val);
+    } else {
+      n_val = mopts->n_cas_override + mopts->n_con_override;
+      LdscLog("Using N_cas = %g, N_con = %g.\n", mopts->n_cas_override, mopts->n_con_override);
+    }
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      rows[i].n = n_val;
+    }
+  } else if (mopts->n_override > 0.0) {
+    // An explicit --N takes priority over the column.
+    LdscLog("Using N = %g (overriding the file's sample size column).\n", mopts->n_override);
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      rows[i].n = mopts->n_override;
+    }
+  }
+
+  // The signed statistic's median is a check on the column's meaning: a
+  // mislabeled column usually has the wrong median.
+  if (col_signed != UINT32_MAX) {
+    std::vector<double> stats(rows.size());
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      stats[i] = rows[i].signed_stat;
+    }
+    const double median = LdscMedian(&(stats[0]), stats.size());
+    if (fabs(median - signed_null) > 0.1) {
+      fprintf(stderr, "Error: the median of %s is %g, but %g means no effect, so the column looks\nmislabeled.  Use --signed-sumstats to say what it is, or --ignore to drop it.\n", signed_col_name.c_str(), median, signed_null);
+      return 1;
+    }
+    LdscLog("Median %s was %g, which seems sensible.\n", signed_col_name.c_str(), median);
+  }
+
+  // p-value and sign to Z.
+  std::vector<double> zs(rows.size());
+  for (uintptr_t i = 0; i != rows.size(); ++i) {
+    double z = LdscNormalIsf(rows[i].p / 2.0);
+    if ((col_signed != UINT32_MAX) && (rows[i].signed_stat < signed_null)) {
+      z = -z;
+    }
+    zs[i] = z;
+  }
+
+  // Whether every sample size came from a column and is a whole number,
+  // which is what decides the reference implementation's number format.
+  uint32_t n_is_integral_column = (col_n != UINT32_MAX) && (mopts->n_override <= 0.0);
+  if (n_is_integral_column) {
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      if (rows[i].n != floor(rows[i].n)) {
+        n_is_integral_column = 0;
+        break;
+      }
+    }
+  }
+
+  const std::string out_path = std::string(out_prefix) + ".sumstats";
+  FILE* out_file = fopen(out_path.c_str(), FOPEN_WB);
+  if (!out_file) {
+    fprintf(stderr, "Error: Failed to open %s.\n", out_path.c_str());
+    return 1;
+  }
+  const uint32_t write_frq = mopts->keep_maf && (col_frq != UINT32_MAX);
+  fputs("SNP", out_file);
+  if (!mopts->no_alleles) {
+    fputs("\tA1\tA2", out_file);
+  }
+  fputs("\tZ\tN", out_file);
+  if (write_frq) {
+    fputs("\tFRQ", out_file);
+  }
+  fputc('\n', out_file);
+  uintptr_t written_ct = 0;
+  uintptr_t nonmissing_ct = 0;
+  if (!mopts->merge_alleles) {
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      fputs(rows[i].id.c_str(), out_file);
+      if (!mopts->no_alleles) {
+        fprintf(out_file, "\t%c\t%c", rows[i].a1, rows[i].a2);
+      }
+      fprintf(out_file, "\t%.3f\t", zs[i]);
+      LdscWriteN(rows[i].n, n_is_integral_column, out_file);
+      if (write_frq) {
+        fprintf(out_file, "\t%.3f", rows[i].frq);
+      }
+      fputc('\n', out_file);
+      ++written_ct;
+      ++nonmissing_ct;
+    }
+  } else {
+    // Every variant in the merge list is written, in its order; the ones the
+    // input did not supply, or whose alleles disagree with the list, come out
+    // missing.  The alleles and the sign stay as the input file had them, as
+    // in the reference implementation: --merge-alleles restricts and
+    // validates, and the actual reorientation happens when two files are
+    // regressed against each other.
+    std::vector<uint32_t> row_of(merge_list.ids.size(), UINT32_MAX);
+    uintptr_t mismatch_ct = 0;
+    for (uintptr_t i = 0; i != rows.size(); ++i) {
+      const std::unordered_map<std::string, uint32_t>::const_iterator it = merge_list.id_to_idx.find(rows[i].id);
+      if (it == merge_list.id_to_idx.end()) {
+        continue;
+      }
+      const uint32_t merge_idx = it->second;
+      const char m1 = merge_list.a1[merge_idx];
+      const char m2 = merge_list.a2[merge_idx];
+      const char c1 = LdscAcgtComplement(rows[i].a1);
+      const char c2 = LdscAcgtComplement(rows[i].a2);
+      const uint32_t same = ((rows[i].a1 == m1) && (rows[i].a2 == m2)) || ((c1 == m1) && (c2 == m2));
+      const uint32_t flipped = ((rows[i].a1 == m2) && (rows[i].a2 == m1)) || ((c1 == m2) && (c2 == m1));
+      if ((!same) && (!flipped)) {
+        ++mismatch_ct;
+        continue;
+      }
+      row_of[merge_idx] = i;
+    }
+    LdscLog("Removed %" PRIuPTR " variants whose alleles did not match --merge-alleles.\n", mismatch_ct);
+    for (uintptr_t merge_idx = 0; merge_idx != merge_list.ids.size(); ++merge_idx) {
+      fputs(merge_list.ids[merge_idx].c_str(), out_file);
+      const uint32_t row_idx = row_of[merge_idx];
+      if (row_idx == UINT32_MAX) {
+        fputs("\tNA\tNA\tNA\tNA", out_file);
+        if (write_frq) {
+          fputs("\tNA", out_file);
+        }
+      } else {
+        fprintf(out_file, "\t%c\t%c", rows[row_idx].a1, rows[row_idx].a2);
+        fprintf(out_file, "\t%.3f\t", zs[row_idx]);
+        LdscWriteN(rows[row_idx].n, n_is_integral_column, out_file);
+        if (write_frq) {
+          fprintf(out_file, "\t%.3f", rows[row_idx].frq);
+        }
+        ++nonmissing_ct;
+      }
+      fputc('\n', out_file);
+      ++written_ct;
+    }
+  }
+  if (fclose(out_file)) {
+    fprintf(stderr, "Error: Failed to write %s.\n", out_path.c_str());
+    return 1;
+  }
+  LdscLog("Wrote summary statistics for %" PRIuPTR " variants (%" PRIuPTR " with a nonmissing Z)\nto %s .\n", written_ct, nonmissing_ct, out_path.c_str());
+
+  // Metadata, as the reference implementation reports it.
+  std::vector<double> chisq(rows.size());
+  double chisq_sum = 0.0;
+  double chisq_max = 0.0;
+  uintptr_t gws_ct = 0;
+  for (uintptr_t i = 0; i != rows.size(); ++i) {
+    chisq[i] = zs[i] * zs[i];
+    chisq_sum += chisq[i];
+    chisq_max = MAXV(chisq_max, chisq[i]);
+    if (chisq[i] > 29) {
+      ++gws_ct;
+    }
+  }
+  const double mean_chisq = chisq_sum / u31tod(rows.size());
+  LdscLog("\nMetadata:\n");
+  LdscLog("Mean chi^2 = %.3f\n", mean_chisq);
+  if (mean_chisq < 1.02) {
+    LdscLog("WARNING: mean chi^2 may be too small.\n");
+  }
+  LdscLog("Lambda GC = %.3f\n", LdscMedian(&(chisq[0]), chisq.size()) / 0.4549);
+  LdscLog("Max chi^2 = %.3f\n", chisq_max);
+  LdscLog("%" PRIuPTR " genome-wide significant variants (some may have been filtered out).\n", gws_ct);
+  return 0;
+}
+
 // ***** drivers *****
 
 typedef struct LdscOptsStruct {
@@ -2569,6 +3576,35 @@ int main(int argc, char** argv) {
   using namespace plink2;
   const char* h2_fname = nullptr;
   const char* rg_arg = nullptr;
+  MungeOpts mopts;
+  mopts.fname = nullptr;
+  mopts.merge_alleles = nullptr;
+  mopts.snp_col = nullptr;
+  mopts.a1_col = nullptr;
+  mopts.a2_col = nullptr;
+  mopts.p_col = nullptr;
+  mopts.n_col = nullptr;
+  mopts.n_cas_col = nullptr;
+  mopts.n_con_col = nullptr;
+  mopts.frq_col = nullptr;
+  mopts.info_col = nullptr;
+  mopts.info_list = nullptr;
+  mopts.nstudy_col = nullptr;
+  mopts.signed_sumstats = nullptr;
+  mopts.ignore = nullptr;
+  mopts.n_override = 0.0;
+  mopts.n_cas_override = 0.0;
+  mopts.n_con_override = 0.0;
+  mopts.info_min = 0.9;
+  mopts.maf_min = 0.01;
+  mopts.n_min = 0.0;
+  mopts.have_n_min = 0;
+  mopts.nstudy_min = 0.0;
+  mopts.have_nstudy_min = 0;
+  mopts.a1_inc = 0;
+  mopts.no_alleles = 0;
+  mopts.keep_maf = 0;
+  mopts.daner = 0;
   const char* ref_ld_arg = nullptr;
   uint32_t ref_ld_chr_split = 0;
   const char* w_ld_arg = nullptr;
@@ -2593,6 +3629,81 @@ int main(int argc, char** argv) {
       h2_fname = argv[++argi];
     } else if ((!strcmp(cur, "--rg")) && (argi + 1 < argc)) {
       rg_arg = argv[++argi];
+    } else if ((!strcmp(cur, "--munge")) && (argi + 1 < argc)) {
+      mopts.fname = argv[++argi];
+    } else if ((!strcmp(cur, "--merge-alleles")) && (argi + 1 < argc)) {
+      mopts.merge_alleles = argv[++argi];
+    } else if ((!strcmp(cur, "--snp")) && (argi + 1 < argc)) {
+      mopts.snp_col = argv[++argi];
+    } else if ((!strcmp(cur, "--a1")) && (argi + 1 < argc)) {
+      mopts.a1_col = argv[++argi];
+    } else if ((!strcmp(cur, "--a2")) && (argi + 1 < argc)) {
+      mopts.a2_col = argv[++argi];
+    } else if ((!strcmp(cur, "--p")) && (argi + 1 < argc)) {
+      mopts.p_col = argv[++argi];
+    } else if ((!strcmp(cur, "--N-col")) && (argi + 1 < argc)) {
+      mopts.n_col = argv[++argi];
+    } else if ((!strcmp(cur, "--N-cas-col")) && (argi + 1 < argc)) {
+      mopts.n_cas_col = argv[++argi];
+    } else if ((!strcmp(cur, "--N-con-col")) && (argi + 1 < argc)) {
+      mopts.n_con_col = argv[++argi];
+    } else if ((!strcmp(cur, "--frq")) && (argi + 1 < argc)) {
+      mopts.frq_col = argv[++argi];
+    } else if ((!strcmp(cur, "--info")) && (argi + 1 < argc)) {
+      mopts.info_col = argv[++argi];
+    } else if ((!strcmp(cur, "--info-list")) && (argi + 1 < argc)) {
+      mopts.info_list = argv[++argi];
+    } else if ((!strcmp(cur, "--nstudy")) && (argi + 1 < argc)) {
+      mopts.nstudy_col = argv[++argi];
+    } else if ((!strcmp(cur, "--signed-sumstats")) && (argi + 1 < argc)) {
+      mopts.signed_sumstats = argv[++argi];
+    } else if ((!strcmp(cur, "--ignore")) && (argi + 1 < argc)) {
+      mopts.ignore = argv[++argi];
+    } else if ((!strcmp(cur, "--N")) && (argi + 1 < argc)) {
+      if ((!ScanadvDouble(argv[++argi], &mopts.n_override)) || (mopts.n_override <= 0.0)) {
+        fprintf(stderr, "Error: --N must be positive.\n");
+        return 1;
+      }
+    } else if ((!strcmp(cur, "--N-cas")) && (argi + 1 < argc)) {
+      if ((!ScanadvDouble(argv[++argi], &mopts.n_cas_override)) || (mopts.n_cas_override <= 0.0)) {
+        fprintf(stderr, "Error: --N-cas must be positive.\n");
+        return 1;
+      }
+    } else if ((!strcmp(cur, "--N-con")) && (argi + 1 < argc)) {
+      if ((!ScanadvDouble(argv[++argi], &mopts.n_con_override)) || (mopts.n_con_override <= 0.0)) {
+        fprintf(stderr, "Error: --N-con must be positive.\n");
+        return 1;
+      }
+    } else if ((!strcmp(cur, "--info-min")) && (argi + 1 < argc)) {
+      if (!ScanadvDouble(argv[++argi], &mopts.info_min)) {
+        fprintf(stderr, "Error: Invalid --info-min value.\n");
+        return 1;
+      }
+    } else if ((!strcmp(cur, "--maf-min")) && (argi + 1 < argc)) {
+      if (!ScanadvDouble(argv[++argi], &mopts.maf_min)) {
+        fprintf(stderr, "Error: Invalid --maf-min value.\n");
+        return 1;
+      }
+    } else if ((!strcmp(cur, "--n-min")) && (argi + 1 < argc)) {
+      if (!ScanadvDouble(argv[++argi], &mopts.n_min)) {
+        fprintf(stderr, "Error: Invalid --n-min value.\n");
+        return 1;
+      }
+      mopts.have_n_min = 1;
+    } else if ((!strcmp(cur, "--nstudy-min")) && (argi + 1 < argc)) {
+      if (!ScanadvDouble(argv[++argi], &mopts.nstudy_min)) {
+        fprintf(stderr, "Error: Invalid --nstudy-min value.\n");
+        return 1;
+      }
+      mopts.have_nstudy_min = 1;
+    } else if (!strcmp(cur, "--a1-inc")) {
+      mopts.a1_inc = 1;
+    } else if (!strcmp(cur, "--no-alleles")) {
+      mopts.no_alleles = 1;
+    } else if (!strcmp(cur, "--keep-maf")) {
+      mopts.keep_maf = 1;
+    } else if (!strcmp(cur, "--daner")) {
+      mopts.daner = 1;
     } else if ((!strcmp(cur, "--ref-ld")) && (argi + 1 < argc)) {
       ref_ld_arg = argv[++argi];
       ref_ld_chr_split = 0;
@@ -2670,14 +3781,61 @@ int main(int argc, char** argv) {
       return 1;
     }
   }
+  if (mopts.fname) {
+    if (h2_fname || rg_arg) {
+      fprintf(stderr, "Error: --munge cannot be combined with --h2 or --rg.  Munge first, then\nrun the regression on the .sumstats file.\n");
+      return 1;
+    }
+    if (!out_prefix) {
+      fprintf(stderr, "Error: --munge needs --out.\n");
+      return 1;
+    }
+    const std::string munge_log_path = std::string(out_prefix) + ".log";
+    g_ldsc_logfile = fopen(munge_log_path.c_str(), FOPEN_WB);
+    if (!g_ldsc_logfile) {
+      fprintf(stderr, "Error: Failed to open %s.\n", munge_log_path.c_str());
+      return 1;
+    }
+    LdscLog("%s\n", kLdscVersion);
+    const BoolErr munge_ret = LdscMungeSumstats(&mopts, out_prefix);
+    if (fclose(g_ldsc_logfile)) {
+      fprintf(stderr, "Error: Failed to write %s.\n", munge_log_path.c_str());
+      return 1;
+    }
+    g_ldsc_logfile = nullptr;
+    return munge_ret? 1 : 0;
+  }
   if ((!(h2_fname || rg_arg)) || (!ref_ld_arg) || (!w_ld_arg) || (!out_prefix)) {
     fprintf(stderr,
             "%s\n"
             "LD Score regression (Bulik-Sullivan et al. 2015).\n\n"
-            "Usage: ldsc --h2 <sumstats> --ref-ld[-chr] <LD Scores>\n"
+            "Usage: ldsc --munge <raw sumstats> --out <prefix>\n"
+            "       ldsc --h2 <sumstats> --ref-ld[-chr] <LD Scores>\n"
             "            --w-ld[-chr] <LD Scores> --out <prefix>\n"
             "       ldsc --rg <sumstats1,sumstats2,...> --ref-ld[-chr] <LD Scores>\n"
             "            --w-ld[-chr] <LD Scores> --out <prefix>\n\n"
+            "  --munge    Convert a raw GWAS summary statistic file into the\n"
+            "             .sumstats format the regressions read, applying the\n"
+            "             reference implementation's quality control: INFO,\n"
+            "             frequency, p-value range, allele and sample-size\n"
+            "             filters, duplicate IDs dropped, and the p-value plus\n"
+            "             the signed statistic turned into a signed Z.  Columns\n"
+            "             are detected case-insensitively, with the same aliases;\n"
+            "             --snp/--a1/--a2/--p/--N-col/--N-cas-col/--N-con-col/\n"
+            "             --frq/--info/--info-list/--nstudy name them explicitly,\n"
+            "             --signed-sumstats <column>,<null value> picks the\n"
+            "             signed one, and --ignore <columns> drops some.\n"
+            "             Thresholds: --info-min (0.9), --maf-min (0.01),\n"
+            "             --n-min (the 90th percentile of N over 1.5),\n"
+            "             --nstudy-min.  --N/--N-cas/--N-con supply a sample size\n"
+            "             the file does not have, --daner reads it from PGC\n"
+            "             FRQ_A_/FRQ_U_ column names, --a1-inc says A1 is always\n"
+            "             the trait-increasing allele, --no-alleles accepts a\n"
+            "             file without them, --keep-maf keeps the frequency\n"
+            "             column, and --merge-alleles <file> restricts to a\n"
+            "             variant list and puts everything on its alleles.\n"
+            "             Writes <prefix>.sumstats, with Z and N to three\n"
+            "             decimals as the reference implementation does.\n"
             "  --h2       Estimate SNP-heritability from one summary statistic\n"
             "             file.  Columns are detected case-insensitively: an ID\n"
             "             (SNP/ID), Z, and N.\n"
