@@ -2992,7 +2992,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1List23Indels) {
-        reterr = List23Indels(variant_include, variant_ids, allele_idx_offsets, allele_storage, variant_ct, (pcp->misc_flags / kfMiscList23IndelsZs) & 1, pcp->max_thread_ct, outname, outname_end);
+        reterr = List23Indels(variant_include, variant_ids, allele_idx_offsets, allele_storage, variant_ct, (pcp->misc_flags / kfMiscList23IndelsZs) & 1, (pcp->misc_flags / kfMiscList23IndelsAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -9152,16 +9152,20 @@ int main(int argc, char** argv) {
           }
           xload |= kfXloadOxLegend;
         } else if (strequal_k_unsafe(flagname_p2, "ist-23-indels")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (param_ct) {
-            const char* cur_modif = argvk[arg_idx + 1];
-            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.misc_flags |= kfMiscList23IndelsZs;
+            } else if (likely(strequal_k(cur_modif, "allow-dups", cur_modif_slen))) {
+              pc.misc_flags |= kfMiscList23IndelsAllowDups;
+            } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --list-23-indels argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            pc.misc_flags |= kfMiscList23IndelsZs;
           }
           pc.command_flags1 |= kfCommand1List23Indels;
           pc.dependency_flags |= kfFilterPvarReq;

@@ -148,3 +148,25 @@ $1/plink2 $2 $3 --vcf indel_edge.vcf --double-id --make-pgen --out plink2_edge
 $1/plink2 $2 $3 --pfile plink2_edge --list-23-indels --out plink2_edge_indel
 printf 'e_di\ne_dmiss\n' > expected_edge_indel.txt
 diff -q expected_edge_indel.txt plink2_edge_indel.indel
+
+# Duplicate variant IDs are an error, like --write-snplist, unless
+# 'allow-dups' is given.  The check covers all retained variants, so a
+# duplicate outside the indel subset still trips it.
+cat > indel_dup.vcf << 'VCFEOF'
+##fileformat=VCFv4.2
+##contig=<ID=1>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="GT">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	NA1	NA2
+1	1	d_indel	D	I	.	.	.	GT	0/1	0/0
+1	2	d_indel	D	I	.	.	.	GT	0/1	0/0
+1	3	d_snp	A	G	.	.	.	GT	0/1	0/0
+VCFEOF
+$1/plink2 $2 $3 --vcf indel_dup.vcf --double-id --make-pgen --out plink2_dup
+if $1/plink2 $2 $3 --pfile plink2_dup --list-23-indels --out plink2_dup_indel 2> tmp_dup_err.txt; then
+    echo "expected --list-23-indels to reject duplicate variant IDs"
+    exit 1
+fi
+grep -q "duplicate variant" tmp_dup_err.txt
+$1/plink2 $2 $3 --pfile plink2_dup --list-23-indels allow-dups --out plink2_dup_indel
+printf 'd_indel\nd_indel\n' > expected_dup_indel.txt
+diff -q expected_dup_indel.txt plink2_dup_indel.indel

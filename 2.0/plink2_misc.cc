@@ -10205,13 +10205,29 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
   return reterr;
 }
 
-PglErr List23Indels(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr List23Indels(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
+    if (!allow_dups) {
+      // The output is an ID list fed back in with --extract/--exclude, so a
+      // duplicate ID makes it ambiguous the same way it makes --write-snplist
+      // output ambiguous.  The check covers every variant that passed the
+      // filters, not just the indels, since that is what the ID would be
+      // matched against.
+      uint32_t dup_found;
+      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+      if (unlikely(reterr)) {
+        goto List23Indels_ret_1;
+      }
+      if (dup_found) {
+        logerrputs("Error: --list-23-indels normally shouldn't be used with duplicate variant IDs.\n(--set-all-var-ids helps with ID deduplication, and --rm-dup addresses actual\nduplicate data.)  However, if you've already accounted for them, you can\nsuppress this error with the 'allow-dups' modifier.\n");
+        goto List23Indels_ret_INCONSISTENT_INPUT;
+      }
+    }
     OutnameZstSet(".indel", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxIdSlen + 2, &css, &cswritep);
     if (unlikely(reterr)) {
@@ -10259,11 +10275,14 @@ PglErr List23Indels(const uintptr_t* variant_include, const char* const* variant
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto List23Indels_ret_WRITE_FAIL;
     }
-    logprintfww("--list-23-indels: %u indel variant ID%s written to %s .\n", written_ct, (written_ct == 1)? "" : "s", outname);
+    logprintfww("--list-23-indels%s%s: %u indel variant ID%s written to %s .\n", output_zst? " zs" : "", allow_dups? " allow-dups" : "", written_ct, (written_ct == 1)? "" : "s", outname);
   }
   while (0) {
   List23Indels_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
+    break;
+  List23Indels_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  List23Indels_ret_1:
