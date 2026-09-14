@@ -62,7 +62,7 @@ diff -q <(tail -n +2 t_rg.rg | cut -f3-) <(tail -n +2 t_rg_flip.rg | cut -f3-)
 # 7. --ref-ld-chr/--w-ld-chr, with M read from the .l2.M_5_50 files, has to
 #    reproduce the single-file run.
 $L --h2 trait1.sumstats --ref-ld-chr chr_ref. --w-ld-chr chr_w. --out t_h2_chr
-grep -q "Read M = 6000 from the .l2.M_5_50 files" t_h2_chr.log
+grep -q "Read M = 6000 from the .M_5_50 files" t_h2_chr.log
 diff -q t_h2.h2 t_h2_chr.h2
 
 # 8. --M defaults to the .l2.M_5_50 file next to --ref-ld.

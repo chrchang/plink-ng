@@ -1829,7 +1829,12 @@ BoolErr LdscReadAnnot(const char* ref_arg, uint32_t is_chr_split, const char* fr
 // Scores were computed from, one value per annotation, summed over
 // chromosomes and concatenated over filesets.
 BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, std::vector<double>* m_vec) {
-  const char* suffix = not_m_5_50? ".l2.M" : ".l2.M_5_50";
+  // ldsc writes <prefix>.l2.M[_5_50]; plink2's --ld-score writes
+  // <prefix>.ldscore.M[_5_50], and --ref-ld is then usually pointed at the
+  // .ldscore file itself, so both spellings are tried.
+  const char* suffixes[2];
+  suffixes[0] = not_m_5_50? ".l2.M" : ".l2.M_5_50";
+  suffixes[1] = not_m_5_50? ".M" : ".M_5_50";
   std::vector<std::string> bases;
   LdscSplitComma(arg, &bases);
   m_vec->clear();
@@ -1838,21 +1843,24 @@ BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, s
     uint32_t found_ct = 0;
     const uint32_t chr_end = is_chr_split? (kLdscChrCt + 1) : 1;
     for (uint32_t chr_idx = 0; chr_idx != chr_end; ++chr_idx) {
-      std::string path;
-      if (is_chr_split) {
-        path = LdscSubChr(bases[file_idx].c_str(), chr_idx + 1) + suffix;
-      } else {
-        path = bases[file_idx] + suffix;
-      }
+      const std::string base = is_chr_split? LdscSubChr(bases[file_idx].c_str(), chr_idx + 1) : bases[file_idx];
       std::vector<double> cur;
-      if (LdscReadMFile(path, &cur)) {
+      uint32_t found = 0;
+      for (uint32_t suffix_idx = 0; suffix_idx != 2; ++suffix_idx) {
+        const std::string path = base + suffixes[suffix_idx];
+        if (!LdscReadMFile(path, &cur)) {
+          found = 1;
+          break;
+        }
+      }
+      if (!found) {
         continue;
       }
       if (!found_ct) {
         acc = cur;
       } else {
         if (cur.size() != acc.size()) {
-          fprintf(stderr, "Error: %s has %" PRIuPTR " entries, but the other chromosomes have %" PRIuPTR ".\n", path.c_str(), S_CAST(uintptr_t, cur.size()), S_CAST(uintptr_t, acc.size()));
+          fprintf(stderr, "Error: the variant-count file for %s has %" PRIuPTR " entries, but the other\nchromosomes have %" PRIuPTR ".\n", base.c_str(), S_CAST(uintptr_t, cur.size()), S_CAST(uintptr_t, acc.size()));
           return 1;
         }
         for (uintptr_t j = 0; j != acc.size(); ++j) {
@@ -4334,7 +4342,7 @@ int main(int argc, char** argv) {
     for (uint32_t j = 0; j != n_annot; ++j) {
       m_sum += m_vec[j];
     }
-    LdscLog("Read M = %g from the %s files.\n", m_sum, opts.not_m_5_50? ".l2.M" : ".l2.M_5_50");
+    LdscLog("Read M = %g from the %s files next to --ref-ld.\n", m_sum, opts.not_m_5_50? ".M" : ".M_5_50");
   } else if (n_annot != 1) {
     fprintf(stderr, "Error: A partitioned regression needs the %s files, which name the\nvariant count per annotation; none were found next to --ref-ld.\n", opts.not_m_5_50? ".l2.M" : ".l2.M_5_50");
     return 1;
