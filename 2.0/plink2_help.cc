@@ -890,6 +890,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      cannot be in the same run.\n"
 "    * Fully-haploid chromosomes and chrM are skipped, and males are skipped\n"
 "      on chrX.\n"
+"    * FROH is F_ROH as usually defined in the literature: the fraction of the\n"
+"      autosomal genome lying in runs.  Its denominator is the total span of\n"
+"      the autosomal variants actually scanned, i.e. the sum over autosomes of\n"
+"      (last position - first position + 1), so it reflects the variant set\n"
+"      after your filters rather than a reference genome length.  chrX is left\n"
+"      out of both the numerator and the denominator, since it is only scanned\n"
+"      for females.\n"
 "    * Segment bp lengths are <end bp> - <start bp> + 1;\n"
 "      \'subtract-1-from-lengths\' restores the PLINK 1.07 formula.\n"
 "    * \'zs\' causes the .hom.summary file, which has one line per variant, to\n"
@@ -920,13 +927,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        nseg: Number of runs.\n"
 "        kbtot: Total run length in kilobases.\n"
 "        kbavg: Mean run length in kilobases.\n"
+"        froh: Genomic inbreeding coefficient: total autosomal run length\n"
+"              divided by the total autosomal length scanned.\n"
 "      Specific to .hom.summary[.zst]:\n"
 "        (ID with the variant ID is always present, and positioned here.)\n"
 "        aff: Number of cases with a run covering this variant.\n"
 "        unaff: Number of controls with a run covering this variant.\n"
 "    The default is\n"
 "    maybefid,maybesid,maybepheno,chrom,pos,kb,nsnp,density,phom,phet,nseg,\n"
-"    kbtot,kbavg,aff,unaff.\n\n"
+"    kbtot,kbavg,froh,aff,unaff.\n\n"
               );
     HelpPrint("test-missing\0", &help_ctrl, 1,
 "  --test-missing ['midp'] ['dosage'] ['zs'] ['cols='<column set descriptor>]\n"
@@ -1314,6 +1323,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      are both keyed on them.\n"
 "    * Haploid chromosomes are not supported yet, and are an error rather\n"
 "      than a silent omission.\n\n"
+              );
+    HelpPrint("blocks\0blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0", &help_ctrl, 1,
+"  --blocks ['no-small-max-span']\n"
+"    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
+"    definition suggested by Gabriel S et al. (2002) The Structure of Haplotype\n"
+"    Blocks in the Human Genome.\n"
+"    * It is now necessary to explicitly specify a --blocks-max-kb value for use\n"
+"      with this command; the old default of 200 is frequently too short.\n"
+"    * By default, size-2 blocks may not span more than 20kb and size-3 blocks\n"
+"      more than 30kb; 'no-small-max-span' removes those limits.\n"
+"    * Multiallelic variants are kept, with the major allele taken against the\n"
+"      rest.  Haploid chromosomes are skipped.\n\n"
               );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] ['cols='<column set descriptor>]\n"
@@ -2086,6 +2107,34 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'single-prec' causes the computation to use single- instead of\n"
 "    double-precision floating-point values internally.\n\n"
               );
+    HelpPrint("meta-analysis\0", &help_ctrl, 1,
+"  --meta-analysis <report filenames...>\n"
+"  --meta-analysis <report filenames...> + [{'logscale' | 'qt'}]\n"
+"                  [{'no-map' | 'no-allele'}] ['study'] ['report-all']\n"
+"                  ['weighted-z'] ['re2'] ['zs']\n"
+"    Inverse-variance meta-analysis over several variant-based association\n"
+"    reports, matching rows by variant ID.\n"
+"    * Each report needs an SE field and an effect size field: OR by default,\n"
+"      or BETA with 'logscale'.  'qt' also expects BETA, and reports betas\n"
+"      rather than odds ratios.\n"
+"    * CHR, BP and A1 fields are also required.  'no-map' ignores CHR and BP,\n"
+"      'no-allele' ignores A1 as well.\n"
+"    * When A2 is present in both reports, an A1/A2 flip is corrected.\n"
+"      Otherwise a mismatched row is dropped.\n"
+"    * Q is the heterogeneity test p-value and I2 the corresponding\n"
+"      inconsistency percentage, as in PLINK 1.x.  P_R and OR_R (or BETA_R)\n"
+"      are the DerSimonian-Laird random-effects results.\n"
+"    * 'study' adds a per-file effect size column; 'report-all' keeps variants\n"
+"      seen in only one file.\n"
+"    * 'weighted-z' adds METAL's sample-size-weighted Z-score and its\n"
+"      p-value, which needs p-value and effective sample size fields.\n"
+"    * 're2' adds TAU2 and P_RE2, the Han & Eskin (2011) random-effects test.\n"
+"      DerSimonian-Laird assumes heterogeneity under the null, which costs it\n"
+"      most of its power in this setting; RE2 tests the mean effect and the\n"
+"      heterogeneity jointly, so a variant with an effect in only some studies\n"
+"      still registers.  TAU2 is the maximum-likelihood between-study\n"
+"      variance, and is zero whenever the studies are consistent.\n\n"
+              );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file <filename> ['zs'] ['gc'] ['cols='<column set descriptor>]\n"
 "                ['log10'] ['input-log10'] ['test='<test name, case-sensitive>]\n"
@@ -2502,6 +2551,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --quantile-normalize [...]       : Force named covariates and quantitative\n"
 "  --pheno-quantile-normalize [...]   phenotypes to a N(0,1) distribution,\n"
 "  --covar-quantile-normalize [...]   preserving only the original rank orders.\n"
+               );
+    HelpPrint("tail-pheno\0pheno\0", &help_ctrl, 0,
+"  --tail-pheno <Lt> [Hbt] : Downcode every quantitative phenotype to a\n"
+"                            case/control one.  Samples with a value greater\n"
+"                            than Hbt are cases, and those with a value at or\n"
+"                            below Lt are controls.  When Hbt is unspecified it\n"
+"                            equals Lt; otherwise the values in between are set\n"
+"                            to missing.\n"
                );
     HelpPrint("chr\0not-chr\0", &help_ctrl, 0,
 "  --chr <chr(s)...>  : Exclude all variants not on the given chromosome(s).\n"
@@ -3081,7 +3138,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            * 'file'/'f' uses the order in the given file\n"
 "                              (named in the last argument).\n"
                );
-    HelpPrint("pmerge\0pmerge-list\0delete-pmerge-result\0pmerge-list-dir\0pmerge-output-vzs\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-parents-mode\0merge-sex-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0merge-cm-mode\0", &help_ctrl, 0,
+    HelpPrint("pmerge\0pmerge-list\0delete-pmerge-result\0pmerge-list-dir\0pmerge-output-vzs\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-parents-mode\0merge-sex-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0merge-cm-mode\0merge-ignore-phase\0merge-ignore-dosage\0", &help_ctrl, 0,
 "  --pmerge-list-dir <dir>  : Specify base dir to join to --pmerge-list entries.\n"
 "  --pmerge-output-vzs      : Compress the .pvar file from --pmerge[-list].\n"
 "  --delete-pmerge-result   : Delete --pmerge[-list] output files at the end of\n"
@@ -3117,6 +3174,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                             * 'np-union' = keep all non-PASS values\n"
 "                                            (--merge-filter-mode default, not\n"
 "                                            applicable to others)\n"
+"  --merge-ignore-phase     : Discard phase information before merge.\n"
+"  --merge-ignore-dosage    : Discard dosage information before merge.\n"
               );
     HelpPrint("pmerge\0pmerge-list\0merge-pheno-sort\0merge-info-sort\0", &help_ctrl, 0,
 "  --merge-pheno-sort <m>   : Set sort order for phenotype columns and INFO\n"
@@ -3194,6 +3253,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
 "  --tag-kb <kbs>       : Set --show-tags max tag kb distance (default 250).\n"
 "  --tag-r2 <val>       : Set --show-tags min tag r^2 (default 0.8).\n"
+              );
+    HelpPrint("blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0blocks\0", &help_ctrl, 0,
+"  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span.\n"
+"  --blocks-min-maf <cutoff>  : Adjust --blocks MAF minimum (default 0.05).\n"
+"  --blocks-strong-lowci <x>  : Set --blocks \"strong LD\" CI thresholds (defaults\n"
+"  --blocks-strong-highci <x>   0.70 and 0.98).\n"
+"  --blocks-recomb-highci <x> : Set \'recombination\' CI threshold (def. 0.90).\n"
+"  --blocks-inform-frac <x>   : Force haploblock <strong LD pairs>:<total\n"
+"                               informative pairs> ratios to be larger than this\n"
+"                               value (default 0.95).\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,

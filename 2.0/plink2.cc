@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (10 Sep 2026)";
+  " (14 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -125,12 +125,60 @@ static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_
 #endif
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
+// Grouped command listing for the no-argument/-h case, in the style of
+// samtools and friends: one line per command, so that a new user can see what
+// the program does without paging through the full --help.
+static const char notestr_null_calc2[] =
+"Commands include:\n"
+"  -- Data management\n"
+"     --make-pgen                write PLINK 2 binary fileset; --make-bed for 1\n"
+"     --export                   write the data out in another format\n"
+"     --set-all-var-ids          set variant IDs from chrom/pos/ref/alt1\n"
+"     --pmerge-list              merge several filesets\n"
+"     --write-samples            list the sample IDs that pass the filters\n"
+"     --write-snplist            list the variant IDs that pass the filters\n"
+"     --rm-dup                   resolve duplicate-ID variants\n"
+"     --sample-diff              compare genotypes between sample pairs\n"
+"     --pgen-diff                compare genotypes between two filesets\n"
+"\n"
+"  -- Summary statistics\n"
+"     --freq                     allele frequencies or counts\n"
+"     --geno-counts              per-variant genotype counts\n"
+"     --sample-counts            per-sample genotype counts\n"
+"     --missing                  sample- and variant-level missingness\n"
+"     --hardy                    Hardy-Weinberg equilibrium exact test\n"
+"     --mendel                   Mendel error report\n"
+"     --het                      inbreeding coefficients\n"
+"     --check-sex, --impute-sex  check/impute sex using chrX homozygosity\n"
+"     --fst                      Hudson or Weir-Cockerham Fst\n"
+"\n"
+"  -- Linkage disequilibrium\n"
+"     --indep-pairwise           LD-based variant pruning\n"
+"     --r-phased, --r2-phased    pairwise LD; --r[2]-unphased for unphased\n"
+"     --ld-score                 per-variant LD Score\n"
+"     --blocks                   haplotype blocks, Gabriel et al. (2002)\n"
+"     --flip-scan                find strand-inconsistent variants, using MAF/LD\n"
+"\n"
+"  -- Relatedness and population structure\n"
+"     --make-king-table          KING-robust kinship matrix\n"
+"     --king-cutoff              prune samples by kinship\n"
+"     --make-grm-bin             relationship matrix in GCTA's format\n"
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --mendel, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--check-sex, --write-samples, --write-snplist, --make-grm-list, --pca, --glm,\n--adjust-file, --gwas-ssf, --pheno-svd, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
-#else
-// no --pca
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --mendel, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--check-sex, --write-samples, --write-snplist, --make-grm-list, --glm,\n--adjust-file, --gwas-ssf, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+"     --pca                      principal components\n"
 #endif
+"     --homozyg                  runs of homozygosity\n"
+"\n"
+"  -- Association\n"
+"     --glm                      linear and logistic regression\n"
+"     --test-missing             differential missingness by case/control status\n"
+"     --score                    polygenic scores; --score-list for several\n"
+"\n"
+"  -- Report post-processing\n"
+"     --adjust-file              multiple-testing correction of assoc. results\n"
+"     --clump                    LD-based clumping of association results\n"
+"     --meta-analysis            meta-analyze several association reports\n"
+"\n"
+"\"" PROG_NAME_STR " --help <flag name>\" describes one flag; \"" PROG_NAME_STR " --help | more\" describes\nthem all.\n";
 
 // multiallelics-already-joined + terminating null
 CONSTI32(kMaxFlagBlen, 29);
@@ -236,6 +284,8 @@ ENUM_U31_DEF_START()
   kCmd1BitTestMissing,
   kCmd1BitShowTags,
   kCmd1BitEpi,
+  kCmd1BitBlocks,
+  kCmd1BitMetaAnalysis,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -282,6 +332,8 @@ FLAGSET64_DEF_START()
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
   kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
   kfCommand1Epi = (1LLU << kCmd1BitEpi)
+  kfCommand1Blocks = (1LLU << kCmd1BitBlocks),
+  kfCommand1MetaAnalysis = (1LLU << kCmd1BitMetaAnalysis)
 FLAGSET64_DEF_END(Command1Flags);
 
 // The shape and encoding modifiers are mutually exclusive within each group,
@@ -458,6 +510,8 @@ typedef struct Plink2CmdlineStruct {
   PcaFlags pca_flags;
   WriteCovarFlags write_covar_flags;
   PhenoTransformFlags pheno_transform_flags;
+  double tail_pheno_lt;
+  double tail_pheno_hbt;
   FaFlags fa_flags;
   RangeList snps_range_list;
   RangeList exclude_snps_range_list;
@@ -506,6 +560,7 @@ typedef struct Plink2CmdlineStruct {
   TwolocusInfo twolocus_info;
   EpiInfo epi_info;
   TagInfo tag_info;
+  BlocksInfo blocks_info;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
@@ -647,7 +702,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Epi)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Epi | kfCommand1Blocks)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -667,7 +722,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags, FlipScanFlags flipscan_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1ShowTags | kfCommand1Blocks)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
     ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj)))) ||
@@ -680,6 +735,10 @@ uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, VcorFlags vc
   // Keep this in sync with --error-on-freq-calc.
   if (command_flags1 & kfCommand1Homozyg) {
     // --homozyg-min-af applies a frequency floor of its own.
+    return 1;
+  }
+  if (command_flags1 & kfCommand1Blocks) {
+    // --blocks applies a MAF floor of its own.
     return 1;
   }
   // Vscore could go either here or in the decent bucket
@@ -1990,6 +2049,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
     }
+    if (pcp->pheno_transform_flags & kfPhenoTransformTailPheno) {
+      reterr = PhenoTailDowncode(pcp->tail_pheno_lt, pcp->tail_pheno_hbt, raw_sample_ct, pheno_ct, pheno_cols);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
     if (pcp->pheno_transform_flags & kfPhenoTransformSplitCat) {
       reterr = SplitCatPheno(pcp->split_cat_phenonames_flattened, sample_include, raw_sample_ct, pcp->pheno_transform_flags, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
       if (unlikely(reterr)) {
@@ -3202,6 +3267,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1Blocks) {
+        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+          logerrputs("Error: --blocks requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          return kPglRetInconsistentInput;
+        }
+        reterr = HaploviewBlocks(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, &(pcp->blocks_info), raw_sample_ct, founder_ct, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Vcor) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --r[2]-[un]phased runs require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -4092,6 +4168,7 @@ int main(int argc, char** argv) {
   InitTwolocus(&pc.twolocus_info);
   InitEpi(&pc.epi_info);
   InitTag(&pc.tag_info);
+  InitBlocks(&pc.blocks_info);
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
@@ -4101,7 +4178,9 @@ int main(int argc, char** argv) {
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
+  MetaInfo meta_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
+  InitMeta(&meta_info);
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
     goto main_ret_NOMEM_NOLOG;
@@ -4419,6 +4498,8 @@ int main(int argc, char** argv) {
     pc.pca_flags = kfPca0;
     pc.write_covar_flags = kfWriteCovar0;
     pc.pheno_transform_flags = kfPhenoTransform0;
+    pc.tail_pheno_lt = 0.0;
+    pc.tail_pheno_hbt = 0.0;
     pc.fa_flags = kfFa0;
     pc.fam_cols = kfFamCol13456;
     pc.king_flags = kfKing0;
@@ -4997,7 +5078,127 @@ int main(int argc, char** argv) {
         break;
 
       case 'b':
-        if (strequal_k_unsafe(flagname_p2, "file")) {
+        if (strequal_k_unsafe(flagname_p2, "locks")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "no-pheno-req", cur_modif_slen)) {
+              logputs("Note: --blocks 'no-pheno-req' modifier is no longer necessary; phenotypes are\nalways ignored now.\n");
+            } else if (likely(strequal_k(cur_modif, "no-small-max-span", cur_modif_slen))) {
+              pc.blocks_info.flags |= kfBlocksNoSmallMaxSpan;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1Blocks;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "locks-max-kb")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-max-kb must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.001) || (dxx > 2147483.646))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks-max-kb argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.blocks_info.max_bp = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+        } else if (strequal_k_unsafe(flagname_p2, "locks-min-maf")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-min-maf must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx >= 0.5))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks-min-maf argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.blocks_info.min_maf = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "locks-inform-frac")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-inform-frac must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks-inform-frac argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.blocks_info.inform_frac = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "locks-strong-lowci")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-strong-lowci must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks-strong-lowci argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.blocks_info.strong_lowci_outer = 2 + S_CAST(int32_t, (dxx - kSmallEpsilon) * 100);
+          pc.blocks_info.strong_lowci = 2 + S_CAST(int32_t, (dxx + kSmallEpsilon) * 100);
+          // The classification code indexes a fixed 83-entry table by these
+          // quantiles, so the bounds are load-bearing rather than advisory.
+          if (unlikely((pc.blocks_info.strong_lowci_outer < 52) || (pc.blocks_info.strong_lowci > 82))) {
+            logerrputs("Error: --blocks-strong-lowci parameter currently must be in (0.5, 0.81).\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "locks-strong-highci")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-strong-highci must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks-strong-highci argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.blocks_info.strong_highci = S_CAST(int32_t, (dxx - kSmallEpsilon) * 100);
+          if (unlikely(pc.blocks_info.strong_highci < 83)) {
+            logerrputs("Error: --blocks-strong-highci parameter currently must be larger than 0.83.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "locks-recomb-highci")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Blocks))) {
+            logerrputs("Error: --blocks-recomb-highci must be used with --blocks.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --blocks-recomb-highci argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          {
+            const uint32_t raw_recomb_highci = S_CAST(int32_t, (dxx + kSmallEpsilon) * 100);
+            if (unlikely(raw_recomb_highci < 2)) {
+              logerrputs("Error: --blocks-recomb-highci parameter must be at least 0.02.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            pc.blocks_info.recomb_highci = raw_recomb_highci - 1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "file")) {
           if (unlikely(xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -7877,7 +8078,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --homozyg cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0maybepheno\0pheno\0chrom\0pos\0kb\0nsnp\0density\0phom\0phet\0nseg\0kbtot\0kbavg\0aff\0unaff\0", "homozyg", kfHomozygColMaybefid, kfHomozygColDefault, 1, &pc.homozyg_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0maybepheno\0pheno\0chrom\0pos\0kb\0nsnp\0density\0phom\0phet\0nseg\0kbtot\0kbavg\0froh\0aff\0unaff\0", "homozyg", kfHomozygColMaybefid, kfHomozygColDefault, 1, &pc.homozyg_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -9147,7 +9348,93 @@ int main(int argc, char** argv) {
         break;
 
       case 'm':
-        if (strequal_k_unsafe(flagname_p2, "emory")) {
+        if (unlikely(strequal_k_unsafe(flagname_p2, "ust-have-sex"))) {
+          logerrputs("Error: --must-have-sex is not implemented.  --remove-nosex drops the same\nsamples outright, which covers the usual intent; contact us if you need their\ngenotypes kept with only the phenotypes blanked.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "eta-analysis")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_ct = param_ct;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            if (!strcmp(argvk[arg_idx + param_idx], "+")) {
+              fname_ct = param_idx - 1;
+              break;
+            }
+          }
+          if (unlikely(fname_ct < 2)) {
+            logerrputs("Error: --meta-analysis requires at least two filenames.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          for (uint32_t param_idx = fname_ct + 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "logscale", cur_modif_slen)) {
+              meta_info.flags |= kfMetaLogscale;
+            } else if (strequal_k(cur_modif, "qt", cur_modif_slen)) {
+              meta_info.flags |= kfMetaQt;
+            } else if (strequal_k(cur_modif, "no-map", cur_modif_slen)) {
+              meta_info.flags |= kfMetaNoMap;
+            } else if (strequal_k(cur_modif, "no-allele", cur_modif_slen)) {
+              meta_info.flags |= kfMetaNoAllele;
+            } else if (strequal_k(cur_modif, "study", cur_modif_slen)) {
+              meta_info.flags |= kfMetaStudy;
+            } else if (strequal_k(cur_modif, "report-all", cur_modif_slen)) {
+              meta_info.flags |= kfMetaReportAll;
+            } else if (strequal_k(cur_modif, "weighted-z", cur_modif_slen)) {
+              meta_info.flags |= kfMetaWeightedZ;
+            } else if (strequal_k(cur_modif, "re2", cur_modif_slen)) {
+              meta_info.flags |= kfMetaRe2;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              meta_info.flags |= kfMetaZs;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --meta-analysis argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (unlikely((meta_info.flags & (kfMetaLogscale | kfMetaQt)) == (kfMetaLogscale | kfMetaQt))) {
+            logerrputs("Error: --meta-analysis 'logscale' and 'qt' cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, fname_ct, kPglFnamesize, &meta_info.fnames);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.command_flags1 |= kfCommand1MetaAnalysis;
+        } else if (StrStartsWithUnsafe(flagname_p2, "eta-analysis-")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1MetaAnalysis))) {
+            logerrprintfww("Error: --%s must be used with --meta-analysis.\n", flagname_p);
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* subflag = &(flagname_p2[13]);
+          char** target = nullptr;
+          if (!strcmp(subflag, "chr-field")) {
+            target = &meta_info.chr_field;
+          } else if (!strcmp(subflag, "snp-field")) {
+            target = &meta_info.snp_field;
+          } else if (!strcmp(subflag, "bp-field")) {
+            target = &meta_info.bp_field;
+          } else if (!strcmp(subflag, "a1-field")) {
+            target = &meta_info.a1_field;
+          } else if (!strcmp(subflag, "a2-field")) {
+            target = &meta_info.a2_field;
+          } else if (!strcmp(subflag, "p-field")) {
+            target = &meta_info.p_field;
+          } else if (!strcmp(subflag, "se-field")) {
+            target = &meta_info.se_field;
+          } else if (likely(!strcmp(subflag, "ess-field"))) {
+            target = &meta_info.ess_field;
+          } else {
+            goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, kMaxIdSlen, target);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "emory")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -10655,6 +10942,14 @@ int main(int argc, char** argv) {
           } else {
             pmerge_info.merge_cm_mode = mode;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-ignore-phase")) {
+          pmerge_info.flags |= kfPmergeIgnorePhase;
+          pmerge_required = 1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "erge-ignore-dosage")) {
+          pmerge_info.flags |= kfPmergeIgnoreDosage;
+          pmerge_required = 1;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "erge-info-sort") ||
                    strequal_k_unsafe(flagname_p2, "erge-pheno-sort")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -13116,7 +13411,31 @@ int main(int argc, char** argv) {
         break;
 
       case 't':
-        if (strequal_k_unsafe(flagname_p2, "wolocus")) {
+        if (strequal_k_unsafe(flagname_p2, "ail-pheno")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double tail_lt;
+          if (unlikely(!ScanadvDouble(argvk[arg_idx + 1], &tail_lt))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tail-pheno lower bound '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          double tail_hbt = tail_lt;
+          if (param_ct == 2) {
+            if (unlikely(!ScanadvDouble(argvk[arg_idx + 2], &tail_hbt))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tail-pheno upper bound '%s'.\n", argvk[arg_idx + 2]);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (unlikely(tail_hbt < tail_lt)) {
+              logerrputs("Error: --tail-pheno's upper bound cannot be smaller than its lower bound.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          pc.tail_pheno_lt = tail_lt;
+          pc.tail_pheno_hbt = tail_hbt;
+          pc.pheno_transform_flags |= kfPhenoTransformTailPheno;
+          pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "wolocus")) {
           // The report has one row per joint genotype cell, so it is small
           // enough that compressing it is not worth a modifier.
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
@@ -14056,6 +14375,16 @@ int main(int argc, char** argv) {
       logerrputs("Error: --list-all must be used with --show-tags.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
+    if (pc.command_flags1 & kfCommand1Blocks) {
+      if (unlikely(pc.blocks_info.max_bp == 0)) {
+        logerrputs("Error: --blocks-max-kb must be explicitly specified when using --blocks.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely(pc.blocks_info.recomb_highci > pc.blocks_info.strong_highci)) {
+        logerrputs("Error: --blocks-recomb-highci value cannot be larger than\n--blocks-strong-highci value.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+    }
     if (!outname_end) {
       outname_end = &(outname[6]);
     } else if (!allow_misleading_out_arg) {
@@ -14078,7 +14407,7 @@ int main(int argc, char** argv) {
 
     pc.dependency_flags |= pc.filter_flags;
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
-    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
+    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr) || (meta_info.fnames != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
@@ -14330,6 +14659,8 @@ int main(int argc, char** argv) {
         logerrputs("Error: --multiallelics-already-joined must be used with --pmerge[-list].\n");
       } else if (pmerge_info.flags & kfPmergePhenoInnerJoin) {
         logerrputs("Error: --pheno-inner-join must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.flags & (kfPmergeIgnorePhase | kfPmergeIgnoreDosage)) {
+        logerrputs("Error: --merge-ignore-{phase,dosage} must be used with --pmerge[-list].\n");
       } else {
         assert(0);
       }
@@ -14406,6 +14737,12 @@ int main(int argc, char** argv) {
     print_end_time = 1;
 
     if (batch_job) {
+      if (meta_info.fnames) {
+        reterr = MetaAnalysis(&meta_info, pc.max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto main_ret_1;
+        }
+      }
       if (adjust_file_info.fname) {
         reterr = AdjustFile(&adjust_file_info, pc.ln_pfilter, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -14733,6 +15070,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
+  CleanupMeta(&meta_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);

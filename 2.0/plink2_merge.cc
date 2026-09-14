@@ -1707,13 +1707,14 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
 
 // This executes before ScanPvarsAndMergeHeader(), so we know whether to write
 // an INFO/PR header line even when it doesn't appear in any input .pvar.
-PglErr ScanPgenHeaders(uint32_t is_list, MiscFlags misc_flags, PmergeInputFilesetLl* filesets) {
+PglErr ScanPgenHeaders(uint32_t is_list, PmergeFlags pmerge_flags, MiscFlags misc_flags, PmergeInputFilesetLl* filesets) {
   const char* read_pgen_fname = nullptr;
   PglErr reterr = kPglRetSuccess;
   PgenFileInfo pgfi;
   PreinitPgfi(&pgfi);
   {
     const uint32_t real_ref_alleles = (misc_flags / kfMiscRealRefAlleles) & 1;
+    const uint32_t vrtype_8bit_may_be_needed = ((pmerge_flags & (kfPmergeIgnorePhase | kfPmergeIgnoreDosage)) != (kfPmergeIgnorePhase | kfPmergeIgnoreDosage));
     PmergeInputFilesetLl* filesets_iter = filesets;
     do {
       read_pgen_fname = filesets_iter->pgen_fname;
@@ -1735,12 +1736,14 @@ PglErr ScanPgenHeaders(uint32_t is_list, MiscFlags misc_flags, PmergeInputFilese
         nonref_flags_storage = 2 - real_ref_alleles;
       } else {
         nonref_flags_storage = header_ctrl >> 6;
-        if (pgfi.const_vrtype == UINT32_MAX) {
-          if (((header_ctrl & 12) == 4) || ((header_ctrl & 15) > 9)) {
+        if (vrtype_8bit_may_be_needed) {
+          if (pgfi.const_vrtype == UINT32_MAX) {
+            if (((header_ctrl & 12) == 4) || ((header_ctrl & 15) > 9)) {
+              vrtype_8bit_needed = 1;
+            }
+          } else if (pgfi.const_vrtype > 15) {
             vrtype_8bit_needed = 1;
           }
-        } else if (pgfi.const_vrtype > 15) {
-          vrtype_8bit_needed = 1;
         }
       }
       filesets_iter->nonref_flags_storage = nonref_flags_storage;
@@ -5199,7 +5202,7 @@ typedef struct MergeWriterStruct {
 
   // "--merge-mode nm-match"-specific temporary buffers
   uintptr_t* clobber_sample_span;
-  uintptr_t* unlocked_nonmissing_sample_span;
+  uintptr_t* unlocked_dbl_nonmissing_sample_span;
 
   // Buffers supporting efficient clobber when only some of the currently-read
   // samples qualify.
@@ -5211,6 +5214,7 @@ typedef struct MergeWriterStruct {
   AlleleCode* wide_codes;
 
   MergeMode merge_mode;
+  uint32_t vrtype_mask;
 } MergeWriter;
 
 PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const AlleleCode* master_allele_remap, uintptr_t merge_rec_ct, uint32_t write_allele_ct, uint32_t allele_remap_stride, MergeReader** mrp_arr, MergeWriter* mwp) {
@@ -5229,6 +5233,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
     // [1] = 0}.
     // (These are the only possibilities when merge_rec_ct == 1.)
     uint32_t simple_first_allele_remap = 1;
+    const uint32_t vrtype_mask = mwp->vrtype_mask;
     if (merge_rec_ct > 1) {
       const uint32_t read_allele_ct = same_id_records[0]->allele_ct;
       for (uint32_t allele_idx = 0; allele_idx != read_allele_ct; ++allele_idx) {
@@ -5257,6 +5262,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         PgenReader* pgrp = &(cur_mrp->pgr);
         vrtype_or |= PgrGetVrtype(pgrp, read_variant_uidx);
       }
+      vrtype_or &= vrtype_mask;
       hphase_exists = (vrtype_or / 0x10) & 1;
       dosage_exists = !!(vrtype_or & 0x60);
       dphase_exists = (vrtype_or / 0x80) & 1;
@@ -5275,7 +5281,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       const uint32_t read_sample_ct = cur_mrp->sample_ct;
       const uint32_t read_allele_ct = same_id_records[0]->allele_ct;
       PgenReader* pgrp = &(cur_mrp->pgr);
-      const uint32_t vrtype = PgrGetVrtype(pgrp, read_variant_uidx);
+      const uint32_t vrtype = PgrGetVrtype(pgrp, read_variant_uidx) & vrtype_mask;
       const uint32_t read_phase_present = !!(vrtype & 0x90);
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
       const uintptr_t* sample_include = cur_mrp->sample_include;
@@ -5709,7 +5715,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       // not const since there's an allele-rotation case where we change it
       uint32_t read_allele_ct = same_id_records[rec_idx]->allele_ct;
       PgenReader* pgrp = &(cur_mrp->pgr);
-      const uint32_t vrtype = PgrGetVrtype(pgrp, read_variant_uidx);
+      const uint32_t vrtype = PgrGetVrtype(pgrp, read_variant_uidx) & vrtype_mask;
       const uint32_t read_hphase_present = (vrtype / 0x10) & 1;
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
       if ((read_allele_ct == 2) && (!read_dosage_present)) {
@@ -5825,41 +5831,59 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         //     This is interleaved with (1a).
         // 2. Clear unlocked_set bits.
         PgenVariant* compare_pgvp = &(mwp->pgv_midbuf);
-        BitvecInvmaskCopy(unlocked_sample_span, clobber_sample_span, write_sample_ctl, mwp->unlocked_nonmissing_sample_span);
-        uintptr_t* compare_mask = mwp->mask_buf;
-        memcpy(compare_mask, mwp->unlocked_nonmissing_sample_span, write_sample_ctl * sizeof(intptr_t));
-        uintptr_t* orig_genovec = pgvp->genovec;
+        uintptr_t* unlocked_dbl_nonmissing_sample_span = mwp->unlocked_dbl_nonmissing_sample_span;
+        BitvecInvmaskCopy(unlocked_sample_span, clobber_sample_span, write_sample_ctl, unlocked_dbl_nonmissing_sample_span);
+        uintptr_t* new_raw_genovec = pgvp->genovec;
         uintptr_t* r_genovec = compare_pgvp->genovec;
         ZeroWArr(write_sample_ctl2, r_genovec);
         const uint32_t* old_sample_idx_to_new = cur_mrp->old_sample_idx_to_new;
         const uint32_t read_sample_ctl2 = NypCtToWordCt(read_sample_ct);
-        for (uint32_t widx = 0; widx != read_sample_ctl2; ++widx) {
-          uintptr_t geno_word = orig_genovec[widx];
-          if (!geno_word) {
-            continue;
+        {
+          const uint32_t new_dosage_ct = pgvp->dosage_ct;
+          const uintptr_t* new_raw_dosage_present = pgvp->dosage_present;
+          for (uint32_t widx = 0; widx != read_sample_ctl2; ++widx) {
+            uintptr_t geno_word = new_raw_genovec[widx];
+            if (!geno_word) {
+              continue;
+            }
+            const uint32_t* cur_old_sample_idx_to_new = &(old_sample_idx_to_new[widx * kBitsPerWordD2]);
+            do {
+              const uint32_t bit_read_shift_ct = ctzw(geno_word) & (kBitsPerWord - 2);
+              const uintptr_t cur_geno = (geno_word >> bit_read_shift_ct) & 3;
+              const uint32_t new_sample_idx = cur_old_sample_idx_to_new[bit_read_shift_ct / 2];
+              if (cur_geno == 3) {
+                // bugfix (9-13 Sep 2026): if new sample has missing
+                // genotype+dosage here, we need to exclude it from the
+                // comparison.
+                const uint32_t new_widx = new_sample_idx / kBitsPerWord;
+                const uintptr_t new_bit = k1LU << (new_sample_idx % kBitsPerWord);
+                if ((!new_dosage_ct) || (!(new_raw_dosage_present[new_widx] & new_bit))) {
+                  unlocked_dbl_nonmissing_sample_span[new_widx] &= ~new_bit;
+                  // cur_geno must still be stored in r_genovec below: the
+                  // clobber loop tells "incoming missing" apart from "incoming
+                  // hom-ref" by looking for 3 there, so skipping the store
+                  // would turn a sample that's missing in every record into a
+                  // hom-ref call.
+                }
+              }
+              const uint32_t new_word_idx = new_sample_idx / kBitsPerWordD2;
+              const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % kBitsPerWordD2);
+              r_genovec[new_word_idx] |= cur_geno << bit_write_shift_ct;
+              geno_word &= (~(3 * k1LU)) << bit_read_shift_ct;
+            } while (geno_word);
           }
-          const uint32_t* cur_old_sample_idx_to_new = &(old_sample_idx_to_new[widx * kBitsPerWordD2]);
-          do {
-            const uint32_t bit_read_shift_ct = ctzw(geno_word) & (kBitsPerWord - 2);
-            const uintptr_t cur_geno = (geno_word >> bit_read_shift_ct) & 3;
-            const uint32_t new_sample_idx = cur_old_sample_idx_to_new[bit_read_shift_ct / 2];
-            const uint32_t new_word_idx = new_sample_idx / kBitsPerWordD2;
-            const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % kBitsPerWordD2);
-            r_genovec[new_word_idx] |= cur_geno << bit_write_shift_ct;
-            geno_word &= (~(3 * k1LU)) << bit_read_shift_ct;
-          } while (geno_word);
         }
+        uintptr_t* compare_mask = mwp->mask_buf;
+        memcpy(compare_mask, unlocked_dbl_nonmissing_sample_span, write_sample_ctl * sizeof(intptr_t));
         Halfword* compare_mask_hwalias = R_CAST(Halfword*, compare_mask);
         for (uint32_t widx = 0; widx != write_sample_ctl2; ++widx) {
           Halfword compare_mask_hw = compare_mask_hwalias[widx];
           if (!compare_mask_hw) {
             continue;
           }
-          // bugfix (9 Sep 2026): diff_bits must exclude missing entries in
-          // r_genovec
           const uintptr_t new_geno_word = r_genovec[widx];
           const uintptr_t diff_bits = new_geno_word ^ genovec[widx];
-          const Halfword diff_hw = PackWordToHalfwordMask5555((diff_bits | (diff_bits >> 1)) & (~(new_geno_word & (new_geno_word >> 1))));
+          const Halfword diff_hw = PackWordToHalfwordMask5555(diff_bits | (diff_bits >> 1));
           compare_mask_hwalias[widx] = compare_mask_hw & (~diff_hw);
         }
         // possible todo: check if performance gain from switching to single
@@ -5960,8 +5984,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             }
           }
         }
-        // unlocked_set ^= unlocked_nonmissing_sample_span ^ compare_mask
-        BitvecXor(mwp->unlocked_nonmissing_sample_span, write_sample_ctl, unlocked_set);
+        // unlocked_set ^= unlocked_dbl_nonmissing_sample_span ^ compare_mask
+        BitvecXor(unlocked_dbl_nonmissing_sample_span, write_sample_ctl, unlocked_set);
         BitvecXor(compare_mask, write_sample_ctl, unlocked_set);
       } else if (clobber_sample_ct) {
         // possible todo: only use this branch on sufficiently small
@@ -6438,7 +6462,8 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     }
     overflow_buf_size += kCompressStreamBlock;
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
-    const uint32_t pvar_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
+    const uint32_t pmerge_flags = pmip->flags;
+    const uint32_t pvar_zst = (pmerge_flags / kfPmergeOutputVzs) & 1;
     if (pvar_zst) {
       snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
     }
@@ -6463,7 +6488,17 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
-    const PgenGlobalFlags write_gflags = vrtype_8bit_needed? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0;
+    PgenGlobalFlags write_gflags = kfPgenGlobal0;
+    if (vrtype_8bit_needed) {
+      write_gflags = kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
+      if (pmerge_flags & kfPmergeIgnorePhase) {
+        // shouldn't be possible to get here if kfPmergeIgnoreDosage also set
+        write_gflags = kfPgenGlobalDosagePresent;
+      }
+      if (pmerge_flags & kfPmergeIgnoreDosage) {
+        write_gflags = kfPgenGlobalHardcallPhasePresent;
+      }
+    }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
     // bugfix (1 Jun 2022): in multiallelic case, contents of
@@ -6509,7 +6544,16 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     mw.dosage_main = nullptr;
     mw.dphase_present = nullptr;
     mw.dphase_delta = nullptr;
+    mw.vrtype_mask = 0xf;
     if (vrtype_8bit_needed) {
+      mw.vrtype_mask = 0xff;
+      if (pmerge_flags & kfPmergeIgnorePhase) {
+        mw.vrtype_mask = 0x6f;
+      } else if (pmerge_flags & kfPmergeIgnoreDosage) {
+        mw.vrtype_mask = 0x1f;
+      }
+      // could optimize out some of these when exactly one of
+      // {--merge-ignore-phase, --merge-ignore-dosage} specified
       if (unlikely(bigstack_alloc_w(sample_ctl, &mw.phasepresent) ||
                    bigstack_alloc_w(sample_ctl, &mw.phaseinfo) ||
                    bigstack_alloc_w(sample_ctl, &mw.dosage_present) ||
@@ -6530,11 +6574,11 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     }
     mw.unlocked_missing_set = nullptr;
     mw.clobber_sample_span = nullptr;
-    mw.unlocked_nonmissing_sample_span = nullptr;
+    mw.unlocked_dbl_nonmissing_sample_span = nullptr;
     if (pmip->merge_mode == kMergeModeNmMatch) {
       if (unlikely(bigstack_alloc_w(sample_ctl, &mw.unlocked_missing_set) ||
                    bigstack_alloc_w(sample_ctl, &mw.clobber_sample_span) ||
-                   bigstack_alloc_w(sample_ctl, &mw.unlocked_nonmissing_sample_span))) {
+                   bigstack_alloc_w(sample_ctl, &mw.unlocked_dbl_nonmissing_sample_span))) {
         goto PmergeConcat_ret_NOMEM;
       }
     }
@@ -7047,6 +7091,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
     // 4. If filesets cover disjoint positions, handle this as a concatenation
     //    job (or error out on --variant-inner-join).
     // 5. Otherwise, perform general-purpose incremental merge.
+    const uint32_t outname_slen = outname_end - outname;
     uintptr_t fileset_ct = 2;
     {
       PmergeInputFilesetLl** filesets_endp = &input_filesets;
@@ -7091,6 +7136,18 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
           goto Pmerge_ret_1;
         }
       }
+      // Sanity check: output .pgen filename must not overlap an input .pgen
+      // filename.  This doesn't catch all possible input clobbering, but it
+      // should catch ~all accidents.
+      strcpy_k(outname_end, ".pgen");
+      PmergeInputFilesetLl* filesets_iter = input_filesets;
+      do {
+        if (unlikely(!strcmp(filesets_iter->pgen_fname, outname))) {
+          logerrprintfww("Error: --pmerge[-list] output filename '%s' appears in the input.\n", outname);
+          goto Pmerge_ret_INCONSISTENT_INPUT;
+        }
+        filesets_iter = filesets_iter->next;
+      } while (filesets_iter);
     }
 
     SampleIdInfo sii;
@@ -7100,7 +7157,8 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
-    reterr = ScanPgenHeaders(!!(pmip->list_fname), misc_flags, input_filesets);
+    const PmergeFlags pmerge_flags = pmip->flags;
+    reterr = ScanPgenHeaders(!!(pmip->list_fname), pmerge_flags, misc_flags, input_filesets);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
@@ -7126,7 +7184,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
       goto Pmerge_ret_1;
     }
     uint32_t is_concat_job = 0;
-    if (!(pmip->flags & (kfPmergeVariantInnerJoin | kfPmergeSids))) {
+    if (!(pmerge_flags & (kfPmergeVariantInnerJoin | kfPmergeSids))) {
       reterr = DetectConcatJob(cip->chr_idx_to_foidx, fileset_ct, sort_vars_mode, &input_filesets, &is_concat_job);
       if (unlikely(reterr)) {
         goto Pmerge_ret_1;
@@ -7150,11 +7208,10 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
         next_filesets = nullptr;
       }
     }
-    const uint32_t outname_slen = outname_end - outname;
     memcpy(pgenname, outname, outname_slen);
     strcpy_k(&(pgenname[outname_slen]), ".pgen");
     memcpy(pvarname, outname, outname_slen);
-    const uint32_t output_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
+    const uint32_t output_zst = (pmerge_flags / kfPmergeOutputVzs) & 1;
     if (output_zst) {
       strcpy_k(&(pvarname[outname_slen]), ".pvar.zst");
     } else {
@@ -7162,7 +7219,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
     }
     memcpy(psamname, outname, outname_slen);
     strcpy_k(&(psamname[outname_slen]), ".psam");
-    if ((pmip->flags & kfPmergeVariantInnerJoin) || pmip->max_allele_ct) {
+    if ((pmerge_flags & kfPmergeVariantInnerJoin) || pmip->max_allele_ct) {
       // Some input variants that pass the chromosome filter might still be
       // excluded from the merged dataset.
       ForgetExtraChrNames(1, cip);
@@ -7171,6 +7228,9 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
   while (0) {
   Pmerge_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  Pmerge_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  Pmerge_ret_1:

@@ -787,7 +787,11 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
       ukk = marker_ct;
     }
     while (1) {
-      uii = bit_idx + 1;
+      // bit_idx is either the start of the window, which may itself be a
+      // complement member, or a set bit which next_unset_unsafe_ck() steps
+      // past; starting the scan at bit_idx + 1 instead dropped the first
+      // variant whenever the set didn't contain it
+      uii = bit_idx;
       next_unset_unsafe_ck(marker_bitfield_tmp, &uii);
       if (uii >= ukk) {
 	break;
@@ -1043,6 +1047,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uint64_t* range_sort_buf = nullptr;
   char* bufptr2;
   char* bufptr3;
+  char* cptr;
   char* buf_end;
   Make_set_range* msr_tmp;
   unsigned char* bigstack_end_mark2;
@@ -1092,8 +1097,11 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       do {
 	slen = strlen(bufptr) + 1;
 	if ((!c_prefix) || (!memcmp(bufptr, "C_", 2))) {
-	  if (slen > max_genekeep_len) {
-	    max_genekeep_len = slen;
+	  // the 'C_' prefix is stripped here, and skipped on the --make-set
+	  // side below, so that --gene works the same way for both set
+	  // sources
+	  if (slen - c_prefix > max_genekeep_len) {
+	    max_genekeep_len = slen - c_prefix;
 	  }
 	  genekeep_ct++;
 	}
@@ -1115,7 +1123,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       do {
 	slen = strlen(bufptr) + 1;
 	if ((!c_prefix) || (!memcmp(bufptr, "C_", 2))) {
-	  memcpy(&(sorted_genekeep_ids[ulii * max_genekeep_len]), bufptr, slen);
+	  memcpy(&(sorted_genekeep_ids[ulii * max_genekeep_len]), &(bufptr[c_prefix]), slen - c_prefix);
 	  ulii++;
 	}
 	bufptr = &(bufptr[slen]);
@@ -1219,16 +1227,19 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     // fails to appear in a fully loaded set in the complement case
     if (make_set) {
       for (set_idx = 0; set_idx < set_ct; set_idx++) {
-	if (gene_all || (bsearch_str_nl(&(set_names[set_idx * max_set_id_len]), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) != -1)) {
+	if (gene_all || (bsearch_str_nl(&(set_names[set_idx * max_set_id_len + c_prefix]), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) != -1)) {
 	  msr_tmp = make_set_range_arr[set_idx];
 	  while (msr_tmp) {
 	    fill_bits(msr_tmp->uidx_start, msr_tmp->uidx_end - msr_tmp->uidx_start, marker_bitfield_tmp);
 	    msr_tmp = msr_tmp->next;
 	  }
-	}
-        if (complement_sets) {
-	  bitvec_and(marker_bitfield_tmp, unfiltered_marker_ctl, marker_exclude_new);
-          fill_ulong_zero(unfiltered_marker_ctl, marker_bitfield_tmp);
+	  // a variant survives iff it is outside at least one kept set, so
+	  // only kept sets may intersect here; doing this for skipped sets too
+	  // intersected with an empty bitfield, which kept everything
+	  if (complement_sets) {
+	    bitvec_and(marker_bitfield_tmp, unfiltered_marker_ctl, marker_exclude_new);
+	    fill_ulong_zero(unfiltered_marker_ctl, marker_bitfield_tmp);
+	  }
 	}
       }
     } else {
@@ -1294,14 +1305,14 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    if (!in_set) {
 	      goto define_sets_ret_INVALID_FORMAT_EXTRA_END;
 	    }
-            if (complement_sets) {
+            if (complement_sets && (in_set == 1)) {
 	      bitvec_and(marker_bitfield_tmp, unfiltered_marker_ctl, marker_exclude_new);
               fill_ulong_zero(unfiltered_marker_ctl, marker_bitfield_tmp);
 	    }
             in_set = 0;
 	  } else if (!in_set) {
 	    // bugfix: forgot to apply --gene here
-	    //	if (gene_all || (bsearch_str_nl(&(set_names[set_idx * max_set_id_len]), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) != -1)) {
+	    //	if (gene_all || (bsearch_str_nl(&(set_names[set_idx * max_set_id_len + c_prefix]), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) != -1)) {
 
 	    if ((subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) || (sorted_genekeep_ids && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) == -1))) {
 	      in_set = 2; // ignore this set
@@ -1414,8 +1425,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    bufptr = &(bufptr2[1]);
 	    continue;
 	  }
-	  if (curtoklen >= max_set_id_len) {
-	    max_set_id_len = curtoklen + 1;
+	  if (curtoklen + c_prefix >= max_set_id_len) {
+	    max_set_id_len = curtoklen + c_prefix + 1;
 	  }
 	  set_ct++;
 	}
@@ -1540,8 +1551,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     range_first = marker_ct;
     range_last = 0;
     // guarantee two free bits at end to simplify loop termination checks (may
-    // want to default to doing this...)
-    marker_ctp2l = (marker_ct + (BITCT + 1)) / BITCT;
+    // want to default to doing this...).  save_set_bitfield() puts them just
+    // past the 128-bit-aligned top of the set's window, which can be as high
+    // as round_up_pow2(marker_ct, 128), so that is what needs the slack.
+    marker_ctp2l = (round_up_pow2(marker_ct, 128) / BITCT) + 1;
     if (bigstack_end_alloc_ul(marker_ctp2l, &marker_bitfield_tmp) ||
         bigstack_end_alloc_c(marker_ct * max_marker_id_len, &sorted_marker_ids) ||
         bigstack_end_alloc_ui(marker_ct, &marker_id_map)) {
@@ -1622,7 +1635,13 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    continue;
 	  }
 	  if (!sip->merged_set_name) {
-	    memcpyx(&(set_names[set_idx * max_set_id_len]), bufptr, bufptr2 - bufptr, '\0');
+	    // --complement-sets renames the sets it inverts, as the help text
+	    // says and as the --make-set path has always done
+	    cptr = &(set_names[set_idx * max_set_id_len]);
+	    if (c_prefix) {
+	      memcpy(cptr, "C_", 2);
+	    }
+	    memcpyx(&(cptr[c_prefix]), bufptr, bufptr2 - bufptr, '\0');
 	  }
 	} else if (in_set == 1) {
 	  ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
