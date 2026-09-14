@@ -14842,7 +14842,7 @@ PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   return reterr;
 }
 
-PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t output_zst, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -14852,6 +14852,20 @@ PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* varia
     if (unlikely(block_ct > variant_ct)) {
       logerrprintf("Error: --write-var-ranges block count (%u) exceeds the number of variants\nremaining (%u).\n", block_ct, variant_ct);
       goto WriteVarRanges_ret_INCONSISTENT_INPUT;
+    }
+    if (!allow_dups) {
+      // The output is meant to be fed back in with --snps, so a duplicate ID
+      // makes the ranges ambiguous the same way it makes --write-snplist
+      // output ambiguous.
+      uint32_t dup_found;
+      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+      if (unlikely(reterr)) {
+        goto WriteVarRanges_ret_1;
+      }
+      if (dup_found) {
+        logerrputs("Error: --write-var-ranges normally shouldn't be used with duplicate variant\nIDs.  (--set-all-var-ids helps with ID deduplication, and --rm-dup addresses\nactual duplicate data.)  However, if you've already accounted for them, you can\nsuppress this error with the 'allow-dups' modifier.\n");
+        goto WriteVarRanges_ret_INCONSISTENT_INPUT;
+      }
     }
     OutnameZstSet(".var.ranges", output_zst, outname_end);
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * max_variant_id_slen + 64;
@@ -14884,7 +14898,7 @@ PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* varia
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WriteVarRanges_ret_WRITE_FAIL;
     }
-    logprintfww("--write-var-ranges: %u block boundar%s written to %s .\n", block_ct, (block_ct == 1)? "y" : "ies", outname);
+    logprintfww("--write-var-ranges%s%s: %u block boundar%s written to %s .\n", output_zst? " zs" : "", allow_dups? " allow-dups" : "", block_ct, (block_ct == 1)? "y" : "ies", outname);
   }
   while (0) {
   WriteVarRanges_ret_WRITE_FAIL:

@@ -34,3 +34,17 @@ if $1/plink2 $2 $3 --bfile tmp_data --write-var-ranges $((variant_ct + 1)) --out
     exit 1
 fi
 grep -q "exceeds the number of variants" tmp_err.txt
+
+# Duplicate variant IDs are an error, like --write-snplist, unless
+# 'allow-dups' is given.
+first_id=$(awk 'NR==1 {print $2}' tmp_data.bim)
+awk -v dupid="$first_id" 'BEGIN{OFS="\t"} NR==2 {$2=dupid} {print}' tmp_data.bim > tmp_dup.bim
+cp tmp_data.bed tmp_dup.bed
+cp tmp_data.fam tmp_dup.fam
+if $1/plink2 $2 $3 --bfile tmp_dup --write-var-ranges 3 --out plink2_dup 2> tmp_err2.txt; then
+    echo "expected --write-var-ranges to reject duplicate variant IDs"
+    exit 1
+fi
+grep -q "duplicate variant" tmp_err2.txt
+$1/plink2 $2 $3 --bfile tmp_dup --write-var-ranges 3 allow-dups --out plink2_dup
+test "$(tail -n +2 plink2_dup.var.ranges | wc -l)" -eq 3
