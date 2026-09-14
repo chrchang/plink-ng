@@ -97,7 +97,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.9.0-rc1"
+  "PLINK v1.9.0-rc2"
 #else
   "PLINK v1.9.1-dev"
 #endif
@@ -109,10 +109,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (9 Sep 2026)";
+  " (13 Sep 2026)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "      " // adjust based on length of version number
 #else
@@ -141,19 +141,58 @@ static const char ver_str2[] =
 #endif
   "\n";
 static const char errstr_append[] = "For more information, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
-#ifdef STABLE_BUILD
-  #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --qfam, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #else
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #endif
-#else
-  #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --dfam, --qfam, --tucc,\n--annotate, --clump, --gene-report, --meta-analysis, --epistasis,\n--fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #else
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --tucc, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #endif
+// Grouped command listing for the no-argument/-h case, in the style of
+// samtools and friends: one line per command, so that a new user can see what
+// the program does without paging through the full --help.  The commands that
+// need LAPACK, or that only exist in development builds, appear only there.
+static const char notestr_null_calc2[] =
+"Commands include:\n"
+"  -- Data management\n"
+"     --make-bed                 write a new binary fileset\n"
+"     --recode                   write the data out in another format\n"
+"     --a1-allele, --a2-allele   control allele order\n"
+"     --merge-list               merge several filesets\n"
+"     --write-snplist            list the variant IDs that pass the filters\n"
+"\n"
+"  -- Summary statistics\n"
+"     --freq, --freqx            per-variant allele frequencies, genotype counts\n"
+"     --missing                  sample- and variant-level missingness\n"
+"     --hardy                    Hardy-Weinberg equilibrium exact test\n"
+"     --mendel                   Mendel error report\n"
+"     --het, --ibc               inbreeding coefficients\n"
+"     --check-sex, --impute-sex  check/impute sex using chrX homozygosity\n"
+"     --score                    polygenic scores\n"
+"\n"
+"  -- Linkage disequilibrium\n"
+"     --indep-pairwise           LD-based variant pruning\n"
+"     --r, --r2                  pairwise LD\n"
+"     --blocks                   haplotype blocks, Gabriel et al. (2002)\n"
+"\n"
+"  -- Relatedness and population structure\n"
+"     --genome                   identity-by-descent report\n"
+"     --homozyg                  runs of homozygosity\n"
+"     --make-grm-gz              relationship matrix in GCTA's format\n"
+"     --rel-cutoff               prune samples by relatedness\n"
+"     --cluster                  IBS-based sample clustering\n"
+#ifndef NOLAPACK
+"     --pca                      principal components\n"
 #endif
+"     --neighbour                nearest-neighbour outlier detection\n"
+"\n"
+"  -- Association\n"
+"     --linear, --logistic       linear and logistic regression with covariates\n"
+"     --lasso                    LASSO effect size estimation\n"
+"     --test-missing             differential missingness by case/control status\n"
+"     --adjust                   multiple-testing correction\n"
+"     --tdt                      transmission disequilibrium test\n"
+"     --qfam                     family-based test for quantitative traits\n"
+"     --fast-epistasis           pairwise interaction scan for binary phenotype\n"
+"\n"
+"  -- Report post-processing\n"
+"     --clump                    LD-based clumping of association results\n"
+"     --meta-analysis            meta-analyze several association reports\n"
+"\n"
+"\"" PROG_NAME_STR " --help <flag name>\" describes one flag; \"" PROG_NAME_STR " --help | more\" describes\nthem all (warning: long).\n";
 
 static const char errstr_nomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
 static const char errstr_write[] = "Error: File write failure.\n";
@@ -1827,7 +1866,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto plink_ret_1;
     }
-    retval = ibs_test_calc(threads, read_dists_fname, unfiltered_sample_ct, sample_exclude, sample_ct, ibs_test_perms, pheno_nm_ct, pheno_ctrl_ct, pheno_nm, pheno_c);
+    retval = ibs_test_calc(threads, read_dists_fname, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, ibs_test_perms, pheno_nm_ct, pheno_ctrl_ct, pheno_nm, pheno_c);
     if (retval) {
       goto plink_ret_1;
     }
@@ -3595,7 +3634,8 @@ int32_t main(int32_t argc, char** argv) {
 	fputs(notestr_null_calc2, stdout);
 	goto main_ret_1;
       }
-      if (!strcmp("version", argptr)) {
+      // -v/-V as well as --version, mirroring the -h/-? handling just above.
+      if ((!strcmp("version", argptr)) || (!strcmp("v", argptr)) || (!strcmp("V", argptr))) {
 	ujj = 1;
       } else if ((!strcmp("silent", argptr)) || (!strcmp("gplink", argptr))) {
 	ukk = 1;
@@ -12901,6 +12941,15 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (distance_wts_fname && (!(calculation_type & (CALC_DISTANCE | CALC_RELATIONSHIP)))) {
     logerrprint("Error: --distance-wts must be used with --distance, --make-rel, --make-grm-bin,\nor --make-grm-gz.\n");
+    goto main_ret_INVALID_CMDLINE_A;
+  }
+  if ((distance_wts_fname || (distance_exp != 0.0)) && (dist_calc_type & DISTANCE_FLAT_MISSING)) {
+    // calc_distance() applies the weighted missingness correction whenever
+    // variant weights are in play, so the flat correction the user asked for
+    // would be silently ignored.  (The flat branch does have a main_weights
+    // case, but the counts it needs are only accumulated by the unweighted
+    // path, so reaching it would just divide by zero-filled arrays.)
+    logerrprint("Error: --distance-wts/--distance-exp cannot be used with --distance's\n'flat-missing' modifier.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
   if ((parallel_tot > 1) && (!(calculation_type & (CALC_LD | CALC_DISTANCE | CALC_GENOME | CALC_RELATIONSHIP)))) {

@@ -2,10 +2,19 @@
 #
 # Compilation options:
 #   Do not link to LAPACK                    NO_LAPACK
+#   Link against the system htslib           SYSTEM_HTSLIB
+#     instead of the bundled bgzf.c/hfile.c
 
 # Leave blank after "=" to disable; put "= 1" to enable
 # (when enabled, "#define NOLAPACK" must be uncommented in plink_common.h)
 NO_LAPACK =
+
+# Leave blank after "=" to build the bundled copies of htslib's bgzf.c and
+# hfile.c, which is the default and keeps the build self-contained; put "= 1"
+# to compile against an installed htslib instead, so that it tracks that
+# library's updates.  Only bgzf_open/write/mt/close are used, all of which have
+# been stable across htslib releases.
+SYSTEM_HTSLIB =
 
 # Variable that allows additional linker flags (e.g., "-L/path/to/libs") to be
 # passed into the linker; to use this, invoke 'make LDFLAGS_EXTRA="<opts>"'.
@@ -76,7 +85,19 @@ ifdef NO_LAPACK
   BLASFLAGS=
 endif
 
-OBJS = plink.o plink_assoc.o plink_calc.o plink_cluster.o plink_cnv.o plink_common.o plink_data.o plink_dosage.o plink_family.o plink_filter.o plink_glm.o plink_help.o plink_homozyg.o plink_lasso.o plink_ld.o plink_matrix.o plink_misc.o plink_perm.o plink_rserve.o plink_set.o plink_stats.o SFMT.o dcdflib.o pigz.o yarn.o Rconnection.o hfile.o bgzf.o
+OBJS = plink.o plink_assoc.o plink_calc.o plink_cluster.o plink_cnv.o plink_common.o plink_data.o plink_dosage.o plink_family.o plink_filter.o plink_glm.o plink_help.o plink_homozyg.o plink_lasso.o plink_ld.o plink_matrix.o plink_misc.o plink_perm.o plink_rserve.o plink_set.o plink_stats.o SFMT.o dcdflib.o pigz.o yarn.o Rconnection.o
+HTSLIB_OBJS = hfile.o bgzf.o
+
+ifdef SYSTEM_HTSLIB
+  HTSLIB_OBJS =
+  HTSLIB_CFLAGS ?= $(shell pkg-config --cflags htslib 2>/dev/null)
+  HTSLIB_LDFLAGS ?= $(shell pkg-config --libs htslib 2>/dev/null || echo -lhts)
+  CFLAGS +=	-DSYSTEM_HTSLIB $(HTSLIB_CFLAGS)
+  CXXFLAGS +=	-DSYSTEM_HTSLIB $(HTSLIB_CFLAGS)
+  LDFLAGS +=	$(HTSLIB_LDFLAGS)
+endif
+
+OBJS +=	$(HTSLIB_OBJS)
 
 # In the event that you are still concurrently using PLINK 1.07, we suggest
 # renaming that binary to "plink107", and this one to "plink" or "plink1".

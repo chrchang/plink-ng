@@ -172,7 +172,8 @@ FLAGSET64_DEF_START()
   kfMiscNeg9PhenoReallyMissing = (1LLU << 47),
   kfMiscAlt1Allele = (1LLU << 48),
   kfMiscSelectSidParentsOnly = (1LLU << 49),
-  kfMiscZeroCms = (1LLU << 50)
+  kfMiscZeroCms = (1LLU << 50),
+  kfMiscMakePermPhenoZs = (1LLU << 51)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
