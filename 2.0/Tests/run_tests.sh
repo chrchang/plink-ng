@@ -158,4 +158,9 @@ cd TEST_EPISTASIS
 cd ..
 echo "TEST_EPISTASIS passed."
 
+cd TEST_LD_SCORE_ANNOT
+./run_tests.sh $d $2 $3 > TEST_LD_SCORE_ANNOT.log
+cd ..
+echo "TEST_LD_SCORE_ANNOT passed."
+
 echo "All tests passed."

@@ -3327,7 +3327,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // explicit opt-in to the founders-only default, mirroring
         // --ac-founders.
         const uint32_t ldsc_use_all = (pcp->misc_flags / kfMiscNonfounders) & 1;
-        reterr = LdScore(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, maj_alleles, ldsc_use_all? sample_include : founder_info, &(pcp->ld_score_info), raw_variant_ct, variant_ct, raw_sample_ct, ldsc_use_all? sample_ct : founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = LdScore(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, maj_alleles, ldsc_use_all? sample_include : founder_info, &(pcp->ld_score_info), raw_variant_ct, variant_ct, raw_sample_ct, ldsc_use_all? sample_ct : founder_ct, max_variant_id_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -9193,6 +9193,14 @@ int main(int argc, char** argv) {
             pc.vcor_info.bp_radius = S_CAST(int32_t, dxx);
           }
           r2_required = 1;
+        } else if (strequal_k_unsafe(flagname_p2, "d-score-annot")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.ld_score_info.annot_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "d-score-founders")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -15226,6 +15234,7 @@ int main(int argc, char** argv) {
   CleanupFlip(&pc.flip_info);
   CleanupPermConfig(&pc.perm_config);
   CleanupVcor(&pc.vcor_info);
+  CleanupLdScore(&pc.ld_score_info);
   CleanupTwolocus(&pc.twolocus_info);
   CleanupTag(&pc.tag_info);
   CleanupClump(&pc.clump_info);
