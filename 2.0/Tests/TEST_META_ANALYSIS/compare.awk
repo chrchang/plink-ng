@@ -80,6 +80,16 @@ FNR == 1 {
             # approximation and is compared normally, and the p-value is
             # checked against it separately.
             continue;
+        } else if (name == "WEIGHTED_Z") {
+            # Each study contributes the normal deviate of its p-value, and
+            # PLINK 1.9 inverts the normal CDF with its own approximation,
+            # whose relative error grows in the tail where these p-values
+            # live; 0.2% covers it at the |Z| ~ 9 this fixture reaches.  What
+            # pins plink2's own value is wz_check.py, which recomputes it from
+            # the study files to 1e-5.
+            if (!same_value(want, got, 2e-3 * abs(want))) {
+                print name " differs on " id ": " want " vs " got; failed = 1; exit 1
+            }
         } else if (!same_value(want, got, 0)) {
             print name " differs on " id ": " want " vs " got; failed = 1; exit 1
         }
