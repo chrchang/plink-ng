@@ -2192,9 +2192,52 @@ uint32_t EraseMendelErrors(const FamilyInfo* fip, const uintptr_t* sex_male_coll
 // pseudo-control carries the two parental alleles the child did not receive.
 // Since each parent transmits exactly one allele, the untransmitted ALT count
 // is (paternal + maternal) - child regardless of which parent transmitted
-// what, so the pair is determined by the three ALT counts alone.  A trio which
-// isn't Mendel-consistent at the variant, or has any genotype missing, yields
-// two missing genotypes.
+// what, so for a biallelic variant the pair is determined by the three ALT
+// counts alone.  A trio which isn't Mendel-consistent at the variant, or has
+// any genotype missing, yields two missing genotypes.
+//
+// Multiallelic variants work the same way, one step less directly: pick a
+// Mendel-consistent assignment of the child's two alleles to the two parents,
+// and the untransmitted pair is each parent's other allele.  When more than
+// one such assignment exists it always leaves the same unordered pair behind,
+// which is the multiset difference (paternal + maternal) - child; that is the
+// same identity the ALT-count arithmetic above relies on.
+
+// Writes one pseudo-sample's allele pair into the sparse multiallelic
+// representation SpgwAppendMultiallelicSparse() expects.  Must be called with
+// ascending write_sample_idx, since the patch values are stored in sample
+// order.
+void TuccAppendAllelePair(uint32_t write_sample_idx, AlleleCode ac0, AlleleCode ac1, uintptr_t* write_genovec, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uint32_t* patch_01_ctp, uint32_t* patch_10_ctp) {
+  if (ac0 == kMissingAlleleCode) {
+    AssignNyparrEntry(write_sample_idx, 3, write_genovec);
+    return;
+  }
+  if (ac0 > ac1) {
+    const AlleleCode ac_swap = ac0;
+    ac0 = ac1;
+    ac1 = ac_swap;
+  }
+  if (!ac0) {
+    if (ac1 < 2) {
+      AssignNyparrEntry(write_sample_idx, ac1, write_genovec);
+      return;
+    }
+    SetBit(write_sample_idx, patch_01_set);
+    patch_01_vals[*patch_01_ctp] = ac1;
+    *patch_01_ctp += 1;
+    AssignNyparrEntry(write_sample_idx, 1, write_genovec);
+    return;
+  }
+  if ((ac0 != 1) || (ac1 != 1)) {
+    SetBit(write_sample_idx, patch_10_set);
+    AlleleCode* cur_vals = &(patch_10_vals[2 * (*patch_10_ctp)]);
+    cur_vals[0] = ac0;
+    cur_vals[1] = ac1;
+    *patch_10_ctp += 1;
+  }
+  AssignNyparrEntry(write_sample_idx, 2, write_genovec);
+}
+
 PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* variant_cms, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* pvar_cswritep = nullptr;
@@ -2209,8 +2252,8 @@ PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, co
       logerrputs("Error: --tucc cannot be used on haploid genomes.\n");
       goto Tucc_ret_INCONSISTENT_INPUT;
     }
-    // Only diploid autosomal biallelic variants have a well-defined
-    // untransmitted genotype here; PLINK 1.9 drops the rest, and so do we.
+    // Haploid and chrMT variants have no well-defined untransmitted genotype;
+    // PLINK 1.9 drops them, and so do we.  (chrX is in haploid_mask.)
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* write_variant_include;
     if (unlikely(bigstack_alloc_w(raw_variant_ctl, &write_variant_include))) {
@@ -2229,29 +2272,41 @@ PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, co
       haploid_variant_ct += PopcountBitRange(write_variant_include, chr_vidx_start, chr_vidx_end);
       ClearBitsNz(chr_vidx_start, chr_vidx_end, write_variant_include);
     }
-    uint32_t multiallelic_variant_ct = 0;
-    if (allele_idx_offsets) {
-      uintptr_t variant_uidx_base = 0;
-      uintptr_t cur_bits = write_variant_include[0];
-      const uint32_t cur_variant_ct = variant_ct - haploid_variant_ct;
-      for (uint32_t variant_idx = 0; variant_idx != cur_variant_ct; ++variant_idx) {
-        const uintptr_t variant_uidx = BitIter1(write_variant_include, &variant_uidx_base, &cur_bits);
-        if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2) {
-          ClearBit(variant_uidx, write_variant_include);
-          ++multiallelic_variant_ct;
-        }
-      }
-    }
     if (haploid_variant_ct) {
       logprintf("--tucc: Excluding %u haploid/MT variant%s.\n", haploid_variant_ct, (haploid_variant_ct == 1)? "" : "s");
     }
-    if (multiallelic_variant_ct) {
-      logprintf("--tucc: Excluding %u multiallelic variant%s.\n", multiallelic_variant_ct, (multiallelic_variant_ct == 1)? "" : "s");
-    }
-    const uint32_t write_variant_ct = variant_ct - haploid_variant_ct - multiallelic_variant_ct;
+    const uint32_t write_variant_ct = variant_ct - haploid_variant_ct;
     if (unlikely(!write_variant_ct)) {
       logerrputs("Error: No variants remaining for --tucc.\n");
       goto Tucc_ret_INCONSISTENT_INPUT;
+    }
+    // The output keeps each variant's alleles as they are, so the written
+    // offsets are just the retained variants' allele counts accumulated.
+    uintptr_t* write_allele_idx_offsets = nullptr;
+    uint32_t max_write_allele_ct = 2;
+    if (allele_idx_offsets) {
+      uintptr_t* write_allele_idx_offsets_tmp;
+      if (unlikely(bigstack_alloc_w(write_variant_ct + 1, &write_allele_idx_offsets_tmp))) {
+        goto Tucc_ret_NOMEM;
+      }
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = write_variant_include[0];
+      uintptr_t write_allele_idx = 0;
+      for (uint32_t variant_idx = 0; variant_idx != write_variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(write_variant_include, &variant_uidx_base, &cur_bits);
+        write_allele_idx_offsets_tmp[variant_idx] = write_allele_idx;
+        const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+        if (cur_allele_ct > max_write_allele_ct) {
+          max_write_allele_ct = cur_allele_ct;
+        }
+        write_allele_idx += cur_allele_ct;
+      }
+      write_allele_idx_offsets_tmp[write_variant_ct] = write_allele_idx;
+      if (max_write_allele_ct > 2) {
+        write_allele_idx_offsets = write_allele_idx_offsets_tmp;
+      } else {
+        BigstackReset(write_allele_idx_offsets_tmp);
+      }
     }
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -2394,9 +2449,25 @@ PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, co
         pvar_cswritep = memcpya(pvar_cswritep, chr_buf, chr_buf_blen);
         pvar_cswritep = u32toa_x(variant_bps[variant_uidx], '\t', pvar_cswritep);
         pvar_cswritep = strcpyax(pvar_cswritep, variant_ids[variant_uidx], '\t');
-        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (variant_uidx * 2);
-        pvar_cswritep = strcpyax(pvar_cswritep, allele_storage[allele_idx_offset_base], '\t');
-        pvar_cswritep = strcpya(pvar_cswritep, allele_storage[allele_idx_offset_base + 1]);
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        uint32_t cur_allele_ct = 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        }
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        pvar_cswritep = strcpyax(pvar_cswritep, cur_alleles[0], '\t');
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+          if (allele_idx != 1) {
+            *pvar_cswritep++ = ',';
+          }
+          pvar_cswritep = strcpya(pvar_cswritep, cur_alleles[allele_idx]);
+          // one allele at a time, so the overflow buffer only has to hold the
+          // longest single allele
+          if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+            goto Tucc_ret_WRITE_FAIL;
+          }
+        }
         if (write_cm) {
           *pvar_cswritep++ = '\t';
           pvar_cswritep = dtoa_g_p8(variant_cms[variant_uidx], pvar_cswritep);
@@ -2428,7 +2499,7 @@ PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, co
     snprintf(outname_end, kMaxOutfnameExtBlen, ".tucc.pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nonref_flags_write, write_variant_ct, write_sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, nonref_flags_write, write_variant_ct, write_sample_ct, max_write_allele_ct, kPgenWriteBackwardSeek, kfPgenGlobal0, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -2441,13 +2512,31 @@ PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, co
     }
     SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
-    uintptr_t* genovec;
-    uintptr_t* write_genovec;
-    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_w(write_sample_ctl2, &write_genovec))) {
+    const uint32_t multiallelic_present = (max_write_allele_ct > 2);
+    PgenVariant pgv;
+    if (unlikely(BigstackAllocPgv(sample_ct, multiallelic_present, kfPgenGlobal0, &pgv))) {
       goto Tucc_ret_NOMEM;
+    }
+    uintptr_t* genovec = pgv.genovec;
+    uintptr_t* write_genovec;
+    if (unlikely(bigstack_alloc_w(write_sample_ctl2, &write_genovec))) {
+      goto Tucc_ret_NOMEM;
+    }
+    AlleleCode* wide_codes = nullptr;
+    uintptr_t* write_patch_01_set = nullptr;
+    AlleleCode* write_patch_01_vals = nullptr;
+    uintptr_t* write_patch_10_set = nullptr;
+    AlleleCode* write_patch_10_vals = nullptr;
+    if (multiallelic_present) {
+      const uint32_t write_sample_ctl = BitCtToWordCt(write_sample_ct);
+      if (unlikely(bigstack_alloc_ac(2 * sample_ct, &wide_codes) ||
+                   bigstack_alloc_w(write_sample_ctl, &write_patch_01_set) ||
+                   bigstack_alloc_ac(write_sample_ct, &write_patch_01_vals) ||
+                   bigstack_alloc_w(write_sample_ctl, &write_patch_10_set) ||
+                   bigstack_alloc_ac(2 * write_sample_ct, &write_patch_10_vals))) {
+        goto Tucc_ret_NOMEM;
+      }
     }
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(trio_sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -2460,36 +2549,94 @@ PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, co
     fflush(stdout);
     for (uint32_t variant_idx = 0; variant_idx != write_variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(write_variant_include, &variant_uidx_base, &cur_bits);
-      reterr = PgrGet(trio_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
-      if (unlikely(reterr)) {
-        PgenErrPrintNV(reterr, variant_uidx);
-        goto Tucc_ret_1;
-      }
+      const uint32_t cur_allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
       ZeroWArr(write_sample_ctl2, write_genovec);
       const uint32_t* trio_lookup_iter = trio_lookup;
-      for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
-        const uint32_t child_geno = GetNyparrEntry(genovec, trio_lookup_iter[0]);
-        const uint32_t dad_geno = GetNyparrEntry(genovec, trio_lookup_iter[1]);
-        const uint32_t mom_geno = GetNyparrEntry(genovec, trio_lookup_iter[2]);
-        trio_lookup_iter = &(trio_lookup_iter[3]);
-        uintptr_t case_geno = 3;
-        uintptr_t control_geno = 3;
-        if ((child_geno != 3) && (dad_geno != 3) && (mom_geno != 3)) {
-          // A parent can transmit a REF allele iff their ALT count is <= 1,
-          // and an ALT allele iff it is >= 1, so the reachable child ALT
-          // counts are the contiguous range below.
-          const uint32_t min_child_geno = (dad_geno == 2) + (mom_geno == 2);
-          const uint32_t max_child_geno = (dad_geno != 0) + (mom_geno != 0);
-          if ((child_geno >= min_child_geno) && (child_geno <= max_child_geno)) {
-            case_geno = child_geno;
-            control_geno = dad_geno + mom_geno - child_geno;
-          }
+      if (cur_allele_ct == 2) {
+        reterr = PgrGet(trio_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto Tucc_ret_1;
         }
-        AssignNyparrEntry(2 * trio_idx, case_geno, write_genovec);
-        AssignNyparrEntry(2 * trio_idx + 1, control_geno, write_genovec);
-      }
-      if (unlikely(SpgwAppendBiallelicGenovec(write_genovec, &spgw))) {
-        goto Tucc_ret_WRITE_FAIL;
+        for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+          const uint32_t child_geno = GetNyparrEntry(genovec, trio_lookup_iter[0]);
+          const uint32_t dad_geno = GetNyparrEntry(genovec, trio_lookup_iter[1]);
+          const uint32_t mom_geno = GetNyparrEntry(genovec, trio_lookup_iter[2]);
+          trio_lookup_iter = &(trio_lookup_iter[3]);
+          uintptr_t case_geno = 3;
+          uintptr_t control_geno = 3;
+          if ((child_geno != 3) && (dad_geno != 3) && (mom_geno != 3)) {
+            // A parent can transmit a REF allele iff their ALT count is <= 1,
+            // and an ALT allele iff it is >= 1, so the reachable child ALT
+            // counts are the contiguous range below.
+            const uint32_t min_child_geno = (dad_geno == 2) + (mom_geno == 2);
+            const uint32_t max_child_geno = (dad_geno != 0) + (mom_geno != 0);
+            if ((child_geno >= min_child_geno) && (child_geno <= max_child_geno)) {
+              case_geno = child_geno;
+              control_geno = dad_geno + mom_geno - child_geno;
+            }
+          }
+          AssignNyparrEntry(2 * trio_idx, case_geno, write_genovec);
+          AssignNyparrEntry(2 * trio_idx + 1, control_geno, write_genovec);
+        }
+        if (unlikely(SpgwAppendBiallelicGenovec(write_genovec, &spgw))) {
+          goto Tucc_ret_WRITE_FAIL;
+        }
+      } else {
+        reterr = PgrGetM(trio_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto Tucc_ret_1;
+        }
+        // Autosomal (and chrXY) only, so no sex-dependent recoding.
+        InitMultiallelicWideCodes(kHcToAlleleCodes, nullptr, nullptr, genovec, pgv.patch_01_set, pgv.patch_01_vals, pgv.patch_10_set, pgv.patch_10_vals, sample_ct, 0, 0, pgv.patch_01_ct, pgv.patch_10_ct, 0, 0, wide_codes);
+        const uint32_t write_sample_ctl = BitCtToWordCt(write_sample_ct);
+        ZeroWArr(write_sample_ctl, write_patch_01_set);
+        ZeroWArr(write_sample_ctl, write_patch_10_set);
+        uint32_t write_patch_01_ct = 0;
+        uint32_t write_patch_10_ct = 0;
+        for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+          const uint32_t child_idx = trio_lookup_iter[0];
+          const uint32_t dad_idx = trio_lookup_iter[1];
+          const uint32_t mom_idx = trio_lookup_iter[2];
+          trio_lookup_iter = &(trio_lookup_iter[3]);
+          const AlleleCode child_ac0 = wide_codes[2 * child_idx];
+          const AlleleCode dad_ac0 = wide_codes[2 * dad_idx];
+          const AlleleCode mom_ac0 = wide_codes[2 * mom_idx];
+          AlleleCode case_ac0 = kMissingAlleleCode;
+          AlleleCode case_ac1 = kMissingAlleleCode;
+          AlleleCode control_ac0 = kMissingAlleleCode;
+          AlleleCode control_ac1 = kMissingAlleleCode;
+          if ((child_ac0 != kMissingAlleleCode) && (dad_ac0 != kMissingAlleleCode) && (mom_ac0 != kMissingAlleleCode)) {
+            const AlleleCode child_ac1 = wide_codes[2 * child_idx + 1];
+            const AlleleCode dad_ac1 = wide_codes[2 * dad_idx + 1];
+            const AlleleCode mom_ac1 = wide_codes[2 * mom_idx + 1];
+            // Each parent transmits exactly one allele, so the trio is
+            // consistent iff one of the two ways of splitting the child's
+            // alleles between the parents works.
+            const uint32_t dad_has_ac0 = (dad_ac0 == child_ac0) || (dad_ac1 == child_ac0);
+            const uint32_t mom_has_ac1 = (mom_ac0 == child_ac1) || (mom_ac1 == child_ac1);
+            const uint32_t dad_has_ac1 = (dad_ac0 == child_ac1) || (dad_ac1 == child_ac1);
+            const uint32_t mom_has_ac0 = (mom_ac0 == child_ac0) || (mom_ac1 == child_ac0);
+            if (dad_has_ac0 && mom_has_ac1) {
+              case_ac0 = child_ac0;
+              case_ac1 = child_ac1;
+              control_ac0 = (dad_ac0 == child_ac0)? dad_ac1 : dad_ac0;
+              control_ac1 = (mom_ac0 == child_ac1)? mom_ac1 : mom_ac0;
+            } else if (dad_has_ac1 && mom_has_ac0) {
+              case_ac0 = child_ac0;
+              case_ac1 = child_ac1;
+              control_ac0 = (dad_ac0 == child_ac1)? dad_ac1 : dad_ac0;
+              control_ac1 = (mom_ac0 == child_ac0)? mom_ac1 : mom_ac0;
+            }
+          }
+          TuccAppendAllelePair(2 * trio_idx, case_ac0, case_ac1, write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, &write_patch_01_ct, &write_patch_10_ct);
+          TuccAppendAllelePair(2 * trio_idx + 1, control_ac0, control_ac1, write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, &write_patch_01_ct, &write_patch_10_ct);
+        }
+        reterr = SpgwAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, cur_allele_ct, write_patch_01_ct, write_patch_10_ct, &spgw);
+        if (unlikely(reterr)) {
+          goto Tucc_ret_1;
+        }
       }
       if (variant_idx >= next_print_variant_idx) {
         if (pct > 10) {

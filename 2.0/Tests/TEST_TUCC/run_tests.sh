@@ -11,9 +11,15 @@ python3 make_trios.py 1
 #    PLINK run.
 $1/plink2 $2 $3 --vcf trios.vcf --psam trios.psam --make-pgen --out tmp_data
 $1/plink2 $2 $3 --pfile tmp_data --tucc --out plink2_t
-awk 'NR > 1 { print $3, $5 }' plink2_t.tucc.pvar > tmp_alleles.txt
-$1/plink2 $2 $3 --pfile plink2_t.tucc --export A --export-allele tmp_alleles.txt --out plink2_raw
+awk 'NR > 1 && $5 !~ /,/ { print $3, $5 }' plink2_t.tucc.pvar > tmp_alleles.txt
+$1/plink2 $2 $3 --pfile plink2_t.tucc --max-alleles 2 --export A --export-allele tmp_alleles.txt --out plink2_raw
 python3 check_tucc.py plink2_raw.raw expected.txt
+
+# 1b. The multiallelic variants, as allele pairs.  Both the transmitted and
+#     the untransmitted pair have to name the right alleles, which ALT counts
+#     cannot express.
+$1/plink2 $2 $3 --pfile plink2_t.tucc --export vcf --out plink2_multi
+python3 check_tucc_multi.py plink2_multi.vcf expected_multi.txt
 
 # 2. The .psam: two samples per trio, the child's FID/sex, '_T'/'_U' suffixes,
 #    case then control.  The two families whose child isn't part of a full
@@ -26,21 +32,23 @@ NR > 1 && $3 != "0" && $4 != "0" {
 diff -q expected_psam.txt plink2_t.tucc.psam
 test "$(grep -c '' plink2_t.tucc.psam)" -eq 77
 
-# 3. Chromosome and multiallelic filtering: chrX, chrMT and the multiallelic
-#    variant are dropped, everything else is kept, in input order.
+# 3. Chromosome filtering: chrX and chrMT are dropped, every chr1 variant is
+#    kept (multiallelic included), in input order.
 awk 'NR > 1 { print $3 }' plink2_t.tucc.pvar > tmp_kept.txt
-awk '!/^#/ && $1 == "1" && $5 == "G" { print $3 }' trios.vcf > expected_kept.txt
+awk '!/^#/ && $1 == "1" { print $3 }' trios.vcf > expected_kept.txt
 diff -q expected_kept.txt tmp_kept.txt
+# The multiallelic variants keep all three alleles.
+test "$(awk 'NR > 1 && $5 == "G,T"' plink2_t.tucc.pvar | grep -c '')" -eq 60
 
-# 4. Against PLINK 1.9.  It cannot read the multiallelic variant, so that one
-#    is dropped on import; --tucc drops it on the plink2 side too, so the two
-#    datasets still line up.  A .ped comparison needs the two heterozygote
-#    allele orders normalized, since A1/A2 assignment differs.
+# 4. Against PLINK 1.9.  It cannot read the multiallelic variants at all, so
+#    the comparison runs on the biallelic subset of both sides.  A .ped
+#    comparison needs the two heterozygote allele orders normalized, since
+#    A1/A2 assignment differs.
 plink --vcf trios.vcf --biallelic-only strict --make-bed --out tmp_p19
 tail -n +2 trios.psam > tmp_p19.fam
 plink --bfile tmp_p19 --tucc write-bed --out plink19_t
 plink --bfile plink19_t.tucc --recode --out plink19_ped
-$1/plink2 $2 $3 --pfile plink2_t.tucc --export ped --out plink2_ped
+$1/plink2 $2 $3 --pfile plink2_t.tucc --max-alleles 2 --export ped --out plink2_ped
 normalize() {
     awk '{
         printf "%s %s %s %s %s %s", $1, $2, $3, $4, $5, $6
