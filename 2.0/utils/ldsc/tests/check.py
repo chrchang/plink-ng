@@ -41,12 +41,17 @@ def main():
         if got[key] == 'NA':
             sys.exit('%s: expected %.12g, got NA' % (key, expected))
         actual = float(got[key])
-        # Relative, with a small absolute floor: a few of these quantities are
-        # exactly zero up to cancellation (the standard error of a proportion
-        # that has to be 1, for instance), and the two implementations round
-        # that cancellation differently.
         scale = max(abs(expected), abs(actual))
-        if abs(actual - expected) > 1e-6 * scale + 1e-9:
+        # A few of these quantities are exactly zero up to cancellation (the
+        # standard error of a proportion that has to be 1, for instance), and
+        # the two implementations sum that cancellation in a different order.
+        # Anything under 1e-8 counts as that zero: the noise runs to about
+        # 1e-9, while the smallest quantity here that is meant to be nonzero
+        # is an enrichment p-value around 1e-7.
+        if scale < 1e-8:
+            checked += 1
+            continue
+        if abs(actual - expected) > 1e-6 * scale:
             sys.exit('%s: expected %.12g, got %.12g' % (key, expected, actual))
         checked += 1
     if not checked:

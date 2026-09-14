@@ -156,6 +156,21 @@ def main():
             f.write('%s\t%s\t%s\t%.6f\t%g\n'
                     % (ids[j], a1, a2, part_z[j], N1))
 
+    # Three cell types for --h2-cts, each one LD Score column over the same
+    # variants as the partitioned baseline.
+    for name, scale in (('brain', 1.0), ('liver', 0.4), ('blood', 0.7)):
+        with open('cts_%s.l2.ldscore' % name, 'w') as f:
+            f.write('CHR\tSNP\tBP\t%sL2\n' % name)
+            for j in range(M):
+                l2 = scale * (0.1 - 2.0 * (math.log(rand.random()) +
+                                           math.log(rand.random())))
+                f.write('1\t%s\t%d\t%.6f\n' % (ids[j], j + 1, l2))
+        with open('cts_%s.l2.M_5_50' % name, 'w') as f:
+            f.write('%d\n' % M)
+    with open('cts_list.txt', 'w') as f:
+        for name in ('brain', 'liver', 'blood'):
+            f.write('%s\tcts_%s\n' % (name, name))
+
     # Overlapping annotations, with the .annot and .frq files --overlap-annot
     # needs.  Only the common variants (5% < MAF < 50%) count, as in the
     # .l2.M_5_50 convention.

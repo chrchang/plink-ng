@@ -9,6 +9,7 @@ ldsc.cc has a coding error, so it deliberately shares no code with it.
 
 Deliberately numpy-free: the test runners do not have numpy.
 """
+import math
 import sys
 
 
@@ -418,6 +419,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('mode', choices=['h2', 'rg'])
     ap.add_argument('--ref-ld', required=True)
+    ap.add_argument('--cts-p', action='store_true',
+                    help='also report the one-sided coefficient p-value, '
+                         'which is what --h2-cts tests')
+    ap.add_argument('--extra-ld', default=None,
+                    help='LD Scores whose columns come first, as --h2-cts '
+                         'puts a cell type ahead of the baseline')
     ap.add_argument('--w-ld', required=True)
     ap.add_argument('--sumstats', required=True,
                     help='one file, or two comma-separated for rg')
@@ -434,6 +441,14 @@ def main():
 
     m_vec = [float(x) for x in args.M.split(',')]
     ref_ids, ref_l2 = read_ldscore(args.ref_ld)
+    if args.extra_ld:
+        extra_ids, extra_l2 = read_ldscore(args.extra_ld)
+        extra_of = dict(zip(extra_ids, extra_l2))
+        missing = [i for i in ref_ids if i not in extra_of]
+        if missing:
+            sys.exit('%d variants are missing from %s'
+                     % (len(missing), args.extra_ld))
+        ref_l2 = [extra_of[ref_ids[i]] + ref_l2[i] for i in range(len(ref_ids))]
     w_ids, w_l2 = read_ldscore(args.w_ld)
     w_map = dict((w_ids[i], w_l2[i][0]) for i in range(len(w_ids)))
     paths = args.sumstats.split(',')
@@ -481,6 +496,11 @@ def main():
             for j in range(n_annot):
                 print('Coefficient_%d %.12g' % (j, hsq1.coefs[j]))
                 print('Coefficient_std_error_%d %.12g' % (j, hsq1.coef_ses[j]))
+                if args.cts_p:
+                    print('Coefficient_P_value_%d %.12g'
+                          % (j, 0.5 * math.erfc(hsq1.coefs[j]
+                                                / hsq1.coef_ses[j]
+                                                / math.sqrt(2.0))))
                 print('Prop._h2_%d %.12g' % (j, hsq1.prop[j]))
                 print('Prop._h2_std_error_%d %.12g' % (j, hsq1.prop_ses[j]))
                 print('Enrichment_%d %.12g' % (j, hsq1.enrichment[j]))

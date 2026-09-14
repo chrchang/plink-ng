@@ -192,6 +192,11 @@ uint32_t LdscScanDouble(const char* str_iter, double* valp) {
   return 1;
 }
 
+// P(Z > z) for a standard normal.
+double LdscNormalSf(double z) {
+  return 0.5 * erfc(z * M_SQRT1_2);
+}
+
 double LdscMedian(const double* vals, uintptr_t ct) {
   std::vector<double> buf(vals, &(vals[ct]));
   const uintptr_t mid = ct / 2;
@@ -545,6 +550,7 @@ typedef struct LdscHsqResultStruct {
   std::vector<double> m_prop;
   std::vector<double> coef_cov;  // n_annot x n_annot
   std::vector<double> prop_cov;  // n_annot x n_annot
+  std::vector<double> part_delete_values;  // n_blocks x n_annot
 } LdscHsqResult;
 
 // Combines the free-intercept first step and the constrained-intercept second
@@ -803,10 +809,13 @@ BoolErr LdscHsqFit(const double* chisq, const double* ld_mat, const double* ld_t
   // Delete values for the total, which is what the genetic-correlation ratio
   // jackknife needs.
   out->tot_delete_values.assign(jk.n_blocks, 0.0);
+  out->part_delete_values.assign(S_CAST(uintptr_t, jk.n_blocks) * n_annot, 0.0);
   for (uint32_t b = 0; b != jk.n_blocks; ++b) {
     double acc = 0.0;
     for (uint32_t j = 0; j != n_annot; ++j) {
-      acc += jk.delete_values[S_CAST(uintptr_t, b) * p + j] * m_vec[j];
+      const double cur = jk.delete_values[S_CAST(uintptr_t, b) * p + j];
+      acc += cur * m_vec[j];
+      out->part_delete_values[S_CAST(uintptr_t, b) * n_annot + j] = cur / nbar;
     }
     out->tot_delete_values[b] = acc / nbar;
   }
@@ -869,7 +878,10 @@ typedef struct LdscGencovResultStruct {
   double z;
   uint32_t constrain_intercept;
   uint32_t n_blocks;
+  uint32_t n_annot;
   std::vector<double> tot_delete_values;
+  std::vector<double> part_delete_values;  // n_blocks x n_annot
+  std::vector<double> coef_cov;            // n_annot x n_annot
 } LdscGencovResult;
 
 BoolErr LdscGencovFit(const double* z1, const double* z2, const double* ld_mat, const double* ld_tot, const double* w_ld, const double* n1, const double* n2, uint32_t n_snp, uint32_t n_annot, const double* m_vec, uint32_t n_blocks, double hsq1, double hsq2, double intercept_hsq1, double intercept_hsq2, const double* fixed_intercept, const double* twostep, LdscGencovResult* out) {
@@ -930,13 +942,23 @@ BoolErr LdscGencovFit(const double* z1, const double* z2, const double* ld_mat, 
     out->intercept_se = jk.jknife_se[n_annot];
   }
   out->n_blocks = jk.n_blocks;
+  out->n_annot = n_annot;
   out->tot_delete_values.assign(jk.n_blocks, 0.0);
+  out->part_delete_values.assign(S_CAST(uintptr_t, jk.n_blocks) * n_annot, 0.0);
   for (uint32_t b = 0; b != jk.n_blocks; ++b) {
     double acc_del = 0.0;
     for (uint32_t j = 0; j != n_annot; ++j) {
-      acc_del += jk.delete_values[S_CAST(uintptr_t, b) * p + j] * m_vec[j];
+      const double cur = jk.delete_values[S_CAST(uintptr_t, b) * p + j];
+      acc_del += cur * m_vec[j];
+      out->part_delete_values[S_CAST(uintptr_t, b) * n_annot + j] = cur / nbar;
     }
     out->tot_delete_values[b] = acc_del / nbar;
+  }
+  out->coef_cov.assign(S_CAST(uintptr_t, n_annot) * n_annot, 0.0);
+  for (uint32_t j = 0; j != n_annot; ++j) {
+    for (uint32_t k = 0; k != n_annot; ++k) {
+      out->coef_cov[j * n_annot + k] = jk.jknife_cov[j * p + k] / (nbar * nbar);
+    }
   }
   double acc = 0.0;
   for (uint32_t i = 0; i != n_snp; ++i) {
@@ -2998,6 +3020,33 @@ BoolErr LdscMungeSumstats(const MungeOpts* mopts, const char* out_prefix) {
   return 0;
 }
 
+// ***** diagnostic dumps *****
+
+// np.savetxt's default format, which is what the reference implementation
+// writes these with.
+BoolErr LdscWriteMatrix(const std::string& path, const double* vals, uintptr_t row_ct, uint32_t col_ct, const char* noun) {
+  FILE* f = fopen(path.c_str(), FOPEN_WB);
+  if (!f) {
+    fprintf(stderr, "Error: Failed to open %s.\n", path.c_str());
+    return 1;
+  }
+  for (uintptr_t i = 0; i != row_ct; ++i) {
+    for (uint32_t j = 0; j != col_ct; ++j) {
+      if (j) {
+        fputc(' ', f);
+      }
+      fprintf(f, "%.18e", vals[i * col_ct + j]);
+    }
+    fputc('\n', f);
+  }
+  if (fclose(f)) {
+    fprintf(stderr, "Error: Failed to write %s.\n", path.c_str());
+    return 1;
+  }
+  LdscLog("Printing %s to %s .\n", noun, path.c_str());
+  return 0;
+}
+
 // ***** drivers *****
 
 typedef struct LdscOptsStruct {
@@ -3010,6 +3059,10 @@ typedef struct LdscOptsStruct {
   uint32_t not_m_5_50;
   uint32_t no_check_alleles;
   uint32_t overlap_annot;
+  uint32_t print_cov;
+  uint32_t print_delete_vals;
+  uint32_t print_all_cts;
+  const char* cts_arg;
   const char* frq_arg;
   uint32_t frq_is_chr_split;
   double m_override;
@@ -3162,6 +3215,18 @@ BoolErr LdscEstimateH2(const char* sumstats_fname, const LdscScores& ref, const 
     return 1;
   }
   LdscPrintHsq(&hsq, "Heritability of phenotype 1", LdscOptAt(opts->samp_prev, 0), LdscOptAt(opts->pop_prev, 0));
+
+  if (opts->print_cov) {
+    if (LdscWriteMatrix(std::string(out_prefix) + ".cov", &(hsq.coef_cov[0]), n_annot, n_annot, "the covariance matrix of the estimates")) {
+      return 1;
+    }
+  }
+  if (opts->print_delete_vals) {
+    if (LdscWriteMatrix(std::string(out_prefix) + ".delete", &(hsq.tot_delete_values[0]), hsq.n_blocks, 1, "block jackknife delete values") ||
+        LdscWriteMatrix(std::string(out_prefix) + ".part_delete", &(hsq.part_delete_values[0]), hsq.n_blocks, n_annot, "partitioned block jackknife delete values")) {
+      return 1;
+    }
+  }
 
   // The same numbers at full precision, for programmatic use.
   const std::string h2_path = std::string(out_prefix) + ".h2";
@@ -3357,6 +3422,240 @@ BoolErr LdscMergeSecondTrait(const LdscData* base, const std::unordered_map<std:
   return 0;
 }
 
+// Cell-type-specific analysis: for each cell type, the regression is its own
+// LD Score column (or columns) plus the baseline annotations, and what gets
+// reported is the cell type's coefficient.  This is the reference
+// implementation's --h2-cts.
+typedef struct LdscCtsRowStruct {
+  std::string name;
+  double coef;
+  double coef_se;
+  double p;
+} LdscCtsRow;
+
+BoolErr LdscEstimateH2Cts(const char* sumstats_fname, const LdscScores& ref, const std::unordered_map<std::string, double>& w_ld_map, const std::vector<double>& m_vec, const LdscOpts* opts, const char* out_prefix) {
+  const uint32_t base_annot_ct = ref.annot_names.size();
+  if (!opts->cts_arg) {
+    fprintf(stderr, "Error: --h2-cts needs --ref-ld-chr-cts, a file naming one cell type and\nits LD Scores per line.\n");
+    return 1;
+  }
+  std::unordered_map<std::string, LdscSumstatRow> sumstats;
+  uint32_t dropped_ct;
+  if (LdscReadSumstats(sumstats_fname, 0, &sumstats, &dropped_ct)) {
+    return 1;
+  }
+  LdscLog("Read summary statistics for %" PRIuPTR " variants from %s.\n", S_CAST(uintptr_t, sumstats.size()), sumstats_fname);
+  LdscData data;
+  LdscMerge(ref, w_ld_map, sumstats, 0, &data);
+  uint32_t n_snp = data.ld_tot.size();
+  if (!n_snp) {
+    fprintf(stderr, "Error: No variants remain after merging the summary statistics with the LD\nScores.\n");
+    return 1;
+  }
+  LdscLog("After merging with reference panel LD and regression weight LD, %u variants\nremain.\n", n_snp);
+  // The cell-type regressions are partitioned, so the reference
+  // implementation drops the high-chi^2 tail rather than running the two-step
+  // estimator.
+  double chisq_max = opts->chisq_max;
+  if (!opts->have_chisq_max) {
+    double max_n = 0.0;
+    for (uint32_t i = 0; i != n_snp; ++i) {
+      max_n = MAXV(max_n, data.n1[i]);
+    }
+    chisq_max = MAXV(0.001 * max_n, 80.0);
+  }
+  LdscFilterChisq(chisq_max, &data, 0);
+  n_snp = data.ld_tot.size();
+  if (!n_snp) {
+    fprintf(stderr, "Error: --chisq-max removed every variant.\n");
+    return 1;
+  }
+  LdscWarnLength(n_snp);
+  const uint32_t n_blocks = MINV(opts->n_blocks, n_snp);
+  const double* fixed_intercept = nullptr;
+  double fixed_intercept_val = 1.0;
+  if (opts->no_intercept) {
+    fixed_intercept = &fixed_intercept_val;
+  } else {
+    const double* cur = LdscOptAt(opts->intercept_h2, 0);
+    if (cur) {
+      fixed_intercept_val = *cur;
+      fixed_intercept = &fixed_intercept_val;
+    }
+  }
+  std::vector<double> chisq(n_snp);
+  for (uint32_t i = 0; i != n_snp; ++i) {
+    chisq[i] = data.z1[i] * data.z1[i];
+  }
+  // Which variant each kept row is, so a cell type's LD Scores can be looked
+  // up in its own file.
+  std::unordered_map<std::string, uint32_t> row_of_id;
+  for (uint32_t i = 0; i != n_snp; ++i) {
+    row_of_id.emplace(data.ids[i], i);
+  }
+
+  TextStream txs;
+  PreinitTextStream(&txs);
+  PglErr reterr = TextStreamOpen(opts->cts_arg, &txs);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to open %s.\n", opts->cts_arg);
+    return 1;
+  }
+  std::vector<LdscCtsRow> results;
+  uint32_t cts_ct = 0;
+  while (1) {
+    const char* line_start = TextGet(&txs);
+    if (!line_start) {
+      break;
+    }
+    const char* iter = FirstNonTspace(line_start);
+    if (IsEolnKns(*iter) || (*iter == '#')) {
+      continue;
+    }
+    const char* name_end = CurTokenEnd(iter);
+    const std::string name(iter, name_end - iter);
+    iter = FirstNonTspace(name_end);
+    if (IsEolnKns(*iter)) {
+      fprintf(stderr, "Error: Each %s line needs a cell type name and its LD Scores.\n", opts->cts_arg);
+      return 1;
+    }
+    const char* path_end = CurTokenEnd(iter);
+    const std::string cts_paths(iter, path_end - iter);
+    ++cts_ct;
+
+    // The cell type's own LD Scores.  The flag is --ref-ld-chr-cts, so these
+    // are normally per-chromosome filesets; a single fileset works too, so
+    // check which it is before reading rather than trying one and reporting
+    // its failure.
+    uint32_t cts_chr_split = 0;
+    {
+      std::vector<std::string> cts_bases;
+      LdscSplitComma(cts_paths.c_str(), &cts_bases);
+      for (uint32_t chr_idx = 1; chr_idx <= kLdscChrCt; ++chr_idx) {
+        std::string probe;
+        if (!LdscFindLdscorePath(LdscSubChr(cts_bases[0].c_str(), chr_idx), 0, &probe)) {
+          cts_chr_split = 1;
+          break;
+        }
+      }
+    }
+    LdscScores cts;
+    if (LdscReadLdscores(cts_paths.c_str(), cts_chr_split, &cts)) {
+      return 1;
+    }
+    const uint32_t cts_annot_ct = cts.annot_names.size();
+    std::vector<double> m_cts;
+    if (LdscReadM(cts_paths.c_str(), cts_chr_split, opts->not_m_5_50, &m_cts) || (m_cts.size() != cts_annot_ct)) {
+      fprintf(stderr, "Error: Could not read %s for %s from its %s file%s.\n", (cts_annot_ct == 1)? "a variant count" : "one variant count per annotation", cts_paths.c_str(), opts->not_m_5_50? ".l2.M" : ".l2.M_5_50", cts_chr_split? "s" : "");
+      return 1;
+    }
+
+    // [cell type columns, baseline columns], on the kept variants.
+    const uint32_t total_annot = cts_annot_ct + base_annot_ct;
+    std::vector<double> ld_mat(S_CAST(uintptr_t, n_snp) * total_annot);
+    std::vector<double> ld_tot(n_snp, 0.0);
+    std::vector<uint32_t> filled(n_snp, 0);
+    for (uintptr_t i = 0; i != cts.ids.size(); ++i) {
+      const std::unordered_map<std::string, uint32_t>::const_iterator it = row_of_id.find(cts.ids[i]);
+      if (it == row_of_id.end()) {
+        continue;
+      }
+      const uint32_t row = it->second;
+      if (filled[row]) {
+        continue;
+      }
+      filled[row] = 1;
+      for (uint32_t j = 0; j != cts_annot_ct; ++j) {
+        ld_mat[S_CAST(uintptr_t, row) * total_annot + j] = cts.l2[i * cts_annot_ct + j];
+      }
+    }
+    uint32_t missing_ct = 0;
+    for (uint32_t i = 0; i != n_snp; ++i) {
+      if (!filled[i]) {
+        ++missing_ct;
+      }
+    }
+    if (missing_ct) {
+      fprintf(stderr, "Error: %u of the regression variants are missing from %s's LD Scores.  The\ncell-type LD Scores have to cover every variant the baseline ones do.\n", missing_ct, name.c_str());
+      return 1;
+    }
+    for (uint32_t i = 0; i != n_snp; ++i) {
+      double acc = 0.0;
+      for (uint32_t j = 0; j != cts_annot_ct; ++j) {
+        acc += ld_mat[S_CAST(uintptr_t, i) * total_annot + j];
+      }
+      for (uint32_t j = 0; j != base_annot_ct; ++j) {
+        const double cur = data.ld[S_CAST(uintptr_t, i) * base_annot_ct + j];
+        ld_mat[S_CAST(uintptr_t, i) * total_annot + cts_annot_ct + j] = cur;
+        acc += cur;
+      }
+      ld_tot[i] = acc;
+    }
+    std::vector<double> m_all(total_annot);
+    for (uint32_t j = 0; j != cts_annot_ct; ++j) {
+      m_all[j] = m_cts[j];
+    }
+    for (uint32_t j = 0; j != base_annot_ct; ++j) {
+      m_all[cts_annot_ct + j] = m_vec[j];
+    }
+
+    LdscHsqResult hsq;
+    if (LdscHsqFit(&(chisq[0]), &(ld_mat[0]), &(ld_tot[0]), &(data.w_ld[0]), &(data.n1[0]), n_snp, total_annot, &(m_all[0]), n_blocks, fixed_intercept, nullptr, &hsq)) {
+      fprintf(stderr, "Error: The regression failed for cell type %s.\n", name.c_str());
+      return 1;
+    }
+    for (uint32_t j = 0; j != cts_annot_ct; ++j) {
+      if (j && (!opts->print_all_cts)) {
+        break;
+      }
+      LdscCtsRow row;
+      row.name = name;
+      if (j) {
+        char suffix[16];
+        snprintf(suffix, sizeof(suffix), "_%u", j);
+        row.name += suffix;
+      }
+      row.coef = hsq.coefs[j];
+      row.coef_se = hsq.coef_ses[j];
+      // One-sided: a cell type is interesting when its coefficient is
+      // positive.
+      row.p = LdscNormalSf(row.coef / row.coef_se);
+      results.push_back(row);
+    }
+  }
+  reterr = kPglRetSuccess;
+  CleanupTextStream(&txs, &reterr);
+  if (reterr) {
+    fprintf(stderr, "Error: Failed to read %s.\n", opts->cts_arg);
+    return 1;
+  }
+  if (results.empty()) {
+    fprintf(stderr, "Error: No cell types read from %s.\n", opts->cts_arg);
+    return 1;
+  }
+  LdscLog("Ran %u cell-type regressions, each with the %u baseline annotation%s.\n", cts_ct, base_annot_ct, (base_annot_ct == 1)? "" : "s");
+
+  std::stable_sort(results.begin(), results.end(), [](const LdscCtsRow& a, const LdscCtsRow& b) {
+    return a.p < b.p;
+  });
+  const std::string results_path = std::string(out_prefix) + ".cell_type_results.txt";
+  FILE* results_file = fopen(results_path.c_str(), FOPEN_WB);
+  if (!results_file) {
+    fprintf(stderr, "Error: Failed to open %s.\n", results_path.c_str());
+    return 1;
+  }
+  fputs("Name\tCoefficient\tCoefficient_std_error\tCoefficient_P_value\n", results_file);
+  for (uintptr_t i = 0; i != results.size(); ++i) {
+    fprintf(results_file, "%s\t%.9g\t%.9g\t%.9g\n", results[i].name.c_str(), results[i].coef, results[i].coef_se, results[i].p);
+  }
+  if (fclose(results_file)) {
+    fprintf(stderr, "Error: Failed to write %s.\n", results_path.c_str());
+    return 1;
+  }
+  LdscLog("Results written to %s , sorted by p-value.\n", results_path.c_str());
+  return 0;
+}
+
 BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const LdscScores& ref, const std::unordered_map<std::string, double>& w_ld_map, const std::vector<double>& m_vec, const LdscOpts* opts, const char* out_prefix) {
   const uint32_t n_annot = ref.annot_names.size();
   const uint32_t pheno_ct = rg_paths.size();
@@ -3492,6 +3791,29 @@ BoolErr LdscEstimateRg(const std::vector<std::string>& rg_paths, const LdscScore
     LdscPrintHsq(&hsq2, label, LdscOptAt(opts->samp_prev, pheno_idx), LdscOptAt(opts->pop_prev, pheno_idx));
     LdscPrintGencov(&gencov, LdscOptAt(opts->samp_prev, 0), LdscOptAt(opts->pop_prev, 0), LdscOptAt(opts->samp_prev, pheno_idx), LdscOptAt(opts->pop_prev, pheno_idx));
 
+    if (opts->print_cov || opts->print_delete_vals) {
+      char pair_suffix[16];
+      snprintf(pair_suffix, sizeof(pair_suffix), ".%u", pheno_idx + 1);
+      const std::string dump_base = std::string(out_prefix) + pair_suffix;
+      if (opts->print_cov) {
+        if (LdscWriteMatrix(dump_base + ".hsq1.cov", &(hsq1.coef_cov[0]), n_annot, n_annot, "the covariance matrix of the phenotype 1 estimates") ||
+            LdscWriteMatrix(dump_base + ".hsq2.cov", &(hsq2.coef_cov[0]), n_annot, n_annot, "the covariance matrix of the phenotype 2 estimates") ||
+            LdscWriteMatrix(dump_base + ".gencov.cov", &(gencov.coef_cov[0]), n_annot, n_annot, "the covariance matrix of the genetic covariance estimates")) {
+          return 1;
+        }
+      }
+      if (opts->print_delete_vals) {
+        if (LdscWriteMatrix(dump_base + ".hsq1.delete", &(hsq1.tot_delete_values[0]), hsq1.n_blocks, 1, "phenotype 1 delete values") ||
+            LdscWriteMatrix(dump_base + ".hsq2.delete", &(hsq2.tot_delete_values[0]), hsq2.n_blocks, 1, "phenotype 2 delete values") ||
+            LdscWriteMatrix(dump_base + ".gencov.delete", &(gencov.tot_delete_values[0]), gencov.n_blocks, 1, "genetic covariance delete values") ||
+            LdscWriteMatrix(dump_base + ".hsq1.part_delete", &(hsq1.part_delete_values[0]), hsq1.n_blocks, n_annot, "partitioned phenotype 1 delete values") ||
+            LdscWriteMatrix(dump_base + ".hsq2.part_delete", &(hsq2.part_delete_values[0]), hsq2.n_blocks, n_annot, "partitioned phenotype 2 delete values") ||
+            LdscWriteMatrix(dump_base + ".gencov.part_delete", &(gencov.part_delete_values[0]), gencov.n_blocks, n_annot, "partitioned genetic covariance delete values")) {
+          return 1;
+        }
+      }
+    }
+
     LdscLog("\nGenetic Correlation\n");
     char buf1[64];
     char buf2[64];
@@ -3601,6 +3923,7 @@ BoolErr LdscParseNumList(const char* arg, const char* flagname, std::vector<doub
 int main(int argc, char** argv) {
   using namespace plink2;
   const char* h2_fname = nullptr;
+  const char* h2_cts_fname = nullptr;
   const char* rg_arg = nullptr;
   MungeOpts mopts;
   mopts.fname = nullptr;
@@ -3646,6 +3969,10 @@ int main(int argc, char** argv) {
   opts.not_m_5_50 = 0;
   opts.no_check_alleles = 0;
   opts.overlap_annot = 0;
+  opts.print_cov = 0;
+  opts.print_delete_vals = 0;
+  opts.print_all_cts = 0;
+  opts.cts_arg = nullptr;
   opts.frq_arg = nullptr;
   opts.frq_is_chr_split = 0;
   opts.m_override = 0.0;
@@ -3777,6 +4104,16 @@ int main(int argc, char** argv) {
       opts.no_check_alleles = 1;
     } else if (!strcmp(cur, "--overlap-annot")) {
       opts.overlap_annot = 1;
+    } else if ((!strcmp(cur, "--h2-cts")) && (argi + 1 < argc)) {
+      h2_cts_fname = argv[++argi];
+    } else if ((!strcmp(cur, "--ref-ld-chr-cts")) && (argi + 1 < argc)) {
+      opts.cts_arg = argv[++argi];
+    } else if (!strcmp(cur, "--print-all-cts")) {
+      opts.print_all_cts = 1;
+    } else if (!strcmp(cur, "--print-cov")) {
+      opts.print_cov = 1;
+    } else if (!strcmp(cur, "--print-delete-vals")) {
+      opts.print_delete_vals = 1;
     } else if ((!strcmp(cur, "--frqfile")) && (argi + 1 < argc)) {
       opts.frq_arg = argv[++argi];
       opts.frq_is_chr_split = 0;
@@ -3831,11 +4168,18 @@ int main(int argc, char** argv) {
     g_ldsc_logfile = nullptr;
     return munge_ret? 1 : 0;
   }
-  if ((!(h2_fname || rg_arg)) || (!ref_ld_arg) || (!w_ld_arg) || (!out_prefix)) {
+  if ((h2_fname && h2_cts_fname) || (rg_arg && h2_cts_fname) || (h2_fname && rg_arg)) {
+    fprintf(stderr, "Error: --h2, --h2-cts and --rg are mutually exclusive.\n");
+    return 1;
+  }
+  if ((!(h2_fname || rg_arg || h2_cts_fname)) || (!ref_ld_arg) || (!w_ld_arg) || (!out_prefix)) {
     fprintf(stderr,
             "%s\n"
             "LD Score regression (Bulik-Sullivan et al. 2015).\n\n"
             "Usage: ldsc --munge <raw sumstats> --out <prefix>\n"
+            "       ldsc --h2-cts <sumstats> --ref-ld-chr <baseline>\n"
+            "            --ref-ld-chr-cts <cell type file> --w-ld-chr <weights>\n"
+            "            --out <prefix>\n"
             "       ldsc --h2 <sumstats> --ref-ld[-chr] <LD Scores>\n"
             "            --w-ld[-chr] <LD Scores> --out <prefix>\n"
             "       ldsc --rg <sumstats1,sumstats2,...> --ref-ld[-chr] <LD Scores>\n"
@@ -3865,6 +4209,14 @@ int main(int argc, char** argv) {
             "  --h2       Estimate SNP-heritability from one summary statistic\n"
             "             file.  Columns are detected case-insensitively: an ID\n"
             "             (SNP/ID), Z, and N.\n"
+            "  --h2-cts   Cell-type-specific analysis: with --ref-ld-chr-cts\n"
+            "             <file>, one line per cell type naming it and its LD\n"
+            "             Scores, each cell type is regressed alongside the\n"
+            "             baseline annotations from --ref-ld[-chr], and its own\n"
+            "             coefficient is reported.  Writes\n"
+            "             <prefix>.cell_type_results.txt, sorted by p-value.\n"
+            "             Add --print-all-cts to report every column of a\n"
+            "             multi-column cell-type fileset.\n"
             "  --rg       Estimate genetic correlation between the first file and\n"
             "             each of the others.  A1 and A2 are then required too;\n"
             "             Z is flipped where the effect alleles are swapped, and\n"
@@ -3910,6 +4262,12 @@ int main(int argc, char** argv) {
             "  --frqfile[-chr]  Allele frequencies, to restrict the overlap\n"
             "             counts to variants with 5%% < MAF < 50%%, which is the\n"
             "             band the .l2.M_5_50 counts use.\n"
+            "  --print-cov  Write the jackknife covariance matrix of the LD\n"
+            "             Score coefficients to <prefix>.cov (one file per\n"
+            "             regression, for --rg).\n"
+            "  --print-delete-vals  Write the block jackknife delete values to\n"
+            "             <prefix>.delete and <prefix>.part_delete, which is what\n"
+            "             a meta-analysis over jackknife blocks needs.\n"
             "  --no-check-alleles  Skip the allele-matching step of --rg.  Only\n"
             "             safe if both files are known to be on the same strand\n"
             "             with the same effect alleles.\n"
@@ -3986,7 +4344,9 @@ int main(int argc, char** argv) {
   }
 
   BoolErr ret;
-  if (h2_fname) {
+  if (h2_cts_fname) {
+    ret = LdscEstimateH2Cts(h2_cts_fname, ref, w_ld_map, m_vec, &opts, out_prefix);
+  } else if (h2_fname) {
     ret = LdscEstimateH2(h2_fname, ref, ref_ld_arg, ref_ld_chr_split, w_ld_map, m_vec, &opts, out_prefix);
   } else {
     std::vector<std::string> rg_paths;

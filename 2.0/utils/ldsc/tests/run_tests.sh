@@ -192,7 +192,95 @@ if $L --munge raw_daner.txt --out t_bad4 2> tmp_err4.txt; then
 fi
 grep -q "sample size" tmp_err4.txt
 
-# 12. --w-ld has to name exactly one LD Score column.
+# 12. --h2-cts: each cell type regressed alongside the baseline annotations,
+#     reporting its own coefficient, sorted by a one-sided p-value.
+$L --h2-cts part_trait.sumstats --ref-ld part_ref --ref-ld-chr-cts cts_list.txt \
+   --w-ld part_w --out t_cts
+grep -q "Ran 3 cell-type regressions, each with the 3 baseline annotations" \
+   t_cts.log
+python3 - << 'PYEOF'
+import csv
+import subprocess
+import sys
+
+rows = list(csv.DictReader(open('t_cts.cell_type_results.txt'),
+                           delimiter='\t'))
+if len(rows) != 3:
+    raise SystemExit('expected 3 cell types, got %d' % len(rows))
+ps = [float(r['Coefficient_P_value']) for r in rows]
+if ps != sorted(ps):
+    raise SystemExit('the cell types must come out sorted by p-value: %s' % ps)
+m_base = open('part_ref.l2.M_5_50').read().split()
+for row in rows:
+    name = row['Name']
+    m_cts = open('cts_%s.l2.M_5_50' % name).read().split()
+    out = subprocess.run(
+        [sys.executable, 'oracle.py', 'h2', '--ref-ld',
+         'part_ref.l2.ldscore', '--extra-ld', 'cts_%s.l2.ldscore' % name,
+         '--w-ld', 'part_w.l2.ldscore', '--sumstats', 'part_trait.sumstats',
+         '--M', ','.join(m_cts + m_base), '--cts-p'],
+        check=True, capture_output=True, text=True).stdout
+    want = {}
+    for line in out.split('\n'):
+        if line.strip():
+            key, val = line.split()
+            want[key] = float(val)
+    for key, col in (('Coefficient_0', 'Coefficient'),
+                     ('Coefficient_std_error_0', 'Coefficient_std_error'),
+                     ('Coefficient_P_value_0', 'Coefficient_P_value')):
+        got = float(row[col])
+        if abs(got - want[key]) > 1e-6 * max(abs(want[key]), 1e-12):
+            raise SystemExit('%s %s: expected %.12g, got %.12g'
+                             % (name, col, want[key], got))
+print('3 cell types match the oracle, in p-value order')
+PYEOF
+
+# 12b. --print-cov and --print-delete-vals, whose contents have to agree with
+#      the estimates they come from.
+$L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_w --print-cov \
+   --print-delete-vals --out t_dumps
+python3 - << 'PYEOF'
+import csv
+
+cov = [[float(x) for x in line.split()] for line in open('t_dumps.cov')]
+delete = [[float(x) for x in line.split()] for line in open('t_dumps.delete')]
+part = [[float(x) for x in line.split()]
+        for line in open('t_dumps.part_delete')]
+rows = list(csv.DictReader(open('t_dumps.results'), delimiter='\t'))
+result = next(csv.DictReader(open('t_dumps.h2'), delimiter='\t'))
+n_annot = len(rows)
+n_blocks = int(result['n_blocks'])
+if len(cov) != n_annot or any(len(r) != n_annot for r in cov):
+    raise SystemExit('.cov should be %dx%d' % (n_annot, n_annot))
+if len(delete) != n_blocks or any(len(r) != 1 for r in delete):
+    raise SystemExit('.delete should be %dx1' % n_blocks)
+if len(part) != n_blocks or any(len(r) != n_annot for r in part):
+    raise SystemExit('.part_delete should be %dx%d' % (n_blocks, n_annot))
+# The square roots of the diagonal are the coefficient standard errors.
+for j in range(n_annot):
+    want = float(rows[j]['Coefficient_std_error'])
+    got = cov[j][j] ** 0.5
+    if abs(got - want) > 1e-9 * max(want, 1e-12):
+        raise SystemExit('.cov diagonal %d: %g, but the coefficient SE is %g'
+                         % (j, got, want))
+# Deleting one block at a time cannot move the estimate far.
+h2 = float(result['h2'])
+mean_delete = sum(r[0] for r in delete) / n_blocks
+if abs(mean_delete - h2) > 0.05 * abs(h2):
+    raise SystemExit('the delete values average %g, but h2 is %g'
+                     % (mean_delete, h2))
+# Each row of .part_delete has to add up to that row of .delete, weighted by
+# the per-annotation variant counts.
+m_vec = [float(x) for x in open('part_ref.l2.M_5_50').read().split()]
+for b in range(n_blocks):
+    want = sum(part[b][j] * m_vec[j] for j in range(n_annot))
+    if abs(want - delete[b][0]) > 1e-9 * max(abs(delete[b][0]), 1e-12):
+        raise SystemExit('block %d: partitioned delete values sum to %g, not '
+                         '%g' % (b, want, delete[b][0]))
+print('.cov, .delete and .part_delete agree with the estimates')
+PYEOF
+
+# 13. --w-ld has to name exactly one LD Score column.
 if $L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_ref \
       --out t_bad3 2> tmp_err3.txt; then
     echo "expected ldsc to reject multi-column --w-ld"
@@ -200,7 +288,7 @@ if $L --h2 part_trait.sumstats --ref-ld part_ref --w-ld part_ref \
 fi
 grep -q "must name a single LD Score column" tmp_err3.txt
 
-# 13. A missing Z column is an error, not a silent wrong answer.
+# 14. A missing Z column is an error, not a silent wrong answer.
 cut -f1,2,3,5 trait1.sumstats > no_z.sumstats
 if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad 2> tmp_err.txt; then
@@ -209,7 +297,7 @@ if $L --h2 no_z.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
 fi
 grep -q "must have SNP, Z and N columns" tmp_err.txt
 
-# 14. --rg needs at least two filesets.
+# 15. --rg needs at least two filesets.
 if $L --rg trait1.sumstats --ref-ld ldscores.ldscore --w-ld w_ld.ldscore \
       --M 6000 --out t_bad2 2> tmp_err2.txt; then
     echo "expected ldsc to reject a single-file --rg"

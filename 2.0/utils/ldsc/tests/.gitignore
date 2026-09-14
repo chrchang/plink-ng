@@ -11,3 +11,8 @@ tmp_*.txt
 __pycache__/
 raw*.txt
 merge_alleles.txt
+cts_*
+*.cell_type_results.txt
+*.cov
+*.delete
+*.part_delete
