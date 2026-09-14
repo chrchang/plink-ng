@@ -37,9 +37,11 @@ FLAGSET_DEF_START()
   kfPmergeSampleInnerJoin = (1 << 0),
   kfPmergeVariantInnerJoin = (1 << 1),
   kfPmergePhenoInnerJoin = (1 << 2),
-  kfPmergeSids = (1 << 3),
-  kfPmergeMultiallelicsAlreadyJoined = (1 << 4),
-  kfPmergeOutputVzs = (1 << 5)
+  kfPmergeIgnorePhase = (1 << 3),
+  kfPmergeIgnoreDosage = (1 << 4),
+  kfPmergeSids = (1 << 5),
+  kfPmergeMultiallelicsAlreadyJoined = (1 << 6),
+  kfPmergeOutputVzs = (1 << 7)
 FLAGSET_DEF_END(PmergeFlags);
 
 ENUM_U31_DEF_START()

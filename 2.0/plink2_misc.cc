@@ -3705,6 +3705,77 @@ typedef struct DblIndexStruct {
 #endif
 } DblIndex;
 
+// --tail-pheno: turn every quantitative phenotype into a case/control one.
+// Values above tail_hbt are cases, values at or below tail_lt are controls,
+// and anything in between is set to missing.  PLINK 1.x had a single
+// phenotype; with several loaded, this downcodes each of them.
+//
+// The case/control bitvector is narrower than the double array it replaces and
+// lives in the same allocation, so the conversion happens in place.
+PglErr PhenoTailDowncode(double tail_lt, double tail_hbt, uint32_t raw_sample_ct, uint32_t pheno_ct, PhenoCol* pheno_cols) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* cc_buf;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cc_buf))) {
+      goto PhenoTailDowncode_ret_NOMEM;
+    }
+    uint32_t transform_ct = 0;
+    uint32_t case_ct_total = 0;
+    uint32_t ctrl_ct_total = 0;
+    uint32_t newly_missing_ct = 0;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+      if (cur_pheno_col->type_code != kPhenoDtypeQt) {
+        continue;
+      }
+      ZeroWArr(raw_sample_ctl, cc_buf);
+      uintptr_t* nonmiss = cur_pheno_col->nonmiss;
+      const double* qt = cur_pheno_col->data.qt;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t nonmiss_bits = nonmiss[0];
+      const uint32_t obs_ct = PopcountWords(nonmiss, raw_sample_ctl);
+      uint32_t case_ct = 0;
+      uint32_t ctrl_ct = 0;
+      for (uint32_t obs_idx = 0; obs_idx != obs_ct; ++obs_idx) {
+        const uintptr_t sample_uidx = BitIter1(nonmiss, &sample_uidx_base, &nonmiss_bits);
+        const double cur_val = qt[sample_uidx];
+        if (cur_val > tail_hbt) {
+          SetBit(sample_uidx, cc_buf);
+          ++case_ct;
+        } else if (cur_val <= tail_lt) {
+          ++ctrl_ct;
+        } else {
+          ClearBit(sample_uidx, nonmiss);
+          ++newly_missing_ct;
+        }
+      }
+      memcpy(cur_pheno_col->data.qt, cc_buf, raw_sample_ctl * sizeof(intptr_t));
+      cur_pheno_col->type_code = kPhenoDtypeCc;
+      case_ct_total += case_ct;
+      ctrl_ct_total += ctrl_ct;
+      ++transform_ct;
+    }
+    if (!transform_ct) {
+      logprintf("--tail-pheno: No quantitative phenotypes to downcode.\n");
+    } else {
+      logprintf("--tail-pheno: %u phenotype%s downcoded, %u case%s and %u control%s in total", transform_ct, (transform_ct == 1)? "" : "s", case_ct_total, (case_ct_total == 1)? "" : "s", ctrl_ct_total, (ctrl_ct_total == 1)? "" : "s");
+      if (newly_missing_ct) {
+        logprintf(", %u value%s set to missing", newly_missing_ct, (newly_missing_ct == 1)? "" : "s");
+      }
+      logputs(".\n");
+    }
+  }
+  while (0) {
+  PhenoTailDowncode_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_subset_flag, PhenoCol* pheno_cols) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* flag_prefix = is_subset_flag? (is_covar? "covar-" : "pheno-") : "";
@@ -11674,6 +11745,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t col_nseg = (flags / kfHomozygColNseg) & 1;
     const uint32_t col_kbtot = (flags / kfHomozygColKbtot) & 1;
     const uint32_t col_kbavg = (flags / kfHomozygColKbavg) & 1;
+    const uint32_t col_froh = (flags / kfHomozygColFroh) & 1;
     const uint32_t col_aff = (flags / kfHomozygColAff) & 1;
     const uint32_t col_unaff = (flags / kfHomozygColUnaff) & 1;
 
@@ -11726,16 +11798,40 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     uintptr_t sample_uidx_base = 0;
     uintptr_t sample_include_bits = sample_include[0];
     double* sample_kb_tots;
-    if (unlikely(bigstack_calloc_d(sample_ct, &sample_kb_tots))) {
+    double* sample_kb_autos;
+    if (unlikely(bigstack_calloc_d(sample_ct, &sample_kb_tots) ||
+                 bigstack_calloc_d(sample_ct, &sample_kb_autos))) {
       goto HomozygReport_ret_NOMEM;
+    }
+    // FROH denominator: the span covered by the autosomal variants actually
+    // scanned, which is how the literature operationalizes "total autosomal
+    // genome length".  chrX is left out on both sides of the ratio, since it
+    // is only scanned for females and F_ROH is conventionally autosomal.
+    double autosomal_kb = 0.0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if ((chr_idx == x_code) || IsSet(cip->haploid_mask, chr_idx) || (chr_idx == mt_code)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      if (PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end) < window_size) {
+        // same skip as the scan itself
+        continue;
+      }
+      const uint32_t first_uidx = AdvBoundedTo1Bit(variant_include, chr_vidx_start, chr_vidx_end);
+      const uint32_t last_uidx = FindLast1BitBefore(variant_include, chr_vidx_end);
+      autosomal_kb += u31tod(variant_bps[last_uidx] + is_new_lengths - variant_bps[first_uidx]) / (1000.0 - kRohEpsilon);
     }
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
       const uint32_t roh_start = sample_roh_offsets[sample_idx];
       const uint32_t roh_end = sample_roh_offsets[sample_idx + 1];
       double kb_tot = 0.0;
+      double kb_auto = 0.0;
       for (uint32_t uii = roh_start; uii != roh_end; ++uii) {
         const RohRecord* cur_rec = &(roh_list[roh_order[uii]]);
+        const uint32_t cur_chr_idx = GetVariantChr(cip, cur_rec->start_uidx);
         char* write_iter = g_textbuf;
         write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
         if (col_pheno) {
@@ -11744,7 +11840,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         }
         if (col_chrom) {
           *write_iter++ = '\t';
-          write_iter = chrtoa(cip, GetVariantChr(cip, cur_rec->start_uidx), write_iter);
+          write_iter = chrtoa(cip, cur_chr_idx, write_iter);
         }
         *write_iter++ = '\t';
         write_iter = strcpyax(write_iter, variant_ids[cur_rec->start_uidx], '\t');
@@ -11756,6 +11852,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         }
         const double kb = u31tod(variant_bps[cur_rec->end_uidx] + is_new_lengths - variant_bps[cur_rec->start_uidx]) / (1000.0 - kRohEpsilon);
         kb_tot += kb;
+        if (cur_chr_idx != x_code) {
+          kb_auto += kb;
+        }
         if (col_kb) {
           *write_iter++ = '\t';
           write_iter = dtoa_g(kb, write_iter);
@@ -11783,6 +11882,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         }
       }
       sample_kb_tots[sample_idx] = kb_tot;
+      sample_kb_autos[sample_idx] = kb_auto;
     }
     if (unlikely(fclose_null(&outfile))) {
       goto HomozygReport_ret_WRITE_FAIL;
@@ -11815,6 +11915,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       if (col_kbavg) {
         write_iter = strcpya_k(write_iter, "\tKBAVG");
       }
+      if (col_froh) {
+        write_iter = strcpya_k(write_iter, "\tFROH");
+      }
       AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
         goto HomozygReport_ret_WRITE_FAIL;
@@ -11843,6 +11946,14 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       if (col_kbavg) {
         *write_iter++ = '\t';
         write_iter = dtoa_g(cur_roh_ct? (kb_tot / u31tod(cur_roh_ct)) : kb_tot, write_iter);
+      }
+      if (col_froh) {
+        *write_iter++ = '\t';
+        if (autosomal_kb == 0.0) {
+          write_iter = strcpya_k(write_iter, "NA");
+        } else {
+          write_iter = dtoa_g(sample_kb_autos[sample_idx] / autosomal_kb, write_iter);
+        }
       }
       AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
