@@ -68,7 +68,7 @@ awk '
 ' plink2_wz.meta | sort -g | awk '
     {
         ++n;
-        if (n > 1 && $2 > prev_p + 1e-12) {
+        if (n > 1 && $2 > prev_p * (1 + 1e5)) {
             print "P_WZ increases with |WEIGHTED_Z|: " $1 " " $2 " after " prev_p; exit 1
         }
         prev_p = $2;

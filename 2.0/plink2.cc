@@ -150,6 +150,7 @@ static const char notestr_null_calc2[] =
 "     --mendel                   Mendel error report\n"
 "     --het                      inbreeding coefficients\n"
 "     --check-sex, --impute-sex  check/impute sex using chrX homozygosity\n"
+"     --score                    polygenic scores; --score-list for several\n"
 "     --fst                      Hudson or Weir-Cockerham Fst\n"
 "\n"
 "  -- Linkage disequilibrium\n"
@@ -171,7 +172,7 @@ static const char notestr_null_calc2[] =
 "  -- Association\n"
 "     --glm                      linear and logistic regression\n"
 "     --test-missing             differential missingness by case/control status\n"
-"     --score                    polygenic scores; --score-list for several\n"
+"     --epistasis-boost          pairwise interaction scan for binary phenotype\n"
 "\n"
 "  -- Report post-processing\n"
 "     --adjust-file              multiple-testing correction of assoc. results\n"
@@ -331,7 +332,7 @@ FLAGSET64_DEF_START()
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
   kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
-  kfCommand1Epi = (1LLU << kCmd1BitEpi)
+  kfCommand1Epi = (1LLU << kCmd1BitEpi),
   kfCommand1Blocks = (1LLU << kCmd1BitBlocks),
   kfCommand1MetaAnalysis = (1LLU << kCmd1BitMetaAnalysis)
 FLAGSET64_DEF_END(Command1Flags);
