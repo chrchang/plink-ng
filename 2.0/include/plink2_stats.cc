@@ -989,7 +989,8 @@ double LnPToChisq(double ln_pval) {
     return gamma_p_inv_imp2(1, exp(ln_pval)) * 2;
   }
   // (bb < 1e-28) case in find_inverse_gamma2()
-  const double yy = kLnSqrtPi - ln_pval;
+  // bugfix (13 Sep 2026): kLnSqrtPi term had wrong sign
+  const double yy = -kLnSqrtPi - ln_pval;
   const double c1 = -0.5 * log(yy);
   const double c1_2 = c1 * c1;
   const double c1_3 = c1_2 * c1;
