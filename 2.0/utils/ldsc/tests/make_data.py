@@ -250,6 +250,12 @@ def main():
                     % (ids[j], alleles[j][0], alleles[j][1], math.exp(beta),
                        p, n_cas, n_con, munge_rows[j][7]))
 
+        # 0.0865 is the double just below the boundary, so it has to print
+        # as 0.086: a parser that rounds the last bits the other way makes it
+        # 0.087.  The case and control counts are the highest in the file, so
+        # the sample-size floor cannot drop it.
+        f.write('rs_round\tA\tG\t1.010000\t0.5\t11000\t50000\t0.0865\n')
+
     # A variant list for --merge-alleles: half the variants, a quarter of them
     # with the alleles the other way round, plus one the input does not have.
     with open('merge_alleles.txt', 'w') as f:

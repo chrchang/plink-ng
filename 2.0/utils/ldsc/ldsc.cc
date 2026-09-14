@@ -166,6 +166,32 @@ double LdscNormalIsf(double p) {
   return -x;
 }
 
+// Parses a decimal number with correct rounding, as strtod does.
+// ScanadvDouble is faster, but it is explicitly allowed to be off in the last
+// couple of bits ("ok to lose last ~2 bits of precision",
+// include/plink2_string.cc).  That is fine for a regression input, where the
+// estimates agree to nine digits either way, and not fine for a value this
+// program reads and then writes back out at three decimals: one sitting on a
+// rounding boundary would come out a digit different from every other tool's.
+uint32_t LdscScanDouble(const char* str_iter, double* valp) {
+  // strtod also accepts hexadecimal floats, nan and infinity; a summary
+  // statistic file has no business containing those.
+  const char* digits = str_iter;
+  if ((*digits == '-') || (*digits == '+')) {
+    ++digits;
+  }
+  if ((digits[0] == '0') && ((digits[1] == 'x') || (digits[1] == 'X'))) {
+    return 0;
+  }
+  char* endp;
+  const double val = strtod(str_iter, &endp);
+  if ((endp == str_iter) || (!isfinite(val))) {
+    return 0;
+  }
+  *valp = val;
+  return 1;
+}
+
 double LdscMedian(const double* vals, uintptr_t ct) {
   std::vector<double> buf(vals, &(vals[ct]));
   const uintptr_t mid = ct / 2;
@@ -2268,7 +2294,7 @@ BoolErr LdscMungeSumstats(const MungeOpts* mopts, const char* out_prefix) {
       fprintf(stderr, "Error: --signed-sumstats takes <column name>,<null value>.\n");
       return 1;
     }
-    if (!ScanadvDouble(&(comma[1]), &signed_null)) {
+    if (!LdscScanDouble(&(comma[1]), &signed_null)) {
       fprintf(stderr, "Error: Invalid --signed-sumstats null value '%s'.\n", &(comma[1]));
       return 1;
     }
@@ -2357,13 +2383,13 @@ BoolErr LdscMungeSumstats(const MungeOpts* mopts, const char* out_prefix) {
         // FRQ_U_ column names, and FRQ_U_ is the frequency column.
         if (!cleaned.compare(0, 6, "FRQ_A_")) {
           double cur;
-          if (ScanadvDouble(&(cleaned.c_str()[6]), &cur)) {
+          if (LdscScanDouble(&(cleaned.c_str()[6]), &cur)) {
             daner_n_cas = cur;
           }
           field = kMungeFieldNone;
         } else if (!cleaned.compare(0, 6, "FRQ_U_")) {
           double cur;
-          if (ScanadvDouble(&(cleaned.c_str()[6]), &cur)) {
+          if (LdscScanDouble(&(cleaned.c_str()[6]), &cur)) {
             daner_n_con = cur;
           }
           field = kMungeFieldFrq;
@@ -2566,7 +2592,7 @@ BoolErr LdscMungeSumstats(const MungeOpts* mopts, const char* out_prefix) {
         id_start = iter;
         id_slen = slen;
       } else if (col_idx == col_p) {
-        if (is_missing || (!ScanadvDouble(iter, &row.p))) {
+        if (is_missing || (!LdscScanDouble(iter, &row.p))) {
           ok = 0;
         }
       } else if (col_idx == col_a1) {
@@ -2582,34 +2608,34 @@ BoolErr LdscMungeSumstats(const MungeOpts* mopts, const char* out_prefix) {
           row.a2 = LdscUpcase(*iter);
         }
       } else if (col_idx == col_signed) {
-        if (is_missing || (!ScanadvDouble(iter, &row.signed_stat))) {
+        if (is_missing || (!LdscScanDouble(iter, &row.signed_stat))) {
           ok = 0;
         }
       } else if (col_idx == col_n) {
-        if (is_missing || (!ScanadvDouble(iter, &row.n))) {
+        if (is_missing || (!LdscScanDouble(iter, &row.n))) {
           ok = 0;
         }
       } else if (col_idx == col_n_cas) {
-        if (is_missing || (!ScanadvDouble(iter, &row.n_cas))) {
+        if (is_missing || (!LdscScanDouble(iter, &row.n_cas))) {
           ok = 0;
         }
       } else if (col_idx == col_n_con) {
-        if (is_missing || (!ScanadvDouble(iter, &row.n_con))) {
+        if (is_missing || (!LdscScanDouble(iter, &row.n_con))) {
           ok = 0;
         }
       } else if (col_idx == col_nstudy) {
-        if (is_missing || (!ScanadvDouble(iter, &row.nstudy))) {
+        if (is_missing || (!LdscScanDouble(iter, &row.nstudy))) {
           ok = 0;
         }
       } else if (col_idx == col_frq) {
-        if (is_missing || (!ScanadvDouble(iter, &row.frq))) {
+        if (is_missing || (!LdscScanDouble(iter, &row.frq))) {
           ok = 0;
         }
       } else if ((info_idx != info_cols.size()) && (col_idx == info_cols[info_idx])) {
         double cur;
         // An unparsable INFO is left out of the average rather than dropping
         // the variant, as in the reference implementation.
-        if ((!is_missing) && ScanadvDouble(iter, &cur)) {
+        if ((!is_missing) && LdscScanDouble(iter, &cur)) {
           info_sum += cur;
           ++info_ct;
         }

@@ -152,6 +152,9 @@ $L --munge raw_cc.txt --keep-maf --out t_munge_cc
 python3 munge_oracle.py --raw raw_cc.txt --munged t_munge_cc.sumstats \
    --keep-maf
 head -1 t_munge_cc.sumstats | grep -q "FRQ"
+# A frequency on a rounding boundary has to print the way every other tool
+# prints it, which takes a correctly-rounded parse of the input.
+grep -q "^rs_round	A	G	.*	0.086$" t_munge_cc.sumstats
 
 # 11c. --merge-alleles: the output covers the list, in its order, with the
 #      variants it could not fill in left missing.

@@ -190,6 +190,11 @@ def main():
         n_min = q90 / 1.5
         kept = [r for r in kept if r['N'] >= n_min]
 
+    # The reference implementation, and this, print a sample size that came
+    # from an integer column without decimals, and a computed one with three.
+    n_integral_column = ('N' in fields) and (args.N is None) and (
+        not args.daner) and all(r['N'] == int(r['N']) for r in kept)
+
     with open(args.munged) as f:
         out_header = f.readline().split()
         out_rows = [line.rstrip('\n').split('\t') for line in f if line.strip()]
@@ -235,12 +240,18 @@ def main():
             if (r['sign'] < null) != (z < 0.0):
                 sys.exit('%s: signed statistic %g (null %g) but Z = %g'
                          % (r['SNP'], r['sign'], null, z))
-        if abs(float(d['N']) - r['N']) > 1e-3 + 1e-9 * abs(r['N']):
-            sys.exit('%s: N = %s, expected %g' % (r['SNP'], d['N'], r['N']))
+        # N and FRQ are passed through rather than computed, so they have to
+        # match digit for digit: Python's %.3f and C's round the same double
+        # the same way, which also catches a parse that is not correctly
+        # rounded.
+        want_n = ('%.0f' if n_integral_column else '%.3f') % r['N']
+        if d['N'] != want_n:
+            sys.exit('%s: N = %s, expected %s' % (r['SNP'], d['N'], want_n))
         if args.keep_maf and 'FRQ' in d:
-            if abs(float(d['FRQ']) - r['FRQ']) > 1.1e-3:
-                sys.exit('%s: FRQ = %s, expected %g'
-                         % (r['SNP'], d['FRQ'], r['FRQ']))
+            want_frq = '%.3f' % r['FRQ']
+            if d['FRQ'] != want_frq:
+                sys.exit('%s: FRQ = %s, expected %s'
+                         % (r['SNP'], d['FRQ'], want_frq))
         checked += 1
     if not checked:
         sys.exit('no variants checked; the comparison proves nothing')
