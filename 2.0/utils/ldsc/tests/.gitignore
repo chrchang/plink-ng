@@ -1,0 +1,7 @@
+*.ldscore
+*.l2.M_5_50
+*.sumstats
+*.h2
+*.rg
+*.log
+tmp_*.txt
