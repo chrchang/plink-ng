@@ -118,6 +118,11 @@ cd TEST_SHOW_TAGS
 cd ..
 echo "TEST_SHOW_TAGS passed."
 
+cd TEST_META_ANALYSIS
+./run_tests.sh $d $2 $3 > TEST_META_ANALYSIS.log
+cd ..
+echo "TEST_META_ANALYSIS passed."
+
 cd TEST_PGEN_MALFORMED
 ./run_tests.sh $d $2 $3 > TEST_PGEN_MALFORMED.log
 cd ..
@@ -127,5 +132,15 @@ cd TEST_BLOCKS
 ./run_tests.sh $d $2 $3 > TEST_BLOCKS.log
 cd ..
 echo "TEST_BLOCKS passed."
+
+cd TEST_PHENO_UTILS
+./run_tests.sh $d $2 $3 > TEST_PHENO_UTILS.log
+cd ..
+echo "TEST_PHENO_UTILS passed."
+
+cd TEST_GRM_MAF
+./run_tests.sh $d $2 $3 > TEST_GRM_MAF.log
+cd ..
+echo "TEST_GRM_MAF passed."
 
 echo "All tests passed."
