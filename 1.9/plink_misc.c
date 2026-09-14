@@ -5863,13 +5863,15 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	  problem_mask |= 0x20;
 	}
 	if (weighted_z) {
-	  // Same for a p-value of exactly zero: the weighted-Z analysis needs
-	  // a finite z-score, and inverting a zero p-value does not give one.
-	  // BAD_ESS below already rejects the whole line for a value only
-	  // weighted-Z uses.
-	  if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p > 0.0)) || (cur_p > 1.0)) {
+	  if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p >= 0.0)) || (cur_p > 1.0)) {
 	    problem_mask |= 0x80;
 	  }
+          // update (13 Sep 2026): SE=0 isn't really salvageable, but treating
+          // cur_p<DBL_MIN as cur_p=DBL_MIN should prevent the latter type of
+          // significant result from getting lost.
+          if (cur_p < 2.2250738585072014e-308) {
+            cur_p = 2.2250738585072014e-308;
+          }
 	  if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
 	    problem_mask |= 0x100;
 	  }
