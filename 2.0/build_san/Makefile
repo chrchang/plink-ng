@@ -17,6 +17,12 @@
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
 #   Debug symbols: change DEBUG to -g (still incompatible with -flto?)
+#   Compile the aligned-access code paths instead of the unaligned ones, and
+#     let the alignment sanitizer check them: NO_UNALIGNED
+#     (this is a second configuration, not a replacement for the default one:
+#     the #ifndef NO_UNALIGNED code is what production binaries run, so it
+#     still needs its own sanitizer coverage)
+NO_UNALIGNED =
 NO_AVX2 = 1
 NO_SSE42 = 1
 CPU_CHECK = 1
@@ -79,8 +85,16 @@ else
   CXXFLAGS = -std=c++17
 endif
 BASEFLAGS += ${ARCH32}
-BASEFLAGS += -fsanitize=address,undefined -fno-sanitize=alignment -fno-omit-frame-pointer -g
-LINKFLAGS += -fsanitize=address,undefined -fno-sanitize=alignment
+SANFLAGS = -fsanitize=address,undefined
+ifdef NO_UNALIGNED
+  BASEFLAGS += -DNO_UNALIGNED
+else
+  # The default configuration reads and writes vectors at unaligned addresses
+  # on purpose, so the alignment check has to be off for it.
+  SANFLAGS += -fno-sanitize=alignment
+endif
+BASEFLAGS += ${SANFLAGS} -fno-omit-frame-pointer -g
+LINKFLAGS += ${SANFLAGS}
 
 CFLAGS=-O1 -std=gnu99
 # zstd appears to be seriously targeted at -O3; see 26 Jul 2016 entry at
