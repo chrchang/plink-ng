@@ -7163,10 +7163,10 @@ int32_t GlobalPvarRecordNcmp(const void* r1, const void* r2) {
 // The .pvar and .pgen merges are performed as two separate loops over the same
 // sorted record array, because SpgwInitPhase1() needs the exact output variant
 // count and that isn't known until the .pvar merge has seen which records
-// collapse together and which MergePvariant() drops.  Unlike the multipass
-// design sketched in PmergePass(), the allele remaps from the first loop are
-// kept rather than re-scraped: they cost read_max_allele_ct bytes per record,
-// which is negligible next to the records themselves.
+// collapse together and which MergePvariant() drops.
+//
+// Note that this currently lacks support for --variant-inner-join or
+// --merge-max-alleles.
 PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const PmergeInputFilesetLl* filesets, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t missing_varid_match_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end) {
   const char* read_pgen_fname = nullptr;
   const char* read_pvar_fname = nullptr;
@@ -7970,14 +7970,15 @@ PglErr PmergePass(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInf
     // 3. Return to step 1 if input fileset(s) remain.
     uintptr_t input_filesets_remaining = fileset_ct;
     PmergeInputFilesetLl** next_filesets_end_ptr = next_filesets_ptr;
-    // Each fileset needs its .pgen and its .pvar open simultaneously.
-    if (fileset_ct <= (kMaxOpenFiles / 2)) {
+    // Each fileset needs its .pgen and its .pvar open simultaneously, and we
+    // need a .pgen and .pvar open for writing.
+    if (fileset_ct <= (kMaxOpenFiles / 2) - 1) {
       reterr = PmergePassSingle(pmip, siip, cip, *input_filesets_ptr, missing_varid_match, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end);
       *input_filesets_ptr = nullptr;
       goto PmergePass_ret_1;
     }
     do {
-      logerrputs("Error: Non-concatenating --pmerge[-list] with more than 126 filesets is under\ndevelopment.\n");
+      logerrputs("Error: Non-concatenating --pmerge[-list] with more than 125 filesets is under\ndevelopment.\n");
       reterr = kPglRetNotYetSupported;
       goto PmergePass_ret_1;
     } while (input_filesets_remaining > 1);
