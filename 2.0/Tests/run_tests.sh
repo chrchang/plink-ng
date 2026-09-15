@@ -163,4 +163,9 @@ cd TEST_LD_SCORE_ANNOT
 cd ..
 echo "TEST_LD_SCORE_ANNOT passed."
 
+cd TEST_NEIGHBOUR
+./run_tests.sh $d $2 $3 > TEST_NEIGHBOUR.log
+cd ..
+echo "TEST_NEIGHBOUR passed."
+
 echo "All tests passed."
