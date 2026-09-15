@@ -13499,7 +13499,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && (fabs(cur_r2) > max_r2)) {
+	      if ((uii == best_fidx_match) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
 		best_entry_ptr = clump_entry_ptr;
@@ -13626,7 +13626,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && (fabs(cur_r2) > max_r2)) {
+	      if ((uii == best_fidx_match) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
 		best_entry_ptr = clump_entry_ptr;

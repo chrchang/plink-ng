@@ -1771,6 +1771,7 @@ typedef struct RescanOnePosRecordStruct {
   AlleleCode allele_ct;
   char variant_id[];  // null-terminated, followed by null-terminated REF, ALT
 } RescanOnePosRecord;
+// alignof(RescanOnePosRecord) == sizeof(int32_t)
 
 typedef struct RescanOnePosContextStruct {
   RescanOnePosRecord* first_record;
@@ -2533,6 +2534,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
       //   null-terminated variant ID
       //   null-terminated REF
       //   null-terminated ALT, internally still comma-separated
+      // The length is rounded up so that the next record starts at an
+      // alignof(RescanOnePosRecord) boundary; the padding is never read.
       unsigned char* arena_bottom_mark = arena_bottom;
       const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
       const uint32_t filter_count_needed = (pmip->merge_filter_mode == kMergeFilterModeNonpassUnion) || (pmip->merge_filter_mode == kMergeFilterModeNmMatch);
@@ -2737,7 +2740,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
         }
         variant_id[id_slen] = '\0';
         const uint32_t id_blen = id_slen + 1;
-        const uint32_t rec_blen = sizeof(int32_t) + sizeof(AlleleCode) + id_blen + ref_slen + alt_slen + 2;
+        const uint32_t rec_blen = RoundUpPow2(sizeof(int32_t) + sizeof(AlleleCode) + id_blen + ref_slen + alt_slen + 2, sizeof(int32_t));
         if (S_CAST(uintptr_t, arena_top - arena_bottom) < rec_blen) {
           goto ScanPvarsAndMergeHeader_ret_NOMEM;
         }
@@ -3920,6 +3923,7 @@ typedef struct SamePosPvarRecordStruct {
   unsigned char pgen_pr_status;
   char variant_id[];
 } SamePosPvarRecord;
+// alignof(SamePosPvarRecord) == sizeof(int64_t)
 
 // returns allele_ct == 0 if allele is filtered out, otherwise at least 2
 // if non-null, *is_pr_ptr must be initialized to 0
@@ -6901,7 +6905,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       char* cur_pos_readbuf;
       SamePosPvarRecord** same_pos_records;
       if (unlikely(bigstack_alloc_c(max_chr_blen, &ppmc.pmc.chr_buf) ||
-                   bigstack_alloc_c(max_single_pos_blen + (sizeof(SamePosPvarRecord) + 1) * max_single_pos_ct, &cur_pos_readbuf) ||
+                   bigstack_alloc_c(max_single_pos_blen + (sizeof(SamePosPvarRecord) + sizeof(int64_t)) * max_single_pos_ct, &cur_pos_readbuf) ||
                    BIGSTACK_ALLOC_X(SamePosPvarRecord*, max_single_pos_ct, &same_pos_records))) {
         goto PmergeConcat_ret_NOMEM;
       }
