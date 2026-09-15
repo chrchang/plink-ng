@@ -564,6 +564,7 @@ typedef struct Plink2CmdlineStruct {
   VcorInfo vcor_info;
   TwolocusInfo twolocus_info;
   EpiInfo epi_info;
+  NeighbourInfo neighbour_info;
   TagInfo tag_info;
   BlocksInfo blocks_info;
   LdScoreInfo ld_score_info;
@@ -3022,7 +3023,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
-        reterr = CalcPca(sample_include, &pii.sii, grm_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
+        reterr = CalcPca(sample_include, &pii.sii, grm_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->neighbour_info), raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -4264,6 +4265,7 @@ int main(int argc, char** argv) {
   InitVcor(&pc.vcor_info);
   InitTwolocus(&pc.twolocus_info);
   InitEpi(&pc.epi_info);
+  InitNeighbour(&pc.neighbour_info);
   InitTag(&pc.tag_info);
   InitBlocks(&pc.blocks_info);
   InitLdScore(&pc.ld_score_info);
@@ -11361,6 +11363,36 @@ int main(int argc, char** argv) {
           }
           pc.load_filter_log_flags |= kfLoadFilterLogNotChr;
           // remaining processing now postponed to FinalizeChrset()
+        } else if (strequal_k_unsafe(flagname_p2, "eighbour") || strequal_k_unsafe(flagname_p2, "eighbor")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t nn_ct = 5;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.neighbour_info.flags |= kfNeighbourZs;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(pc.neighbour_info.flags & kfNeighbourColAll)) {
+                logerrprintf("Error: Multiple --%s cols= modifiers.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0distself\0distnn\0stat\0", flagname_p, kfNeighbourColMaybefid, kfNeighbourColDefault, 1, &pc.neighbour_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              if (unlikely(ScanPosintCappedx(cur_modif, 0x7ffffffe, &nn_ct))) {
+                logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+                goto main_ret_INVALID_CMDLINE;
+              }
+            }
+          }
+          if (!(pc.neighbour_info.flags & kfNeighbourColAll)) {
+            pc.neighbour_info.flags |= kfNeighbourColDefault;
+          }
+          pc.neighbour_info.nn_ct = nn_ct;
         } else if (strequal_k_unsafe(flagname_p2, "ew-id-max-allele-len")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -14554,6 +14586,10 @@ int main(int argc, char** argv) {
         logerrputs("Error: --tag-mode2 cannot be used with \"--show-tags all\".\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
+    }
+    if (unlikely(pc.neighbour_info.nn_ct && (!(pc.command_flags1 & kfCommand1Pca)))) {
+      logerrputs("Error: --neighbour must be used with --pca; it scores the PC coordinates\nthat --pca computes.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.command_flags1 & kfCommand1Blocks) {
       if (unlikely(pc.blocks_info.max_bp == 0)) {

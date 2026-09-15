@@ -6552,7 +6552,239 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
   return kPglRetSuccess;
 }
 
-PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
+// --neighbour implements the outlier statistic from section 3.4 of Prive et
+// al. (2020), "Efficient toolkit implementing best practices for principal
+// component analysis of population genetic data": a simplified local outlier
+// factor over the PC scores, comparing each sample's mean distance to its K
+// nearest neighbours against those neighbours' own mean distances.  Points in
+// a sparse part of PC space score high; points merely sitting next to a dense
+// cluster do not, which is what the square root is for.
+//
+// The nearest-neighbour search is a brute-force O(sample_ct^2 * pc_ct) scan.
+// That is a lot less work than the --king or --distance runs these samples
+// have usually already been through, since pc_ct is a handful of doubles
+// rather than a genome, and it avoids carrying a spatial index around.
+typedef struct CalcNeighbourCtxStruct {
+  const double* eigvecs_smaj;
+  uint32_t sample_ct;
+  uint32_t pc_ct;
+  uint32_t nn_ct;
+  uint32_t thread_ct;
+  double* dist_selves;
+  uint32_t* nn_idxs;
+  // thread_ct * nn_ct scratch slices, so the threads do not allocate
+  double* best_d2s;
+  uint32_t* best_idxs;
+} CalcNeighbourCtx;
+
+THREAD_FUNC_DECL CalcNeighbourThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcNeighbourCtx* ctx = S_CAST(CalcNeighbourCtx*, arg->sharedp->context);
+
+  const double* eigvecs_smaj = ctx->eigvecs_smaj;
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uint32_t pc_ct = ctx->pc_ct;
+  const uint32_t nn_ct = ctx->nn_ct;
+  const uint32_t thread_ct = ctx->thread_ct;
+  double* dist_selves = ctx->dist_selves;
+  uint32_t* nn_idxs = ctx->nn_idxs;
+
+  // The K smallest squared distances seen so far, ascending, with the sample
+  // indexes they came from.  K is tiny, so a sorted insert beats a heap.
+  double* best_d2 = &(ctx->best_d2s[tidx * S_CAST(uintptr_t, nn_ct)]);
+  uint32_t* best_idxs = &(ctx->best_idxs[tidx * S_CAST(uintptr_t, nn_ct)]);
+  for (uint32_t sample_idx = tidx; sample_idx < sample_ct; sample_idx += thread_ct) {
+    for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
+      best_d2[nn_idx] = DBL_MAX;
+      best_idxs[nn_idx] = UINT32_MAX;
+    }
+    const double* cur_coords = &(eigvecs_smaj[sample_idx * S_CAST(uintptr_t, pc_ct)]);
+    const double* other_coords = eigvecs_smaj;
+    for (uint32_t other_idx = 0; other_idx != sample_ct; ++other_idx, other_coords = &(other_coords[pc_ct])) {
+      if (other_idx == sample_idx) {
+        continue;
+      }
+      double d2 = 0.0;
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+        const double diff = cur_coords[pc_idx] - other_coords[pc_idx];
+        d2 += diff * diff;
+      }
+      if (d2 >= best_d2[nn_ct - 1]) {
+        continue;
+      }
+      uint32_t insert_pos = nn_ct - 1;
+      while (insert_pos && (d2 < best_d2[insert_pos - 1])) {
+        best_d2[insert_pos] = best_d2[insert_pos - 1];
+        best_idxs[insert_pos] = best_idxs[insert_pos - 1];
+        --insert_pos;
+      }
+      best_d2[insert_pos] = d2;
+      best_idxs[insert_pos] = other_idx;
+    }
+    double dist_sum = 0.0;
+    uint32_t* cur_nn_idxs = &(nn_idxs[sample_idx * S_CAST(uintptr_t, nn_ct)]);
+    for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
+      dist_sum += sqrt(best_d2[nn_idx]);
+      cur_nn_idxs[nn_idx] = best_idxs[nn_idx];
+    }
+    dist_selves[sample_idx] = dist_sum / u31tod(nn_ct);
+  }
+  THREAD_RETURN;
+}
+
+void InitNeighbour(NeighbourInfo* neighbour_info_ptr) {
+  neighbour_info_ptr->flags = kfNeighbour0;
+  neighbour_info_ptr->nn_ct = 0;
+}
+
+PglErr CalcNeighbour(const uintptr_t* sample_include, const SampleIdInfo* siip, const double* eigvecs_smaj, const NeighbourInfo* neighbour_ip, uint32_t sample_ct, uint32_t pc_ct, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    const uint32_t nn_ct = neighbour_ip->nn_ct;
+    if (unlikely(nn_ct >= sample_ct)) {
+      logerrprintfww("Error: --neighbour's neighbor count (%u) must be smaller than the number of samples remaining after filtering (%u).\n", nn_ct, sample_ct);
+      goto CalcNeighbour_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t calc_thread_ct = MINV(max_thread_ct, sample_ct);
+    double* dist_selves;
+    double* dist_nns;
+    uint32_t* nn_idxs;
+    double* best_d2s;
+    uint32_t* best_idxs;
+    if (unlikely(bigstack_alloc_d(sample_ct, &dist_selves) ||
+                 bigstack_alloc_d(sample_ct, &dist_nns) ||
+                 bigstack_alloc_u32(S_CAST(uintptr_t, sample_ct) * nn_ct, &nn_idxs) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, calc_thread_ct) * nn_ct, &best_d2s) ||
+                 bigstack_alloc_u32(S_CAST(uintptr_t, calc_thread_ct) * nn_ct, &best_idxs))) {
+      goto CalcNeighbour_ret_NOMEM;
+    }
+    CalcNeighbourCtx ctx;
+    ctx.eigvecs_smaj = eigvecs_smaj;
+    ctx.sample_ct = sample_ct;
+    ctx.pc_ct = pc_ct;
+    ctx.nn_ct = nn_ct;
+    ctx.thread_ct = calc_thread_ct;
+    ctx.dist_selves = dist_selves;
+    ctx.nn_idxs = nn_idxs;
+    ctx.best_d2s = best_d2s;
+    ctx.best_idxs = best_idxs;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto CalcNeighbour_ret_NOMEM;
+    }
+    SetThreadFuncAndData(CalcNeighbourThread, &ctx, &tg);
+    DeclareLastThreadBlock(&tg);
+    if (unlikely(SpawnThreads(&tg))) {
+      goto CalcNeighbour_ret_THREAD_CREATE_FAIL;
+    }
+    JoinThreads(&tg);
+
+    // Second pass is O(sample_ct * nn_ct), and needs every dist_selves[] entry
+    // from the first, so it does not belong in the threads.
+    const double nn_ctd = u31tod(nn_ct);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uint32_t* cur_nn_idxs = &(nn_idxs[sample_idx * S_CAST(uintptr_t, nn_ct)]);
+      double dist_sum = 0.0;
+      for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
+        dist_sum += dist_selves[cur_nn_idxs[nn_idx]];
+      }
+      dist_nns[sample_idx] = dist_sum / nn_ctd;
+    }
+
+    const NeighbourFlags flags = neighbour_ip->flags;
+    const uint32_t output_zst = (flags / kfNeighbourZs) & 1;
+    OutnameZstSet(".nearest", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto CalcNeighbour_ret_1;
+    }
+    const uint32_t write_fid = FidColIsRequired(siip, flags / kfNeighbourColMaybefid);
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uint32_t write_sid = SidColIsRequired(sids, flags / kfNeighbourColMaybesid);
+    *cswritep++ = '#';
+    if (write_fid) {
+      cswritep = strcpya_k(cswritep, "FID\t");
+    }
+    cswritep = strcpya_k(cswritep, "IID");
+    if (write_sid) {
+      cswritep = strcpya_k(cswritep, "\tSID");
+    }
+    if (flags & kfNeighbourColDistSelf) {
+      cswritep = strcpya_k(cswritep, "\tDIST_SELF");
+    }
+    if (flags & kfNeighbourColDistNn) {
+      cswritep = strcpya_k(cswritep, "\tDIST_NN");
+    }
+    if (flags & kfNeighbourColStat) {
+      cswritep = strcpya_k(cswritep, "\tSTAT");
+    }
+    AppendBinaryEoln(&cswritep);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t sample_include_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+      cswritep = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
+      const double dist_self = dist_selves[sample_idx];
+      const double dist_nn = dist_nns[sample_idx];
+      if (flags & kfNeighbourColDistSelf) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dist_self, cswritep);
+      }
+      if (flags & kfNeighbourColDistNn) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dist_nn, cswritep);
+      }
+      if (flags & kfNeighbourColStat) {
+        *cswritep++ = '\t';
+        if (dist_nn == 0.0) {
+          // Every neighbour of this sample's neighbours sits on top of them,
+          // so the ratio says nothing; duplicate samples do this.
+          cswritep = strcpya_k(cswritep, "NA");
+        } else {
+          cswritep = dtoa_g(sqrt(dist_self / dist_nn), cswritep);
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto CalcNeighbour_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto CalcNeighbour_ret_WRITE_FAIL;
+    }
+    logprintfww("--neighbour: Outlier statistics (%u nearest neighbors, %u PC%s) written to %s .\n", nn_ct, pc_ct, (pc_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  CalcNeighbour_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  CalcNeighbour_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  CalcNeighbour_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  CalcNeighbour_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ CalcNeighbour_ret_1:
+  CleanupThreads(&tg);
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -7249,6 +7481,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     }
     *outname_end = '\0';
     logprintfww("--pca%s: Eigenvector%s written to %s.eigenvec , and eigenvalue%s written to %s.eigenval .\n", is_approx? " approx" : "", (pc_ct == 1)? "" : "s", outname, (pc_ct == 1)? "" : "s", outname);
+
+    if (neighbour_ip->nn_ct) {
+      // eigvecs_smaj is still live here, and holds exactly the scores that
+      // were just written to .eigenvec.
+      reterr = CalcNeighbour(sample_include, siip, eigvecs_smaj, neighbour_ip, sample_ct, pc_ct, max_thread_ct, outname, outname_end);
+      if (unlikely(reterr)) {
+        goto CalcPca_ret_1;
+      }
+    }
   }
   while (0) {
   CalcPca_ret_NOMEM:

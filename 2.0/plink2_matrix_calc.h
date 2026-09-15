@@ -122,6 +122,30 @@ FLAGSET_DEF_START()
 FLAGSET_DEF_END(PcaFlags);
 
 FLAGSET_DEF_START()
+  kfNeighbour0,
+  kfNeighbourZs = (1 << 0),
+
+  kfNeighbourColMaybefid = (1 << 1),
+  kfNeighbourColFid = (1 << 2),
+  kfNeighbourColMaybesid = (1 << 3),
+  kfNeighbourColSid = (1 << 4),
+  kfNeighbourColDistSelf = (1 << 5),
+  kfNeighbourColDistNn = (1 << 6),
+  kfNeighbourColStat = (1 << 7),
+  kfNeighbourColDefault = (kfNeighbourColMaybefid | kfNeighbourColMaybesid | kfNeighbourColDistSelf | kfNeighbourColDistNn | kfNeighbourColStat),
+  kfNeighbourColAll = ((kfNeighbourColStat * 2) - kfNeighbourColMaybefid)
+FLAGSET_DEF_END(NeighbourFlags);
+
+typedef struct NeighbourInfoStruct {
+  NeighbourFlags flags;
+  // 0 when --neighbour was not specified
+  uint32_t nn_ct;
+} NeighbourInfo;
+
+void InitNeighbour(NeighbourInfo* neighbour_info_ptr);
+
+
+FLAGSET_DEF_START()
   kfScore0,
   kfScoreHeaderIgnore = (1 << 0),
   kfScoreHeaderRead = (1 << 1),
@@ -263,7 +287,7 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 
 #ifndef NOLAPACK
-PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end);
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end);
 #endif
 
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
