@@ -55,11 +55,55 @@ diff -q tmp_unzs.nearest plink2_nb.nearest
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbor --out plink2_alias
 diff -q plink2_alias.nearest plink2_nb.nearest
 
-# 8. It needs --pca, and says so.  (--neighbour is parsed before --pca, so this
-#    check cannot live in the parser.)
+# 8. It needs PC coordinates, and says so.  (--neighbour is parsed before --pca
+#    and --read-eigvec, so this check cannot live in the parser.)
 fails $1/plink2 $2 $3 --bfile tmp_nb --neighbour --out plink2_bad
 $1/plink2 $2 $3 --bfile tmp_nb --neighbour --out plink2_bad > tmp_err.txt 2>&1 || true
-grep -q 'must be used with --pca' tmp_err.txt
+grep -q 'must be used with --pca or --read-eigvec' tmp_err.txt
+
+# 8b. --read-eigvec replays a previous --pca, and lands on the same report.
+#     The coordinates are re-read from text, so they arrive rounded; compare
+#     against the same recomputation the oracle does rather than byte for byte.
+$1/plink2 $2 $3 --bfile tmp_nb --read-eigvec plink2_nb.eigenvec --neighbour --out plink2_re
+python3 oracle.py plink2_nb.eigenvec plink2_re.nearest 5
+$1/plink2 $2 $3 --bfile tmp_nb --read-eigvec plink2_nb.eigenvec --neighbour 12 --out plink2_re12
+python3 oracle.py plink2_nb.eigenvec plink2_re12.nearest 12
+
+# 8c. PLINK 1.9's .eigenvec is headerless and space-delimited, and works too.
+grep -v '^#' plink2_nb.eigenvec | tr '\t' ' ' > tmp_19.eigenvec
+$1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_19.eigenvec --neighbour --out plink2_re19
+diff -q plink2_re19.nearest plink2_re.nearest
+
+# 8d. Samples not in the current fileset are ignored, so one .eigenvec can be
+#     replayed against a subset.
+head -30 tmp_nb.fam | awk '{print $1 "\t" $2}' > tmp_keep.txt
+$1/plink2 $2 $3 --bfile tmp_nb --keep tmp_keep.txt --read-eigvec plink2_nb.eigenvec --neighbour --out plink2_re_keep
+test $(grep -vc '^#' plink2_re_keep.nearest) -eq 30
+
+# 8e. A sample with no entry is an error, and so is a duplicate entry.
+head -1 plink2_nb.eigenvec > tmp_short.eigenvec
+grep -v '^#' plink2_nb.eigenvec | head -30 >> tmp_short.eigenvec
+fails $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_short.eigenvec --neighbour --out plink2_bad
+$1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_short.eigenvec --neighbour --out plink2_bad > tmp_err3.txt 2>&1 || true
+grep -q 'lack a --read-eigvec entry' tmp_err3.txt
+cat plink2_nb.eigenvec > tmp_dup.eigenvec
+grep -v '^#' plink2_nb.eigenvec | head -1 >> tmp_dup.eigenvec
+fails $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_dup.eigenvec --neighbour --out plink2_bad
+$1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_dup.eigenvec --neighbour --out plink2_bad > tmp_err4.txt 2>&1 || true
+grep -q 'Duplicate sample ID' tmp_err4.txt
+
+# 8f. A ragged or non-numeric file is rejected.
+sed '3s/\t[^\t]*$//' plink2_nb.eigenvec > tmp_ragged.eigenvec
+fails $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_ragged.eigenvec --neighbour --out plink2_bad
+sed '3s/\t[^\t]*$/\tabc/' plink2_nb.eigenvec > tmp_nonnum.eigenvec
+fails $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_nonnum.eigenvec --neighbour --out plink2_bad
+
+# 8g. The two sources are mutually exclusive, and --read-eigvec needs
+#     --neighbour.
+fails $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --read-eigvec plink2_nb.eigenvec --neighbour --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec plink2_nb.eigenvec --out plink2_bad
+$1/plink2 $2 $3 --bfile tmp_nb --read-eigvec plink2_nb.eigenvec --out plink2_bad > tmp_err5.txt 2>&1 || true
+grep -q 'must be used with --neighbour' tmp_err5.txt
 
 # 9. K has to leave room for K neighbours.
 fails $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour 60 --out plink2_bad
