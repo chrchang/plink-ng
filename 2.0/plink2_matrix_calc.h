@@ -144,6 +144,8 @@ typedef struct NeighbourInfoStruct {
 
 void InitNeighbour(NeighbourInfo* neighbour_info_ptr);
 
+PglErr NeighbourFromEigvecFile(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* eigvec_fname, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_thread_ct, char* outname, char* outname_end);
+
 
 FLAGSET_DEF_START()
   kfScore0,

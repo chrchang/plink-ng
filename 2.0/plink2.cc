@@ -288,6 +288,7 @@ ENUM_U31_DEF_START()
   kCmd1BitEpi,
   kCmd1BitBlocks,
   kCmd1BitMetaAnalysis,
+  kCmd1BitNeighbour,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -336,7 +337,8 @@ FLAGSET64_DEF_START()
   kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
   kfCommand1Epi = (1LLU << kCmd1BitEpi),
   kfCommand1Blocks = (1LLU << kCmd1BitBlocks),
-  kfCommand1MetaAnalysis = (1LLU << kCmd1BitMetaAnalysis)
+  kfCommand1MetaAnalysis = (1LLU << kCmd1BitMetaAnalysis),
+  kfCommand1Neighbour = (1LLU << kCmd1BitNeighbour)
 FLAGSET64_DEF_END(Command1Flags);
 
 // The shape and encoding modifiers are mutually exclusive within each group,
@@ -658,6 +660,7 @@ typedef struct Plink2CmdlineStruct {
   char* glm_local_pvar_fname;
   char* glm_local_psam_fname;
   char* read_freq_fname;
+  char* read_eigvec_fname;
   char* within_fname;
   char* catpheno_name;
   char* family_missing_catname;
@@ -2269,6 +2272,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         logprintfww("--write-samples: Sample IDs written to %s .\n", outname);
         if (!(pcp->command_flags1 & (~(kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
+          continue;
+        }
+      }
+
+      if (pcp->read_eigvec_fname) {
+        // --neighbour's other entry point is inside CalcPca(), where the
+        // scores are already in memory.
+        reterr = NeighbourFromEigvecFile(sample_include, &pii.sii, pcp->read_eigvec_fname, &(pcp->neighbour_info), raw_sample_ct, sample_ct, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+        if (!(pcp->command_flags1 & (~(kfCommand1Neighbour | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
           continue;
         }
       }
@@ -4120,6 +4135,7 @@ int main(int argc, char** argv) {
   pc.glm_local_pvar_fname = nullptr;
   pc.glm_local_psam_fname = nullptr;
   pc.read_freq_fname = nullptr;
+  pc.read_eigvec_fname = nullptr;
   pc.within_fname = nullptr;
   pc.catpheno_name = nullptr;
   pc.family_missing_catname = nullptr;
@@ -12377,6 +12393,16 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "emove-nosex")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclNosex;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ead-eigvec")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.read_eigvec_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.command_flags1 |= kfCommand1Neighbour;
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "ead-freq")) {
           if (unlikely(pc.command_flags1 & kfCommand1AlleleFreq)) {
             // --read-freq can't promise OBS_CTs, so simplest to just continue
@@ -14478,8 +14504,17 @@ int main(int argc, char** argv) {
       logerrputs("Error: --list-all must be used with --show-tags.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely(pc.neighbour_info.nn_ct && (!(pc.command_flags1 & kfCommand1Pca)))) {
-      logerrputs("Error: --neighbour must be used with --pca; it scores the PC coordinates\nthat --pca computes.\n");
+    if (pc.neighbour_info.nn_ct) {
+      if (unlikely(pc.read_eigvec_fname && (pc.command_flags1 & kfCommand1Pca))) {
+        logerrputs("Error: --neighbour cannot take PC coordinates from both --pca and\n--read-eigvec.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely((!pc.read_eigvec_fname) && (!(pc.command_flags1 & kfCommand1Pca)))) {
+        logerrputs("Error: --neighbour must be used with --pca or --read-eigvec; it scores PC\ncoordinates.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+    } else if (unlikely(pc.read_eigvec_fname)) {
+      logerrputs("Error: --read-eigvec must be used with --neighbour.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.command_flags1 & kfCommand1Blocks) {
@@ -15227,6 +15262,7 @@ int main(int argc, char** argv) {
   free_cond(pc.catpheno_name);
   free_cond(pc.within_fname);
   free_cond(pc.read_freq_fname);
+  free_cond(pc.read_eigvec_fname);
   free_cond(pc.glm_local_covar_fname);
   free_cond(pc.glm_local_pvar_fname);
   free_cond(pc.glm_local_psam_fname);
