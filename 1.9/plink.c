@@ -97,7 +97,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.9.0-rc2"
+  "PLINK v1.9.0-rc3-dev"
 #else
   "PLINK v1.9.1-dev"
 #endif
@@ -109,12 +109,12 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (13 Sep 2026)";
+  " (15 Sep 2026)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 #ifdef STABLE_BUILD
-  "      " // adjust based on length of version number
+  "  " // adjust based on length of version number
 #else
   "      "
 #endif
