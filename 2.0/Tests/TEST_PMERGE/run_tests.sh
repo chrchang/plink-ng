@@ -250,7 +250,7 @@ $1/plink2 $2 $3 --pfile qa --pmerge qb --merge-qual-mode nm-first --merge-filter
 grep -v '^##' qm_nmfirst.pvar > qm_nmfirst_body.pvar
 diff -q expected_qfi_nmfirst.pvarbody qm_nmfirst_body.pvar
 
-# 7d. The same conflicts under nm-match and nm-first, checked against the
+# 8d. The same conflicts under nm-match and nm-first, checked against the
 #     documented rules: a sample identical in both inputs survives unchanged
 #     whatever its neighbours do, a one-sided value wins, and the two modes
 #     differ only where both inputs have a value.
@@ -263,7 +263,7 @@ $1/plink2 $2 $3 --pfile c_nmfirst --export vcf vcf-dosage=DS --out c_nmfirstx
 grep -v '^##' c_nmfirstx.vcf > c_nmfirst_body.vcf
 python3 check_merge.py ca_body.vcf cb_body.vcf c_nmfirst_body.vcf nm-first
 
-# 7e. Same for the multiallelic fixtures, where an ALTx/ALTy genotype has its
+# 8e. Same for the multiallelic fixtures, where an ALTx/ALTy genotype has its
 #     own representation and a clobbered sample used to take its neighbours
 #     with it.
 $1/plink2 $2 $3 --pfile cmb --export vcf --out cmbx
@@ -277,17 +277,34 @@ $1/plink2 $2 $3 --pfile cm_nmfirst --export vcf --out cm_nmfirstx
 grep -v '^##' cm_nmfirstx.vcf > cm_nmfirst_body.vcf
 python3 check_merge.py cma_body.vcf cmb_body.vcf cm_nmfirst_body.vcf nm-first
 
-# 7f. nm-match is symmetric by definition, so swapping the two filesets has to
-#     give the same hardcalls.  Two order dependences are left out of this
-#     assertion and reported instead: a dosage present in only one input
-#     survives only when that input comes first, and the same is true of a
-#     multiallelic genotype.
+# 8f. nm-match is symmetric by definition, so swapping the two filesets has to
+#     give the same result.  This covers the whole call, dosage included:
+#     a dosage present in only one input used to survive only when that input
+#     came first (#473).
 $1/plink2 $2 $3 --pfile cb --pmerge ca --merge-mode nm-match --out c_nmmatch_rev
-$1/plink2 $2 $3 --pfile c_nmmatch_rev --export vcf --out c_nmmatch_revx
-$1/plink2 $2 $3 --pfile c_nmmatch --export vcf --out c_nmmatch_hardx
-diff <(grep -v '^##' c_nmmatch_hardx.vcf) <(grep -v '^##' c_nmmatch_revx.vcf)
+$1/plink2 $2 $3 --pfile c_nmmatch_rev --export vcf vcf-dosage=DS --out c_nmmatch_revx
+diff <(grep -v '^##' c_nmmatchx.vcf) <(grep -v '^##' c_nmmatch_revx.vcf)
 
-# 7g. An INFO conflict under nm-match resolves to a missing value, and the
+#     Same for the multiallelic fixtures, where a genotype was dropped when
+#     the missing record came second (#472).
+$1/plink2 $2 $3 --pfile cmb --pmerge cma --merge-mode nm-match --out cm_nmmatch_rev
+$1/plink2 $2 $3 --pfile cm_nmmatch_rev --export vcf --out cm_nmmatch_revx
+diff <(grep -v '^##' cm_nmmatchx.vcf) <(grep -v '^##' cm_nmmatch_revx.vcf)
+
+#     nm-match over a group of records is symmetric the same way, so the
+#     sample-split fixtures from 6f swap too.  The two filesets overlap on
+#     s3 and s4 only, so this is the case where the merge has to reconcile
+#     records rather than concatenate them.  --indiv-sort defaults to
+#     'natural' when merging, so both directions write the same sample order
+#     and the bodies compare directly.
+$1/plink2 $2 $3 --pfile dpA --pmerge dpB --merge-mode nm-match --out dp_nmmatch
+$1/plink2 $2 $3 --pfile dpB --pmerge dpA --merge-mode nm-match --out dp_nmmatch_rev
+$1/plink2 $2 $3 --pfile dp_nmmatch --export vcf vcf-dosage=DS --out dp_nmmatchx
+$1/plink2 $2 $3 --pfile dp_nmmatch_rev --export vcf vcf-dosage=DS --out dp_nmmatch_revx
+head -1 <(grep -v '^##' dp_nmmatchx.vcf) | cut -f10- | grep -qx 's1	s2	s3	s4	s5	s6'
+diff <(grep -v '^##' dp_nmmatchx.vcf) <(grep -v '^##' dp_nmmatch_revx.vcf)
+
+# 8g. An INFO conflict under nm-match resolves to a missing value, and the
 #     .pvar stays the size of its contents.  Per key: NS differs on u1 and
 #     goes missing while AA agrees and survives, and AA differs on u3.  QUAL
 #     10 against 99 goes missing; FILTER PASS against q10 keeps q10, since
