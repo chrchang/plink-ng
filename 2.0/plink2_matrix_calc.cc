@@ -6726,7 +6726,13 @@ HEADER_INLINE void KdConsider(double d2, uint32_t other_idx, uint32_t nn_ct, dou
   best_idxs[insert_pos] = other_idx;
 }
 
-void KdQueryRecurse(const KdTree* tree, uint32_t node_idx, const double* cur_coords, uint32_t sample_idx, uint32_t nn_ct, double* best_d2, uint32_t* best_idxs) {
+// offsets[] holds, per dimension, how far outside this node's cell the query
+// point already is, and cell_d2 is the sum of their squares: the squared
+// distance from the query point to the cell, and thus a lower bound on its
+// distance to anything inside.  Carrying that bound down the tree (rather than
+// looking only at the current split) is what keeps the search from degenerating
+// into a full scan once there are more than a few PCs.
+void KdQueryRecurse(const KdTree* tree, uint32_t node_idx, const double* cur_coords, uint32_t sample_idx, uint32_t nn_ct, double cell_d2, double* offsets, double* best_d2, uint32_t* best_idxs) {
   const uint32_t pc_ct = tree->pc_ct;
   const uint32_t left_idx = tree->child_left[node_idx];
   if (left_idx == UINT32_MAX) {
@@ -6738,28 +6744,41 @@ void KdQueryRecurse(const KdTree* tree, uint32_t node_idx, const double* cur_coo
         continue;
       }
       const double* other_coords = KdCoords(tree, other_idx);
+      // Partial distance: stop as soon as this candidate is out of the running.
+      // (">" rather than ">=", since an exact tie can still win on the index
+      // tiebreak below.)
+      const double worst_d2 = best_d2[nn_ct - 1];
       double d2 = 0.0;
-      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+      uint32_t pc_idx = 0;
+      for (; pc_idx != pc_ct; ++pc_idx) {
         const double diff = cur_coords[pc_idx] - other_coords[pc_idx];
         d2 += diff * diff;
+        if (d2 > worst_d2) {
+          break;
+        }
       }
-      KdConsider(d2, other_idx, nn_ct, best_d2, best_idxs);
+      if (pc_idx == pc_ct) {
+        KdConsider(d2, other_idx, nn_ct, best_d2, best_idxs);
+      }
     }
     return;
   }
   const uint32_t right_idx = tree->child_right[node_idx];
-  const double diff = cur_coords[tree->split_dim[node_idx]] - tree->split_val[node_idx];
+  const uint32_t split_dim = tree->split_dim[node_idx];
+  const double diff = cur_coords[split_dim] - tree->split_val[node_idx];
   uint32_t near_idx = left_idx;
   uint32_t far_idx = right_idx;
   if (diff >= 0.0) {
     near_idx = right_idx;
     far_idx = left_idx;
   }
-  KdQueryRecurse(tree, near_idx, cur_coords, sample_idx, nn_ct, best_d2, best_idxs);
-  // Everything on the far side is at least |diff| away in this dimension, so
-  // the subtree can only help if that is closer than the current K-th best.
-  if (diff * diff <= best_d2[nn_ct - 1]) {
-    KdQueryRecurse(tree, far_idx, cur_coords, sample_idx, nn_ct, best_d2, best_idxs);
+  KdQueryRecurse(tree, near_idx, cur_coords, sample_idx, nn_ct, cell_d2, offsets, best_d2, best_idxs);
+  const double old_offset = offsets[split_dim];
+  const double far_cell_d2 = cell_d2 - old_offset * old_offset + diff * diff;
+  if (far_cell_d2 <= best_d2[nn_ct - 1]) {
+    offsets[split_dim] = diff;
+    KdQueryRecurse(tree, far_idx, cur_coords, sample_idx, nn_ct, far_cell_d2, offsets, best_d2, best_idxs);
+    offsets[split_dim] = old_offset;
   }
 }
 
@@ -6773,6 +6792,8 @@ typedef struct CalcNeighbourCtxStruct {
   // thread_ct * nn_ct scratch slices, so the threads do not allocate
   double* best_d2s;
   uint32_t* best_idxs;
+  // thread_ct * pc_ct scratch, for KdQueryRecurse()'s per-dimension offsets
+  double* offsets;
 } CalcNeighbourCtx;
 
 THREAD_FUNC_DECL CalcNeighbourThread(void* raw_arg) {
@@ -6787,14 +6808,17 @@ THREAD_FUNC_DECL CalcNeighbourThread(void* raw_arg) {
   double* dist_selves = ctx->dist_selves;
   uint32_t* nn_idxs = ctx->nn_idxs;
 
+  const uint32_t pc_ct = tree->pc_ct;
   double* best_d2 = &(ctx->best_d2s[tidx * S_CAST(uintptr_t, nn_ct)]);
   uint32_t* best_idxs = &(ctx->best_idxs[tidx * S_CAST(uintptr_t, nn_ct)]);
+  double* offsets = &(ctx->offsets[tidx * S_CAST(uintptr_t, pc_ct)]);
   for (uint32_t sample_idx = tidx; sample_idx < sample_ct; sample_idx += thread_ct) {
     for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
       best_d2[nn_idx] = DBL_MAX;
       best_idxs[nn_idx] = UINT32_MAX;
     }
-    KdQueryRecurse(tree, 0, KdCoords(tree, sample_idx), sample_idx, nn_ct, best_d2, best_idxs);
+    ZeroDArr(pc_ct, offsets);
+    KdQueryRecurse(tree, 0, KdCoords(tree, sample_idx), sample_idx, nn_ct, 0.0, offsets, best_d2, best_idxs);
     double dist_sum = 0.0;
     uint32_t* cur_nn_idxs = &(nn_idxs[sample_idx * S_CAST(uintptr_t, nn_ct)]);
     for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
@@ -6833,11 +6857,13 @@ PglErr CalcNeighbour(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     uint32_t* best_idxs;
     const uintptr_t max_node_ct = KdMaxNodeCt(sample_ct);
     KdTree tree;
+    double* ctx_offsets;
     if (unlikely(bigstack_alloc_d(sample_ct, &dist_selves) ||
                  bigstack_alloc_d(sample_ct, &dist_nns) ||
                  bigstack_alloc_u32(S_CAST(uintptr_t, sample_ct) * nn_ct, &nn_idxs) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, calc_thread_ct) * nn_ct, &best_d2s) ||
                  bigstack_alloc_u32(S_CAST(uintptr_t, calc_thread_ct) * nn_ct, &best_idxs) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, calc_thread_ct) * pc_ct, &ctx_offsets) ||
                  bigstack_alloc_u32(sample_ct, &tree.perm) ||
                  bigstack_alloc_u32(max_node_ct, &tree.lo) ||
                  bigstack_alloc_u32(max_node_ct, &tree.hi) ||
@@ -6864,6 +6890,7 @@ PglErr CalcNeighbour(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     ctx.nn_idxs = nn_idxs;
     ctx.best_d2s = best_d2s;
     ctx.best_idxs = best_idxs;
+    ctx.offsets = ctx_offsets;
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto CalcNeighbour_ret_NOMEM;
     }
