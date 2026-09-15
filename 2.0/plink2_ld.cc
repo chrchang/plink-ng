@@ -12964,12 +12964,17 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
 
 void InitLdScore(LdScoreInfo* lsip) {
   lsip->flags = kfLdScore0;
+  lsip->annot_fname = nullptr;
   // LD Score regression's convention is a 1 cM radius, so that's the default.
   // The variant-count and bp radii are here for the same reason --ld-window
   // and --ld-window-kb are, and are off unless asked for.
   lsip->var_ct_radius = 0x7fffffff;
   lsip->bp_radius = UINT32_MAX;
   lsip->cm_radius = 1.0;
+}
+
+void CleanupLdScore(LdScoreInfo* lsip) {
+  free_cond(lsip->annot_fname);
 }
 
 // --ld-score: per-variant sum of unbiased r^2 with every variant in a window
@@ -12987,6 +12992,222 @@ void InitLdScore(LdScoreInfo* lsip) {
 // worker threads only read from.  The ring holds one block of index variants
 // plus the widest window, so its size doesn't grow with the chromosome.
 
+// Partitioned LD Scores are one column per annotation, and the whole set is
+// held in memory, so the count needs a ceiling.  The published baseline
+// models use fewer than 100.
+CONSTI32(kLdScoreMaxAnnot, 512);
+
+// Reads an annotation file: a header naming the annotations, then one row per
+// variant.  Every column other than the variant ID, the position and CM is an
+// annotation, which is the .annot convention ldsc uses.  Values are usually 0
+// or 1, but anything finite works.
+PglErr LdScoreReadAnnot(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char*** annot_names_ptr, uint32_t* annot_ct_ptr, float** annots_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LdScoreReadAnnot_ret_TSTREAM_FAIL;
+    }
+    ++line_idx;
+    const char* line_start = TextGet(&txs);
+    if (unlikely(!line_start)) {
+      logerrprintfww("Error: %s is empty.\n", fname);
+      goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
+    }
+    // Column layout.
+    uint32_t id_col_idx = UINT32_MAX;
+    uint32_t col_ct = 0;
+    uint32_t annot_ct = 0;
+    {
+      const char* iter = line_start;
+      if (*iter == '#') {
+        ++iter;
+      }
+      iter = FirstNonTspace(iter);
+      for (; !IsEolnKns(*iter); ++col_ct) {
+        const char* token_end = CurTokenEnd(iter);
+        const uint32_t slen = token_end - iter;
+        if ((id_col_idx == UINT32_MAX) && (strequal_k(iter, "SNP", slen) || strequal_k(iter, "ID", slen))) {
+          id_col_idx = col_ct;
+        } else if (!(strequal_k(iter, "CHR", slen) || strequal_k(iter, "CHROM", slen) || strequal_k(iter, "BP", slen) || strequal_k(iter, "POS", slen) || strequal_k(iter, "CM", slen))) {
+          ++annot_ct;
+        }
+        iter = FirstNonTspace(token_end);
+      }
+    }
+    if (unlikely(id_col_idx == UINT32_MAX)) {
+      logerrprintfww("Error: %s has no SNP (or ID) column.\n", fname);
+      goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
+    }
+    if (unlikely(!annot_ct)) {
+      logerrprintfww("Error: %s has no annotation column.\n", fname);
+      goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
+    }
+    if (unlikely(annot_ct > kLdScoreMaxAnnot)) {
+      logerrprintfww("Error: %s has %u annotation columns, more than the %u supported.\n", fname, annot_ct, kLdScoreMaxAnnot);
+      goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
+    }
+    // Which file column each annotation is, and what it is called.
+    uint32_t* annot_col_idxs;
+    if (unlikely(bigstack_end_alloc_u32(annot_ct, &annot_col_idxs))) {
+      goto LdScoreReadAnnot_ret_NOMEM;
+    }
+    char** annot_names;
+    if (unlikely(bigstack_alloc_cp(annot_ct, &annot_names))) {
+      goto LdScoreReadAnnot_ret_NOMEM;
+    }
+    {
+      const char* iter = line_start;
+      if (*iter == '#') {
+        ++iter;
+      }
+      iter = FirstNonTspace(iter);
+      uint32_t annot_idx = 0;
+      for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+        const char* token_end = CurTokenEnd(iter);
+        const uint32_t slen = token_end - iter;
+        if ((col_idx != id_col_idx) && (!(strequal_k(iter, "CHR", slen) || strequal_k(iter, "CHROM", slen) || strequal_k(iter, "BP", slen) || strequal_k(iter, "POS", slen) || strequal_k(iter, "CM", slen)))) {
+          char* cur_name;
+          if (unlikely(bigstack_alloc_c(slen + 1, &cur_name))) {
+            goto LdScoreReadAnnot_ret_NOMEM;
+          }
+          memcpyx(cur_name, iter, slen, '\0');
+          annot_names[annot_idx] = cur_name;
+          annot_col_idxs[annot_idx] = col_idx;
+          ++annot_idx;
+        }
+        iter = FirstNonTspace(token_end);
+      }
+    }
+    float* annots;
+    if (unlikely(bigstack_alloc_f(S_CAST(uintptr_t, raw_variant_ct) * annot_ct, &annots))) {
+      goto LdScoreReadAnnot_ret_NOMEM;
+    }
+    // A variant with no row in the file has no defined LD Score contribution,
+    // so the file has to cover every variant that is being scored.
+    uintptr_t* seen;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &seen))) {
+      goto LdScoreReadAnnot_ret_NOMEM;
+    }
+    uint32_t variant_id_htable_size;
+    uint32_t* variant_id_htable;
+    uint32_t* htable_dup_base;
+    uint32_t dup_found;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, bigstack_left() / 2, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_found);
+    if (unlikely(reterr)) {
+      goto LdScoreReadAnnot_ret_1;
+    }
+    if (unlikely(dup_found)) {
+      logerrputs("Error: --ld-score-annot cannot be used with duplicate variant IDs.\n(--set-all-var-ids helps with ID deduplication, and --rm-dup addresses actual\nduplicate data.)\n");
+      goto LdScoreReadAnnot_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t max_col_idx = annot_col_idxs[annot_ct - 1] > id_col_idx? annot_col_idxs[annot_ct - 1] : id_col_idx;
+    uint32_t matched_ct = 0;
+    while (1) {
+      ++line_idx;
+      line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      const char* iter = FirstNonTspace(line_start);
+      if (IsEolnKns(*iter) || (*iter == '#')) {
+        continue;
+      }
+      const char* id_start = nullptr;
+      uint32_t id_slen = 0;
+      float cur_vals[kLdScoreMaxAnnot];
+      uint32_t annot_idx = 0;
+      for (uint32_t col_idx = 0; col_idx <= max_col_idx; ++col_idx) {
+        if (unlikely(IsEolnKns(*iter))) {
+          goto LdScoreReadAnnot_ret_MISSING_TOKENS;
+        }
+        const char* token_end = CurTokenEnd(iter);
+        if (col_idx == id_col_idx) {
+          id_start = iter;
+          id_slen = token_end - iter;
+        }
+        if ((annot_idx != annot_ct) && (col_idx == annot_col_idxs[annot_idx])) {
+          double cur_val;
+          if (unlikely(!ScanadvDouble(iter, &cur_val))) {
+            logerrprintfww("Error: Invalid annotation value on line %" PRIuPTR " of %s.\n", line_idx, fname);
+            goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
+          }
+          cur_vals[annot_idx] = S_CAST(float, cur_val);
+          ++annot_idx;
+        }
+        iter = FirstNonTspace(token_end);
+      }
+      const uint32_t variant_uidx = VariantIdDupflagHtableFind(id_start, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+      if (variant_uidx >> 31) {
+        // Not a variant being scored, or not in the dataset at all.
+        continue;
+      }
+      if (IsSet(seen, variant_uidx)) {
+        logerrprintfww("Error: Variant '%s' appears twice in %s.\n", variant_ids[variant_uidx], fname);
+        goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
+      }
+      SetBit(variant_uidx, seen);
+      ++matched_ct;
+      float* cur_dst = &(annots[S_CAST(uintptr_t, variant_uidx) * annot_ct]);
+      for (uint32_t uii = 0; uii != annot_ct; ++uii) {
+        cur_dst[uii] = cur_vals[uii];
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LdScoreReadAnnot_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(matched_ct != variant_ct)) {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        if (!IsSet(seen, variant_uidx)) {
+          logerrprintfww("Error: Variant '%s' is missing from %s.  --ld-score-annot needs an annotation row for every variant being scored; filter the variants down to the annotation file's, or extend the file.\n", variant_ids[variant_uidx], fname);
+          break;
+        }
+      }
+      goto LdScoreReadAnnot_ret_INCONSISTENT_INPUT;
+    }
+    logprintfww("--ld-score-annot: %u annotation%s read for %u variant%s from %s.\n", annot_ct, (annot_ct == 1)? "" : "s", matched_ct, (matched_ct == 1)? "" : "s", fname);
+    *annot_names_ptr = annot_names;
+    *annot_ct_ptr = annot_ct;
+    *annots_ptr = annots;
+    // annot_names, its strings and annots stay allocated; the htable, the
+    // seen bitarray and the column indexes do not.
+    BigstackEndReset(bigstack_end_mark);
+    BigstackReset(seen);
+  }
+  while (0) {
+  LdScoreReadAnnot_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LdScoreReadAnnot_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname, &txs);
+    break;
+  LdScoreReadAnnot_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
+    reterr = kPglRetMalformedInput;
+    break;
+  LdScoreReadAnnot_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  LdScoreReadAnnot_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ LdScoreReadAnnot_ret_1:
+  CleanupTextStream2(fname, &txs, &reterr);
+  if (reterr) {
+    BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  }
+  return reterr;
+}
+
 typedef struct LdScoreCtxStruct {
   const uint32_t* variant_bps;
   const double* variant_cms;
@@ -13002,8 +13223,13 @@ typedef struct LdScoreCtxStruct {
   const uintptr_t* genobufs;
   const VariantAggs* vaggs;
 
+  // One LD Score per annotation.  nullptr means the unpartitioned case, which
+  // is the same computation with every weight equal to 1.
+  const float* annots;
+  uint32_t annot_ct;
+
   const uint32_t* thread_cidx_starts;
-  double* l2_results;
+  double* l2_results;  // chr_variant_ct x annot_ct
   uint32_t* nobs_results;
 
   uint32_t block_start;
@@ -13064,24 +13290,38 @@ static void LdScoreRange(const LdScoreCtx* ctx, uint32_t cidx_start, uint32_t ci
   const uint32_t ring_size = ctx->ring_size;
   const uintptr_t* genobufs = ctx->genobufs;
   const VariantAggs* vaggs = ctx->vaggs;
+  const float* annots = ctx->annots;
+  const uint32_t annot_ct = ctx->annot_ct;
+  const uint32_t* uidxs = ctx->chr_variant_uidxs;
   double* l2_results = ctx->l2_results;
   uint32_t* nobs_results = ctx->nobs_results;
   for (uint32_t cidx = cidx_start; cidx != cidx_end; ++cidx) {
     const uint32_t index_slot = cidx % ring_size;
     const VariantAggs* index_vaggs = &(vaggs[index_slot]);
+    double* cur_l2s = &(l2_results[S_CAST(uintptr_t, cidx) * annot_ct]);
     // A monomorphic variant has no correlation with anything, so its LD Score
     // is undefined rather than 1.
     const double index_variance = S_CAST(double, index_vaggs->ssq * S_CAST(int64_t, index_vaggs->nm_ct) - S_CAST(int64_t, index_vaggs->sum) * index_vaggs->sum);
     if (index_variance <= 0.0) {
-      l2_results[cidx] = -1.0;
+      for (uint32_t aidx = 0; aidx != annot_ct; ++aidx) {
+        cur_l2s[aidx] = -1.0;
+      }
       nobs_results[cidx] = 0;
       continue;
     }
     const uintptr_t* index_genobuf = &(genobufs[index_slot * variant_buf_word_ct]);
     const uint32_t window_start = LdScoreWindowStart(ctx, cidx);
     const uint32_t window_end = LdScoreWindowEnd(ctx, cidx);
-    // The self term is exactly 1: r^2 is 1 and the correction vanishes.
-    double l2 = 1.0;
+    // The self term is exactly 1: r^2 is 1 and the correction vanishes.  With
+    // annotations it is the index variant's own weight in each of them.
+    if (!annots) {
+      cur_l2s[0] = 1.0;
+    } else {
+      const float* index_annots = &(annots[S_CAST(uintptr_t, uidxs[cidx]) * annot_ct]);
+      for (uint32_t aidx = 0; aidx != annot_ct; ++aidx) {
+        cur_l2s[aidx] = S_CAST(double, index_annots[aidx]);
+      }
+    }
     uint32_t nobs = 1;
     for (uint32_t other_cidx = window_start; other_cidx != window_end; ++other_cidx) {
       if (other_cidx == cidx) {
@@ -13113,10 +13353,21 @@ static void LdScoreRange(const LdScoreCtx* ctx, uint32_t cidx_start, uint32_t ci
         // correlated pair above 1, which would make the correction negative.
         r2 = 1.0;
       }
-      l2 += r2 - (1.0 - r2) / u31tod(cur_nm_ct - 2);
+      const double unbiased_r2 = r2 - (1.0 - r2) / u31tod(cur_nm_ct - 2);
+      if (!annots) {
+        cur_l2s[0] += unbiased_r2;
+      } else {
+        const float* other_annots = &(annots[S_CAST(uintptr_t, uidxs[other_cidx]) * annot_ct]);
+        for (uint32_t aidx = 0; aidx != annot_ct; ++aidx) {
+          // Annotations are usually sparse, so most of these are zero.
+          const float cur_weight = other_annots[aidx];
+          if (cur_weight != 0.0f) {
+            cur_l2s[aidx] += S_CAST(double, cur_weight) * unbiased_r2;
+          }
+        }
+      }
       ++nobs;
     }
-    l2_results[cidx] = l2;
     nobs_results[cidx] = nobs;
   }
 }
@@ -13131,7 +13382,7 @@ THREAD_FUNC_DECL LdScoreThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -13195,17 +13446,34 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       goto LdScore_ret_INCONSISTENT_INPUT;
     }
 
+    // Annotations, if any.  These are read after the variant set is settled,
+    // so the "every variant needs a row" check applies to exactly the
+    // variants that get scored.
+    char** annot_names = nullptr;
+    uint32_t annot_ct = 1;
+    float* annots = nullptr;
+    if (lsip->annot_fname) {
+      reterr = LdScoreReadAnnot(lsip->annot_fname, variant_include, variant_ids, raw_variant_ct, kept_variant_ct, max_variant_id_slen, max_thread_ct, &annot_names, &annot_ct, &annots);
+      if (unlikely(reterr)) {
+        goto LdScore_ret_1;
+      }
+    }
+
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* founder_info_cumulative_popcounts;
     uint32_t* chr_variant_uidxs;
     uintptr_t* genovec;
     double* l2_results;
     uint32_t* nobs_results;
+    double* m_totals;
+    double* m_common;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
                  bigstack_alloc_u32(kept_variant_ct, &chr_variant_uidxs) ||
                  bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec) ||
-                 bigstack_alloc_d(kept_variant_ct, &l2_results) ||
-                 bigstack_alloc_u32(kept_variant_ct, &nobs_results))) {
+                 bigstack_alloc_d(S_CAST(uintptr_t, kept_variant_ct) * annot_ct, &l2_results) ||
+                 bigstack_alloc_u32(kept_variant_ct, &nobs_results) ||
+                 bigstack_calloc_d(annot_ct, &m_totals) ||
+                 bigstack_calloc_d(annot_ct, &m_common))) {
       goto LdScore_ret_NOMEM;
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
@@ -13219,6 +13487,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     ctx.var_ct_radius = lsip->var_ct_radius;
     ctx.bp_radius = lsip->bp_radius;
     ctx.cm_radius = lsip->cm_radius;
+    ctx.annots = annots;
+    ctx.annot_ct = annot_ct;
     ctx.l2_results = l2_results;
     ctx.nobs_results = nobs_results;
 
@@ -13317,7 +13587,20 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       cswritep = strcpya_k(cswritep, "\tNOBSI");
     }
     if (col_l2) {
-      cswritep = strcpya_k(cswritep, "\tL2");
+      if (!annots) {
+        cswritep = strcpya_k(cswritep, "\tL2");
+      } else {
+        // ldsc names a partitioned column after its annotation, with an L2
+        // suffix, and what reads these files keys on that.
+        for (uint32_t aidx = 0; aidx != annot_ct; ++aidx) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, annot_names[aidx]);
+          cswritep = strcpya_k(cswritep, "L2");
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto LdScore_ret_WRITE_FAIL;
+          }
+        }
+      }
     }
     AppendBinaryEoln(&cswritep);
 
@@ -13368,6 +13651,27 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
           uint32_t plusone_ct;
           uint32_t minusone_ct;
           FillVaggs(cur_genobuf, &(cur_genobuf[founder_ctaw]), BitCtToWordCt(founder_ct), &(vaggs[slot_idx]), &nm_ct, &plusone_ct, &minusone_ct);
+          // Each variant is loaded once, so this is where the annotation
+          // totals belong.  The allele frequency comes out of the aggregates
+          // just computed: genotypes are coded -1/0/1 against the major
+          // allele, so the minor allele frequency is (1 - mean) / 2.
+          if (nm_ct) {
+            const double mean = S_CAST(double, vaggs[slot_idx].sum) / u31tod(nm_ct);
+            const uint32_t is_common = (0.5 * (1.0 - mean) > 0.05);
+            if (!annots) {
+              m_totals[0] += 1.0;
+              m_common[0] += S_CAST(double, is_common);
+            } else {
+              const float* cur_annots = &(annots[S_CAST(uintptr_t, load_variant_uidx) * annot_ct]);
+              for (uint32_t aidx = 0; aidx != annot_ct; ++aidx) {
+                const double cur_weight = S_CAST(double, cur_annots[aidx]);
+                m_totals[aidx] += cur_weight;
+                if (is_common) {
+                  m_common[aidx] += cur_weight;
+                }
+              }
+            }
+          }
         }
         const uint32_t cur_block_size = block_end - block_start;
         const uint32_t cur_thread_ct = MINV(calc_thread_ct, cur_block_size);
@@ -13401,13 +13705,19 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
             *cswritep++ = '\t';
             cswritep = u32toa(nobs_results[cidx], cswritep);
           }
-          const uint32_t is_undefined = (l2_results[cidx] < 0.0);
+          const double* cur_l2s = &(l2_results[S_CAST(uintptr_t, cidx) * annot_ct]);
+          const uint32_t is_undefined = (nobs_results[cidx] == 0);
           if (col_l2) {
-            *cswritep++ = '\t';
-            if (is_undefined) {
-              cswritep = strcpya_k(cswritep, "NA");
-            } else {
-              cswritep = dtoa_g(l2_results[cidx], cswritep);
+            for (uint32_t aidx = 0; aidx != annot_ct; ++aidx) {
+              *cswritep++ = '\t';
+              if (is_undefined) {
+                cswritep = strcpya_k(cswritep, "NA");
+              } else {
+                cswritep = dtoa_g(cur_l2s[aidx], cswritep);
+              }
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto LdScore_ret_WRITE_FAIL;
+              }
             }
           }
           undefined_ct += is_undefined;
@@ -13432,6 +13742,41 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
     fputs("\b\b\b", stdout);
     logprintfww("--ld-score: LD Scores for %u variant%s written to %s .\n", kept_variant_ct, (kept_variant_ct == 1)? "" : "s", outname);
+
+    // The variant counts behind those scores, which LD Score regression needs
+    // to turn a coefficient into a heritability.  Same names ldsc uses, so
+    // the pair is a drop-in replacement for its .l2.M/.l2.M_5_50 files.
+    {
+      char* outname_l2_end = strcpya_k(outname_end, ".ldscore");
+      for (uint32_t file_idx = 0; file_idx != 2; ++file_idx) {
+        const double* cur_counts = file_idx? m_common : m_totals;
+        if (file_idx) {
+          strcpy_k(outname_l2_end, ".M_5_50");
+        } else {
+          strcpy_k(outname_l2_end, ".M");
+        }
+        FILE* m_file = nullptr;
+        if (unlikely(fopen_checked(outname, FOPEN_WB, &m_file))) {
+          goto LdScore_ret_OPEN_FAIL;
+        }
+        char* write_iter = g_textbuf;
+        for (uint32_t aidx = 0; aidx != annot_ct; ++aidx) {
+          if (aidx) {
+            *write_iter++ = ' ';
+          }
+          write_iter = dtoa_g(cur_counts[aidx], write_iter);
+          if (unlikely(fwrite_ck(&(g_textbuf[kMaxMediumLine]), m_file, &write_iter))) {
+            goto LdScore_ret_WRITE_FAIL;
+          }
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fclose_flush_null(&(g_textbuf[kMaxMediumLine]), write_iter, &m_file))) {
+          goto LdScore_ret_WRITE_FAIL;
+        }
+      }
+      outname_end[0] = '\0';
+      logprintfww("--ld-score: Variant counts written to %s.ldscore.M and %s.ldscore.M_5_50 .\n", outname, outname);
+    }
     if (multiallelic_skip_ct || haploid_skip_ct) {
       logprintf("(%u multiallelic and %u haploid-chromosome variant%s skipped.)\n", multiallelic_skip_ct, haploid_skip_ct, (multiallelic_skip_ct + haploid_skip_ct == 1)? "" : "s");
     }
@@ -13442,6 +13787,9 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
   while (0) {
   LdScore_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  LdScore_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
     break;
   LdScore_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
