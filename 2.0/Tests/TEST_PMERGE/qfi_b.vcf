@@ -1,0 +1,10 @@
+##fileformat=VCFv4.3
+##contig=<ID=1>
+##FILTER=<ID=q10,Description="low">
+##INFO=<ID=AA,Number=1,Type=String,Description="anc">
+##INFO=<ID=NS,Number=1,Type=Integer,Description="n">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1
+1	100	u1	A	C	99	q10	NS=7;AA=A	GT	0/1
+1	200	u2	A	C	20	q10	NS=5	GT	0/1
+1	300	u3	A	C	5	PASS	AA=G	GT	0/1
