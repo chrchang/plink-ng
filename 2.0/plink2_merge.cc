@@ -7725,7 +7725,18 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     //    over the records, so each variant's allele remap is consumed while
     //    it is still live in ppmc.pmc rather than being saved for later.
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
-    const PgenGlobalFlags write_gflags = vrtype_8bit_needed? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0;
+    const PmergeFlags pmerge_flags = pmip->flags;
+    PgenGlobalFlags write_gflags = kfPgenGlobal0;
+    if (vrtype_8bit_needed) {
+      write_gflags = kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
+      if (pmerge_flags & kfPmergeIgnorePhase) {
+        // shouldn't be possible to get here if kfPmergeIgnoreDosage also set
+        write_gflags = kfPgenGlobalDosagePresent;
+      }
+      if (pmerge_flags & kfPmergeIgnoreDosage) {
+        write_gflags = kfPgenGlobalHardcallPhasePresent;
+      }
+    }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
     reterr = SpgwInitPhase1(outname, nullptr, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
@@ -7760,7 +7771,14 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     mw.dosage_main = nullptr;
     mw.dphase_present = nullptr;
     mw.dphase_delta = nullptr;
+    mw.vrtype_mask = 0xf;
     if (vrtype_8bit_needed) {
+      mw.vrtype_mask = 0xff;
+      if (pmerge_flags & kfPmergeIgnorePhase) {
+        mw.vrtype_mask = 0x6f;
+      } else if (pmerge_flags & kfPmergeIgnoreDosage) {
+        mw.vrtype_mask = 0x1f;
+      }
       if (unlikely(bigstack_alloc_w(sample_ctl, &mw.phasepresent) ||
                    bigstack_alloc_w(sample_ctl, &mw.phaseinfo) ||
                    bigstack_alloc_w(sample_ctl, &mw.dosage_present) ||
@@ -7781,11 +7799,11 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
     mw.unlocked_missing_set = nullptr;
     mw.clobber_sample_span = nullptr;
-    mw.unlocked_nonmissing_sample_span = nullptr;
+    mw.unlocked_dbl_nonmissing_sample_span = nullptr;
     if (pmip->merge_mode == kMergeModeNmMatch) {
       if (unlikely(bigstack_alloc_w(sample_ctl, &mw.unlocked_missing_set) ||
                    bigstack_alloc_w(sample_ctl, &mw.clobber_sample_span) ||
-                   bigstack_alloc_w(sample_ctl, &mw.unlocked_nonmissing_sample_span))) {
+                   bigstack_alloc_w(sample_ctl, &mw.unlocked_dbl_nonmissing_sample_span))) {
         goto PmergePassSingle_ret_NOMEM;
       }
     }
