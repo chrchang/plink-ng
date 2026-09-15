@@ -106,6 +106,11 @@ void logerrputsb() {
 }
 
 uint32_t FileExists(const char* fname) {
+  // S3 objects can't be stat()ed cheaply; let the actual open report the
+  // error instead of rejecting the URI here.
+  if (IsS3Uri(fname)) {
+    return 1;
+  }
   struct stat statbuf;
   return (stat(fname, &statbuf) == 0);
 }

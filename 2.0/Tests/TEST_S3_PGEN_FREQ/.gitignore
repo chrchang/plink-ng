@@ -1,4 +1,0 @@
-*.log
-s3_pfile.*
-s3_bfile.*
-tmp_local_data/

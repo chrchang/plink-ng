@@ -1,0 +1,92 @@
+name: PLINK2 S3 TESTS
+
+on:
+  push:
+    paths:
+      - 2.0/plink2_s3.cc
+      - 2.0/plink2_s3.h
+      - 2.0/plink2.cc
+      - 2.0/pixi.toml
+      - 2.0/pixi_activate.sh
+      - 2.0/Tests/TEST_S3/**
+      - .github/workflows/s3_tests.yml
+  pull_request:
+    paths:
+      - 2.0/plink2_s3.cc
+      - 2.0/plink2_s3.h
+      - 2.0/plink2.cc
+      - 2.0/pixi.toml
+      - 2.0/pixi_activate.sh
+      - 2.0/Tests/TEST_S3/**
+      - .github/workflows/s3_tests.yml
+  workflow_dispatch:
+
+jobs:
+  s3_tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux exercises the fopencookie backend, macOS the funopen one.
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # The AWS C++ SDK only uses virtual-hosted-style addressing unless told
+      # otherwise, so the per-bucket hostnames MinIO serves must resolve.
+      - name: Add MinIO virtual-host names to /etc/hosts
+        run: |
+          echo "127.0.0.1 plink2-private.localhost plink2-public.localhost" | sudo tee -a /etc/hosts
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          manifest-path: 2.0/pixi.toml
+          cache: true
+
+      # macOS runners have no docker, so MinIO runs natively.  dl.min.io no
+      # longer serves standalone binaries, hence Homebrew.
+      - name: Install MinIO (macOS)
+        if: runner.os == 'macOS'
+        run: brew install minio minio-mc
+
+      - name: Build plink2 with S3 support
+        working-directory: ./2.0
+        run: pixi run build
+
+      # build_dynamic/Makefile never reads LDFLAGS, and Apple's linker has no
+      # LD_RUN_PATH equivalent, so the rpath has to be added after linking.
+      - name: Add the pixi lib rpath (macOS)
+        if: runner.os == 'macOS'
+        working-directory: ./2.0
+        run: install_name_tool -add_rpath "$PWD/.pixi/envs/default/lib" build_dynamic/plink2
+
+      - name: Confirm the binary is linked against the AWS SDK
+        working-directory: ./2.0
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            otool -L build_dynamic/plink2 | grep aws-cpp-sdk
+          else
+            ldd build_dynamic/plink2 | grep aws-cpp-sdk
+          fi
+
+      - name: Run S3 tests
+        working-directory: ./2.0/Tests/TEST_S3
+        env:
+          KEEP_MINIO: 1
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/2.0/.pixi/envs/default/lib:${LD_LIBRARY_PATH:-}"
+          bash run_tests.sh ../../build_dynamic
+
+      - name: Dump MinIO logs on failure
+        if: failure()
+        working-directory: ./2.0/Tests/TEST_S3
+        run: |
+          docker logs plink2-s3-test-minio 2>&1 || true
+          cat tmp_s3/minio.log 2>/dev/null || true
+
+      - name: Dump MinIO logs on failure
+        if: failure()
+        run: docker logs plink2-s3-test-minio || true

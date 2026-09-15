@@ -5,11 +5,55 @@ from libc.string cimport memcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from cpython.view cimport array as cvarray
 from cython.parallel import prange
+import os
 import numpy as np
 cimport numpy as cnp
 import sys
 
 __version__ = "0.95.1"
+
+cdef extern from "../plink2/plink2_s3.h" namespace "plink2":
+    uint32_t IsS3Uri(const char* path)
+    void EnsureS3Ready()
+    void S3SetNoSignRequest(uint32_t no_sign)
+
+# Accepts a plain path (bytes/str/os.PathLike), or a cloud-storage path object
+# such as fsspec/universal_pathlib's UPath, which is not os.PathLike since it
+# doesn't refer to a local file.  A UPath-like object is recognized by duck
+# typing (.protocol/.path/.storage_options) rather than an import, so this
+# works without universal_pathlib installed.
+#
+# Credentials embedded in .storage_options are applied via the AWS C++ SDK's
+# usual environment variables, since that's the only configuration surface
+# plink2_s3.cc exposes.  This has a real limitation worth knowing about: the
+# underlying S3 client is constructed once per process (on the first S3 path
+# opened) and reused for every later one, so these env vars only take effect
+# for that first open.  Mixing multiple credential sets (e.g. two buckets
+# requiring different keys) in one process is not supported.
+cdef bytes _resolve_pgenlib_path(object filename):
+    if isinstance(filename, bytes):
+        return filename
+    if isinstance(filename, str):
+        return filename.encode('utf-8')
+    protocol = getattr(filename, 'protocol', None)
+    if protocol in ('s3', 's3a'):
+        storage_options = getattr(filename, 'storage_options', None) or {}
+        if storage_options.get('key'):
+            os.environ.setdefault('AWS_ACCESS_KEY_ID', storage_options['key'])
+        if storage_options.get('secret'):
+            os.environ.setdefault('AWS_SECRET_ACCESS_KEY', storage_options['secret'])
+        if storage_options.get('token'):
+            os.environ.setdefault('AWS_SESSION_TOKEN', storage_options['token'])
+        if storage_options.get('endpoint_url'):
+            os.environ.setdefault('AWS_ENDPOINT_URL_S3', storage_options['endpoint_url'])
+        region = (storage_options.get('client_kwargs') or {}).get('region_name')
+        if region:
+            os.environ.setdefault('AWS_REGION', region)
+        if storage_options.get('anon'):
+            S3SetNoSignRequest(1)
+        return str(filename).encode('utf-8')
+    # os.fspath covers pathlib.Path and any other local os.PathLike object.
+    return os.fspath(filename).encode('utf-8')
 
 cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     ctypedef uint32_t BoolErr
@@ -283,10 +327,13 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
 cdef class PvarReader:
     cdef MinimalPvarStruct _mp
 
-    def __cinit__(self, bytes filename, bint omit_chrom = False,
+    def __cinit__(self, object filename, bint omit_chrom = False,
                   bint omit_pos = False):
         PreinitMinimalPvar(&self._mp)
-        cdef const char* fname = <const char*>filename
+        cdef bytes filename_b = _resolve_pgenlib_path(filename)
+        cdef const char* fname = <const char*>filename_b
+        if IsS3Uri(fname):
+            EnsureS3Ready()
         cdef char errstr_buf[kPglErrstrBufBlen]
         cdef LoadMinimalPvarFlags load_flags = kfLoadMinimalPvar0
         if omit_chrom:
@@ -465,7 +512,7 @@ cdef class PgenReader:
         return
 
 
-    def __cinit__(self, bytes filename, object raw_sample_ct = None,
+    def __cinit__(self, object filename, object raw_sample_ct = None,
                   object variant_ct = None, object sample_subset = None,
                   object allele_idx_offsets = None, object pvar = None):
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
@@ -491,7 +538,10 @@ cdef class PgenReader:
                 allele_idx_offsets = pr.get_allele_idx_offsets()
         if variant_ct is not None:
             cur_variant_ct = variant_ct
-        cdef const char* fname = <const char*>filename
+        cdef bytes filename_b = _resolve_pgenlib_path(filename)
+        cdef const char* fname = <const char*>filename_b
+        if IsS3Uri(fname):
+            EnsureS3Ready()
         cdef PgenHeaderCtrl header_ctrl
         cdef uintptr_t pgfi_alloc_cacheline_ct
         cdef char errstr_buf[kPglErrstrBufBlen]

@@ -41,7 +41,7 @@ LDFLAGS		+= -lm -lpthread -flto $(ZLIB) $(ZSTD)
 
 ifdef USE_S3
   CXXFLAGS	+= -DUSE_S3
-  LDFLAGS	+= -laws-cpp-sdk-s3 -laws-cpp-sdk-core
+  LDFLAGS	+= -laws-cpp-sdk-s3 -laws-cpp-sdk-core -laws-crt-cpp
 endif
 
 # Installation defaults

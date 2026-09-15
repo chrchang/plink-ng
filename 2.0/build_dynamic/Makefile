@@ -150,9 +150,10 @@ ifeq ($(UNAME), Darwin)
     $(error AOCL is not currently supported on OS X)
   endif
   BLASFLAGS=-framework Accelerate
-  CFLAGS += -I/usr/local/include
-  CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
-  LINKFLAGS += -L/usr/local/lib
+  # /opt/homebrew is where Homebrew installs on Apple Silicon.
+  CFLAGS += -I/usr/local/include -I/opt/homebrew/include
+  CXXFLAGS += -I/usr/local/include -I/opt/homebrew/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
+  LINKFLAGS += -L/usr/local/lib -L/opt/homebrew/lib
   LIBTOOL=libtool
   STATIC=-static
 else
@@ -212,7 +213,8 @@ endif
 
 ifdef USE_S3
   BASEFLAGS += -DUSE_S3
-  LINKFLAGS += -laws-cpp-sdk-s3 -laws-cpp-sdk-core
+  # aws-crt-cpp is needed for the S3 endpoint provider's rule engine.
+  LINKFLAGS += -laws-cpp-sdk-s3 -laws-cpp-sdk-core -laws-crt-cpp
 endif
 
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}

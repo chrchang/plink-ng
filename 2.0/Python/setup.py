@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import setuptools
 from setuptools.extension import Extension
 from Cython.Build import cythonize
@@ -67,7 +68,12 @@ ext_modules = [
                          'src/plink2/include/plink2_string.cc',
                          'src/plink2/include/plink2_text.cc',
                          'src/plink2/include/plink2_thread.cc',
-                         'src/plink2/include/plink2_zstfile.cc'],
+                         'src/plink2/include/plink2_zstfile.cc',
+                         # IsS3Uri()/EnsureS3Ready() are always referenced by
+                         # pgenlib.pyx; without PGENLIB_USE_S3 they're no-ops
+                         # that don't pull in the AWS SDK, but they still need
+                         # to be compiled in.
+                         'src/plink2/plink2_s3.cc'],
               language = "c++",
               # Cython doesn't yet support overload of e.g. uint32_t operator,
               # so it's necessary to compile plink2 with
@@ -82,6 +88,22 @@ ext_modules = [
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
+
+# Optional: stream --pfile/--bfile inputs directly from s3:// URIs, using the
+# AWS C++ SDK.  Off by default since it adds a heavyweight build dependency;
+# enable with PGENLIB_USE_S3=1 (requires aws-sdk-cpp's s3/core/crt components
+# discoverable via the compiler's normal include/library search paths, e.g.
+# via CPATH/LIBRARY_PATH as set up by 2.0/pixi_activate.sh).
+if os.environ.get('PGENLIB_USE_S3') == '1':
+    ext_modules[0].define_macros.append(('USE_S3', None))
+    ext_modules[0].libraries += ['aws-cpp-sdk-s3', 'aws-cpp-sdk-core', 'aws-crt-cpp']
+    # aws-sdk-cpp is virtually always installed as a shared library, and pip
+    # installs don't run install_name_tool/patchelf the way conda-forge's
+    # recipe does, so bake in an rpath pointing at the same library directory
+    # the linker used (LIBRARY_PATH, e.g. set by 2.0/pixi_activate.sh).
+    for lib_dir in os.environ.get('LIBRARY_PATH', '').split(os.pathsep):
+        if lib_dir:
+            ext_modules[0].extra_link_args.append(f'-Wl,-rpath,{lib_dir}')
 
 setuptools.setup(
     name="pgenlib",
