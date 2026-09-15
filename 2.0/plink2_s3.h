@@ -52,6 +52,33 @@ void EnsureS3Ready();
 // construction and this setting is not reapplied afterward.
 void S3SetNoSignRequest(uint32_t no_sign);
 
+// Explicit, per-open S3 credentials, letting different files in the same
+// process use completely different accounts/buckets/endpoints -- unlike
+// OpenMaybeS3(), which always goes through one shared client configured from
+// the ambient environment/profile.  Any field left null/0 falls back to the
+// SDK's usual default for that setting (e.g. its default credential
+// provider chain if no keys are given and no_sign_request is 0).
+struct S3Credentials {
+  const char* access_key_id;
+  const char* secret_access_key;
+  const char* session_token;
+  const char* endpoint_url;
+  const char* region;
+  uint32_t no_sign_request;
+  uint32_t force_path_style;
+};
+
+// Opens an S3 object using explicit credentials rather than the shared
+// client OpenMaybeS3() uses: builds and owns a dedicated S3 client for this
+// open only, so it has zero effect on any other file opened in the same
+// process (compare to environment variables, which are process-global).
+// Otherwise behaves like OpenMaybeS3(): streams via range requests, returns
+// nullptr and sets errno on failure.  `creds` must be non-null.  Requires
+// EnsureS3Ready() (or S3Init()) to have been called first, same as
+// OpenMaybeS3().  Always callable regardless of whether USE_S3 was compiled
+// in; without it, prints an error and returns nullptr.
+FILE* OpenS3WithCredentials(const char* path, const S3Credentials* creds);
+
 #ifdef USE_S3
 
 // Initialize the AWS SDK.  Must be called once before any S3 file opens,

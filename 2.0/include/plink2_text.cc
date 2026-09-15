@@ -137,7 +137,7 @@ const char kShortErrRfileAlreadyOpen[] = "TextFileOpenInternal can't be called o
 const char kShortErrRfileEnforcedMaxBlenTooSmall[] = "TextFileOpenInternal: enforced_max_line_blen too small (must be at least max(1 MiB, dst_capacity - 1 MiB))";
 const char kShortErrRfileDstCapacityTooSmall[] = "TextFileOpenInternal: dst_capacity too small (2 MiB minimum)";
 
-PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILEMain* txfp, TextStreamMain* txsp) {
+PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILEMain* txfp, TextStreamMain* txsp, const S3Credentials* s3_creds) {
   PglErr reterr = kPglRetSuccess;
   TextFileBase* trbp;
   if (txfp) {
@@ -174,7 +174,7 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
       // token-reading mode.  dst == nullptr not currently supported.
       assert(dst && (dst_capacity == kTokenStreamBlen));
     }
-    trbp->ff = OpenMaybeS3(fname);
+    trbp->ff = s3_creds? OpenS3WithCredentials(fname, s3_creds) : OpenMaybeS3(fname);
     if (unlikely(!trbp->ff)) {
       goto TextFileOpenInternal_ret_OPEN_FAIL;
     }
@@ -279,8 +279,8 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
   return reterr;
 }
 
-PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txf_ptr) {
-  return TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, GetTxfp(txf_ptr), nullptr);
+PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txf_ptr, const S3Credentials* s3_creds) {
+  return TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, GetTxfp(txf_ptr), nullptr, s3_creds);
 }
 
 // Set enforced_max_line_blen == 0 in the token-reading case.
@@ -1348,7 +1348,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
 
 const char kShortErrRfileInvalid[] = "TextStreamOpenEx can't be called with a closed or error-state textFILE";
 
-PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr) {
+PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr, const S3Credentials* s3_creds) {
   TextStreamMain* txsp = GetTxsp(txs_ptr);
   TextFileBase* txs_basep = &txsp->base;
   PglErr reterr = kPglRetSuccess;
@@ -1396,7 +1396,7 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
       }
       EraseTextFileBase(&txfp->base);
     } else {
-      reterr = TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, nullptr, txsp);
+      reterr = TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, nullptr, txsp, s3_creds);
     }
     if (reterr) {
       if (reterr == kPglRetEof) {

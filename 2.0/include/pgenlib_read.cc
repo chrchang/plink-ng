@@ -689,7 +689,7 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
 }
 
 static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase1().");
-PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
+PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf, const S3Credentials* s3_creds) {
   pgfip->var_fpos = nullptr;
   pgfip->vrtypes = nullptr;
   pgfip->allele_idx_offsets = nullptr;
@@ -708,7 +708,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   uint64_t fsize;
   const unsigned char* fread_ptr;
   unsigned char small_readbuf[3];
-  FILE* shared_ff = OpenMaybeS3(fname);
+  FILE* shared_ff = s3_creds? OpenS3WithCredentials(fname, s3_creds) : OpenMaybeS3(fname);
   pgfip->shared_ff = shared_ff;
   if (unlikely(!shared_ff)) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));

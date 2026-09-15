@@ -167,15 +167,24 @@ struct S3FileState {
   int64_t buf_start;   // file offset of buf[0]
   int64_t buf_end;     // file offset past last valid byte in buf
 
-  // Non-owning; points at either the credentialed or the anonymous client.
+  // Points at the shared g_s3_client/g_s3_anon_client by default (not
+  // owned).  When this file was opened via OpenS3WithCredentials(), it's a
+  // dedicated client exclusive to this file, and owns_client is set so it
+  // gets freed on close.
   Aws::S3::S3Client* client;
+  bool owns_client;
 
   // ETag seen when the object was opened.  Every subsequent range request is
   // conditioned on it, so an overwrite mid-read fails loudly instead of
   // silently splicing two versions of the object together.
   Aws::String etag;
 
-  S3FileState() : file_size(-1), pos(0), buf_start(0), buf_end(0), client(nullptr) {}
+  S3FileState() : file_size(-1), pos(0), buf_start(0), buf_end(0), client(nullptr), owns_client(false) {}
+  ~S3FileState() {
+    if (owns_client) {
+      delete client;
+    }
+  }
 };
 
 // Fetch a chunk of data starting at `offset` via an S3 range request.
@@ -511,6 +520,85 @@ FILE* OpenMaybeS3(const char* path) {
     return S3FileOpenInternal(path);
   }
   return fopen(path, FOPEN_RB);
+}
+
+FILE* OpenS3WithCredentials(const char* s3_uri, const S3Credentials* creds) {
+  if (!IsS3Uri(s3_uri)) {
+    fprintf(stderr, "Error: %s is not an s3:// URI.\n", s3_uri);
+    errno = EINVAL;
+    return nullptr;
+  }
+  if (!creds) {
+    fprintf(stderr, "Error: OpenS3WithCredentials() called with null credentials for %s.\n", s3_uri);
+    errno = EINVAL;
+    return nullptr;
+  }
+
+  Aws::S3::S3ClientConfiguration config;
+  if (creds->region && creds->region[0]) {
+    config.region = creds->region;
+  }
+  if (creds->endpoint_url && creds->endpoint_url[0]) {
+    config.endpointOverride = creds->endpoint_url;
+  }
+  if (creds->force_path_style) {
+    config.useVirtualAddressing = false;
+  }
+
+  std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
+  if (creds->no_sign_request) {
+    provider = Aws::MakeShared<Aws::Auth::AnonymousAWSCredentialsProvider>("S3Explicit");
+  } else if (creds->access_key_id && creds->access_key_id[0]) {
+    const Aws::Auth::AWSCredentials aws_creds(
+        creds->access_key_id,
+        creds->secret_access_key ? creds->secret_access_key : "",
+        creds->session_token ? creds->session_token : "");
+    provider = Aws::MakeShared<Aws::Auth::SimpleAWSCredentialsProvider>("S3Explicit", aws_creds);
+  }
+
+  S3FileState* state = new S3FileState();
+  state->owns_client = true;
+  if (provider) {
+    state->client = new Aws::S3::S3Client(
+        provider, Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3Explicit"), config);
+  } else {
+    // No explicit credentials given (e.g. only an endpoint/region override
+    // was wanted); fall back to the SDK's default credential provider chain,
+    // still with a client dedicated to this file.
+    state->client = new Aws::S3::S3Client(config);
+  }
+  ParseS3Uri(s3_uri, &state->bucket, &state->key);
+
+  Aws::S3::S3Error err;
+  state->file_size = S3ProbeFileSize(state->client, state->bucket, state->key,
+                                      &state->etag, &err);
+  if (state->file_size < 0) {
+    fprintf(stderr, "Error: Cannot access %s: %s\n", s3_uri,
+            err.GetMessage().c_str());
+    const auto err_type = err.GetErrorType();
+    const int not_found = (err_type == Aws::S3::S3Errors::NO_SUCH_KEY) ||
+                          (err_type == Aws::S3::S3Errors::NO_SUCH_BUCKET);
+    delete state;  // also frees the owned client
+    errno = not_found? ENOENT : EACCES;
+    return nullptr;
+  }
+
+  FILE* fp = S3FileOpenPlatform(state);
+  if (!fp) {
+    delete state;
+  }
+  return fp;
+}
+
+#else  // !USE_S3
+
+FILE* OpenS3WithCredentials(const char* s3_uri, const S3Credentials* creds) {
+  (void)creds;
+  fprintf(stderr,
+          "Error: S3 URI detected (%s) but plink2 was not compiled with S3 support.\n"
+          "Rebuild with USE_S3=1 to enable S3 support.\n", s3_uri);
+  errno = EINVAL;
+  return nullptr;
 }
 
 #endif  // USE_S3
