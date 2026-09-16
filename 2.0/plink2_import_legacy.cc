@@ -1974,19 +1974,26 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     // LoadMap() only allocates this when the .map has a nonzero CM value.
     const uint32_t at_least_one_nzero_cm = (variant_cms != nullptr);
     uint32_t* variant_id_htable;
-    const uint32_t variant_id_htable_size = GetHtableFastSize(variant_ct);
+    uint32_t variant_id_htable_size;
     {
       const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
       uintptr_t* variant_all;
-      if (unlikely(bigstack_alloc_w(variant_ctl, &variant_all) ||
-                   bigstack_alloc_u32(variant_id_htable_size, &variant_id_htable))) {
+      if (unlikely(bigstack_alloc_w(variant_ctl, &variant_all))) {
         goto LgenToPgen_ret_NOMEM;
       }
       SetAllBits(variant_ct, variant_all);
-      unsigned char* arena_bottom = g_bigstack_base;
-      reterr = PopulateIdHtableMt(g_bigstack_end, variant_all, TO_CONSTCPCONSTP(variant_ids), variant_ct, 0, variant_id_htable_size, max_thread_ct, &arena_bottom, variant_id_htable, nullptr);
+      // Every .lgen record has to resolve to exactly one variant, so the
+      // duplicate-tolerant constructors are the wrong ones here: they flag a
+      // duplicate in the high bit of the stored index, which this lookup path
+      // would then use as an array index.
+      uint32_t dup_found;
+      reterr = AllocAndPopulateNondupHtableMt(g_bigstack_end, variant_all, TO_CONSTCPCONSTP(variant_ids), variant_ct, max_thread_ct, &g_bigstack_base, &variant_id_htable, &variant_id_htable_size, &dup_found);
       if (unlikely(reterr)) {
         goto LgenToPgen_ret_1;
+      }
+      if (unlikely(dup_found)) {
+        logerrputs("Error: --lgen cannot be used with duplicate variant IDs.\n(--set-all-var-ids helps with ID deduplication, and --rm-dup addresses actual\nduplicate data.)\n");
+        goto LgenToPgen_ret_INCONSISTENT_INPUT;
       }
     }
 
@@ -2401,6 +2408,9 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     WordWrapB(0);
     logerrputsb();
     reterr = kPglRetMalformedInput;
+    break;
+  LgenToPgen_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   LgenToPgen_ret_DEGENERATE_DATA:
     reterr = kPglRetDegenerateData;
