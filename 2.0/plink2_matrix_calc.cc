@@ -4930,6 +4930,65 @@ void IncrDistance(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint
 // on data with a low missing rate almost every word pair drops out on the
 // first test, so the correction costs a load and an AND per word rather than
 // a table lookup per pair, which is what PLINK 1.9 pays.
+// --distance-wts variant of IncrDistanceWeighted().  The per-variant weights
+// make the raw sum a real number rather than a popcount, so the difference
+// bits have to be walked one at a time; this is roughly an order of magnitude
+// slower per pair, and only runs when --distance-wts was specified.
+void IncrDistanceWtd(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, const uintptr_t* block_mask, const double* block_weights, const double* block_dist_weights, uint32_t start_idx, uint32_t end_idx, double* wdist_iter, double* wboth_iter) {
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    const uintptr_t* first_hom_iter = smaj_hom;
+    const uintptr_t* first_ref2het_iter = smaj_ref2het;
+    while (first_hom_iter < second_hom) {
+      double acc_dist = 0.0;
+      double acc_wboth = 0.0;
+      for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
+        const uintptr_t hom1 = first_hom_iter[widx];
+        const uintptr_t hom2 = second_hom[widx];
+        const uintptr_t ref2het1 = first_ref2het_iter[widx];
+        const uintptr_t ref2het2 = second_ref2het[widx];
+        const uintptr_t called1 = hom1 | ref2het1;
+        const uintptr_t called2 = hom2 | ref2het2;
+        const uintptr_t nonmiss = called1 & called2;
+        const double* word_dist_weights = &(block_dist_weights[widx * kBitsPerWord]);
+        // Distance 2: opposite homozygotes.  Distance 1: one homozygote and
+        // one heterozygote.
+        uintptr_t two_bits = (ref2het1 ^ ref2het2) & hom1 & hom2;
+        while (two_bits) {
+          acc_dist += 2 * word_dist_weights[ctzw(two_bits)];
+          two_bits &= two_bits - 1;
+        }
+        uintptr_t one_bits = (hom1 ^ hom2) & nonmiss;
+        while (one_bits) {
+          acc_dist += word_dist_weights[ctzw(one_bits)];
+          one_bits &= one_bits - 1;
+        }
+        uintptr_t both_missing = (~(called1 | called2)) & block_mask[widx];
+        if (both_missing) {
+          const double* word_weights = &(block_weights[widx * kBitsPerWord]);
+          do {
+            acc_wboth += word_weights[ctzw(both_missing)];
+            both_missing &= both_missing - 1;
+          } while (both_missing);
+        }
+      }
+      if (acc_dist != 0.0) {
+        *wdist_iter += acc_dist;
+      }
+      ++wdist_iter;
+      if (acc_wboth != 0.0) {
+        *wboth_iter += acc_wboth;
+      }
+      ++wboth_iter;
+
+      first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
+    }
+  }
+}
+
 void IncrDistanceWeighted(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, const uintptr_t* block_mask, const double* block_weights, uint32_t start_idx, uint32_t end_idx, uint32_t* counts_iter, double* wboth_iter) {
   for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
@@ -4982,6 +5041,11 @@ typedef struct CalcDistanceCtxStruct {
   uintptr_t* smaj_ref2het[2];
   uintptr_t* block_masks[2];
   double* block_weights[2];  // nullptr iff 'flat-missing'
+  // --distance-wts only: per-variant multipliers for the distance itself, and
+  // the resulting per-pair weighted sums.  The unweighted path keeps its
+  // integer popcount accumulator.
+  double* block_dist_weights[2];
+  double* wdist;
 
   uint32_t* thread_start;
 
@@ -4999,10 +5063,13 @@ THREAD_FUNC_DECL CalcDistanceThread(void* raw_arg) {
   const uint32_t end_idx = ctx->thread_start[tidx + 1];
   const uint64_t cell_offset = (start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) / 2;
   double* cur_wboth = ctx->wboth? &(ctx->wboth[cell_offset]) : nullptr;
-  uint32_t* cur_counts = &(ctx->counts[cur_wboth? cell_offset : (cell_offset * 2)]);
+  double* cur_wdist = ctx->wdist? &(ctx->wdist[cell_offset]) : nullptr;
+  uint32_t* cur_counts = ctx->counts? &(ctx->counts[cur_wboth? cell_offset : (cell_offset * 2)]) : nullptr;
   uint32_t parity = 0;
   do {
-    if (cur_wboth) {
+    if (cur_wdist) {
+      IncrDistanceWtd(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], ctx->block_masks[parity], ctx->block_weights[parity], ctx->block_dist_weights[parity], start_idx, end_idx, cur_wdist, cur_wboth);
+    } else if (cur_wboth) {
       IncrDistanceWeighted(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], ctx->block_masks[parity], ctx->block_weights[parity], start_idx, end_idx, cur_counts, cur_wboth);
     } else {
       IncrDistance(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, cur_counts);
@@ -5018,14 +5085,15 @@ CONSTI32(kDistReportAlleleCt, 0);
 CONSTI32(kDistReportIbs, 1);
 CONSTI32(kDistReport1MinusIbs, 2);
 
-HEADER_INLINE double DistanceCellVal(const uint32_t* counts, const double* wboth, const double* wmiss, double wsum, double variant_ctd, uint64_t cell_idx, uint32_t first_idx, uint32_t second_idx) {
+HEADER_INLINE double DistanceCellVal(const uint32_t* counts, const double* wdist, const double* wboth, const double* wmiss, double wsum, double variant_ctd, uint64_t cell_idx, uint32_t first_idx, uint32_t second_idx) {
   // Grouped the way PLINK 1.9 groups it, so that the two programs round
   // identically when the weights agree.
   if (!wboth) {
     const double rawd = u31tod(counts[cell_idx * 2 + kDistOffsetRaw]);
     return (variant_ctd / u31tod(counts[cell_idx * 2 + kDistOffsetNonmiss])) * rawd;
   }
-  const double rawd = u31tod(counts[cell_idx]);
+  // With --distance-wts the raw sum is already a real number.
+  const double rawd = wdist? wdist[cell_idx] : u31tod(counts[cell_idx]);
   return (wsum / (wsum - wmiss[first_idx] - wmiss[second_idx] + wboth[cell_idx])) * rawd;
 }
 
@@ -5061,7 +5129,7 @@ void SetDistanceMatrixFname(uint32_t report_kind, uint32_t is_binary, uint32_t o
 
 // The .id file names the samples the rows and columns refer to, and only the
 // first --parallel piece writes it.
-PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* siip, const uint32_t* counts, const double* wboth, const double* wmiss, double wsum, uint32_t sample_ct, uint32_t row_start_idx, uint32_t row_end_idx, uint32_t variant_ct, DistanceFlags flags, uint32_t report_kind, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* siip, const uint32_t* counts, const double* wdist, const double* wboth, const double* wmiss, double wsum, double dist_denom, uint32_t sample_ct, uint32_t row_start_idx, uint32_t row_end_idx, uint32_t variant_ct, DistanceFlags flags, uint32_t report_kind, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -5076,7 +5144,10 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
     const uint32_t diag_included = is_square || (report_kind == kDistReportIbs);
     const double diag_val = (report_kind == kDistReportIbs)? 1.0 : 0.0;
     const double variant_ctd = u31tod(variant_ct);
-    const double half_variant_ct_recip = 0.5 / variant_ctd;
+    // With --distance-wts a maximally different pair accumulates twice the
+    // weight sum rather than twice the variant count, so that is what the IBS
+    // reports divide by.
+    const double half_variant_ct_recip = 0.5 / dist_denom;
     const uint64_t row_start_cells = S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1) / 2;
     // The scan's row range starts at 1, since sample 0 is nobody's larger
     // index.  Sample 0 still has a row of its own in the report.
@@ -5086,7 +5157,7 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
     SetDistanceMatrixFname(report_kind, is_binary, output_zst, parallel_idx, parallel_tot, outname_end);
 
 #define DISTANCE_CELL(row_idx, col_idx) \
-  DistanceReportVal(DistanceCellVal(counts, wboth, wmiss, wsum, variant_ctd, (S_CAST(uint64_t, MAXV(row_idx, col_idx)) * (MAXV(row_idx, col_idx) - 1)) / 2 + MINV(row_idx, col_idx) - row_start_cells, MINV(row_idx, col_idx), MAXV(row_idx, col_idx)), report_kind, half_variant_ct_recip)
+  DistanceReportVal(DistanceCellVal(counts, wdist, wboth, wmiss, wsum, variant_ctd, (S_CAST(uint64_t, MAXV(row_idx, col_idx)) * (MAXV(row_idx, col_idx) - 1)) / 2 + MINV(row_idx, col_idx) - row_start_cells, MINV(row_idx, col_idx), MAXV(row_idx, col_idx)), report_kind, half_variant_ct_recip)
 
     if (is_binary) {
       const uint32_t is_bin4 = (flags / kfDistanceMatrixBin4) & 1;
@@ -5217,7 +5288,124 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
 // Hardy-Weinberg (which is what makes a missing call at a common variant cost
 // more than one at a rare variant).  'flat-missing' replaces that with a
 // plain nonmissing count.
-PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+// --distance-wts's file form: variant IDs in the first column, weights in the
+// second, with a header line unless 'noheader' was specified.  The result is
+// indexed by raw variant index, with -1 marking the variants which are absent
+// from the file (they drop out of the calculation, as in PLINK 1.9).
+PglErr LoadDistanceWts(const char* fname, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t noheader, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, double** distance_wts_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    double* distance_wts;
+    if (unlikely(pgl_malloc(raw_variant_ct * sizeof(double), &distance_wts))) {
+      goto LoadDistanceWts_ret_NOMEM;
+    }
+    *distance_wts_ptr = distance_wts;
+    for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+      distance_wts[variant_uidx] = -1.0;
+    }
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+      goto LoadDistanceWts_ret_NOMEM;
+    }
+    reterr = SizeAndInitTextStream(fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LoadDistanceWts_ret_TSTREAM_FAIL;
+    }
+    if (!noheader) {
+      reterr = TextSkip(1, &txs);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetEof) {
+          logerrputs("Error: Empty --distance-wts file.\n");
+          goto LoadDistanceWts_ret_MALFORMED_INPUT;
+        }
+        goto LoadDistanceWts_ret_TSTREAM_FAIL;
+      }
+      line_idx = 1;
+    }
+    uint32_t nonzero_ct = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      char* varid_end = CurTokenEnd(line_start);
+      const char* wt_start = FirstNonTspace(varid_end);
+      if (unlikely(IsEolnKns(*wt_start))) {
+        goto LoadDistanceWts_ret_MISSING_TOKENS;
+      }
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(line_start, variant_ids, variant_id_htable, htable_dup_base, varid_end - line_start, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        continue;
+      }
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --distance-wts file.\n", variant_ids[variant_uidx]);
+        goto LoadDistanceWts_ret_MALFORMED_INPUT_WW;
+      }
+      double cur_wt;
+      if (unlikely(!ScantokDouble(wt_start, &cur_wt))) {
+        goto LoadDistanceWts_ret_INVALID_WEIGHT;
+      }
+      if (unlikely((!(cur_wt >= 0.0)) || (cur_wt == HUGE_VAL))) {
+        goto LoadDistanceWts_ret_INVALID_WEIGHT;
+      }
+      if (cur_wt != 0.0) {
+        ++nonzero_ct;
+      }
+      for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
+        SetBit(variant_uidx, already_seen);
+        distance_wts[variant_uidx] = cur_wt;
+        if (cur_llidx == UINT32_MAX) {
+          break;
+        }
+        variant_uidx = htable_dup_base[cur_llidx];
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadDistanceWts_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!nonzero_ct)) {
+      logerrputs("Error: No valid nonzero entries in --distance-wts file.\n");
+      goto LoadDistanceWts_ret_MALFORMED_INPUT;
+    }
+    logprintf("--distance-wts: %u variant weight%s loaded.\n", nonzero_ct, (nonzero_ct == 1)? "" : "s");
+  }
+  while (0) {
+  LoadDistanceWts_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadDistanceWts_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--distance-wts file", &txs);
+    break;
+  LoadDistanceWts_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  LoadDistanceWts_ret_INVALID_WEIGHT:
+    logerrprintfww("Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  LoadDistanceWts_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  LoadDistanceWts_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  CleanupTextStream2("--distance-wts file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const double* raw_variant_wts, double distance_wts_exp, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadGroup tg;
   PglErr reterr = kPglRetSuccess;
@@ -5255,6 +5443,66 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       goto CalcDistance_ret_NOMEM;
     }
 
+    // --distance-wts: a per-variant multiplier on the distance contribution.
+    // Variants with zero weight (which includes the monomorphic ones under
+    // 'exp=', and the ones absent from a weight file) drop out of the
+    // calculation entirely, as in PLINK 1.9.
+    const uintptr_t* variant_include = variant_include_orig;
+    const uint32_t is_wtd = raw_variant_wts || (distance_wts_exp != 0.0);
+    double* dist_wts = nullptr;
+    double dist_denom = u31tod(variant_ct);
+    if (is_wtd) {
+      const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+      uintptr_t* variant_include_wtd;
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include_wtd) ||
+                   bigstack_alloc_d(variant_ct, &dist_wts))) {
+        goto CalcDistance_ret_NOMEM;
+      }
+      ZeroWArr(raw_variant_ctl, variant_include_wtd);
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include_orig[0];
+      uint32_t new_variant_ct = 0;
+      double wt_sum = 0.0;
+      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include_orig, &variant_uidx_base, &cur_bits);
+        double cur_wt;
+        if (raw_variant_wts) {
+          cur_wt = raw_variant_wts[variant_uidx];
+          if (cur_wt < 0.0) {
+            // absent from the weight file
+            continue;
+          }
+        } else {
+          uintptr_t allele_idx_base;
+          uint32_t cur_allele_ct = 2;
+          if (!allele_idx_offsets) {
+            allele_idx_base = variant_uidx;
+          } else {
+            allele_idx_base = allele_idx_offsets[variant_uidx];
+            cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
+            allele_idx_base -= variant_uidx;
+          }
+          const double qq = GetAlleleFreq(&(allele_freqs[allele_idx_base]), 0, cur_allele_ct);
+          const double het_freq = 2 * qq * (1.0 - qq);
+          cur_wt = (het_freq != 0.0)? pow(het_freq, -distance_wts_exp) : 0.0;
+        }
+        if (cur_wt == 0.0) {
+          continue;
+        }
+        SetBit(variant_uidx, variant_include_wtd);
+        dist_wts[new_variant_ct] = cur_wt;
+        wt_sum += cur_wt;
+        ++new_variant_ct;
+      }
+      if (unlikely(!new_variant_ct)) {
+        logerrputs("Error: --distance-wts left no variant with positive weight.\n");
+        goto CalcDistance_ret_DEGENERATE_DATA;
+      }
+      variant_include = variant_include_wtd;
+      variant_ct = new_variant_ct;
+      dist_denom = wt_sum;
+    }
+
     // Per-variant weights, and the per-sample weight of the variants that
     // sample is missing.  Both are only needed when the missingness
     // correction is frequency-weighted.
@@ -5285,7 +5533,12 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         // This is symmetric in q vs. 1 - q, so which allele's frequency is
         // used does not matter.  A monomorphic variant contributes nothing.
         const double qq = GetAlleleFreq(&(allele_freqs[allele_idx_base]), 0, cur_allele_ct);
-        const double cur_weight = qq * (1.0 - qq) * (qq * qq - qq + 1.0);
+        double cur_weight = qq * (1.0 - qq) * (qq * qq - qq + 1.0);
+        if (dist_wts) {
+          // A missing call at a variant which barely counts toward the
+          // distance should barely count toward the correction either.
+          cur_weight *= dist_wts[vidx];
+        }
         variant_weights[vidx] = cur_weight;
         wsum += cur_weight;
       }
@@ -5319,6 +5572,9 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     ctx.block_masks[1] = nullptr;
     ctx.block_weights[0] = nullptr;
     ctx.block_weights[1] = nullptr;
+    ctx.block_dist_weights[0] = nullptr;
+    ctx.block_dist_weights[1] = nullptr;
+    ctx.wdist = nullptr;
     uintptr_t* missing_bv = nullptr;
     if (!flat_missing) {
       if (unlikely(bigstack_alloc_w(kKingMultiplexWords, &(ctx.block_masks[0])) ||
@@ -5334,12 +5590,23 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     // row's cells from both sides of the diagonal.
     const uint64_t tot_cells = (S_CAST(uint64_t, grand_row_end_idx) * (grand_row_end_idx - 1) - S_CAST(uint64_t, grand_row_start_idx) * (grand_row_start_idx - 1)) / 2;
     const uintptr_t counts_per_cell = flat_missing? 2 : 1;
-    const uintptr_t bytes_per_cell = counts_per_cell * sizeof(int32_t) + (flat_missing? 0 : sizeof(double));
+    // The weighted path replaces the integer raw accumulator with a double
+    // one, so it needs no counts array at all.
+    const uintptr_t bytes_per_cell = (is_wtd? 0 : (counts_per_cell * sizeof(int32_t))) + (flat_missing? 0 : sizeof(double)) + (is_wtd? sizeof(double) : 0);
     if (unlikely(tot_cells > bigstack_left() / bytes_per_cell)) {
       goto CalcDistance_ret_NOMEM;
     }
-    if (unlikely(bigstack_calloc_u32(tot_cells * counts_per_cell, &ctx.counts))) {
-      goto CalcDistance_ret_NOMEM;
+    ctx.counts = nullptr;
+    if (!is_wtd) {
+      if (unlikely(bigstack_calloc_u32(tot_cells * counts_per_cell, &ctx.counts))) {
+        goto CalcDistance_ret_NOMEM;
+      }
+    } else {
+      if (unlikely(bigstack_calloc_d(tot_cells, &ctx.wdist) ||
+                   bigstack_alloc_d(kKingMultiplex, &(ctx.block_dist_weights[0])) ||
+                   bigstack_alloc_d(kKingMultiplex, &(ctx.block_dist_weights[1])))) {
+        goto CalcDistance_ret_NOMEM;
+      }
     }
     ctx.wboth = nullptr;
     if (!flat_missing) {
@@ -5381,6 +5648,11 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         uintptr_t* cur_block_mask = ctx.block_masks[parity];
         ZeroWArr(kKingMultiplexWords, cur_block_mask);
         SetAllBits(cur_block_size, cur_block_mask);
+      }
+      if (is_wtd) {
+        double* cur_block_dist_weights = ctx.block_dist_weights[parity];
+        memcpy(cur_block_dist_weights, &(dist_wts[variants_completed]), cur_block_size * sizeof(double));
+        ZeroDArr(kKingMultiplex - cur_block_size, &(cur_block_dist_weights[cur_block_size]));
       }
       uint32_t variant_batch_size = kPglBitTransposeBatch;
       uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
@@ -5490,7 +5762,7 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         continue;
       }
       putc_unlocked('\r', stdout);
-      reterr = WriteDistanceMatrix(sample_include, siip, ctx.counts, ctx.wboth, wmiss, wsum, sample_ct, grand_row_start_idx, grand_row_end_idx, variant_ct, flags, report_kind, parallel_idx, parallel_tot, max_thread_ct, outname, outname_end);
+      reterr = WriteDistanceMatrix(sample_include, siip, ctx.counts, ctx.wdist, ctx.wboth, wmiss, wsum, dist_denom, sample_ct, grand_row_start_idx, grand_row_end_idx, variant_ct, flags, report_kind, parallel_idx, parallel_tot, max_thread_ct, outname, outname_end);
       if (unlikely(reterr)) {
         goto CalcDistance_ret_1;
       }
