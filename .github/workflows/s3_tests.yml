@@ -56,13 +56,6 @@ jobs:
         working-directory: ./2.0
         run: pixi run build
 
-      # build_dynamic/Makefile never reads LDFLAGS, and Apple's linker has no
-      # LD_RUN_PATH equivalent, so the rpath has to be added after linking.
-      - name: Add the pixi lib rpath (macOS)
-        if: runner.os == 'macOS'
-        working-directory: ./2.0
-        run: install_name_tool -add_rpath "$PWD/.pixi/envs/default/lib" build_dynamic/plink2
-
       - name: Confirm the binary is linked against the AWS SDK
         working-directory: ./2.0
         run: |
