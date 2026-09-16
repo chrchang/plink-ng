@@ -25,3 +25,12 @@ clean = { cmd = "make clean", cwd = "build_dynamic" }
 
 [activation]
 scripts = ["pixi_activate.sh"]
+
+[feature.r.dependencies]
+r-base = "*"
+r-rcpp = "*"
+r-testthat = ">=3.3.1,<4"
+r-devtools = ">=2.5.0,<3"
+
+[environments]
+r = ["r"]
