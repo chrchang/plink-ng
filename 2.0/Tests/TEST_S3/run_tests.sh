@@ -29,8 +29,8 @@ MINIO_PORT=${MINIO_PORT:-9000}
 MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
 MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
 # MINIO_DOMAIN makes MinIO accept virtual-hosted-style requests
-# (<bucket>.$MINIO_DOMAIN), which is the only addressing style the AWS C++ SDK
-# uses by default.
+# (<bucket>.$MINIO_DOMAIN).  plink2 defaults to path-style against a custom
+# endpoint, so this is only needed by the virtual-host addressing test.
 MINIO_DOMAIN=${MINIO_DOMAIN:-localhost}
 
 PRIVATE_BUCKET=plink2-private
@@ -38,8 +38,9 @@ PUBLIC_BUCKET=plink2-public
 RO_USER=plink2ro
 RO_SECRET=plink2rosecret12
 
-# Endpoint plink2 talks to: must be the virtual-host domain, not 127.0.0.1.
-S3_ENDPOINT="http://${MINIO_DOMAIN}:${MINIO_PORT}"
+# Endpoint plink2 talks to.  A custom endpoint implies path-style addressing,
+# so an IP literal works and no hostname needs to resolve.
+S3_ENDPOINT="http://127.0.0.1:${MINIO_PORT}"
 # Endpoint the admin tooling talks to (path-style, inside the container).
 ADMIN_ENDPOINT="http://127.0.0.1:${MINIO_PORT}"
 
@@ -183,13 +184,15 @@ if [[ $MODE == native ]] && ! kill -0 "$MINIO_PID" 2> /dev/null; then
 fi
 
 # Virtual-hosted-style addressing needs <bucket>.$MINIO_DOMAIN to resolve.
-# Any HTTP status means the name resolved and MinIO answered; 000 means it
-# did not.
+# It is no longer the default, so a name that does not resolve just skips the
+# one test that exercises it.  Any HTTP status means the name resolved and
+# MinIO answered; 000 means it did not.
+VHOST_OK=1
 for b in "$PRIVATE_BUCKET" "$PUBLIC_BUCKET"; do
     code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
         "http://${b}.${MINIO_DOMAIN}:${MINIO_PORT}/" || true)
     if [[ "$code" == "000" ]]; then
-        fail "${b}.${MINIO_DOMAIN} is not reachable; add it to /etc/hosts"
+        VHOST_OK=0
     fi
 done
 
@@ -423,6 +426,38 @@ run_freq "path-style against an IP endpoint" path_style "s3://$PRIVATE_BUCKET/da
 run_freq "AWS_S3_ADDRESSING_STYLE=path" addressing_style "s3://$PRIVATE_BUCKET/data/ref" \
     "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
     "AWS_ENDPOINT_URL_S3=$ADMIN_ENDPOINT" "AWS_S3_ADDRESSING_STYLE=path"
+
+# Path-style is the default for a custom endpoint, so virtual-hosted style has
+# to be asked for explicitly.  Needs <bucket>.$MINIO_DOMAIN to resolve.
+if [[ $VHOST_OK == 1 ]]; then
+    run_freq "AWS_S3_ADDRESSING_STYLE=virtual" virtual_style "s3://$PRIVATE_BUCKET/data/ref" \
+        "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
+        "AWS_ENDPOINT_URL_S3=http://${MINIO_DOMAIN}:${MINIO_PORT}" \
+        "AWS_S3_ADDRESSING_STYLE=virtual"
+else
+    echo "skipping virtual-host addressing: *.${MINIO_DOMAIN} does not resolve"
+fi
+
+###########################################################################
+echo "=== presigned https:// URLs ==="
+###########################################################################
+
+# A presigned URL carries its own signature, so it must be fetched unsigned
+# and must work with no credentials in the environment at all.
+PRESIGNED=$(AWS_ACCESS_KEY_ID="$MINIO_ROOT_USER" \
+    AWS_SECRET_ACCESS_KEY="$MINIO_ROOT_PASSWORD" \
+    aws s3 presign "s3://$PRIVATE_BUCKET/data/keep50.txt" \
+    --endpoint-url "$ADMIN_ENDPOINT" --expires-in 3600)
+[[ -n "$PRESIGNED" ]] || fail "could not generate a presigned URL"
+
+"$PLINK2" --pfile ref --keep keep50.txt --freq --out local_presign --silent > /dev/null
+env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    -u AWS_PROFILE -u AWS_SHARED_CREDENTIALS_FILE \
+    "$PLINK2" --pfile ref --keep "$PRESIGNED" \
+    --freq --out presign_keep --silent > /dev/null ||
+    fail "presigned URL: plink2 exited nonzero"
+cmp local_presign.afreq presign_keep.afreq || fail "presigned URL: .afreq differs"
+pass "presigned https:// URL as an input file"
 
 ###########################################################################
 echo "=== S3 inputs other than .pgen/.pvar/.psam ==="

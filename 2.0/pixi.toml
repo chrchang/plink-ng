@@ -12,7 +12,8 @@ make = "*"
 zlib = "*"
 zstd = "*"
 gmp = "*"
-aws-sdk-cpp = "*"
+# S3 support needs only libcurl; CURLOPT_AWS_SIGV4 arrived in 7.75.0.
+libcurl = ">=7.75"
 
 [target.linux-64.dependencies]
 openblas = "*"

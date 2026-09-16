@@ -19,7 +19,7 @@
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
 #   Debug symbols: change DEBUG to -g (still incompatible with -flto?)
-#   Enable S3 input support via AWS C++ SDK: USE_S3
+#   Enable S3 input support via libcurl: USE_S3
 #     (requires aws-sdk-cpp with s3 and core components)
 NO_AVX2 = 1
 NO_SSE42 = 1
@@ -212,9 +212,8 @@ ifdef NO_LAPACK
 endif
 
 ifdef USE_S3
-  BASEFLAGS += -DUSE_S3
-  # aws-crt-cpp is needed for the S3 endpoint provider's rule engine.
-  LINKFLAGS += -laws-cpp-sdk-s3 -laws-cpp-sdk-core -laws-crt-cpp
+  BASEFLAGS += -DUSE_S3 -DS3STREAM_ENABLE
+  LINKFLAGS += -lcurl
 endif
 
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}

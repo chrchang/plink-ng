@@ -34,12 +34,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # The AWS C++ SDK only uses virtual-hosted-style addressing unless told
-      # otherwise, so the per-bucket hostnames MinIO serves must resolve.
-      - name: Add MinIO virtual-host names to /etc/hosts
-        run: |
-          echo "127.0.0.1 plink2-private.localhost plink2-public.localhost" | sudo tee -a /etc/hosts
-
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.10.2
         with:
@@ -56,13 +50,13 @@ jobs:
         working-directory: ./2.0
         run: pixi run build
 
-      - name: Confirm the binary is linked against the AWS SDK
+      - name: Confirm the binary is linked against libcurl
         working-directory: ./2.0
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
-            otool -L build_dynamic/plink2 | grep aws-cpp-sdk
+            otool -L build_dynamic/plink2 | grep -i curl
           else
-            ldd build_dynamic/plink2 | grep aws-cpp-sdk
+            ldd build_dynamic/plink2 | grep -i curl
           fi
 
       - name: Run S3 tests

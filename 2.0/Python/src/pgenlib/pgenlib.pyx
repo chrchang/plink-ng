@@ -44,10 +44,10 @@ cdef bytes _resolve_pgenlib_path(object filename):
 
 # Populates `creds` (and appends the byte-string objects backing its char*
 # fields to `keepalive`, so they outlive this call) from a UPath-like
-# object's .storage_options.  Each object gets a client built from exactly
-# these credentials and nothing else -- unlike environment variables, this
-# has zero effect on any other object opened in the same process, so
-# multiple files with different accounts/buckets work in one process.
+# object's .storage_options.  Each object is opened with exactly these
+# credentials and nothing else -- unlike environment variables, this has zero
+# effect on any other object opened in the same process, so multiple files
+# with different accounts/buckets work in one process.
 # Returns whether any credential field was actually found.
 cdef bint _populate_s3_credentials(object opts, S3Credentials* creds, list keepalive):
     creds.access_key_id = NULL
@@ -90,16 +90,16 @@ cdef bint _populate_s3_credentials(object opts, S3Credentials* creds, list keepa
         found = True
     return found
 
-# If `filename` is an s3:// path, ensures S3 support is ready and, when it's a
-# UPath-like object with embedded credentials, populates `creds` for a client
-# scoped to this open only.  Returns whether `creds` was populated (callers
-# should pass NULL instead of &creds otherwise, to use the shared
-# ambient-environment client via EnsureS3Ready()/OpenMaybeS3()).
+# If `filename` names a remote object, ensures S3 support is ready and, when
+# it's a UPath-like object with embedded credentials, populates `creds` for an
+# open scoped to this file only.  Returns whether `creds` was populated
+# (callers should pass NULL instead of &creds otherwise, to resolve
+# credentials from the ambient chain via OpenMaybeS3()).
 cdef bint _prepare_s3_open(object filename, const char* fname, S3Credentials* creds, list keepalive):
     if not IsS3Uri(fname):
         return False
-    # Aws::InitAPI() (via EnsureS3Ready()) must run before any AWS SDK object
-    # is touched, including a dedicated OpenS3WithCredentials() client.
+    # libcurl's global init must run before any request is built, including on
+    # the explicit-credentials path.
     EnsureS3Ready()
     protocol = getattr(filename, 'protocol', None)
     if protocol in ('s3', 's3a'):

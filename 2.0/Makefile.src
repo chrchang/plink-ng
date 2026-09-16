@@ -90,6 +90,9 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_adjust.cc \
         plink2_cmdline.cc \
         plink2_s3.cc \
+        s3stream/s3stream.cc \
+        s3stream/s3stream_creds.cc \
+        s3stream/s3stream_http.cc \
         plink2_common.cc \
         plink2_compress_stream.cc \
         plink2_data.cc \
