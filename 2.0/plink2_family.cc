@@ -28,6 +28,7 @@
 #include "plink2_cmdline.h"
 #include "plink2_common.h"
 #include "plink2_compress_stream.h"
+#include "include/plink2_stats.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -2181,6 +2182,752 @@ uint32_t EraseMendelErrors(const FamilyInfo* fip, const uintptr_t* sex_male_coll
     ClearGenoarrMissing1bit16Unsafe(genoarr, patch_10_ctp, patch_10_set, patch_10_vals);
   }
   return variant_error_ct;
+}
+
+// Sib-TDT-based association test, PLINK 1.9's --dfam.
+//
+// The statistic is a sum of independent contributions with a common
+// (observed - expected) / variance shape, taken over four kinds of group:
+//   1. nuclear families all of whose genotyped children are cases,
+//   2. nuclear families with both case and control children,
+//   3. sibships (samples sharing FID/PAT/MAT whose parents aren't both in the
+//      dataset) with both cases and controls,
+//   4. clusters of unrelated samples, i.e. founders who aren't a parent in any
+//      of the families above.
+// Groups 1 and 2 use transmission from heterozygous parents when the parental
+// genotypes are informative, which is where the "TDT" in the name comes from;
+// everything else is a hypergeometric comparison within the group.
+//
+// The counts are kept as integers (twice_numer/quad_denom) for the
+// transmission part, which is exact, and as doubles for the rest.
+static const uint8_t kDfamParentalAlleleCtTable[] =
+{0, 1, 0, 0,
+ 1, 2, 3, 0,
+ 0, 3, 0, 0,
+ 0, 0, 0, 0};
+
+// Sibship/cluster contribution shared by groups 2 (when the parents aren't
+// informative), 3 and 4.  Mirrors PLINK 1.07's dfam.cpp.
+void DfamSibshipCalc(uint32_t case_ct, uint32_t case_hom_alt_ct, uint32_t case_het_ct, uint32_t ctrl_ct, uint32_t ctrl_hom_alt_ct, uint32_t ctrl_het_ct, uint32_t* total_ct_ptr, double* numer_ptr, double* denom_ptr, double* total_expected_ptr) {
+  if (!ctrl_ct) {
+    return;
+  }
+  const uint32_t hom_alt_ct = case_hom_alt_ct + ctrl_hom_alt_ct;
+  const uint32_t het_ct = case_het_ct + ctrl_het_ct;
+  const uint32_t total_ct = case_ct + ctrl_ct;
+  const uint32_t case_alt_ct = 2 * case_hom_alt_ct + case_het_ct;
+  *total_ct_ptr += case_alt_ct;
+  if (((!hom_alt_ct) && (!het_ct)) || (het_ct == total_ct) || (hom_alt_ct == total_ct)) {
+    // Every genotype in the group is the same, so there is nothing to learn
+    // from it.  PLINK 1.07 still adds the observed count to both totals here
+    // instead of skipping the group outright.
+    *total_expected_ptr += u31tod(case_alt_ct);
+    return;
+  }
+  const double hom_alt_ctd = u31tod(hom_alt_ct);
+  const double het_ctd = u31tod(het_ct);
+  const double case_ctd = u31tod(case_ct);
+  const double ctrl_ctd = u31tod(ctrl_ct);
+  const double total_ctd = u31tod(total_ct);
+  const double case_proportion = case_ctd / total_ctd;
+  const double case_expected_hom_alt = case_proportion * hom_alt_ctd;
+  const double case_expected_het = case_proportion * het_ctd;
+  const double case_ctrl_div_xxxm1 = case_proportion * ctrl_ctd / (total_ctd * (total_ctd - 1));
+  const double case_var_hom_alt = case_ctrl_div_xxxm1 * hom_alt_ctd * (total_ctd - hom_alt_ctd);
+  const double case_var_het = case_ctrl_div_xxxm1 * het_ctd * (total_ctd - het_ctd);
+  // Cov(hom-ALT count, het count) is negative for a multivariate
+  // hypergeometric draw, and Var(2X + Y) = 4Var(X) + Var(Y) + 4Cov(X, Y), so
+  // this term is subtracted.  PLINK 1.07 and 1.9 add it, which inflates the
+  // variance and, worse, makes the statistic change when REF and ALT are
+  // swapped; the corrected version below is invariant under that swap, as a
+  // PLINK 2.0 statistic has to be.
+  const double case_covar_magnitude = case_ctrl_div_xxxm1 * hom_alt_ctd * het_ctd;
+  const double case_expected_alt_ct = 2 * case_expected_hom_alt + case_expected_het;
+  const double case_var_alt_ct = 4 * (case_var_hom_alt - case_covar_magnitude) + case_var_het;
+  *numer_ptr += u31tod(case_alt_ct) - case_expected_alt_ct;
+  *denom_ptr += case_var_alt_ct;
+  *total_expected_ptr += case_expected_alt_ct;
+}
+
+PglErr DfamReport(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, DfamFlags flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    const PhenoCol* cc_pheno_col = nullptr;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+        cc_pheno_col = &(pheno_cols[pheno_idx]);
+        break;
+      }
+    }
+    if (unlikely(!cc_pheno_col)) {
+      logerrputs("Error: --dfam requires a case/control phenotype.\n");
+      goto DfamReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, cc_pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    if (unlikely(!sample_ct)) {
+      logerrputs("Error: --dfam requires at least one sample with a nonmissing case/control\nphenotype.\n");
+      goto DfamReport_ret_INCONSISTENT_INPUT;
+    }
+
+    // chrX/chrY/chrMT and the rest of the haploid genome have no --dfam
+    // implementation in PLINK 1.x either.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* autosomal_variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &autosomal_variant_include))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    memcpy(autosomal_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    uint32_t skipped_variant_ct = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if ((!IsSet(cip->haploid_mask, chr_idx)) && (chr_idx != mt_code)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      skipped_variant_ct += PopcountBitRange(autosomal_variant_include, chr_vidx_start, chr_vidx_end);
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, autosomal_variant_include);
+    }
+    if (skipped_variant_ct) {
+      logprintf("--dfam: Excluding %u haploid/MT variant%s.\n", skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
+    }
+    const uint32_t autosomal_variant_ct = variant_ct - skipped_variant_ct;
+    if (unlikely(!autosomal_variant_ct)) {
+      logerrputs("Error: No variants remaining for --dfam.\n");
+      goto DfamReport_ret_INCONSISTENT_INPUT;
+    }
+
+    FamilyInfo family_info;
+    PreinitFamilyInfo(&family_info);
+    reterr = GetTriosAndFamilies(sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, kfTrio0, &sample_ct, nullptr, &family_info);
+    if (unlikely(reterr)) {
+      goto DfamReport_ret_1;
+    }
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t family_ct = family_info.family_ct;
+    const uint32_t trio_ct = family_info.trio_ct;
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* case_collapsed;
+    uintptr_t* founder_collapsed;
+    uintptr_t* in_family;
+    uint32_t* idx_to_uidx;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(sample_ctl, &case_collapsed) ||
+                 bigstack_alloc_w(sample_ctl, &founder_collapsed) ||
+                 bigstack_calloc_w(sample_ctl, &in_family) ||
+                 bigstack_alloc_u32(sample_ct, &idx_to_uidx))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    CopyBitarrSubset(cc_pheno_col->data.cc, sample_include, sample_ct, case_collapsed);
+    ZeroTrailingBits(sample_ct, case_collapsed);
+    CopyBitarrSubset(founder_info, sample_include, sample_ct, founder_collapsed);
+    ZeroTrailingBits(sample_ct, founder_collapsed);
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        idx_to_uidx[sample_idx] = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+      }
+    }
+
+    // Children of each family, in family order.  trio_list is sorted by child
+    // index rather than by family, so this has to be built rather than sliced.
+    uint32_t* family_child_offsets;
+    uint32_t* family_children;
+    if (unlikely(bigstack_calloc_u32(family_ct + 1, &family_child_offsets) ||
+                 bigstack_alloc_u32(trio_ct, &family_children))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    const uint64_t* trio_list = family_info.trio_list;
+    for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+      family_child_offsets[1 + (trio_list[trio_idx] >> 32)] += 1;
+    }
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      family_child_offsets[family_idx + 1] += family_child_offsets[family_idx];
+    }
+    {
+      uint32_t* write_idxs;
+      if (unlikely(bigstack_end_alloc_u32(family_ct, &write_idxs))) {
+        goto DfamReport_ret_NOMEM;
+      }
+      memcpy(write_idxs, family_child_offsets, family_ct * sizeof(int32_t));
+      const uint64_t* family_list = family_info.family_list;
+      for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+        const uint64_t trio_code = trio_list[trio_idx];
+        const uint32_t family_idx = trio_code >> 32;
+        const uint32_t child_idx = S_CAST(uint32_t, trio_code);
+        family_children[write_idxs[family_idx]++] = child_idx;
+        SetBit(child_idx, in_family);
+      }
+      for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+        const uint64_t family_code = family_list[family_idx];
+        SetBit(S_CAST(uint32_t, family_code), in_family);
+        SetBit(family_code >> 32, in_family);
+      }
+      BigstackEndReset(write_idxs);
+    }
+
+    // The four group lists, laid out back to back:
+    //   family:   [paternal idx][maternal idx][child ct][child idxs...]
+    //   sibship:  [size][member idxs...]
+    //   cluster:  [size][member idxs...]
+    const uintptr_t group_data_capacity = 3 * S_CAST(uintptr_t, family_ct) + trio_ct + 3 * S_CAST(uintptr_t, sample_ct) + 16;
+    uint32_t* group_data;
+    if (unlikely(bigstack_alloc_u32(group_data_capacity, &group_data))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    uint32_t* group_write_iter = group_data;
+    const uint64_t* family_list = family_info.family_list;
+    uint32_t all_case_family_ct = 0;
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      const uint32_t child_start = family_child_offsets[family_idx];
+      const uint32_t child_end = family_child_offsets[family_idx + 1];
+      uint32_t cur_case_ct = 0;
+      for (uint32_t uii = child_start; uii != child_end; ++uii) {
+        cur_case_ct += IsSet(case_collapsed, family_children[uii]);
+      }
+      if (cur_case_ct != child_end - child_start) {
+        continue;
+      }
+      ++all_case_family_ct;
+      const uint64_t family_code = family_list[family_idx];
+      *group_write_iter++ = S_CAST(uint32_t, family_code);
+      *group_write_iter++ = family_code >> 32;
+      *group_write_iter++ = child_end - child_start;
+      for (uint32_t uii = child_start; uii != child_end; ++uii) {
+        *group_write_iter++ = family_children[uii];
+      }
+    }
+    uint32_t mixed_family_ct = 0;
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      const uint32_t child_start = family_child_offsets[family_idx];
+      const uint32_t child_end = family_child_offsets[family_idx + 1];
+      uint32_t cur_case_ct = 0;
+      for (uint32_t uii = child_start; uii != child_end; ++uii) {
+        cur_case_ct += IsSet(case_collapsed, family_children[uii]);
+      }
+      if ((!cur_case_ct) || (cur_case_ct == child_end - child_start)) {
+        continue;
+      }
+      ++mixed_family_ct;
+      const uint64_t family_code = family_list[family_idx];
+      *group_write_iter++ = S_CAST(uint32_t, family_code);
+      *group_write_iter++ = family_code >> 32;
+      *group_write_iter++ = child_end - child_start;
+      for (uint32_t uii = child_start; uii != child_end; ++uii) {
+        *group_write_iter++ = family_children[uii];
+      }
+    }
+
+    // Sibships: non-founders who aren't a child in any of the families above,
+    // grouped by FID/PAT/MAT.  A sample which is a parent in one family and a
+    // sibling here counts in both, as in PLINK 1.x.
+    uintptr_t* is_trio_child;
+    if (unlikely(bigstack_calloc_w(sample_ctl, &is_trio_child))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+      SetBit(S_CAST(uint32_t, trio_list[trio_idx]), is_trio_child);
+    }
+    uint32_t mixed_sibship_ct = 0;
+    uintptr_t* in_sibship;
+    if (unlikely(bigstack_calloc_w(sample_ctl, &in_sibship))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    {
+      uint32_t candidate_ct = 0;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        if ((!IsSet(founder_collapsed, sample_idx)) && (!IsSet(is_trio_child, sample_idx))) {
+          ++candidate_ct;
+        }
+      }
+      if (candidate_ct > 1) {
+        const SampleIdInfo* siip = &(piip->sii);
+        const ParentalIdInfo* parental_id_infop = &(piip->parental_id_info);
+        const uintptr_t max_key_blen = siip->max_sample_id_blen + parental_id_infop->max_paternal_id_blen + parental_id_infop->max_maternal_id_blen;
+        char* key_strbox;
+        uint32_t* key_id_map;
+        if (unlikely(bigstack_end_alloc_c(max_key_blen * candidate_ct, &key_strbox) ||
+                     bigstack_end_alloc_u32(candidate_ct, &key_id_map))) {
+          goto DfamReport_ret_NOMEM;
+        }
+        uint32_t key_idx = 0;
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          if (IsSet(founder_collapsed, sample_idx) || IsSet(is_trio_child, sample_idx)) {
+            continue;
+          }
+          const uint32_t sample_uidx = idx_to_uidx[sample_idx];
+          const char* cur_sample_id = &(siip->sample_ids[sample_uidx * siip->max_sample_id_blen]);
+          const char* fid_end = AdvToDelim(cur_sample_id, '\t');
+          char* write_iter = &(key_strbox[key_idx * max_key_blen]);
+          write_iter = memcpyax(write_iter, cur_sample_id, fid_end - cur_sample_id, '\t');
+          write_iter = strcpyax(write_iter, &(parental_id_infop->paternal_ids[sample_uidx * parental_id_infop->max_paternal_id_blen]), '\t');
+          // strcpya() doesn't write the terminator, and the keys are compared
+          // as C strings below.
+          *strcpya(write_iter, &(parental_id_infop->maternal_ids[sample_uidx * parental_id_infop->max_maternal_id_blen])) = '\0';
+          key_id_map[key_idx] = sample_idx;
+          ++key_idx;
+        }
+        if (unlikely(SortStrboxIndexed(candidate_ct, max_key_blen, 0, key_strbox, key_id_map))) {
+          goto DfamReport_ret_NOMEM;
+        }
+        uint32_t run_start = 0;
+        while (run_start != candidate_ct) {
+          const char* cur_key = &(key_strbox[run_start * max_key_blen]);
+          uint32_t run_end = run_start + 1;
+          while ((run_end != candidate_ct) && (!strcmp(cur_key, &(key_strbox[run_end * max_key_blen])))) {
+            ++run_end;
+          }
+          if (run_end - run_start >= 2) {
+            uint32_t cur_case_ct = 0;
+            for (uint32_t uii = run_start; uii != run_end; ++uii) {
+              SetBit(key_id_map[uii], in_sibship);
+              cur_case_ct += IsSet(case_collapsed, key_id_map[uii]);
+            }
+            if (cur_case_ct && (cur_case_ct != run_end - run_start)) {
+              ++mixed_sibship_ct;
+              *group_write_iter++ = run_end - run_start;
+              for (uint32_t uii = run_start; uii != run_end; ++uii) {
+                *group_write_iter++ = key_id_map[uii];
+              }
+            }
+          }
+          run_start = run_end;
+        }
+        BigstackEndReset(key_strbox);
+      }
+    }
+
+    // Unrelateds: everything left over is a founder who isn't a parent in any
+    // family, since every other sample is either a family member or in a
+    // sibship (a sibship of one is dropped rather than pooled, matching PLINK
+    // 1.9's bugfix).
+    uint32_t unrelated_cluster_ct = 0;
+    const uint32_t no_unrelateds = (flags / kfDfamNoUnrelateds) & 1;
+    if (!no_unrelateds) {
+      uint32_t cluster_case_ct = 0;
+      uint32_t cluster_ctrl_ct = 0;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        if (IsSet(in_family, sample_idx) || IsSet(in_sibship, sample_idx) || (!IsSet(founder_collapsed, sample_idx))) {
+          continue;
+        }
+        if (IsSet(case_collapsed, sample_idx)) {
+          ++cluster_case_ct;
+        } else {
+          ++cluster_ctrl_ct;
+        }
+      }
+      if (cluster_case_ct && cluster_ctrl_ct) {
+        unrelated_cluster_ct = 1;
+        *group_write_iter++ = cluster_case_ct + cluster_ctrl_ct;
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          if (IsSet(in_family, sample_idx) || IsSet(in_sibship, sample_idx) || (!IsSet(founder_collapsed, sample_idx))) {
+            continue;
+          }
+          *group_write_iter++ = sample_idx;
+        }
+      }
+    }
+    assert(S_CAST(uintptr_t, group_write_iter - group_data) <= group_data_capacity);
+    if (unlikely(!(all_case_family_ct || mixed_family_ct || mixed_sibship_ct || unrelated_cluster_ct))) {
+      logerrputs("Error: --dfam found no usable families, sibships or clusters of unrelateds.\n");
+      goto DfamReport_ret_INCONSISTENT_INPUT;
+    }
+    logprintf("--dfam: %u informative famil%s, %u mixed sibship%s, %u cluster%s of unrelateds.\n", all_case_family_ct + mixed_family_ct, (all_case_family_ct + mixed_family_ct == 1)? "y" : "ies", mixed_sibship_ct, (mixed_sibship_ct == 1)? "" : "s", unrelated_cluster_ct, (unrelated_cluster_ct == 1)? "" : "s");
+
+    const uint32_t output_zst = (flags / kfDfamZs) & 1;
+    const uint32_t chr_col = flags & kfDfamColChrom;
+    const uint32_t ref_col = flags & kfDfamColRef;
+    const uint32_t alt1_col = flags & kfDfamColAlt1;
+    const uint32_t alt_col = flags & kfDfamColAlt;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    uint32_t provref_col = 0;
+    if (ref_col) {
+      if (flags & kfDfamColProvref) {
+        provref_col = 1;
+      } else if (flags & kfDfamColMaybeprovref) {
+        provref_col = all_nonref || (nonref_flags && (!IntersectionRangeIsEmpty(autosomal_variant_include, nonref_flags, 0, raw_variant_ct)));
+      }
+    }
+    const uint32_t obs_col = flags & kfDfamColObs;
+    const uint32_t exp_col = flags & kfDfamColExp;
+    const uint32_t chisq_col = flags & kfDfamColChisq;
+    const uint32_t p_col = flags & kfDfamColP;
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    uintptr_t* genovec_buf;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_w(sample_ctl2, &genovec_buf))) {
+      goto DfamReport_ret_NOMEM;
+    }
+    OutnameZstSet(".dfam", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_chr_blen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto DfamReport_ret_1;
+    }
+    *cswritep++ = '#';
+    if (chr_col) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (flags & kfDfamColPos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    } else {
+      variant_bps = nullptr;
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (ref_col) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (alt1_col) {
+      cswritep = strcpya_k(cswritep, "\tALT1");
+    }
+    if (alt_col) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (obs_col) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
+    }
+    if (exp_col) {
+      cswritep = strcpya_k(cswritep, "\tEXP_CT");
+    }
+    if (chisq_col) {
+      cswritep = strcpya_k(cswritep, "\tCHISQ");
+    }
+    if (p_col) {
+      cswritep = strcpya_k(cswritep, "\tP");
+    }
+    AppendBinaryEoln(&cswritep);
+
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = autosomal_variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_blen = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = (autosomal_variant_ct + 99) / 100;
+    fputs("--dfam: 0%", stdout);
+    fflush(stdout);
+    for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(autosomal_variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+        *chr_name_end++ = '\t';
+        chr_blen = chr_name_end - chr_buf;
+      }
+      // PgrGet() reports an ALTx/ALTy heterozygote as hom-ALT, which is the
+      // best a biallelic test can do with a multiallelic variant.
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto DfamReport_ret_1;
+      }
+      ZeroTrailingNyps(sample_ct, genovec);
+      // Mendel errors are set to missing before the test, as in PLINK 1.x.
+      // EraseMendelErrors() is not reused here because it may read genotypes
+      // it has already erased, so that erasing a parent changes the verdict
+      // for that parent's other children; PLINK 1.x reads every trio from the
+      // unmodified genotypes, and --dfam has to match it.
+      {
+        memcpy(genovec_buf, genovec, sample_ctl2 * sizeof(intptr_t));
+        const uint32_t* trio_lookup_iter = family_info.trio_lookup;
+        for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+          const uint32_t child_idx = trio_lookup_iter[0];
+          const uint32_t dad_idx = trio_lookup_iter[1];
+          const uint32_t mom_idx = trio_lookup_iter[2];
+          trio_lookup_iter = &(trio_lookup_iter[3]);
+          const uint32_t child_geno = GetNyparrEntry(genovec_buf, child_idx);
+          if (child_geno == 3) {
+            continue;
+          }
+          const uint32_t error_result = kBiallelicMendelErrorTableAutosomalOrX[GetNyparrEntry(genovec_buf, dad_idx) + GetNyparrEntry(genovec_buf, mom_idx) * 4 + child_geno * 16];
+          if (!error_result) {
+            continue;
+          }
+          SetNyparrEntryTo3(child_idx, genovec);
+          if (error_result & 0x100) {
+            SetNyparrEntryTo3(dad_idx, genovec);
+          }
+          if (error_result & 0x10000) {
+            SetNyparrEntryTo3(mom_idx, genovec);
+          }
+        }
+      }
+      const uint32_t* group_iter = group_data;
+      int32_t twice_numer = 0;
+      uint32_t quad_denom = 0;
+      uint32_t total_ct = 0;
+      uint32_t twice_total_expected = 0;
+      double numer = 0.0;
+      double denom = 0.0;
+      double total_expected = 0.0;
+      for (uint32_t group_idx = 0; group_idx != all_case_family_ct; ++group_idx) {
+        const uint32_t paternal_idx = *group_iter++;
+        const uint32_t maternal_idx = *group_iter++;
+        const uint32_t child_ct = *group_iter++;
+        const uint32_t parental_alt_ct = kDfamParentalAlleleCtTable[GetNyparrEntry(genovec, paternal_idx) * 4 + GetNyparrEntry(genovec, maternal_idx)];
+        if (!parental_alt_ct) {
+          group_iter = &(group_iter[child_ct]);
+          continue;
+        }
+        uint32_t cur_case_ct = 0;
+        uint32_t case_alt_ct = 0;
+        for (uint32_t uii = 0; uii != child_ct; ++uii) {
+          const uint32_t cur_geno = GetNyparrEntry(genovec, *group_iter++);
+          if (cur_geno == 3) {
+            continue;
+          }
+          ++cur_case_ct;
+          case_alt_ct += cur_geno;
+        }
+        if (cur_case_ct) {
+          twice_numer += S_CAST(int32_t, 2 * case_alt_ct) - S_CAST(int32_t, cur_case_ct * parental_alt_ct);
+          quad_denom += (2 - (parental_alt_ct & 1)) * cur_case_ct;
+          total_ct += case_alt_ct;
+          twice_total_expected += cur_case_ct * parental_alt_ct;
+        }
+      }
+      for (uint32_t group_idx = 0; group_idx != mixed_family_ct; ++group_idx) {
+        const uint32_t paternal_idx = *group_iter++;
+        const uint32_t maternal_idx = *group_iter++;
+        const uint32_t sib_ct = *group_iter++;
+        const uint32_t parental_alt_ct = kDfamParentalAlleleCtTable[GetNyparrEntry(genovec, paternal_idx) * 4 + GetNyparrEntry(genovec, maternal_idx)];
+        uint32_t cur_case_ct = 0;
+        uint32_t cur_ctrl_ct = 0;
+        uint32_t case_hom_alt_ct = 0;
+        uint32_t case_het_ct = 0;
+        uint32_t ctrl_hom_alt_ct = 0;
+        uint32_t ctrl_het_ct = 0;
+        for (uint32_t uii = 0; uii != sib_ct; ++uii) {
+          const uint32_t sample_idx = *group_iter++;
+          const uint32_t cur_geno = GetNyparrEntry(genovec, sample_idx);
+          if (cur_geno == 3) {
+            continue;
+          }
+          if (IsSet(case_collapsed, sample_idx)) {
+            ++cur_case_ct;
+            case_hom_alt_ct += (cur_geno == 2);
+            case_het_ct += (cur_geno == 1);
+          } else {
+            ++cur_ctrl_ct;
+            ctrl_hom_alt_ct += (cur_geno == 2);
+            ctrl_het_ct += (cur_geno == 1);
+          }
+        }
+        if (!cur_case_ct) {
+          continue;
+        }
+        if (!parental_alt_ct) {
+          DfamSibshipCalc(cur_case_ct, case_hom_alt_ct, case_het_ct, cur_ctrl_ct, ctrl_hom_alt_ct, ctrl_het_ct, &total_ct, &numer, &denom, &total_expected);
+        } else {
+          const uint32_t case_alt_ct = 2 * case_hom_alt_ct + case_het_ct;
+          twice_numer += S_CAST(int32_t, 2 * case_alt_ct) - S_CAST(int32_t, cur_case_ct * parental_alt_ct);
+          quad_denom += (2 - (parental_alt_ct & 1)) * (cur_case_ct + cur_ctrl_ct);
+          total_ct += case_alt_ct;
+          twice_total_expected += cur_case_ct * parental_alt_ct;
+        }
+      }
+      numer += 0.5 * S_CAST(double, twice_numer);
+      denom += 0.25 * u31tod(quad_denom);
+      total_expected += 0.5 * u31tod(twice_total_expected);
+      for (uint32_t group_idx = 0; group_idx != mixed_sibship_ct; ++group_idx) {
+        const uint32_t sib_ct = *group_iter++;
+        uint32_t cur_case_ct = 0;
+        uint32_t cur_ctrl_ct = 0;
+        uint32_t case_hom_alt_ct = 0;
+        uint32_t case_het_ct = 0;
+        uint32_t ctrl_hom_alt_ct = 0;
+        uint32_t ctrl_het_ct = 0;
+        for (uint32_t uii = 0; uii != sib_ct; ++uii) {
+          const uint32_t sample_idx = *group_iter++;
+          const uint32_t cur_geno = GetNyparrEntry(genovec, sample_idx);
+          if (cur_geno == 3) {
+            continue;
+          }
+          if (IsSet(case_collapsed, sample_idx)) {
+            ++cur_case_ct;
+            case_hom_alt_ct += (cur_geno == 2);
+            case_het_ct += (cur_geno == 1);
+          } else {
+            ++cur_ctrl_ct;
+            ctrl_hom_alt_ct += (cur_geno == 2);
+            ctrl_het_ct += (cur_geno == 1);
+          }
+        }
+        if (!cur_case_ct) {
+          continue;
+        }
+        DfamSibshipCalc(cur_case_ct, case_hom_alt_ct, case_het_ct, cur_ctrl_ct, ctrl_hom_alt_ct, ctrl_het_ct, &total_ct, &numer, &denom, &total_expected);
+      }
+      for (uint32_t group_idx = 0; group_idx != unrelated_cluster_ct; ++group_idx) {
+        const uint32_t cluster_size = *group_iter++;
+        uint32_t cur_case_ct = 0;
+        uint32_t cur_ctrl_ct = 0;
+        uint32_t case_hom_alt_ct = 0;
+        uint32_t case_het_ct = 0;
+        uint32_t ctrl_hom_alt_ct = 0;
+        uint32_t ctrl_het_ct = 0;
+        for (uint32_t uii = 0; uii != cluster_size; ++uii) {
+          const uint32_t sample_idx = *group_iter++;
+          const uint32_t cur_geno = GetNyparrEntry(genovec, sample_idx);
+          if (cur_geno == 3) {
+            continue;
+          }
+          if (IsSet(case_collapsed, sample_idx)) {
+            ++cur_case_ct;
+            case_hom_alt_ct += (cur_geno == 2);
+            case_het_ct += (cur_geno == 1);
+          } else {
+            ++cur_ctrl_ct;
+            ctrl_hom_alt_ct += (cur_geno == 2);
+            ctrl_het_ct += (cur_geno == 1);
+          }
+        }
+        const uint32_t case_alt_ct = 2 * case_hom_alt_ct + case_het_ct;
+        const uint32_t hom_alt_ct = case_hom_alt_ct + ctrl_hom_alt_ct;
+        const uint32_t het_ct = case_het_ct + ctrl_het_ct;
+        const uint32_t nonmissing_ct = cur_case_ct + cur_ctrl_ct;
+        if ((nonmissing_ct <= 1) || ((!hom_alt_ct) && (!het_ct)) || (hom_alt_ct == nonmissing_ct) || (het_ct == nonmissing_ct)) {
+          continue;
+        }
+        total_ct += case_alt_ct;
+        if ((!cur_case_ct) || (!cur_ctrl_ct)) {
+          total_expected += u31tod(case_alt_ct);
+          continue;
+        }
+        const double nonmissing_ctd = u31tod(nonmissing_ct);
+        const double case_proportion = u31tod(cur_case_ct) / nonmissing_ctd;
+        const uint32_t cluster_alt_ct = 2 * hom_alt_ct + het_ct;
+        const double case_expected_alt_ct = case_proportion * u31tod(cluster_alt_ct);
+        const double case_var_alt_ct = case_expected_alt_ct * u31tod(2 * nonmissing_ct - cluster_alt_ct) * u31tod(cur_ctrl_ct) / (nonmissing_ctd * (2 * nonmissing_ctd - 1));
+        numer += u31tod(case_alt_ct) - case_expected_alt_ct;
+        denom += case_var_alt_ct;
+        total_expected += case_expected_alt_ct;
+      }
+      if (chr_col) {
+        cswritep = memcpya(cswritep, chr_buf, chr_blen);
+      }
+      if (variant_bps) {
+        cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      }
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      if (ref_col || alt1_col || alt_col) {
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+        const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        if (ref_col) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, cur_alleles[0]);
+        }
+        if (alt1_col) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, cur_alleles[1]);
+        }
+        if (alt_col) {
+          *cswritep++ = '\t';
+          for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+            if (unlikely(Cswrite(&css, &cswritep))) {
+              goto DfamReport_ret_WRITE_FAIL;
+            }
+            cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+          }
+          --cswritep;
+        }
+      }
+      if (provref_col) {
+        *cswritep++ = '\t';
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
+      if (obs_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(total_ct, cswritep);
+      }
+      if (exp_col) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(total_expected, cswritep);
+      }
+      if (denom == 0.0) {
+        if (chisq_col) {
+          cswritep = strcpya_k(cswritep, "\tNA");
+        }
+        if (p_col) {
+          cswritep = strcpya_k(cswritep, "\tNA");
+        }
+      } else {
+        const double chisq = numer * numer / denom;
+        if (chisq_col) {
+          *cswritep++ = '\t';
+          cswritep = dtoa_g(chisq, cswritep);
+        }
+        if (p_col) {
+          *cswritep++ = '\t';
+          cswritep = lntoa_g(ChisqToLnP(chisq, 1), cswritep);
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto DfamReport_ret_WRITE_FAIL;
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / autosomal_variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, autosomal_variant_ct)) / 100;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto DfamReport_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+    logprintfww("--dfam report written to %s .\n", outname);
+  }
+  while (0) {
+  DfamReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  DfamReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  DfamReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ DfamReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 #ifdef __cplusplus
