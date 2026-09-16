@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "plink2_family.h"
+#include "include/plink2_highprec.h"
+#include "include/plink2_stats.h"
 
 #include <assert.h>
 
@@ -1252,6 +1254,423 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
     break;
   }
   THREAD_RETURN;
+}
+
+void InitTdt(TdtInfo* tdt_info_ptr) {
+  tdt_info_ptr->flags = kfTdt0;
+}
+
+// Two-sided exact binomial test with p = 1/2, which is what --tdt 'exact'
+// performs: under the null, a heterozygous parent transmits either allele with
+// equal probability, so the transmitted counts are Binomial(T + U, 1/2).
+// Returns ln(p).
+//
+// The distribution is symmetric, so the two-sided p-value is twice the lower
+// tail through min(T, U).  Summing down from that endpoint keeps the largest
+// term first and lets the loop stop as soon as the remainder is negligible,
+// which matters because T + U grows with the sample.
+double TdtExactLnP(uint32_t tt, uint32_t uu, uint32_t midp) {
+  const uint32_t nn = tt + uu;
+  if (!nn) {
+    return 0.0;
+  }
+  const uint32_t mm = MINV(tt, uu);
+  const double nn_d = u31tod(nn);
+  if (tt == uu) {
+    // The two tails meet at a single point instead of straddling two, so the
+    // doubling below would count the tie twice.  Without the mid-p adjustment
+    // the tails already cover everything, i.e. p = 1.
+    if (!midp) {
+      return 0.0;
+    }
+    const double ln_central = Lfact(nn_d) - 2 * Lfact(u31tod(mm)) - nn_d * kLn2;
+    return log1p(-0.5 * exp(ln_central));
+  }
+  const double ln_max_term = Lfact(nn_d) - Lfact(u31tod(mm)) - Lfact(u31tod(nn - mm)) - nn_d * kLn2;
+  double rel_sum = midp? 0.5 : 1.0;
+  double cur = 1.0;
+  for (uint32_t ii = mm; ii; --ii) {
+    cur *= u31tod(ii) / u31tod(nn - ii + 1);
+    if (cur < rel_sum * kSmallEpsilon) {
+      break;
+    }
+    rel_sum += cur;
+  }
+  const double ln_p = kLn2 + ln_max_term + log(rel_sum);
+  return MINV(ln_p, 0.0);
+}
+
+// --tdt: transmission disequilibrium test.  For each variant, count the
+// alleles heterozygous parents transmit to their affected children; under the
+// null the two alleles are transmitted equally often.
+//
+// PLINK 1.x runs a Mendel error check first and treats offending genotypes as
+// missing.  That is not needed here: a Mendel-inconsistent trio leaves the
+// transmitted allele undetermined, so the switch below has nowhere to put it
+// and the trio is skipped, which is the same outcome.
+PglErr TdtReport(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const TdtInfo* tip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
+      logerrputs("Error: --tdt cannot be used on haploid genomes.\n");
+      goto TdtReport_ret_INCONSISTENT_INPUT;
+    }
+    // The transmitted allele is only defined for a diploid parent pair, and
+    // chrX would need the male-hemizygous handling --glm performs, so only
+    // diploid chromosomes are in scope for now.
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    // Pick the case/control phenotype, as PLINK 1.x's --tdt requires one.
+    const PhenoCol* cc_pheno_col = nullptr;
+    const char* cc_pheno_name = nullptr;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+        cc_pheno_col = &(pheno_cols[pheno_idx]);
+        cc_pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
+        break;
+      }
+    }
+    if (unlikely(!cc_pheno_col)) {
+      logerrputs("Error: --tdt requires a case/control phenotype.\n");
+      goto TdtReport_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* trio_sample_include;
+    uint32_t* trio_sample_include_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &trio_sample_include) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &trio_sample_include_cumulative_popcounts))) {
+      goto TdtReport_ret_NOMEM;
+    }
+    FamilyInfo family_info;
+    PreinitFamilyInfo(&family_info);
+    // Duos are excluded: with one parent unobserved the transmission from the
+    // other is not identifiable.
+    uint32_t sample_ct = orig_sample_ct;
+    reterr = GetTriosAndFamilies(orig_sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, kfTrio0, &sample_ct, trio_sample_include, &family_info);
+    if (unlikely(reterr)) {
+      goto TdtReport_ret_1;
+    }
+    if (unlikely(!family_info.trio_ct)) {
+      logerrputs("Error: --tdt requires at least one trio.\n");
+      goto TdtReport_ret_INCONSISTENT_INPUT;
+    }
+    FillCumulativePopcounts(trio_sample_include, raw_sample_ctl, trio_sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(trio_sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    // Only affected children contribute.  Collapse the phenotype onto the trio
+    // subset once, rather than re-testing per variant.
+    const uint32_t trio_ct = family_info.trio_ct;
+    const uint32_t* trio_lookup = family_info.trio_lookup;
+    uint32_t* case_trio_lookup;
+    if (unlikely(bigstack_alloc_u32(3 * S_CAST(uintptr_t, trio_ct), &case_trio_lookup))) {
+      goto TdtReport_ret_NOMEM;
+    }
+    uint32_t case_trio_ct = 0;
+    {
+      const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+      uintptr_t* cc_nonmiss_collapsed;
+      uintptr_t* cc_val_collapsed;
+      if (unlikely(bigstack_alloc_w(sample_ctl, &cc_nonmiss_collapsed) ||
+                   bigstack_alloc_w(sample_ctl, &cc_val_collapsed))) {
+        goto TdtReport_ret_NOMEM;
+      }
+      CopyBitarrSubset(cc_pheno_col->nonmiss, trio_sample_include, sample_ct, cc_nonmiss_collapsed);
+      CopyBitarrSubset(cc_pheno_col->data.cc, trio_sample_include, sample_ct, cc_val_collapsed);
+      for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+        const uint32_t child_idx = trio_lookup[trio_idx * 3];
+        if (IsSet(cc_nonmiss_collapsed, child_idx) && IsSet(cc_val_collapsed, child_idx)) {
+          case_trio_lookup[case_trio_ct * 3] = child_idx;
+          case_trio_lookup[case_trio_ct * 3 + 1] = trio_lookup[trio_idx * 3 + 1];
+          case_trio_lookup[case_trio_ct * 3 + 2] = trio_lookup[trio_idx * 3 + 2];
+          ++case_trio_ct;
+        }
+      }
+      BigstackReset(cc_nonmiss_collapsed);
+    }
+    if (unlikely(!case_trio_ct)) {
+      logerrputs("Error: --tdt requires at least one trio with an affected child.\n");
+      goto TdtReport_ret_INCONSISTENT_INPUT;
+    }
+    logprintf("--tdt: %u trio%s with an affected child, out of %u; using phenotype '%s'.\n", case_trio_ct, (case_trio_ct == 1)? "" : "s", trio_ct, cc_pheno_name);
+
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_w(NypCtToWordCt(sample_ct), &genovec))) {
+      goto TdtReport_ret_NOMEM;
+    }
+
+    const TdtFlags flags = tip->flags;
+    const uint32_t is_exact = (flags & (kfTdtExact | kfTdtExactMidp))? 1 : 0;
+    const uint32_t exact_midp = (flags / kfTdtExactMidp) & 1;
+    const uint32_t output_zst = (flags / kfTdtZs) & 1;
+    const uint32_t col_chrom = (flags / kfTdtColChrom) & 1;
+    const uint32_t col_pos = (flags / kfTdtColPos) & 1;
+    const uint32_t col_ref = (flags / kfTdtColRef) & 1;
+    const uint32_t col_alt = (flags / kfTdtColAlt) & 1;
+    const uint32_t col_a1 = (flags / kfTdtColA1) & 1;
+    const uint32_t col_t = (flags / kfTdtColT) & 1;
+    const uint32_t col_u = (flags / kfTdtColU) & 1;
+    const uint32_t col_nobs = (flags / kfTdtColNobs) & 1;
+    const uint32_t col_or = (flags / kfTdtColOr) & 1;
+    // The exact test does not produce a chi-square statistic.
+    const uint32_t col_chisq = ((flags / kfTdtColChisq) & 1) && (!is_exact);
+    const uint32_t col_p = (flags / kfTdtColP) & 1;
+    const uint32_t provref_col = ((flags & kfTdtColProvref) || ((flags & kfTdtColMaybeprovref) && ProvrefCol(variant_include, nonref_flags, flags / kfTdtColProvref, raw_variant_ct, 1))) && (col_ref || col_alt);
+
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto TdtReport_ret_NOMEM;
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    OutnameZstSet(".tdt", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto TdtReport_ret_1;
+    }
+    *cswritep++ = '#';
+    if (col_chrom) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (col_pos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (col_ref) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (col_alt) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (col_a1) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (col_t) {
+      cswritep = strcpya_k(cswritep, "\tT");
+    }
+    if (col_u) {
+      cswritep = strcpya_k(cswritep, "\tU");
+    }
+    if (col_nobs) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
+    }
+    if (col_or) {
+      cswritep = strcpya_k(cswritep, "\tOR");
+    }
+    if (col_chisq) {
+      cswritep = strcpya_k(cswritep, "\tCHISQ");
+    }
+    if (col_p) {
+      cswritep = strcpya_k(cswritep, "\tP");
+    }
+    AppendBinaryEoln(&cswritep);
+
+    uint32_t skipped_variant_ct = 0;
+    uint32_t written_ct = 0;
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    fputs("--tdt: 0%", stdout);
+    fflush(stdout);
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+        *chr_name_end = '\t';
+        chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+      }
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (IsSet(cip->haploid_mask, chr_idx) || (chr_idx == x_code)) {
+        ++skipped_variant_ct;
+        continue;
+      }
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base != 2) {
+          // The transmission table below is written in terms of two alleles.
+          ++skipped_variant_ct;
+          continue;
+        }
+      }
+      reterr = PgrGet(trio_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto TdtReport_ret_1;
+      }
+      uint32_t tt = 0;
+      uint32_t uu = 0;
+      for (uint32_t trio_idx = 0; trio_idx != case_trio_ct; ++trio_idx) {
+        const uint32_t cc = GetNyparrEntry(genovec, case_trio_lookup[trio_idx * 3]);
+        if (cc == 3) {
+          continue;
+        }
+        const uint32_t ff = GetNyparrEntry(genovec, case_trio_lookup[trio_idx * 3 + 1]);
+        if (ff == 3) {
+          continue;
+        }
+        const uint32_t mm = GetNyparrEntry(genovec, case_trio_lookup[trio_idx * 3 + 2]);
+        if (mm == 3) {
+          continue;
+        }
+        // Genotypes are ALT dosages.  Writing tf and tm for the ALT count each
+        // parent transmitted, tf + tm == cc, and a homozygous parent's
+        // contribution is fixed; only heterozygous parents inform the test.
+        if (ff == 1) {
+          if (mm == 1) {
+            // Both heterozygous: cc pins the pair of transmissions, except at
+            // cc == 1, where one of each was transmitted either way.
+            if (cc == 0) {
+              uu += 2;
+            } else if (cc == 2) {
+              tt += 2;
+            } else {
+              tt += 1;
+              uu += 1;
+            }
+          } else {
+            const uint32_t tm = mm / 2;
+            const uint32_t tf = cc - tm;
+            if (tf > 1) {
+              // Mendel error: undetermined, so drop the trio.
+              continue;
+            }
+            tt += tf;
+            uu += 1 - tf;
+          }
+        } else if (mm == 1) {
+          const uint32_t tf = ff / 2;
+          const uint32_t tm = cc - tf;
+          if (tm > 1) {
+            continue;
+          }
+          tt += tm;
+          uu += 1 - tm;
+        }
+        // Both parents homozygous: no heterozygous transmission to count.
+      }
+      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen * col_chrom);
+      if (col_pos) {
+        cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      }
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      if (col_ref) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base]);
+      }
+      if (col_alt) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + 1]);
+      }
+      if (provref_col) {
+        *cswritep++ = '\t';
+        *cswritep++ = (nonref_flags && IsSet(nonref_flags, variant_uidx))? 'Y' : 'N';
+      }
+      if (col_a1) {
+        // T and U count the ALT allele.
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + 1]);
+      }
+      if (col_t) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(tt, cswritep);
+      }
+      if (col_u) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(uu, cswritep);
+      }
+      if (col_nobs) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(tt + uu, cswritep);
+      }
+      if (col_or) {
+        *cswritep++ = '\t';
+        if (uu && tt) {
+          cswritep = dtoa_g(u31tod(tt) / u31tod(uu), cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      const uint32_t nn = tt + uu;
+      if (col_chisq) {
+        *cswritep++ = '\t';
+        if (nn) {
+          const double diff = u31tod(tt) - u31tod(uu);
+          cswritep = dtoa_g(diff * diff / u31tod(nn), cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      if (col_p) {
+        *cswritep++ = '\t';
+        if (!nn) {
+          cswritep = strcpya_k(cswritep, "NA");
+        } else {
+          double ln_pval;
+          if (is_exact) {
+            ln_pval = TdtExactLnP(tt, uu, exact_midp);
+          } else {
+            const double diff = u31tod(tt) - u31tod(uu);
+            ln_pval = ChisqToLnP(diff * diff / u31tod(nn), 1);
+          }
+          cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto TdtReport_ret_WRITE_FAIL;
+      }
+      ++written_ct;
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto TdtReport_ret_WRITE_FAIL;
+    }
+    fputs("\b\b\b", stdout);
+    logprintfww("--tdt: Results for %u variant%s written to %s .\n", written_ct, (written_ct == 1)? "" : "s", outname);
+    if (skipped_variant_ct) {
+      logprintf("(%u multiallelic and/or non-diploid-chromosome variant%s skipped.)\n", skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
+    }
+  }
+  while (0) {
+  TdtReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  TdtReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  TdtReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ TdtReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const MendelInfo* mip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t generate_reports, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* outer_sample_include, uintptr_t* variant_include, char* outname, char* outname_end) {

@@ -110,17 +110,48 @@ typedef struct FamilyStruct {
 } FamilyInfo;
 
 FLAGSET_DEF_START()
+  kfTdt0,
+  kfTdtZs = (1 << 0),
+  kfTdtExact = (1 << 1),
+  kfTdtExactMidp = (1 << 2),
+
+  kfTdtColChrom = (1 << 3),
+  kfTdtColPos = (1 << 4),
+  kfTdtColRef = (1 << 5),
+  kfTdtColAlt = (1 << 6),
+  kfTdtColMaybeprovref = (1 << 7),
+  kfTdtColProvref = (1 << 8),
+  kfTdtColA1 = (1 << 9),
+  kfTdtColT = (1 << 10),
+  kfTdtColU = (1 << 11),
+  kfTdtColNobs = (1 << 12),
+  kfTdtColOr = (1 << 13),
+  kfTdtColChisq = (1 << 14),
+  kfTdtColP = (1 << 15),
+  kfTdtColDefault = (kfTdtColChrom | kfTdtColPos | kfTdtColRef | kfTdtColAlt | kfTdtColMaybeprovref | kfTdtColA1 | kfTdtColT | kfTdtColU | kfTdtColOr | kfTdtColChisq | kfTdtColP),
+  kfTdtColAll = ((kfTdtColP * 2) - kfTdtColChrom)
+FLAGSET_DEF_END(TdtFlags);
+
+typedef struct TdtInfoStruct {
+  TdtFlags flags;
+} TdtInfo;
+
+FLAGSET_DEF_START()
   kfTrio0,
   kfTrioDuos = (1 << 0),
   kfTrioPopulateIds = (1 << 1),
   kfTrioPopulateSids = (1 << 2)
 FLAGSET_DEF_END(TrioFlags);
 
+void InitTdt(TdtInfo* tdt_info_ptr);
+
 void PreinitFamilyInfo(FamilyInfo* fip);
 
 PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, uint32_t raw_sample_ct, TrioFlags flags, uint32_t* sample_ct_ptr, uintptr_t* trio_sample_include, FamilyInfo* fip);
 
 PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const MendelInfo* mip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t generate_reports, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* sample_include, uintptr_t* variant_include, char* outname, char* outname_end);
+
+PglErr TdtReport(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const TdtInfo* tip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 // Sets Mendel-error-implicated genoarr/patch_01/patch_10 entries to missing.
 // - erase_map can be missing.  If nonmissing, it is updated with the positions
