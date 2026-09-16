@@ -91,6 +91,29 @@ HEADER_INLINE uint32_t HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t o
 
 double HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int32_t obs_m1, int32_t obs_m2, uint32_t midp);
 
+// Cauchy combination test (ACAT), Liu et al. (2019) AJHG 104:410-421.  Takes
+// and returns natural-log p-values; weights can be nullptr for equal weights.
+// Stays accurate when the inputs underflow to zero, which is the case the test
+// exists for.
+double AcatCombineLnP(const double* ln_pvals, const double* weights, uint32_t pval_ct);
+
+// P(sum_j lambdas[j] * chi^2_1 > qval), the null distribution of SKAT's
+// statistic.  DaviesQfP() is Imhof's inversion of the characteristic function
+// and returns -1 when it fails to converge; KuonenQfLnP() is the saddlepoint
+// approximation and returns a positive value (impossible for a log p-value)
+// when it does not apply.  QfMixLnP() is the usual ladder over the two, and is
+// what callers should normally use.
+double DaviesQfP(double qval, const double* lambdas, uint32_t lambda_ct, double acc);
+
+double KuonenQfLnP(double qval, const double* lambdas, uint32_t lambda_ct);
+
+double QfMixLnP(double qval, const double* lambdas, uint32_t lambda_ct);
+
+// Beta(xx; a1, a2) density.  Squared and multiplied by xx * (1 - xx) this is
+// the standard rare-variant weight, which is what makes a rarer variant count
+// for more.
+double BetaDensity(double xx, double a1, double a2);
+
 #ifdef __cplusplus
 }
 #endif
