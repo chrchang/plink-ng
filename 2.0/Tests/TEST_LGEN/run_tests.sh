@@ -49,3 +49,16 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --lgen tmp_lg.lgen --fam tmp_lg.fam --make-bed 
     echo "--lgen unexpectedly succeeded with no .map"
     exit 1
 fi
+
+
+# 7. Duplicate variant IDs are rejected rather than resolved to an arbitrary
+#    variant.  (The duplicate-tolerant hash tables flag a duplicate in the high
+#    bit of the stored index, which this lookup path would use as an index.)
+awk 'NR == 2 { $2 = "dupid" } NR == 3 { $2 = "dupid" } { print }' tmp_lg.map > tmp_dup.map
+cp tmp_lg.fam tmp_dup.fam
+cp tmp_lg.lgen tmp_dup.lgen
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --lfile tmp_dup --make-bed --out plink2_dup 2> tmp_dup_err.txt; then
+    echo "--lgen unexpectedly succeeded with duplicate variant IDs"
+    exit 1
+fi
+grep -q 'duplicate variant IDs' tmp_dup_err.txt
