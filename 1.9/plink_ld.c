@@ -5007,7 +5007,7 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
 	incr_1122 = solutions[cur_sol_idx];
         cur_lnlike = calc_lnlike(known11, known12, known21, known22, center_ct_d, freq11, freq12, freq21, freq22, half_hethet_share, incr_1122);
 	if (cur_lnlike > best_lnlike) {
-          cur_lnlike = best_lnlike;
+          best_lnlike = cur_lnlike;
           best_sol = incr_1122;
 	}
       } while (++cur_sol_idx < sol_end_idx);
@@ -13499,7 +13499,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && (fabs(cur_r2) > max_r2)) {
+	      if ((uii == best_fidx_match) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
 		best_entry_ptr = clump_entry_ptr;
@@ -13626,7 +13626,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && (fabs(cur_r2) > max_r2)) {
+	      if ((uii == best_fidx_match) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
 		best_entry_ptr = clump_entry_ptr;

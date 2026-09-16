@@ -11,7 +11,7 @@ CC ?=		gcc
 CXX ?=		g++
 CCFLAGS ?=	-Wall -Wstrict-aliasing -O2 -flto
 CXXFLAGS ?=	-Wall -Wstrict-aliasing -O2 -flto -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
-AMDFLAGS ?=     --target=x86_64-apple-macosx10.9
+AMDFLAGS ?=     --target=x86_64-apple-macosx11
 ARMFLAGS ?=     --target=arm64-apple-macos11
 CXEXTRA ?=	-DSTABLE_BUILD
 

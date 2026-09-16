@@ -122,10 +122,22 @@ test "$(grep -vc '^#' plink2_maf.hom)" -le "$(grep -vc '^#' plink2.hom)"
 # --homozyg-maf is the same flag.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-maf 0.05 --out plink2_maf2
 diff -q plink2_maf.hom plink2_maf2.hom
-if $1/plink2 $2 $3 --bfile tmp_data --homozyg --out plink2_nomaf > /dev/null 2>&1; then
-    echo "--homozyg ran without --homozyg-min-af"
+# --homozyg-min-af is only demanded when the data actually contains
+# low-frequency variants.  This fileset's lowest MAF is 0.25, so the flag is
+# optional here, and omitting it must match an explicit floor of 0.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg --out plink2_nomaf
+$1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-min-af 0 --out plink2_maf0
+diff -q plink2_nomaf.hom plink2_maf0.hom
+diff -q plink2_nomaf.hom.indiv plink2_maf0.hom.indiv
+
+# With low-frequency variants present it is demanded again.
+{ printf '400 rare 0.001 0.02 1 1\n'; printf '400 common 0.2 0.5 1 1\n'; } > tmp_rare.sim
+plink --simulate tmp_rare.sim --simulate-ncases 50 --simulate-ncontrols 50 --out tmp_rare > /dev/null
+if $1/plink2 $2 $3 --bfile tmp_rare --homozyg --out plink2_nomaf2 > /dev/null 2>&1; then
+    echo "--homozyg ran without --homozyg-min-af on a fileset with rare variants"
     exit 1
 fi
+$1/plink2 $2 $3 --bfile tmp_rare --homozyg --homozyg-min-af 0.05 --out plink2_rare
 
 # 5. Multithreading must not change the result.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-min-af 0 --threads 1 --out plink2_st
@@ -142,3 +154,53 @@ diff -q plink2.hom plink2_zs.hom
 # 7. cols= drops the columns it doesn't name.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=chrom,pos,nsnp --homozyg-min-af 0 --out plink2_cols
 head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	ID1	ID2	POS1	POS2	NSNP'
+# cols= named no .hom.indiv column, so only IID survives there.
+head -n 1 plink2_cols.hom.indiv | grep -qx '#IID'
+
+# 8. FROH: total autosomal run length over the span of the autosomal variants
+#    actually scanned.  The fixture is one chromosome, so the denominator is
+#    that chromosome's span; it is recomputed here from the .bim rather than
+#    taken from plink2.
+head -n 1 plink2.hom.indiv | grep -q 'FROH'
+awk '
+    function abs(x) { return (x < 0)? -x : x }
+    FNR == NR {
+        if (FNR == 1) { min = $4; max = $4 }
+        if ($4 < min) { min = $4 }
+        if ($4 > max) { max = $4 }
+        next
+    }
+    FNR == 1 {
+        denom = (max + 1 - min) / 1000.0
+        if (denom <= 0) { print "empty denominator"; exit 1 }
+        # Column positions depend on which optional columns are present, so
+        # they are read from the header rather than assumed.
+        for (i = 1; i <= NF; i++) {
+            name = $i
+            sub(/^#/, "", name)
+            col[name] = i
+        }
+        if (!col["KB"] || !col["FROH"] || !col["IID"]) {
+            print "missing expected column in .hom.indiv header"; exit 1
+        }
+        next
+    }
+    {
+        want = $(col["KB"]) / denom
+        if (abs($(col["FROH"]) - want) > 1e-5 + 1e-5 * abs(want)) {
+            print "FROH mismatch on " $(col["IID"]) ": " $(col["FROH"]) " vs " want
+            exit 1
+        }
+        if ($(col["FROH"]) > 0) { nonzero = 1 }
+        ++n
+    }
+    END {
+        if (n != 30) { print "expected 30 samples, saw " n; exit 1 }
+        if (!nonzero) { print "every FROH is zero"; exit 1 }
+        print n " FROH values verified"
+    }
+' tmp_data.bim plink2.hom.indiv
+
+# 9. cols= without froh drops the column.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg cols=nseg,kbtot --homozyg-min-af 0 --out plink2_nofroh
+head -n 1 plink2_nofroh.hom.indiv | grep -qx '#IID	NSEG	KB'

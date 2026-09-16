@@ -21,10 +21,13 @@
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
 #include "plink2_common.h"
+#include "plink2_random.h"
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
+
+PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const char* pheno_name, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t perm_ct, uint32_t output_zst, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end);
 
 FLAGSET_DEF_START()
   kfRecoverVarIds0,
@@ -55,7 +58,8 @@ FLAGSET_DEF_START()
   kfPhenoTransformVstdAll = (1 << 5),
   kfPhenoTransformQuantnormPheno = (1 << 6),
   kfPhenoTransformQuantnormCovar = (1 << 7),
-  kfPhenoTransformQuantnormAll = (1 << 8)
+  kfPhenoTransformQuantnormAll = (1 << 8),
+  kfPhenoTransformTailPheno = (1 << 9)
 FLAGSET_DEF_END(PhenoTransformFlags);
 
 FLAGSET_DEF_START()
@@ -254,9 +258,10 @@ FLAGSET_DEF_START()
   kfHomozygColNseg = (1 << 15),
   kfHomozygColKbtot = (1 << 16),
   kfHomozygColKbavg = (1 << 17),
-  kfHomozygColAff = (1 << 18),
-  kfHomozygColUnaff = (1 << 19),
-  kfHomozygColDefault = (kfHomozygColMaybefid | kfHomozygColMaybesid | kfHomozygColMaybepheno | kfHomozygColChrom | kfHomozygColPos | kfHomozygColKb | kfHomozygColNsnp | kfHomozygColDensity | kfHomozygColPhom | kfHomozygColPhet | kfHomozygColNseg | kfHomozygColKbtot | kfHomozygColKbavg | kfHomozygColAff | kfHomozygColUnaff),
+  kfHomozygColFroh = (1 << 18),
+  kfHomozygColAff = (1 << 19),
+  kfHomozygColUnaff = (1 << 20),
+  kfHomozygColDefault = (kfHomozygColMaybefid | kfHomozygColMaybesid | kfHomozygColMaybepheno | kfHomozygColChrom | kfHomozygColPos | kfHomozygColKb | kfHomozygColNsnp | kfHomozygColDensity | kfHomozygColPhom | kfHomozygColPhet | kfHomozygColNseg | kfHomozygColKbtot | kfHomozygColKbavg | kfHomozygColFroh | kfHomozygColAff | kfHomozygColUnaff),
   kfHomozygColAll = ((kfHomozygColUnaff * 2) - kfHomozygColMaybefid)
 FLAGSET_DEF_END(HomozygFlags);
 
@@ -486,6 +491,8 @@ PglErr UpdateVarAlleles(const uintptr_t* variant_include, const char* const* var
 
 PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* missing_varid, uint32_t raw_variant_ct, uint32_t variant_ct, RecoverVarIdsFlags flags, uint32_t max_thread_ct, char** variant_ids, uint32_t* max_variant_id_slen_ptr, char* outname, char* outname_end);
 
+PglErr MakePheno(const char* fname, const char* val_str, const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t sample_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
 PglErr AlleleAlphanumUpdate(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, AlleleAlphanumFlags flags, uint32_t max_thread_ct, char** allele_storage_mutable);
@@ -502,6 +509,8 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
 PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t max_thread_ct, uintptr_t* sex_nm, uintptr_t* sex_male);
 
 PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, PhenoTransformFlags pheno_transform_flags, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, PhenoCol** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr);
+
+PglErr PhenoTailDowncode(double tail_lt, double tail_hbt, uint32_t raw_sample_ct, uint32_t pheno_ct, PhenoCol* pheno_cols);
 
 PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_covar_flag, PhenoCol* pheno_cols);
 

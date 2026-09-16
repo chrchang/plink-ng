@@ -763,7 +763,6 @@ static double* g_ibs_test_partial_sums;
 static double* g_perm_results;
 static uintptr_t g_perm_ct;
 static double g_half_marker_ct_recip;
-static uint32_t g_load_dists;
 static unsigned char* g_generic_buf;
 
 void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t perm_ct, uintptr_t* perm_rows, uintptr_t* perm_col_buf) {
@@ -788,7 +787,7 @@ void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t perm_ct, uintptr_t* perm
   } while (perm_idx < perm_ct);
 }
 
-double fill_psbuf(uintptr_t block_size, double half_marker_ct_recip, uint32_t load_dists, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* dists, uintptr_t* col_uidxp, double* psbuf, double* ssq0p) {
+double fill_psbuf(uintptr_t block_size, double half_marker_ct_recip, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* dists, uintptr_t* col_uidxp, double* psbuf, double* ssq0p) {
   // also updates total sum and sums of squares
   double tot = 0.0;
   uintptr_t col_idx = 0;
@@ -810,11 +809,7 @@ double fill_psbuf(uintptr_t block_size, double half_marker_ct_recip, uint32_t lo
     subtot = 0.0;
     do {
       next_set_ul_unsafe_ck(pheno_nm, &col_uidx);
-      if (load_dists) {
-	dxx = dists[col_uidx];
-      } else {
-	dxx = 1.0 - dists[col_uidx] * half_marker_ct_recip;
-      }
+      dxx = 1.0 - dists[col_uidx] * half_marker_ct_recip;
       increment[sub_block_idx] = subtot - dxx;
       subtot += dxx;
       ssq[IS_SET(pheno_c, col_uidx)] += dxx * dxx;
@@ -912,7 +907,6 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   uintptr_t* perm_rows = g_perm_rows;
   double* dists = g_dists;
   double half_marker_ct_recip = g_half_marker_ct_recip;
-  uint32_t load_dists = g_load_dists;
   double ssq[3];
   double* dptr;
   double block_tot;
@@ -941,7 +935,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
       } else {
 	block_size = BITCT;
       }
-      block_tot = fill_psbuf(block_size, half_marker_ct_recip, load_dists, pheno_nm, pheno_c, dptr, &col_uidx, psptr, &(ssq[row_set]));
+      block_tot = fill_psbuf(block_size, half_marker_ct_recip, pheno_nm, pheno_c, dptr, &col_uidx, psptr, &(ssq[row_set]));
       dist_tot += block_tot;
       ibs_test_process_perms(&(perm_rows[(col_idx / BITCT) * perm_ct]), perm_ct, (block_size + 7) / 8, block_tot, psptr, perm_col_buf, perm_results);
       col_idx += block_size;
@@ -1611,7 +1605,6 @@ THREAD_RET_TYPE calc_wdist_thread(void* arg) {
   uintptr_t* masks_ptr = g_masks;
   uintptr_t* mmasks_ptr = g_mmasks;
   double* subset_weights_ptr = g_subset_weights;
-  uint32_t* subset_weights_i_ptr = g_subset_weights_i;
   uint32_t* weighted_missing_ptr = &(g_missing_tot_weights[offset]);
   uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
@@ -1619,8 +1612,7 @@ THREAD_RET_TYPE calc_wdist_thread(void* arg) {
     is_last_block = g_is_last_thread_block;
     incr_dists(dists_ptr, geno_ptr, masks_ptr, subset_weights_ptr, ulii, end_idx);
     if (is_last_block || (g_thread_spawn_ct & 1)) {
-      // subset_weights_i is stationary here
-      incr_wt_dist_missing(weighted_missing_ptr, subset_weights_i_ptr, mmasks_ptr, ulii, end_idx);
+      incr_wt_dist_missing(weighted_missing_ptr, g_subset_weights_i, mmasks_ptr, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -2694,9 +2686,10 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 }
 #endif
 
-int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
-  // g_dists and g_half_marker_ct_recip assumed to be populated by
-  // calc_distance().
+int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  // g_dists is populated either by calc_distance() or by --read-dists, and
+  // holds distances in both cases; g_half_marker_ct_recip turns one into an
+  // IBS value, and calc_distance() only sets it when it runs.
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t pheno_nm_ctl = BITCT_TO_WORDCT(pheno_nm_ct);
@@ -2746,7 +2739,13 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   double* rptr2;
 #endif
   uintptr_t perm_idx;
-  g_load_dists = read_dists_fname? 1 : 0;
+  if (read_dists_fname) {
+    // --read-dists skipped calc_distance(), so the scale factor it would have
+    // computed has to be set here.  A matrix written by --distance on this
+    // same dataset then gives exactly the same report as recalculating, which
+    // is what --read-dists promises.
+    g_half_marker_ct_recip = 0.5 / ((double)((intptr_t)marker_ct));
+  }
   g_sample_ct = sample_ct;
   perm_ct += 1; // first permutation = original config
   if (pheno_ctrl_ct < 2) {
@@ -6315,7 +6314,21 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     goto load_distance_wts_ret_READ_FAIL;
   }
   bigstack_reset(bigstack_mark);
-  marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl) - zcount;
+  // bugfix (10 Sep 2026): weight-0 variants were left in marker_include while
+  // being subtracted from marker_ct, so the caller iterated over marker_ct
+  // included variants and read main_weights[] in order.  Every weight past the
+  // first zero was then applied to the wrong variant, and the last zcount
+  // included variants were dropped from the calculation instead of the
+  // weight-0 ones.  They have to leave marker_include too; they are only in it
+  // so that a repeated ID is still caught above.
+  if (zcount) {
+    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+      if (is_set(marker_include, marker_uidx) && (main_weights_tmp[marker_uidx] == 0.0)) {
+        clear_bit(marker_uidx, marker_include);
+      }
+    }
+  }
+  marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl);
   if (!marker_ct) {
     logerrprint("Error: No valid nonzero entries in --distance-wts file.\n");
     goto load_distance_wts_ret_INVALID_FORMAT;
@@ -6334,13 +6347,9 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   }
   dptr = *main_weights_ptr;
   *marker_ct_ptr = marker_ct;
-  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++) {
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_set_unsafe_ck(marker_include, &marker_uidx);
-    dxx = main_weights_tmp[marker_uidx];
-    if (dxx != 0.0) {
-      *dptr++ = dxx;
-      marker_idx++;
-    }
+    *dptr++ = main_weights_tmp[marker_uidx];
   }
   while (0) {
   load_distance_wts_ret_NOMEM:
@@ -7804,7 +7813,6 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     if (bigstack_alloc_d(32768, &subset_weights)) {
       goto calc_distance_ret_NOMEM;
     }
-    g_subset_weights_i = wtbuf;
 #endif
     g_subset_weights = subset_weights;
   }
@@ -7965,7 +7973,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       }
     } else {
       fill_ulong_zero(sample_ct, mmasks);
-      for (ukk = 0; ukk < ujj; ukk += MULTIPLEX_DIST_EXP / 2) {
+      uint32_t parity = 0;
+      for (ukk = 0; ukk < ujj; ukk += MULTIPLEX_DIST_EXP / 2, ++parity) {
 	glptr = geno;
 	glptr2 = masks;
 	glptr3 = mmasks;
@@ -8001,8 +8010,12 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	  }
 	}
 	fill_subset_weights(subset_weights, &(main_weights[marker_idx - ujj + ukk]));
-        g_subset_weights_i = &(wtbuf[ukk]);
-	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 3) >= ujj);
+        // bugfix (13 Sep 2026): calc_wdist_thread() assumes this is advanced
+        // every other loop iteration
+        if (!parity) {
+          g_subset_weights_i = &(wtbuf[ukk]);
+        }
+	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 2) >= ujj);
 	if (spawn_threads2(threads, &calc_wdist_thread, dist_thread_ct, uii)) {
 	  goto calc_distance_ret_THREAD_CREATE_FAIL;
 	}
@@ -8140,6 +8153,11 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	giptr2 = sample_missing;
 	uii = giptr2[sample_idx];
 	for (ujj = 0; ujj < sample_idx; ujj++) {
+          /*
+          if ((sample_idx == 3) && (ujj == 0)) {
+            printf("%g %u %u %u %u %u\n", marker_weight_sum_d, marker_weight_sum, uii, *giptr2, *giptr, *iptr);
+          }
+          */
 	  *dptr2++ = (marker_weight_sum_d / ((marker_weight_sum - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
 	}
       }
@@ -8148,6 +8166,11 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	giptr2 = sample_missing;
 	uii = giptr2[sample_idx];
 	for (ujj = 0; ujj < sample_idx; ujj++) {
+          /*
+          if ((sample_idx == 3) && (ujj == 0)) {
+            printf("%g %u %u %u %u %g\n", marker_weight_sum_d, marker_weight_sum, uii, *giptr2, *giptr, *dptr2);
+          }
+          */
 	  *dptr2 *= (marker_weight_sum_d / ((marker_weight_sum - uii - (*giptr2++)) + (*giptr++)));
 	  dptr2++;
 	}

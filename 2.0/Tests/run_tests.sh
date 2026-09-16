@@ -118,9 +118,49 @@ cd TEST_SHOW_TAGS
 cd ..
 echo "TEST_SHOW_TAGS passed."
 
+cd TEST_META_ANALYSIS
+./run_tests.sh $d $2 $3 > TEST_META_ANALYSIS.log
+cd ..
+echo "TEST_META_ANALYSIS passed."
+
 cd TEST_PGEN_MALFORMED
 ./run_tests.sh $d $2 $3 > TEST_PGEN_MALFORMED.log
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
+
+cd TEST_MAKE_PHENO
+./run_tests.sh $d $2 $3 > TEST_MAKE_PHENO.log
+cd ..
+echo "TEST_MAKE_PHENO passed."
+
+cd TEST_MAKE_PERM_PHENO
+./run_tests.sh $d $2 $3 > TEST_MAKE_PERM_PHENO.log
+cd ..
+echo "TEST_MAKE_PERM_PHENO passed."
+
+cd TEST_BLOCKS
+./run_tests.sh $d $2 $3 > TEST_BLOCKS.log
+cd ..
+echo "TEST_BLOCKS passed."
+
+cd TEST_PHENO_UTILS
+./run_tests.sh $d $2 $3 > TEST_PHENO_UTILS.log
+cd ..
+echo "TEST_PHENO_UTILS passed."
+
+cd TEST_GRM_MAF
+./run_tests.sh $d $2 $3 > TEST_GRM_MAF.log
+cd ..
+echo "TEST_GRM_MAF passed."
+
+cd TEST_EPISTASIS
+./run_tests.sh $d $2 $3 > TEST_EPISTASIS.log
+cd ..
+echo "TEST_EPISTASIS passed."
+
+cd TEST_LD_SCORE_ANNOT
+./run_tests.sh $d $2 $3 > TEST_LD_SCORE_ANNOT.log
+cd ..
+echo "TEST_LD_SCORE_ANNOT passed."
 
 echo "All tests passed."

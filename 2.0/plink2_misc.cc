@@ -33,6 +33,7 @@
 #include "plink2_cmdline.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
+#include "plink2_random.h"
 #include "plink2_data.h"
 
 #ifdef __cplusplus
@@ -1736,6 +1737,198 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
   // error case...
   BigstackEndSet(alloc_end);
   BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+
+// PLINK 1.x's --make-pheno: build a case/control phenotype from a list of
+// sample IDs.  With a '*' value, every sample has a phenotype and the ones
+// named in the file are the cases; otherwise only the samples named in the
+// file have a phenotype, and the ones whose third column matches the value are
+// the cases.
+PglErr MakePheno(const char* fname, const char* val_str, const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t sample_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  // Owned by this function until the column is installed at the very end, so
+  // that a malformed file cannot leave a half-initialized phenotype behind.
+  uintptr_t* new_pheno_data = nullptr;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    if (!sample_ct) {
+      goto MakePheno_ret_1;
+    }
+    const char makepheno_name[] = "MAKEPHENO";
+    const uint32_t makepheno_name_blen = 10;
+    const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
+    const uint32_t old_pheno_ct = *pheno_ct_ptr;
+    const char* old_pheno_names = *pheno_names_ptr;
+    uintptr_t new_max_pheno_name_blen;
+    if (old_pheno_names && (makepheno_name_blen <= old_max_pheno_name_blen)) {
+      new_max_pheno_name_blen = old_max_pheno_name_blen;
+      for (uint32_t pheno_idx = 0; pheno_idx != old_pheno_ct; ++pheno_idx) {
+        if (unlikely(memequal(makepheno_name, &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]), makepheno_name_blen))) {
+          logerrputs("Error: Cannot create a new phenotype named 'MAKEPHENO', since another\nphenotype of the same name already exists.\n");
+          goto MakePheno_ret_INCONSISTENT_INPUT;
+        }
+      }
+    } else {
+      new_max_pheno_name_blen = makepheno_name_blen;
+    }
+
+    // The phenotype is filled in before the arrays are grown, so that a
+    // malformed file cannot leave a half-initialized column behind.
+    const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    if (unlikely(vecaligned_malloc(2 * raw_sample_ctaw * sizeof(intptr_t), &new_pheno_data))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    uintptr_t* pheno_nonmiss = new_pheno_data;
+    uintptr_t* pheno_cc = &(new_pheno_data[raw_sample_ctaw]);
+    ZeroWArr(2 * raw_sample_ctaw, new_pheno_data);
+    const uint32_t val_is_star = (val_str[0] == '*') && (val_str[1] == '\0');
+    if (val_is_star) {
+      memcpy(pheno_nonmiss, sample_include, raw_sample_ctl * sizeof(intptr_t));
+    }
+
+    uintptr_t* seen_xid_idxs;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(sample_ct), &seen_xid_idxs))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), 1, &txs);
+    if (unlikely(reterr)) {
+      goto MakePheno_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    XidMode xid_mode;
+    reterr = LoadXidHeader("make-pheno", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --make-pheno file.\n");
+        goto MakePheno_ret_MALFORMED_INPUT;
+      }
+      goto MakePheno_ret_TSTREAM_XID_FAIL;
+    }
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto MakePheno_ret_1;
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    if (*line_start == '#') {
+      ++line_idx;
+      line_start = TextGet(&txs);
+    }
+    const uint32_t val_slen = strlen(val_str);
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      const char* linebuf_iter = line_start;
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto MakePheno_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      if (unlikely(IsSet(seen_xid_idxs, xid_idx_start))) {
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --make-pheno file duplicates one earlier in the file.\n", line_idx);
+        goto MakePheno_ret_MALFORMED_INPUT;
+      }
+      SetBit(xid_idx_start, seen_xid_idxs);
+      uint32_t is_case = 1;
+      if (!val_is_star) {
+        // SortedXidboxReadMultifind() leaves the iterator on the delimiter
+        // which ends the last ID column.
+        const char* val_start = FirstNonTspace(linebuf_iter);
+        if (unlikely(IsEolnKns(*val_start))) {
+          goto MakePheno_ret_MISSING_TOKENS;
+        }
+        const char* val_end = CurTokenEnd(val_start);
+        is_case = (S_CAST(uintptr_t, val_end - val_start) == val_slen) && memequal(val_start, val_str, val_slen);
+      }
+      for (uint32_t xid_idx = xid_idx_start; xid_idx != xid_idx_end; ++xid_idx) {
+        const uint32_t sample_uidx = xid_map[xid_idx];
+        SetBit(sample_uidx, pheno_nonmiss);
+        if (is_case) {
+          SetBit(sample_uidx, pheno_cc);
+        }
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto MakePheno_ret_TSTREAM_FAIL;
+    }
+
+    const uint32_t new_pheno_ct = old_pheno_ct + 1;
+    char* pheno_names;
+    if (unlikely(pgl_malloc(new_pheno_ct * new_max_pheno_name_blen, &pheno_names))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    if (old_pheno_names && (old_max_pheno_name_blen == new_max_pheno_name_blen)) {
+      memcpy(pheno_names, old_pheno_names, old_pheno_ct * new_max_pheno_name_blen);
+    } else {
+      for (uint32_t pheno_idx = 0; pheno_idx != old_pheno_ct; ++pheno_idx) {
+        strcpy(&(pheno_names[pheno_idx * new_max_pheno_name_blen]), &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]));
+      }
+    }
+    memcpy(&(pheno_names[old_pheno_ct * new_max_pheno_name_blen]), makepheno_name, makepheno_name_blen);
+    free_cond(old_pheno_names);
+    *pheno_names_ptr = pheno_names;
+
+    PhenoCol* new_pheno_cols = S_CAST(PhenoCol*, realloc(*pheno_cols_ptr, new_pheno_ct * sizeof(PhenoCol)));
+    if (unlikely(!new_pheno_cols)) {
+      goto MakePheno_ret_NOMEM;
+    }
+    *pheno_cols_ptr = new_pheno_cols;
+    *pheno_ct_ptr = new_pheno_ct;
+    *max_pheno_name_blen_ptr = new_max_pheno_name_blen;
+    new_pheno_cols[old_pheno_ct].category_names = nullptr;
+    new_pheno_cols[old_pheno_ct].nonmiss = pheno_nonmiss;
+    new_pheno_cols[old_pheno_ct].data.cc = pheno_cc;
+    new_pheno_cols[old_pheno_ct].type_code = kPhenoDtypeCc;
+    new_pheno_cols[old_pheno_ct].nonnull_category_ct = 0;
+    new_pheno_data = nullptr;
+
+    BitvecAnd(sample_include, raw_sample_ctl, pheno_nonmiss);
+    BitvecAnd(pheno_nonmiss, raw_sample_ctl, pheno_cc);
+    const uint32_t case_ct = PopcountWords(pheno_cc, raw_sample_ctl);
+    const uint32_t nonmiss_ct = PopcountWords(pheno_nonmiss, raw_sample_ctl);
+    logprintf("--make-pheno: %u case%s and %u control%s.\n", case_ct, (case_ct == 1)? "" : "s", nonmiss_ct - case_ct, (nonmiss_ct - case_ct == 1)? "" : "s");
+  }
+  while (0) {
+  MakePheno_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MakePheno_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
+  MakePheno_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--make-pheno file", &txs);
+    break;
+  MakePheno_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --make-pheno file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  MakePheno_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  MakePheno_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MakePheno_ret_1:
+  vecaligned_free_cond(new_pheno_data);
+  BigstackReset(bigstack_mark);
+  CleanupTextStream2("--make-pheno file", &txs, &reterr);
   return reterr;
 }
 
@@ -3703,6 +3896,77 @@ typedef struct DblIndexStruct {
   }
 #endif
 } DblIndex;
+
+// --tail-pheno: turn every quantitative phenotype into a case/control one.
+// Values above tail_hbt are cases, values at or below tail_lt are controls,
+// and anything in between is set to missing.  PLINK 1.x had a single
+// phenotype; with several loaded, this downcodes each of them.
+//
+// The case/control bitvector is narrower than the double array it replaces and
+// lives in the same allocation, so the conversion happens in place.
+PglErr PhenoTailDowncode(double tail_lt, double tail_hbt, uint32_t raw_sample_ct, uint32_t pheno_ct, PhenoCol* pheno_cols) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* cc_buf;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cc_buf))) {
+      goto PhenoTailDowncode_ret_NOMEM;
+    }
+    uint32_t transform_ct = 0;
+    uint32_t case_ct_total = 0;
+    uint32_t ctrl_ct_total = 0;
+    uint32_t newly_missing_ct = 0;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+      if (cur_pheno_col->type_code != kPhenoDtypeQt) {
+        continue;
+      }
+      ZeroWArr(raw_sample_ctl, cc_buf);
+      uintptr_t* nonmiss = cur_pheno_col->nonmiss;
+      const double* qt = cur_pheno_col->data.qt;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t nonmiss_bits = nonmiss[0];
+      const uint32_t obs_ct = PopcountWords(nonmiss, raw_sample_ctl);
+      uint32_t case_ct = 0;
+      uint32_t ctrl_ct = 0;
+      for (uint32_t obs_idx = 0; obs_idx != obs_ct; ++obs_idx) {
+        const uintptr_t sample_uidx = BitIter1(nonmiss, &sample_uidx_base, &nonmiss_bits);
+        const double cur_val = qt[sample_uidx];
+        if (cur_val > tail_hbt) {
+          SetBit(sample_uidx, cc_buf);
+          ++case_ct;
+        } else if (cur_val <= tail_lt) {
+          ++ctrl_ct;
+        } else {
+          ClearBit(sample_uidx, nonmiss);
+          ++newly_missing_ct;
+        }
+      }
+      memcpy(cur_pheno_col->data.qt, cc_buf, raw_sample_ctl * sizeof(intptr_t));
+      cur_pheno_col->type_code = kPhenoDtypeCc;
+      case_ct_total += case_ct;
+      ctrl_ct_total += ctrl_ct;
+      ++transform_ct;
+    }
+    if (!transform_ct) {
+      logprintf("--tail-pheno: No quantitative phenotypes to downcode.\n");
+    } else {
+      logprintf("--tail-pheno: %u phenotype%s downcoded, %u case%s and %u control%s in total", transform_ct, (transform_ct == 1)? "" : "s", case_ct_total, (case_ct_total == 1)? "" : "s", ctrl_ct_total, (ctrl_ct_total == 1)? "" : "s");
+      if (newly_missing_ct) {
+        logprintf(", %u value%s set to missing", newly_missing_ct, (newly_missing_ct == 1)? "" : "s");
+      }
+      logputs(".\n");
+    }
+  }
+  while (0) {
+  PhenoTailDowncode_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
 
 PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_subset_flag, PhenoCol* pheno_cols) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -11673,6 +11937,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t col_nseg = (flags / kfHomozygColNseg) & 1;
     const uint32_t col_kbtot = (flags / kfHomozygColKbtot) & 1;
     const uint32_t col_kbavg = (flags / kfHomozygColKbavg) & 1;
+    const uint32_t col_froh = (flags / kfHomozygColFroh) & 1;
     const uint32_t col_aff = (flags / kfHomozygColAff) & 1;
     const uint32_t col_unaff = (flags / kfHomozygColUnaff) & 1;
 
@@ -11725,16 +11990,40 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     uintptr_t sample_uidx_base = 0;
     uintptr_t sample_include_bits = sample_include[0];
     double* sample_kb_tots;
-    if (unlikely(bigstack_calloc_d(sample_ct, &sample_kb_tots))) {
+    double* sample_kb_autos;
+    if (unlikely(bigstack_calloc_d(sample_ct, &sample_kb_tots) ||
+                 bigstack_calloc_d(sample_ct, &sample_kb_autos))) {
       goto HomozygReport_ret_NOMEM;
+    }
+    // FROH denominator: the span covered by the autosomal variants actually
+    // scanned, which is how the literature operationalizes "total autosomal
+    // genome length".  chrX is left out on both sides of the ratio, since it
+    // is only scanned for females and F_ROH is conventionally autosomal.
+    double autosomal_kb = 0.0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if ((chr_idx == x_code) || IsSet(cip->haploid_mask, chr_idx) || (chr_idx == mt_code)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      if (PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end) < window_size) {
+        // same skip as the scan itself
+        continue;
+      }
+      const uint32_t first_uidx = AdvBoundedTo1Bit(variant_include, chr_vidx_start, chr_vidx_end);
+      const uint32_t last_uidx = FindLast1BitBefore(variant_include, chr_vidx_end);
+      autosomal_kb += u31tod(variant_bps[last_uidx] + is_new_lengths - variant_bps[first_uidx]) / (1000.0 - kRohEpsilon);
     }
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
       const uint32_t roh_start = sample_roh_offsets[sample_idx];
       const uint32_t roh_end = sample_roh_offsets[sample_idx + 1];
       double kb_tot = 0.0;
+      double kb_auto = 0.0;
       for (uint32_t uii = roh_start; uii != roh_end; ++uii) {
         const RohRecord* cur_rec = &(roh_list[roh_order[uii]]);
+        const uint32_t cur_chr_idx = GetVariantChr(cip, cur_rec->start_uidx);
         char* write_iter = g_textbuf;
         write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
         if (col_pheno) {
@@ -11743,7 +12032,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         }
         if (col_chrom) {
           *write_iter++ = '\t';
-          write_iter = chrtoa(cip, GetVariantChr(cip, cur_rec->start_uidx), write_iter);
+          write_iter = chrtoa(cip, cur_chr_idx, write_iter);
         }
         *write_iter++ = '\t';
         write_iter = strcpyax(write_iter, variant_ids[cur_rec->start_uidx], '\t');
@@ -11755,6 +12044,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         }
         const double kb = u31tod(variant_bps[cur_rec->end_uidx] + is_new_lengths - variant_bps[cur_rec->start_uidx]) / (1000.0 - kRohEpsilon);
         kb_tot += kb;
+        if (cur_chr_idx != x_code) {
+          kb_auto += kb;
+        }
         if (col_kb) {
           *write_iter++ = '\t';
           write_iter = dtoa_g(kb, write_iter);
@@ -11782,6 +12074,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         }
       }
       sample_kb_tots[sample_idx] = kb_tot;
+      sample_kb_autos[sample_idx] = kb_auto;
     }
     if (unlikely(fclose_null(&outfile))) {
       goto HomozygReport_ret_WRITE_FAIL;
@@ -11814,6 +12107,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       if (col_kbavg) {
         write_iter = strcpya_k(write_iter, "\tKBAVG");
       }
+      if (col_froh) {
+        write_iter = strcpya_k(write_iter, "\tFROH");
+      }
       AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
         goto HomozygReport_ret_WRITE_FAIL;
@@ -11842,6 +12138,14 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       if (col_kbavg) {
         *write_iter++ = '\t';
         write_iter = dtoa_g(cur_roh_ct? (kb_tot / u31tod(cur_roh_ct)) : kb_tot, write_iter);
+      }
+      if (col_froh) {
+        *write_iter++ = '\t';
+        if (autosomal_kb == 0.0) {
+          write_iter = strcpya_k(write_iter, "NA");
+        } else {
+          write_iter = dtoa_g(sample_kb_autos[sample_idx] / autosomal_kb, write_iter);
+        }
       }
       AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
@@ -14367,6 +14671,173 @@ PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* ci
     break;
   }
   CleanupThreads(&tg);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const char* pheno_name, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t perm_ct, uint32_t output_zst, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    const PhenoCol* pheno_col = nullptr;
+    if (pheno_name) {
+      const uintptr_t name_blen = 1 + strlen(pheno_name);
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (memequal(pheno_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+          pheno_col = &(pheno_cols[pheno_idx]);
+          break;
+        }
+      }
+      if (unlikely(!pheno_col)) {
+        logerrprintfww("Error: --make-perm-pheno phenotype '%s' not found.\n", pheno_name);
+        goto MakePermPheno_ret_INCONSISTENT_INPUT;
+      }
+    } else {
+      if (unlikely(!pheno_ct)) {
+        logerrputs("Error: --make-perm-pheno requires phenotype data.\n");
+        goto MakePermPheno_ret_INCONSISTENT_INPUT;
+      }
+      if (unlikely(pheno_ct > 1)) {
+        logerrputs("Error: More than one phenotype is loaded; name the one --make-perm-pheno\nshould permute.\n");
+        goto MakePermPheno_ret_INCONSISTENT_INPUT;
+      }
+      pheno_col = &(pheno_cols[0]);
+    }
+    const uint32_t is_cc = (pheno_col->type_code == kPhenoDtypeCc);
+    if (unlikely((!is_cc) && (pheno_col->type_code != kPhenoDtypeQt))) {
+      // Categorical phenotypes may be worth supporting later.  But reasonable
+      // to wait until at least one PLINK 2 command (multinomial logistic
+      // regression?) can analyze them.
+      logerrputs("Error: --make-perm-pheno's phenotype currently must be case/control or\nquantitative.\n");
+      reterr = kPglRetNotYetSupported;
+      goto MakePermPheno_ret_1;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* nm_sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nm_sample_include))) {
+      goto MakePermPheno_ret_NOMEM;
+    }
+    BitvecAndCopy(sample_include, pheno_col->nonmiss, raw_sample_ctl, nm_sample_include);
+    const uint32_t nm_ct = PopcountWords(nm_sample_include, raw_sample_ctl);
+    if (unlikely(nm_ct < 2)) {
+      logerrputs("Error: --make-perm-pheno requires at least two samples with a nonmissing\nphenotype.\n");
+      goto MakePermPheno_ret_INCONSISTENT_INPUT;
+    }
+
+    // The values to be shuffled, in nonmissing-sample order, and the column of
+    // permuted values for one sample.  Permutations are generated one at a
+    // time and transposed into perm_vals, so that only one shuffle buffer is
+    // needed regardless of perm_ct.
+    double* base_vals;
+    double* shuffled;
+    double* perm_vals;
+    uint32_t* nm_idx_to_sample_uidx;
+    if (unlikely(bigstack_alloc_d(nm_ct, &base_vals) ||
+                 bigstack_alloc_d(nm_ct, &shuffled) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, nm_ct) * perm_ct, &perm_vals) ||
+                 bigstack_alloc_u32(nm_ct, &nm_idx_to_sample_uidx))) {
+      goto MakePermPheno_ret_NOMEM;
+    }
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = nm_sample_include[0];
+      for (uint32_t nm_idx = 0; nm_idx != nm_ct; ++nm_idx) {
+        const uintptr_t sample_uidx = BitIter1(nm_sample_include, &sample_uidx_base, &cur_bits);
+        nm_idx_to_sample_uidx[nm_idx] = sample_uidx;
+        base_vals[nm_idx] = is_cc? (IsSet(pheno_col->data.cc, sample_uidx)? 2.0 : 1.0) : pheno_col->data.qt[sample_uidx];
+      }
+    }
+    for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+      memcpy(shuffled, base_vals, nm_ct * sizeof(double));
+      // Fisher-Yates.  RandU32() is unbiased, unlike the modulo shortcut.
+      for (uint32_t uii = nm_ct - 1; uii; --uii) {
+        const uint32_t ujj = RandU32(uii + 1, sfmtp);
+        const double tmp = shuffled[uii];
+        shuffled[uii] = shuffled[ujj];
+        shuffled[ujj] = tmp;
+      }
+      for (uint32_t nm_idx = 0; nm_idx != nm_ct; ++nm_idx) {
+        perm_vals[S_CAST(uintptr_t, nm_idx) * perm_ct + perm_idx] = shuffled[nm_idx];
+      }
+    }
+
+    OutnameZstSet(".pphe", output_zst, outname_end);
+    const uint32_t omp_slen = strlen(output_missing_pheno);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + S_CAST(uintptr_t, perm_ct) * MAXV(kMaxDoubleGSlen + 1, omp_slen + 1) + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto MakePermPheno_ret_1;
+    }
+    const uint32_t write_fid = DataFidColIsRequired(sample_include, siip, sample_ct, 1);
+    const uint32_t write_sid = DataSidColIsRequired(sample_include, siip->sids, sample_ct, siip->max_sid_blen, 1);
+    *cswritep++ = '#';
+    if (write_fid) {
+      cswritep = strcpya_k(cswritep, "FID\t");
+    }
+    cswritep = strcpya_k(cswritep, "IID");
+    if (write_sid) {
+      cswritep = strcpya_k(cswritep, "\tSID");
+    }
+    for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+      cswritep = strcpya_k(cswritep, "\tPERM");
+      cswritep = u32toa(perm_idx + 1, cswritep);
+    }
+    AppendBinaryEoln(&cswritep);
+
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    uint32_t nm_idx = 0;
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+      cswritep = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
+      if (!IsSet(nm_sample_include, sample_uidx)) {
+        for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+          *cswritep++ = '\t';
+          cswritep = memcpya(cswritep, output_missing_pheno, omp_slen);
+        }
+      } else {
+        const double* cur_vals = &(perm_vals[S_CAST(uintptr_t, nm_idx) * perm_ct]);
+        for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+          *cswritep++ = '\t';
+          if (is_cc) {
+            *cswritep++ = (cur_vals[perm_idx] == 2.0)? '2' : '1';
+          } else {
+            cswritep = dtoa_g(cur_vals[perm_idx], cswritep);
+          }
+        }
+        ++nm_idx;
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto MakePermPheno_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto MakePermPheno_ret_WRITE_FAIL;
+    }
+    logprintfww("--make-perm-pheno: %u permutation%s of %u nonmissing phenotype%s written to %s .\n", perm_ct, (perm_ct == 1)? "" : "s", nm_ct, (nm_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  MakePermPheno_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MakePermPheno_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  MakePermPheno_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MakePermPheno_ret_1:
+  CswriteCloseCond(&css, cswritep);
   BigstackReset(bigstack_mark);
   return reterr;
 }
