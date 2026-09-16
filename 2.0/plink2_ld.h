@@ -193,6 +193,7 @@ typedef struct TagInfoStruct {
   NONCOPYABLE(TagInfoStruct);
   char* tag_fname;   // nullptr in 'all' mode
   uint32_t list_all;
+  uint32_t mode2;
   uint32_t bp_radius;
   uint32_t output_zst;
   double r2_thresh;
@@ -295,7 +296,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
 PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const BlocksInfo* bip, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const char* tag_fname, uint32_t list_all, uint32_t bp_radius, double r2_thresh, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const char* tag_fname, uint32_t list_all, uint32_t mode2, uint32_t bp_radius, double r2_thresh, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 // --epistasis-boost
 FLAGSET_DEF_START()
