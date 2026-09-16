@@ -157,6 +157,10 @@ cd TEST_EPISTASIS
 ./run_tests.sh $d $2 $3 > TEST_EPISTASIS.log
 cd ..
 echo "TEST_EPISTASIS passed."
+cd TEST_WRITE_VAR_RANGES
+./run_tests.sh $d $2 $3 > TEST_WRITE_VAR_RANGES.log
+cd ..
+echo "TEST_WRITE_VAR_RANGES passed."
 
 cd TEST_LD_SCORE_ANNOT
 ./run_tests.sh $d $2 $3 > TEST_LD_SCORE_ANNOT.log

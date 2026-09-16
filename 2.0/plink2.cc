@@ -251,6 +251,7 @@ ENUM_U31_DEF_START()
   kCmd1BitMissingReport,
   kCmd1BitWriteSnplist,
   kCmd1BitMakePermPheno,
+  kCmd1BitWriteVarRanges,
   kCmd1BitAlleleFreq,
   kCmd1BitGenoCounts,
   kCmd1BitHardy,
@@ -300,6 +301,7 @@ FLAGSET64_DEF_START()
   kfCommand1MissingReport = (1LLU << kCmd1BitMissingReport),
   kfCommand1WriteSnplist = (1LLU << kCmd1BitWriteSnplist),
   kfCommand1MakePermPheno = (1LLU << kCmd1BitMakePermPheno),
+  kfCommand1WriteVarRanges = (1LLU << kCmd1BitWriteVarRanges),
   kfCommand1AlleleFreq = (1LLU << kCmd1BitAlleleFreq),
   kfCommand1GenoCounts = (1LLU << kCmd1BitGenoCounts),
   kfCommand1Hardy = (1LLU << kCmd1BitHardy),
@@ -705,6 +707,7 @@ typedef struct Plink2CmdlineStruct {
   TwoColParams* update_name_flag;
   char* perm_pheno_name;
   uint32_t perm_pheno_ct;
+  uint32_t write_var_range_ct;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -3039,6 +3042,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1MakePermPheno) {
         reterr = MakePermPheno(sample_include, &pii.sii, pheno_cols, pheno_names, pcp->perm_pheno_name, pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, pcp->perm_pheno_ct, (pcp->misc_flags / kfMiscMakePermPhenoZs) & 1, pcp->max_thread_ct, sfmtp, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1WriteVarRanges) {
+        reterr = WriteVarRanges(variant_include, variant_ids, pcp->write_var_range_ct, variant_ct, (pcp->misc_flags / kfMiscWriteVarRangesZs) & 1, (pcp->misc_flags / kfMiscWriteVarRangesAllowDups) & 1, max_variant_id_slen, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -14297,7 +14307,29 @@ int main(int argc, char** argv) {
         break;
 
       case 'w':
-        if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
+        if (strequal_k_unsafe(flagname_p2, "rite-var-ranges")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 1], &pc.write_var_range_ct))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-var-ranges block count '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.misc_flags |= kfMiscWriteVarRangesZs;
+            } else if (likely(strequal_k(cur_modif, "allow-dups", cur_modif_slen))) {
+              pc.misc_flags |= kfMiscWriteVarRangesAllowDups;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-var-ranges argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1WriteVarRanges;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
