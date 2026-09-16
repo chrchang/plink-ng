@@ -438,37 +438,22 @@ FILE* MakeStreamFile(StreamState* state) {
 
 #else
 
-/* Windows has neither funopen nor fopencookie, so the object is staged into
- * an auto-deleting temporary file and that seekable handle is returned. */
+/* Windows has neither funopen nor fopencookie, and there is no way to hand
+ * MSVCRT/UCRT a FILE* backed by our own read/seek callbacks (its FILE
+ * struct is opaque and ABI-locked, unlike glibc/BSD libc). The only
+ * workaround would be silently downloading the whole object to a temp file
+ * before returning a handle, which is unacceptable: it turns a routine
+ * `--pfile s3://...` invocation into an unbounded, unannounced download that
+ * can be many times larger than expected, with no indication to the user
+ * until disk space or bandwidth runs out. So S3/HTTP streaming is disabled
+ * on Windows entirely rather than silently staging arbitrarily large
+ * objects to local disk. */
 FILE* MakeStreamFile(StreamState* state) {
-  FILE* tmp = tmpfile();
-  if (!tmp) {
-    SetError("%s: could not create a temporary file", state->display.c_str());
-    delete state;
-    return nullptr;
-  }
-  while ((state->file_size < 0) || (state->pos < state->file_size)) {
-    if (!FetchChunk(state, state->pos)) {
-      fclose(tmp);
-      delete state;
-      return nullptr;
-    }
-    if (state->buf_start == state->buf_end) {
-      break;
-    }
-    const size_t n = static_cast<size_t>(state->buf_end - state->buf_start);
-    if (fwrite(state->buf.data(), 1, n, tmp) != n) {
-      SetError("%s: could not write to the temporary file",
-               state->display.c_str());
-      fclose(tmp);
-      delete state;
-      return nullptr;
-    }
-    state->pos = state->buf_end;
-  }
+  SetError(
+      "%s: S3/HTTP streaming is not supported on Windows (see S3_README.md)",
+      state->display.c_str());
   delete state;
-  rewind(tmp);
-  return tmp;
+  return nullptr;
 }
 
 #endif

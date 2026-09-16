@@ -164,7 +164,43 @@ hint in the error response is followed automatically.
 **Reads are sequential-friendly.** Data is fetched in 8 MiB chunks. `fseek`
 within the current chunk is free; seeking outside it costs one request.
 
-## Deliberate limitations
+## Windows is not supported
+
+**S3/HTTP streaming does not work on Windows, full stop, and there is no
+planned workaround.** `s3stream_open()` always fails on Windows builds with a
+clear error message; local files are unaffected.
+
+The reason is structural, not a missing feature: reads need to be served
+lazily and support seeking, which on Linux and macOS/BSD is done by handing
+libc a `FILE*` backed by our own read/seek callbacks (`fopencookie` /
+`funopen`). MSVCRT/UCRT has no equivalent hook — its `FILE` struct is opaque
+and ABI-locked, so there is no supported way to intercept `fread`/`fseek`
+with custom logic while still returning a real `FILE*`. The only way to get a
+seekable local handle without that hook is to download the entire remote
+object to a temporary file before returning it, which a prior version of this
+code did. That workaround has been removed: silently turning a routine
+`--pfile s3://...` invocation into an unbounded, unannounced download —
+potentially far larger than the user expects, with no way to know until disk
+space or bandwidth runs out — is not an acceptable default. Genuinely lazy
+streaming on Windows would require either depending on a POSIX-emulation
+runtime (Cygwin/MSYS2's `newlib`-based CRT, which does support `funopen`, but
+pulls in `cygwin1.dll`/`msys-2.0.dll` and drops the dependency-free native
+`.exe`) or a virtual-filesystem layer (Windows ProjFS/Cloud Filter API, the
+mechanism OneDrive uses for placeholder files) — both far outside the scope
+of this project's old-school, single-translation-unit-friendly design.
+
+Windows isn't the only one to blame here, though. This is also a self-inflicted
+consequence of plink2's own age: its I/O layer is built directly on raw C
+`FILE*`/`fread`/`fseek` throughout the codebase, rather than behind an
+abstract stream interface (the way a modern C++ library would define a
+`Reader`/`Seekable` interface with virtual dispatch and plug in an S3-backed
+implementation directly, no libc cooperation required). Because every call
+site expects a genuine `FILE*`, the S3 layer has no choice but to fight libc
+on its own terms platform by platform. A rewrite around such an abstraction
+would sidestep this whole class of problem, but that is a much larger
+undertaking than adding S3 support was, and is out of scope here.
+
+## Not planned
 
 Supporting these would require substantially more machinery than the
 workaround costs, so they are out of scope:
@@ -180,12 +216,20 @@ workaround costs, so they are out of scope:
   On EKS specifically, the node's instance role is picked up via IMDSv2
   without any extra step, as long as the pod can reach the metadata service.
 
-- **Writing to S3.** Output is always local.
 - **S3 Access Points, Multi-Region Access Points, Outposts, S3 Express One
   Zone, dualstack and FIPS endpoints.**
+
+## Not yet implemented
+
+No architectural blocker; these are just missing plumbing:
+
+- **Writing to S3.** Output is always local. May be added in the future.
+- **Requester-pays buckets.** Needs an `x-amz-request-payer: requester`
+  header on every request.
 - **SSE-C.** Server-side encryption with S3- or KMS-managed keys is
-  transparent and works normally.
-- **Requester-pays buckets.**
+  transparent and works normally; only customer-supplied keys, which require
+  sending the key material on each request, are unsupported.
+- **`ExpectedBucketOwner`.**
 
 ## Implementation
 
@@ -200,8 +244,9 @@ an adapter that maps plink2's types onto it.
 | `s3stream/s3stream_creds.cc` | Credential chain |
 | `s3stream/s3stream_http.cc` | Requests, signing, retries |
 
-The `FILE*` returned by `s3stream_open()` is backed by `fopencookie` on Linux,
-`funopen` on macOS/BSD, and a temporary file on Windows, which has neither.
+The `FILE*` returned by `s3stream_open()` is backed by `fopencookie` on Linux
+and `funopen` on macOS/BSD. On Windows it always returns `nullptr` with an
+error — see [Windows is not supported](#windows-is-not-supported).
 
 Build without `S3STREAM_ENABLE` and the module compiles to stubs that reject
 remote paths with a clear message, so callers need no `#ifdef`s.
