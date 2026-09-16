@@ -773,18 +773,19 @@ uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
 
 // LoadAlleleAndGenoCounts() can tally per-sample missingness for autosomal
 // biallelic variants as a side effect of the pass it already makes.  It does
-// not do so for chrX, chrY or haploid chromosomes, where the counts need sex
-// and hethap handling; this collects those variants so LoadSampleMissingCts()
-// can cover them in a much smaller pass.
+// not do so for haploid chromosomes (including chrX), where the counts need
+// sex and hethap handling; this collects those variants so
+// LoadSampleMissingCts() can cover them in a much smaller pass.
+//
+// This should be moved to plink2_common if any other module wants it.
 uint32_t FillNonAutosomalVariants(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uintptr_t* dst) {
   const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
   ZeroWArr(raw_variant_ctl, dst);
-  const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
-  const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   const uint32_t chr_ct = cip->chr_ct;
   for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
     const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-    if ((chr_idx != x_code) && (chr_idx != y_code) && (!IsSet(cip->haploid_mask, chr_idx))) {
+    // Could special-case chrX if caller might clear that haploid_mask bit.
+    if (!IsSet(cip->haploid_mask, chr_idx)) {
       continue;
     }
     const uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
