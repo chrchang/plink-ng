@@ -1345,8 +1345,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Check each variant's missing calls for association with the flanking\n"
 "    haplotypes, as PLINK 1.x does.  A significant result usually indicates a\n"
 "    genotyping artifact rather than random dropout.\n"
-"    * Variants with fewer than 5 missing calls are skipped, as are\n"
-"      multiallelic variants and haploid chromosomes.\n"
+"    * Variants with fewer than 5 missing calls are skipped, as are haploid\n"
+"      chromosomes.\n"
+"    * Multiallelic variants are handled as major allele vs. the rest; the\n"
+"      pooled nonmajor alleles are written as '.' in HAPLOTYPE.\n"
 "    * Haplotypes with frequency below the --maf threshold are omitted; the\n"
 "      HETERO row reports flanking heterozygosity instead of a haplotype.\n\n"
               );

@@ -16593,8 +16593,10 @@ static char* TestMishapWriteLine(const char* variant_id, const char* prev_aptr, 
   return cswritep;
 }
 
-// PgrGetInv1() counts maj_alleles[]; the report has to name that allele, and
-// for a multiallelic variant the collapsed side has no single name.
+// PgrGetInv1() counts maj_alleles[], so a multiallelic variant is handled as
+// major vs. rest, like PLINK 2's other LD commands.  HAPLOTYPE concatenates
+// two allele names with no separator, as PLINK 1.x does, so the pooled side is
+// written as "." rather than as a comma-separated list.
 void TestMishapAlleleNames(const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, uint32_t variant_uidx, const char** a1_ptr, const char** a2_ptr) {
   const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * S_CAST(uintptr_t, variant_uidx));
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
@@ -16603,7 +16605,7 @@ void TestMishapAlleleNames(const uintptr_t* allele_idx_offsets, const char* cons
   *a2_ptr = (allele_ct == 2)? allele_storage[allele_idx_offset_base + 1 - maj_aidx] : ".";
 }
 
-PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* sample_include, TestMishapFlags flags, double min_maf, double output_min_ln, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* sample_include, TestMishapFlags flags, double min_maf, double output_min_ln, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -16624,8 +16626,6 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       goto TestMishap_ret_NOMEM;
     }
     memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
-    // The haplotype tables below are biallelic by construction, and PLINK 1.x
-    // had no multiallelic representation to begin with.
     // The flanking-haplotype model has no hemizygous case, so PLINK 1.x skips
     // haploid chromosomes outright.
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
@@ -16667,7 +16667,10 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
 
     const uint32_t output_zst = (flags / kfTestMishapZs) & 1;
     OutnameZstSet(".missing.hap", output_zst, outname_end);
-    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
+    // Longest line: the ID, a two-allele haplotype, both flanking IDs, and the
+    // numeric fields.
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 3 * S_CAST(uintptr_t, max_variant_id_slen) + 2 * S_CAST(uintptr_t, max_allele_slen) + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto TestMishap_ret_1;
     }

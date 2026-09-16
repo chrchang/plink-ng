@@ -66,3 +66,15 @@ done
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --test-mishap zs --out plink2_zs
 $BUILD/plink2 $EXTRA1 $EXTRA2 --zst-decompress plink2_zs.missing.hap.zst > plink2_zs.missing.hap
 diff -q plink2.missing.hap plink2_zs.missing.hap
+
+# 6. Multiallelic variants are handled as major vs. rest: a fileset whose
+#    nonmajor alleles have been merged into one gives the same numbers.  Only
+#    HAPLOTYPE differs ('.' for the pooled side, and the row order when pooling
+#    makes the rest outnumber the old major allele), so the rows are compared
+#    as sorted sets without that column.
+awk -f make_multi_vcf.awk
+$BUILD/plink2 $EXTRA1 $EXTRA2 --vcf tmp_multi.vcf --test-mishap --out plink2_multi
+$BUILD/plink2 $EXTRA1 $EXTRA2 --vcf tmp_pooled.vcf --test-mishap --out plink2_pooled
+test "$(grep -c '^v' plink2_multi.missing.hap)" -gt 100
+grep -q '\.' <(cut -f 2 plink2_multi.missing.hap)
+diff <(cut -f 1,3- plink2_multi.missing.hap | sort) <(cut -f 1,3- plink2_pooled.missing.hap | sort)

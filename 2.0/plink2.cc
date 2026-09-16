@@ -3397,7 +3397,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --test-mishap requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           return kPglRetInconsistentInput;
         }
-        reterr = TestMishap(variant_include, cip, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, sample_include, pcp->test_mishap_flags, pcp->min_maf, pcp->output_min_ln, raw_sample_ct, sample_ct, raw_variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = TestMishap(variant_include, cip, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, sample_include, pcp->test_mishap_flags, pcp->min_maf, pcp->output_min_ln, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
