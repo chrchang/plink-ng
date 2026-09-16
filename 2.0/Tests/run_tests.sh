@@ -158,6 +158,11 @@ cd TEST_EPISTASIS
 cd ..
 echo "TEST_EPISTASIS passed."
 
+cd TEST_TUCC
+./run_tests.sh $d $2 $3 > TEST_TUCC.log
+cd ..
+echo "TEST_TUCC passed."
+
 cd TEST_WRITE_VAR_RANGES
 ./run_tests.sh $d $2 $3 > TEST_WRITE_VAR_RANGES.log
 cd ..
@@ -177,5 +182,10 @@ cd TEST_EPISTASIS_QT
 ./run_tests.sh $d $2 $3 > TEST_EPISTASIS_QT.log
 cd ..
 echo "TEST_EPISTASIS_QT passed."
+
+cd TEST_OBLIG_MISSING
+./run_tests.sh $d $2 $3 > TEST_OBLIG_MISSING.log
+cd ..
+echo "TEST_OBLIG_MISSING passed."
 
 echo "All tests passed."
