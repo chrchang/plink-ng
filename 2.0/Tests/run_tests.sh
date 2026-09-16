@@ -173,4 +173,9 @@ cd TEST_MISSING_FUSION
 cd ..
 echo "TEST_MISSING_FUSION passed."
 
+cd TEST_GENE_REPORT
+./run_tests.sh $d $2 $3 > TEST_GENE_REPORT.log
+cd ..
+echo "TEST_GENE_REPORT passed."
+
 echo "All tests passed."
