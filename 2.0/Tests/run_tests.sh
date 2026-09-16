@@ -167,6 +167,10 @@ cd TEST_LD_SCORE_ANNOT
 ./run_tests.sh $d $2 $3 > TEST_LD_SCORE_ANNOT.log
 cd ..
 echo "TEST_LD_SCORE_ANNOT passed."
+cd TEST_SIMULATE
+./run_tests.sh $d $2 $3 > TEST_SIMULATE.log
+cd ..
+echo "TEST_SIMULATE passed."
 
 cd TEST_MISSING_FUSION
 ./run_tests.sh $d $2 $3 > TEST_MISSING_FUSION.log
