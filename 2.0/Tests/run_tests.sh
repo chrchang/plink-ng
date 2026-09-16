@@ -157,6 +157,7 @@ cd TEST_EPISTASIS
 ./run_tests.sh $d $2 $3 > TEST_EPISTASIS.log
 cd ..
 echo "TEST_EPISTASIS passed."
+
 cd TEST_TUCC
 ./run_tests.sh $d $2 $3 > TEST_TUCC.log
 cd ..

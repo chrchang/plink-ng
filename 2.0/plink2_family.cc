@@ -2252,19 +2252,19 @@ PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, co
       logerrputs("Error: --tucc cannot be used on haploid genomes.\n");
       goto Tucc_ret_INCONSISTENT_INPUT;
     }
-    // Haploid and chrMT variants have no well-defined untransmitted genotype;
-    // PLINK 1.9 drops them, and so do we.  (chrX is in haploid_mask.)
+    // Haploid and chrM variants have no well-defined untransmitted genotype;
+    // PLINK 1.9 drops them, and so do we.  (chrX and chrM are in
+    // haploid_mask.)
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* write_variant_include;
     if (unlikely(bigstack_alloc_w(raw_variant_ctl, &write_variant_include))) {
       goto Tucc_ret_NOMEM;
     }
     memcpy(write_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
-    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     uint32_t haploid_variant_ct = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-      if ((!IsSet(cip->haploid_mask, chr_idx)) && (chr_idx != mt_code)) {
+      if (!IsSet(cip->haploid_mask, chr_idx)) {
         continue;
       }
       const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];

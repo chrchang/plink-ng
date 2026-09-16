@@ -1790,7 +1790,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'allow-dups' modifier is provided, this now errors out when duplicate\n"
 "    variant ID(s) remain.\n\n"
                );
-    HelpPrint("list-23-indels\0write-snplist\0", &help_ctrl, 1,
+    HelpPrint("list-23-indels\0", &help_ctrl, 1,
 "  --list-23-indels ['zs'] ['allow-dups']\n"
 "    List the variants which pass your filters/inclusion thresholds and have\n"
 "    23andMe-style indel calls ('D' and/or 'I' allele codes).\n"
@@ -1798,7 +1798,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      this errors out when duplicate variant ID(s) remain, like\n"
 "      --write-snplist.  Add the 'allow-dups' modifier to suppress that.\n\n"
                );
-    HelpPrint("tucc\0mendel\0me\0", &help_ctrl, 1,
+    HelpPrint("tucc\0", &help_ctrl, 1,
 "  --tucc ['vzs']\n"
 "    Generate a pseudo-case/pseudo-control dataset from the trios in the input.\n"
 "    For each child with both parents present, one case sample is written with\n"
