@@ -178,6 +178,11 @@ cd TEST_MISSING_FUSION
 cd ..
 echo "TEST_MISSING_FUSION passed."
 
+cd TEST_EPISTASIS_QT
+./run_tests.sh $d $2 $3 > TEST_EPISTASIS_QT.log
+cd ..
+echo "TEST_EPISTASIS_QT passed."
+
 cd TEST_OBLIG_MISSING
 ./run_tests.sh $d $2 $3 > TEST_OBLIG_MISSING.log
 cd ..
