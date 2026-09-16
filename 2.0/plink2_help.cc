@@ -1340,8 +1340,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Multiallelic variants are kept, with the major allele taken against the\n"
 "      rest.  Haploid chromosomes are skipped.\n\n"
               );
-    HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
+    HelpPrint("ld-score\0ld-score-annot\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] ['cols='<column set descriptor>]\n"
+"  --ld-score-annot <filename>\n"
 "  --ld-score-founders\n"
 "  --ld-score-window <max variant ct radius>\n"
 "  --ld-score-window-kb <max kb radius>\n"
@@ -1364,12 +1365,23 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      programs that consume ldsc output expect them to have been filtered\n"
 "      out; 'multiallelic' keeps them, handled the usual way, with one allele\n"
 "      taken against all others.\n"
+"    * --ld-score-annot partitions the score: given a file with a variant ID\n"
+"      column and one column per annotation, each window variant contributes\n"
+"      its r^2 weighted by its value there, and one L2 column is written per\n"
+"      annotation, named after it.  This is what stratified LD Score\n"
+"      regression takes as input.  The file must cover every variant being\n"
+"      scored; values are usually 0 or 1, but any finite weight works.\n"
+"    * The variant counts behind the scores are written alongside them, to\n"
+"      <output prefix>.ldscore.M (all variants) and\n"
+"      <output prefix>.ldscore.M_5_50 (minor allele frequency above 0.05),\n"
+"      one value per annotation.  LD Score regression needs them to turn a\n"
+"      regression coefficient into a heritability.\n"
 "    Supported column sets are:\n"
 "      chrom: Chromosome ID.\n"
 "      pos: Base-pair coordinate.\n"
 "      (ID is always present, and positioned here.)\n"
 "      nobsi: Number of variants in the window, including this one.\n"
-"      l2: The LD Score itself.\n"
+"      l2: The LD Score itself, or one column per annotation.\n"
 "    The default is chrom,pos,l2.\n\n"
               );
     HelpPrint("ld\0", &help_ctrl, 1,
@@ -1759,6 +1771,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * --seed makes the result reproducible.\n"
 "    * PLINK 1.x could restrict permutation to within --within clusters; that\n"
 "      is not supported here yet, so the shuffle is unrestricted.\n\n"
+               );
+    HelpPrint("write-var-ranges\0", &help_ctrl, 1,
+"  --write-var-ranges <block ct> ['zs'] ['allow-dups']\n"
+"    Divide the variants that pass your filters into the given number of\n"
+"    equal-size blocks, and write the first and last variant ID of each to\n"
+"    <output prefix>.var.ranges.  Handy with --snps for splitting a job across\n"
+"    machines.\n"
+"    * Block sizes differ by at most one variant when the count does not\n"
+"      divide evenly.\n"
+"    * Since the ranges are meant to be fed back in with --snps, this errors\n"
+"      out when duplicate variant ID(s) remain, like --write-snplist.  Add the\n"
+"      'allow-dups' modifier to suppress that.\n\n"
                );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
@@ -3289,9 +3313,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         (same syntax as --snps), and --ld-snp-list specifies a\n"
 "                         file to load variant IDs from.\n"
               );
-    HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
+    HelpPrint("tag-kb\0tag-r2\0tag-mode2\0show-tags\0", &help_ctrl, 0,
 "  --tag-kb <kbs>       : Set --show-tags max tag kb distance (default 250).\n"
 "  --tag-r2 <val>       : Set --show-tags min tag r^2 (default 0.8).\n"
+"  --tag-mode2          : Make --show-tags read a two-column file, treating only\n"
+"                         the variants whose second column is '1' as targets,\n"
+"                         and write a .tags file in the same two-column form\n"
+"                         covering every variant.  Cannot be used with\n"
+"                         \"--show-tags all\".\n"
               );
     HelpPrint("blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0blocks\0", &help_ctrl, 0,
 "  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span.\n"

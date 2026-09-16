@@ -14928,6 +14928,78 @@ PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   return reterr;
 }
 
+PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(block_ct > variant_ct)) {
+      logerrprintf("Error: --write-var-ranges block count (%u) exceeds the number of variants\nremaining (%u).\n", block_ct, variant_ct);
+      goto WriteVarRanges_ret_INCONSISTENT_INPUT;
+    }
+    if (!allow_dups) {
+      // The output is meant to be fed back in with --snps, so a duplicate ID
+      // makes the ranges ambiguous the same way it makes --write-snplist
+      // output ambiguous.
+      uint32_t dup_found;
+      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+      if (unlikely(reterr)) {
+        goto WriteVarRanges_ret_1;
+      }
+      if (dup_found) {
+        logerrputs("Error: --write-var-ranges normally shouldn't be used with duplicate variant\nIDs.  (--set-all-var-ids helps with ID deduplication, and --rm-dup addresses\nactual duplicate data.)  However, if you've already accounted for them, you can\nsuppress this error with the 'allow-dups' modifier.\n");
+        goto WriteVarRanges_ret_INCONSISTENT_INPUT;
+      }
+    }
+    OutnameZstSet(".var.ranges", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * max_variant_id_slen + 64;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto WriteVarRanges_ret_1;
+    }
+    cswritep = strcpya_k(cswritep, "#FIRST\tLAST" EOLN_STR);
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t variant_idx = 0;
+    for (uint32_t block_idx = 1; block_idx <= block_ct; ++block_idx) {
+      const uintptr_t first_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      // Blocks are sized by this running division rather than by a fixed
+      // width, so they differ by at most one variant when block_ct does not
+      // divide variant_ct.
+      const uint32_t next_variant_idx = (S_CAST(uint64_t, block_idx) * variant_ct) / block_ct;
+      uintptr_t last_uidx = first_uidx;
+      for (uint32_t uii = variant_idx + 1; uii < next_variant_idx; ++uii) {
+        last_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      }
+      cswritep = strcpyax(cswritep, variant_ids[first_uidx], '\t');
+      cswritep = strcpya(cswritep, variant_ids[last_uidx]);
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto WriteVarRanges_ret_WRITE_FAIL;
+      }
+      variant_idx = next_variant_idx;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto WriteVarRanges_ret_WRITE_FAIL;
+    }
+    logprintfww("--write-var-ranges%s%s: %u block boundar%s written to %s .\n", output_zst? " zs" : "", allow_dups? " allow-dups" : "", block_ct, (block_ct == 1)? "y" : "ies", outname);
+  }
+  while (0) {
+  WriteVarRanges_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  WriteVarRanges_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ WriteVarRanges_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

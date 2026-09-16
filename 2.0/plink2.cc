@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (14 Sep 2026)";
+  " (16 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -252,6 +252,7 @@ ENUM_U31_DEF_START()
   kCmd1BitWriteSnplist,
   kCmd1BitMakePermPheno,
   kCmd1BitList23Indels,
+  kCmd1BitWriteVarRanges,
   kCmd1BitAlleleFreq,
   kCmd1BitGenoCounts,
   kCmd1BitHardy,
@@ -302,6 +303,7 @@ FLAGSET64_DEF_START()
   kfCommand1WriteSnplist = (1LLU << kCmd1BitWriteSnplist),
   kfCommand1MakePermPheno = (1LLU << kCmd1BitMakePermPheno),
   kfCommand1List23Indels = (1LLU << kCmd1BitList23Indels),
+  kfCommand1WriteVarRanges = (1LLU << kCmd1BitWriteVarRanges),
   kfCommand1AlleleFreq = (1LLU << kCmd1BitAlleleFreq),
   kfCommand1GenoCounts = (1LLU << kCmd1BitGenoCounts),
   kfCommand1Hardy = (1LLU << kCmd1BitHardy),
@@ -707,6 +709,7 @@ typedef struct Plink2CmdlineStruct {
   TwoColParams* update_name_flag;
   char* perm_pheno_name;
   uint32_t perm_pheno_ct;
+  uint32_t write_var_range_ct;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -771,6 +774,30 @@ uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
     }
   }
   return 0x7fffffff;
+}
+
+// LoadAlleleAndGenoCounts() can tally per-sample missingness for autosomal
+// biallelic variants as a side effect of the pass it already makes.  It does
+// not do so for haploid chromosomes (including chrX), where the counts need
+// sex and hethap handling; this collects those variants so
+// LoadSampleMissingCts() can cover them in a much smaller pass.
+//
+// This should be moved to plink2_common if any other module wants it.
+uint32_t FillNonAutosomalVariants(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uintptr_t* dst) {
+  const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+  ZeroWArr(raw_variant_ctl, dst);
+  const uint32_t chr_ct = cip->chr_ct;
+  for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+    const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+    // Could special-case chrX if caller might clear that haploid_mask bit.
+    if (!IsSet(cip->haploid_mask, chr_idx)) {
+      continue;
+    }
+    const uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+    const uint32_t vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+    CopyBitarrRange(variant_include, vidx_start, vidx_start, vidx_end - vidx_start, dst);
+  }
+  return PopcountWords(dst, raw_variant_ctl);
 }
 
 uint32_t AlleleDosagesAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uint32_t* regular_freqcounts_neededp) {
@@ -1806,6 +1833,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     uint32_t* sample_missing_dosage_cts = nullptr;
     uint32_t* sample_missing_hc_cts = nullptr;
     uint32_t* sample_hethap_cts = nullptr;
+    uint32_t smaj_missing_geno_report_requested = 0;
+    uint32_t sample_missing_cts_needed_early = 0;
     uintptr_t max_covar_name_blen = 0;
     if (psamname[0]) {
       // xid_mode may vary between these operations in a single run, and
@@ -1931,8 +1960,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      const uint32_t smaj_missing_geno_report_requested = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_flags & kfMissingRptVariantOnly));
-      if ((pcp->mind_thresh < 1.0) || (pcp->select_sid_missingness_mode != kSelectSidMissingness0) || smaj_missing_geno_report_requested) {
+      smaj_missing_geno_report_requested = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_flags & kfMissingRptVariantOnly));
+      // --mind and --select-sid-missingness drop samples, which changes every
+      // allele frequency, so their counts have to be in hand before the main
+      // frequency pass.  When only the report needs them there is no such
+      // ordering constraint, and the work can ride along with that pass
+      // instead; see the LoadAlleleAndGenoCounts() call below.
+      sample_missing_cts_needed_early = (pcp->mind_thresh < 1.0) || (pcp->select_sid_missingness_mode != kSelectSidMissingness0);
+      if (sample_missing_cts_needed_early || smaj_missing_geno_report_requested) {
         if (unlikely(bigstack_alloc_u32(raw_sample_ct, &sample_missing_hc_cts) ||
                      bigstack_alloc_u32(raw_sample_ct, &sample_hethap_cts))) {
           goto Plink2Core_ret_NOMEM;
@@ -1946,11 +1981,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             sample_missing_dosage_cts = sample_missing_hc_cts;
           }
         }
-        // could avoid this call and make LoadAlleleAndGenoCounts() do
-        // double duty with --missing?
-        reterr = LoadSampleMissingCts(sample_include, sex_nm, sex_male, variant_include, cip, "sample missingness", raw_variant_ct, variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
+        if (sample_missing_cts_needed_early) {
+          reterr = LoadSampleMissingCts(sample_include, sex_nm, sex_male, variant_include, cip, "sample missingness", raw_variant_ct, variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
         }
         if (pcp->mind_thresh < 1.0) {
           uint32_t variant_ct_y = 0;
@@ -2494,9 +2529,39 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           // hardcall-missing-count slot... and it's NOT fine to pass in
           // nullptrs for both missing-count arrays...
           const uint32_t dosageless_file = !(pgfi.gflags & kfPgenGlobalDosagePresent);
-          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, regular_freqcounts_needed? variant_include : variant_afreqcalc, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, regular_freqcounts_needed? variant_ct : afreqcalc_variant_ct, first_hap_uidx, is_minimac3_r2, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_ddosages, founder_allele_ddosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
+          // When only the missingness report needs the per-sample counts, let
+          // this pass tally the autosomal biallelic part instead of making a
+          // second pass over the same records.  chrX/chrY/haploid still need
+          // their own pass, but that is a small fraction of a typical file.
+          uint32_t* fused_sample_missing_hc_cts = nullptr;
+          if (smaj_missing_geno_report_requested && (!sample_missing_cts_needed_early) &&
+              dosageless_file && (!allele_idx_offsets) && (!imp_r2_vals) && regular_freqcounts_needed) {
+            uintptr_t* non_autosomal_include;
+            if (unlikely(bigstack_alloc_w(raw_variant_ctl, &non_autosomal_include))) {
+              goto Plink2Core_ret_NOMEM;
+            }
+            const uint32_t non_autosomal_ct = FillNonAutosomalVariants(variant_include, cip, raw_variant_ct, non_autosomal_include);
+            if (non_autosomal_ct) {
+              reterr = LoadSampleMissingCts(sample_include, sex_nm, sex_male, non_autosomal_include, cip, "sample missingness", raw_variant_ct, non_autosomal_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, nullptr, sample_hethap_cts);
+              if (unlikely(reterr)) {
+                goto Plink2Core_ret_1;
+              }
+            } else {
+              ZeroU32Arr(raw_sample_ct, sample_missing_hc_cts);
+              ZeroU32Arr(raw_sample_ct, sample_hethap_cts);
+            }
+            BigstackReset(non_autosomal_include);
+            fused_sample_missing_hc_cts = sample_missing_hc_cts;
+          }
+          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, regular_freqcounts_needed? variant_include : variant_afreqcalc, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, regular_freqcounts_needed? variant_ct : afreqcalc_variant_ct, first_hap_uidx, is_minimac3_r2, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_ddosages, founder_allele_ddosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals, fused_sample_missing_hc_cts);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
+          }
+          if (smaj_missing_geno_report_requested && (!sample_missing_cts_needed_early) && (!fused_sample_missing_hc_cts)) {
+            reterr = LoadSampleMissingCts(sample_include, sex_nm, sex_male, variant_include, cip, "sample missingness", raw_variant_ct, variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
+            if (unlikely(reterr)) {
+              goto Plink2Core_ret_1;
+            }
           }
           if (overlapping_allele_ddosages) {
             founder_allele_ddosages = allele_ddosages;
@@ -2984,6 +3049,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1WriteVarRanges) {
+        reterr = WriteVarRanges(variant_include, variant_ids, pcp->write_var_range_ct, variant_ct, (pcp->misc_flags / kfMiscWriteVarRangesZs) & 1, (pcp->misc_flags / kfMiscWriteVarRangesAllowDups) & 1, max_variant_id_slen, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
         reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, (pcp->misc_flags / kfMiscWriteSnplistAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3291,7 +3363,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           return kPglRetInconsistentInput;
         }
-        reterr = ShowTags(variant_include, cip, variant_bps, variant_ids, maj_alleles, founder_info, pcp->tag_info.tag_fname, pcp->tag_info.list_all, pcp->tag_info.bp_radius, pcp->tag_info.r2_thresh, raw_variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, pcp->tag_info.output_zst, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = ShowTags(variant_include, cip, variant_bps, variant_ids, maj_alleles, founder_info, pcp->tag_info.tag_fname, pcp->tag_info.list_all, pcp->tag_info.mode2, pcp->tag_info.bp_radius, pcp->tag_info.r2_thresh, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, pcp->tag_info.output_zst, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -9220,6 +9292,14 @@ int main(int argc, char** argv) {
             pc.vcor_info.bp_radius = S_CAST(int32_t, dxx);
           }
           r2_required = 1;
+        } else if (strequal_k_unsafe(flagname_p2, "d-score-annot")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.ld_score_info.annot_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "d-score-founders")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -13557,6 +13637,11 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.tag_info.bp_radius = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+        } else if (strequal_k_unsafe(flagname_p2, "ag-mode2")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          pc.tag_info.mode2 = 1;
         } else if (strequal_k_unsafe(flagname_p2, "ag-r2")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -14249,7 +14334,29 @@ int main(int argc, char** argv) {
         break;
 
       case 'w':
-        if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
+        if (strequal_k_unsafe(flagname_p2, "rite-var-ranges")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 1], &pc.write_var_range_ct))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-var-ranges block count '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.misc_flags |= kfMiscWriteVarRangesZs;
+            } else if (likely(strequal_k(cur_modif, "allow-dups", cur_modif_slen))) {
+              pc.misc_flags |= kfMiscWriteVarRangesAllowDups;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-var-ranges argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1WriteVarRanges;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -14464,6 +14571,16 @@ int main(int argc, char** argv) {
     if (unlikely(pc.tag_info.list_all && (!(pc.command_flags1 & kfCommand1ShowTags)))) {
       logerrputs("Error: --list-all must be used with --show-tags.\n");
       goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (pc.tag_info.mode2) {
+      if (unlikely(!(pc.command_flags1 & kfCommand1ShowTags))) {
+        logerrputs("Error: --tag-mode2 must be used with --show-tags.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely(!pc.tag_info.tag_fname)) {
+        logerrputs("Error: --tag-mode2 cannot be used with \"--show-tags all\".\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
     }
     if (pc.command_flags1 & kfCommand1Blocks) {
       if (unlikely(pc.blocks_info.max_bp == 0)) {
@@ -15253,6 +15370,7 @@ int main(int argc, char** argv) {
   CleanupFlip(&pc.flip_info);
   CleanupPermConfig(&pc.perm_config);
   CleanupVcor(&pc.vcor_info);
+  CleanupLdScore(&pc.ld_score_info);
   CleanupTwolocus(&pc.twolocus_info);
   CleanupTag(&pc.tag_info);
   CleanupClump(&pc.clump_info);

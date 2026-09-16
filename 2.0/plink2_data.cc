@@ -2299,6 +2299,12 @@ typedef struct LoadAlleleAndGenoCountsCtxStruct {
   STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts);
   STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts);
   double* imp_r2_vals;
+
+  // Non-null when the per-sample missingness counts are being accumulated in
+  // this pass instead of a separate one; see LoadAlleleAndGenoCounts().  Only
+  // autosomal biallelic variants are handled here, so no hethap accumulator
+  // is needed.
+  uintptr_t** missing_hc_acc1;
 } LoadAlleleAndGenoCountsCtx;
 
 THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
@@ -2339,6 +2345,20 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
   }
   uint32_t allele_ct = 2;
+  const uint32_t acc1_vec_ct = BitCtToVecCt(raw_sample_ct);
+  uintptr_t* missing_hc_acc1 = nullptr;
+  VecW* missing_hc_acc4 = nullptr;
+  VecW* missing_hc_acc8 = nullptr;
+  VecW* missing_hc_acc32 = nullptr;
+  uint32_t all_ct_rem15 = 15;
+  uint32_t all_ct_rem255d15 = 17;
+  if (ctx->missing_hc_acc1) {
+    missing_hc_acc1 = ctx->missing_hc_acc1[tidx];
+    ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, missing_hc_acc1);
+    missing_hc_acc4 = &(R_CAST(VecW*, missing_hc_acc1)[acc1_vec_ct]);
+    missing_hc_acc8 = &(missing_hc_acc4[acc1_vec_ct * 4]);
+    missing_hc_acc32 = &(missing_hc_acc8[acc1_vec_ct * 8]);
+  }
   uint64_t new_err_info;
   do {
     const uintptr_t cur_block_size = ctx->cur_block_size;
@@ -2373,6 +2393,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_ddosages) && (!imp_r2_vals);
       PgrSampleSubsetIndex pssi;
       PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, pgrp, &pssi);
+      uint32_t reader_is_raw = 0;
+      // only the first subset pass accumulates; the second one re-reads the
+      // same variants for the founder counts.
+      const uint32_t fuse_missing = missing_hc_acc1 && (!subset_idx) && (!imp_r2_vals);
       uint32_t cur_idx = (tidx * cur_block_size) / thread_ct;
       uintptr_t variant_uidx_base;
       uintptr_t variant_include_bits;
@@ -2392,22 +2416,34 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
           if (chr_idx == x_code) {
             is_x_or_y = 1;
             PgrClearSampleSubsetIndex(pgrp, &pssi);
+            reader_is_raw = 1;
           } else if (chr_idx == y_code) {
             is_x_or_y = 1;
             is_y = 1;
             // ugh
             if ((nonfemale_ct == chry_missingstat_sample_ct) && ((!allele_presents_bytearr) || (sample_ct == nonfemale_ct))) {
               PgrSetSampleSubsetIndex(sex_nonfemale_cumulative_popcounts, pgrp, &pssi);
+              reader_is_raw = 0;
             } else {
               PgrClearSampleSubsetIndex(pgrp, &pssi);
+              reader_is_raw = 1;
             }
           } else {
-            if (is_x_or_y) {
-              PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, pgrp, &pssi);
-            }
-            is_x_or_y = 0;
             // true for MT
             is_nonxy_haploid = IsSet(cip->haploid_mask, chr_idx);
+            // Accumulating per-sample missingness requires raw reads, so the
+            // subset index has to stay cleared across the chromosomes that
+            // take that path.
+            if (fuse_missing && (!is_nonxy_haploid)) {
+              if (!reader_is_raw) {
+                PgrClearSampleSubsetIndex(pgrp, &pssi);
+                reader_is_raw = 1;
+              }
+            } else if (is_x_or_y || reader_is_raw) {
+              PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, pgrp, &pssi);
+              reader_is_raw = 0;
+            }
+            is_x_or_y = 0;
           }
         }
         uintptr_t cur_allele_idx_offset;
@@ -2421,10 +2457,42 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
         if ((allele_ct == 2) || no_multiallelic_branch) {
           uint64_t cur_dosages[2];
           if (!is_x_or_y) {
-            const PglErr reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
-            if (unlikely(reterr)) {
-              new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
-              goto LoadAlleleAndGenoCountsThread_err;
+            if (fuse_missing && (!is_nonxy_haploid)) {
+              // Raw read, so that this pass can also tally per-sample
+              // missingness; the genotype counts this loop needs are then
+              // derived here instead of by PgrGetDCounts().  Restricted to
+              // dosage-free biallelic autosomes by the caller, which is what
+              // makes the two cheap to compute from the same buffer.
+              const PglErr reterr = PgrGet(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec);
+              if (unlikely(reterr)) {
+                new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+                goto LoadAlleleAndGenoCountsThread_err;
+              }
+              ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
+              GenoarrToMissingnessUnsafe(pgv.genovec, raw_sample_ct, missing_hc_acc1);
+              VcountIncr1To4(missing_hc_acc1, acc1_vec_ct, missing_hc_acc4);
+              if (!(--all_ct_rem15)) {
+                Vcount0Incr4To8(acc1_vec_ct * 4, missing_hc_acc4, missing_hc_acc8);
+                all_ct_rem15 = 15;
+                if (!(--all_ct_rem255d15)) {
+                  Vcount0Incr8To32(acc1_vec_ct * 8, missing_hc_acc8, missing_hc_acc32);
+                  all_ct_rem255d15 = 17;
+                }
+              }
+              if (sample_ct == raw_sample_ct) {
+                GenoarrCountFreqsUnsafe(pgv.genovec, raw_sample_ct, genocounts);
+              } else {
+                GenoarrCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+              }
+              // matches GetBasicGenotypeCountsAndDosage16s()'s hardcall path
+              cur_dosages[0] = (genocounts[0] * 2 + genocounts[1]) * 16384LLU;
+              cur_dosages[1] = (genocounts[2] * 2 + genocounts[1]) * 16384LLU;
+            } else {
+              const PglErr reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
+              if (unlikely(reterr)) {
+                new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+                goto LoadAlleleAndGenoCountsThread_err;
+              }
             }
             if (allele_presents_bytearr) {
               if (cur_dosages[0]) {
@@ -2964,10 +3032,14 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       UpdateU64IfSmaller(new_err_info, &ctx->err_info);
     }
   } while (!THREAD_BLOCK_FINISH(arg));
+  if (missing_hc_acc1) {
+    VcountIncr4To8(missing_hc_acc4, acc1_vec_ct * 4, missing_hc_acc8);
+    VcountIncr8To32(missing_hc_acc8, acc1_vec_ct * 8, missing_hc_acc32);
+  }
   THREAD_RETURN;
 }
 
-PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t y_nosex_missing_stats, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_ddosages, uint64_t* founder_allele_ddosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals) {
+PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t y_nosex_missing_stats, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_ddosages, uint64_t* founder_allele_ddosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals, uint32_t* sample_missing_hc_incr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -3209,17 +3281,35 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     } else {
       ctx.all_dosages = nullptr;
     }
+    // When the caller asked for it, per-sample missingness is tallied here
+    // rather than in a second pass over the same data.
+    ctx.missing_hc_acc1 = nullptr;
+    uintptr_t thread_alloc_cacheline_ct = 0;
+    const uint32_t acc1_vec_ct = BitCtToVecCt(raw_sample_ct);
+    const uintptr_t acc1_alloc_cacheline_ct = DivUp(acc1_vec_ct * (45 * k1LU * kBytesPerVec), kCacheline);
+    if (sample_missing_hc_incr) {
+      if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.missing_hc_acc1))) {
+        goto LoadAlleleAndGenoCounts_ret_NOMEM;
+      }
+      thread_alloc_cacheline_ct = acc1_alloc_cacheline_ct;
+    }
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     // defensive
     ctx.dosage_presents = nullptr;
     ctx.dosage_mains = nullptr;
     uint32_t read_block_size;
     // todo: check if raw_sample_ct should be replaced with sample_ct here
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, mhc_needed? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, xy_dosages_needed? (&ctx.dosage_presents) : nullptr, xy_dosages_needed? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, mhc_needed? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, xy_dosages_needed? (&ctx.dosage_presents) : nullptr, xy_dosages_needed? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
+    }
+    if (ctx.missing_hc_acc1) {
+      const uintptr_t acc1_alloc = acc1_alloc_cacheline_ct * kCacheline;
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        ctx.missing_hc_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
+      }
     }
     ctx.variant_include = variant_include;
     ctx.allele_idx_offsets = allele_idx_offsets;
@@ -3278,6 +3368,22 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       // crucially, this is independent of the PgenReader block_base
       // pointers
       pgfip->block_base = main_loadbufs[parity];
+    }
+    if (ctx.missing_hc_acc1) {
+      // Autosomal contribution only; the caller runs LoadSampleMissingCts()
+      // over the remaining chromosomes and this adds to that result.
+      const uint32_t sample_ctv = acc1_vec_ct * kBitsPerVec;
+      const uintptr_t acc32_offset = acc1_vec_ct * (13 * k1LU * kWordsPerVec);
+      uint32_t* scrambled_missing_hc_cts = R_CAST(uint32_t*, &(ctx.missing_hc_acc1[0][acc32_offset]));
+      for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
+        const uint32_t* thread_scrambled_missing_hc_cts = R_CAST(uint32_t*, &(ctx.missing_hc_acc1[tidx][acc32_offset]));
+        for (uint32_t uii = 0; uii != sample_ctv; ++uii) {
+          scrambled_missing_hc_cts[uii] += thread_scrambled_missing_hc_cts[uii];
+        }
+      }
+      for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+        sample_missing_hc_incr[sample_uidx] += scrambled_missing_hc_cts[VcountScramble1(sample_uidx)];
+      }
     }
     if (allele_presents) {
       const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);

@@ -1672,6 +1672,8 @@ HEADER_INLINE double NextFloat64(double dxx) {
 // Otherwise, htable_dup_base entries are guaranteed to be filled in increasing
 // order (briefly made that nondeterministic on 11 Oct 2019 and broke --rm-dup,
 // not doing that again).
+//
+// If dup_ct_ptr is nullptr, *dup_ct_ptr must be initialized to 0.
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr);
 
 typedef struct HelpCtrlStruct {

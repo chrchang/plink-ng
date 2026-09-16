@@ -1,0 +1,5 @@
+__pycache__/*
+tmp_*
+annot*.txt
+brute.txt
+plink2_*
