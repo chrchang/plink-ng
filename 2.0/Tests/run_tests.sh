@@ -173,4 +173,8 @@ cd TEST_MISSING_FUSION
 cd ..
 echo "TEST_MISSING_FUSION passed."
 
+cd TEST_CMH
+./run_tests.sh $d $2 $3 > TEST_CMH.log
+cd ..
+echo "TEST_CMH passed."
 echo "All tests passed."
