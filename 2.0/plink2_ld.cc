@@ -13001,7 +13001,7 @@ CONSTI32(kLdScoreMaxAnnot, 512);
 // variant.  Every column other than the variant ID, the position and CM is an
 // annotation, which is the .annot convention ldsc uses.  Values are usually 0
 // or 1, but anything finite works.
-PglErr LdScoreReadAnnot(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char*** annot_names_ptr, uint32_t* annot_ct_ptr, float** annots_ptr) {
+PglErr LdScoreReadAnnot(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, char*** annot_names_ptr, uint32_t* annot_ct_ptr, float** annots_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -13096,9 +13096,8 @@ PglErr LdScoreReadAnnot(const char* fname, const uintptr_t* variant_include, con
     }
     uint32_t variant_id_htable_size;
     uint32_t* variant_id_htable;
-    uint32_t* htable_dup_base;
     uint32_t dup_found;
-    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, bigstack_left() / 2, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_found);
+    reterr = AllocAndPopulateNondupHtableMt(bigstack_end_mark, variant_include, variant_ids, variant_ct, max_thread_ct, &g_bigstack_base, &variant_id_htable, &variant_id_htable_size, &dup_found);
     if (unlikely(reterr)) {
       goto LdScoreReadAnnot_ret_1;
     }
@@ -13142,8 +13141,8 @@ PglErr LdScoreReadAnnot(const char* fname, const uintptr_t* variant_include, con
         }
         iter = FirstNonTspace(token_end);
       }
-      const uint32_t variant_uidx = VariantIdDupflagHtableFind(id_start, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
-      if (variant_uidx >> 31) {
+      const uint32_t variant_uidx = IdHtableFindNnt(id_start, variant_ids, variant_id_htable, id_slen, variant_id_htable_size);
+      if (variant_uidx == UINT32_MAX) {
         // Not a variant being scored, or not in the dataset at all.
         continue;
       }
@@ -13382,7 +13381,7 @@ THREAD_FUNC_DECL LdScoreThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -13453,7 +13452,7 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     uint32_t annot_ct = 1;
     float* annots = nullptr;
     if (lsip->annot_fname) {
-      reterr = LdScoreReadAnnot(lsip->annot_fname, variant_include, variant_ids, raw_variant_ct, kept_variant_ct, max_variant_id_slen, max_thread_ct, &annot_names, &annot_ct, &annots);
+      reterr = LdScoreReadAnnot(lsip->annot_fname, variant_include, variant_ids, raw_variant_ct, kept_variant_ct, max_thread_ct, &annot_names, &annot_ct, &annots);
       if (unlikely(reterr)) {
         goto LdScore_ret_1;
       }
@@ -15102,8 +15101,7 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
       uint32_t* variant_id_htable;
       uint32_t* htable_dup_base;
       uint32_t variant_id_htable_size;
-      uint32_t dup_ct;
-      reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, kept_variant_ct, bigstack_left() / 8, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+      reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, kept_variant_ct, bigstack_left() / 8, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, nullptr);
       if (unlikely(reterr)) {
         goto ShowTags_ret_1;
       }
@@ -16791,14 +16789,13 @@ PglErr FlipScanMatchRefVariants(const uintptr_t* variant_include, const char* co
   PglErr reterr = kPglRetSuccess;
   {
     uint32_t* id_htable;
-    uint32_t* htable_dup_base;
     uint32_t id_htable_size;
-    uint32_t dup_ct = 0;
-    reterr = AllocAndPopulateIdHtableMt(ref_variant_include, ref_variant_ids, ref_variant_ct, 0, max_thread_ct, &id_htable, &htable_dup_base, &id_htable_size, &dup_ct);
+    uint32_t dup_found;
+    reterr = AllocAndPopulateNondupHtableMt(g_bigstack_end, ref_variant_include, ref_variant_ids, ref_variant_ct, max_thread_ct, &g_bigstack_base, &id_htable, &id_htable_size, &dup_found);
     if (unlikely(reterr)) {
       goto FlipScanMatchRefVariants_ret_1;
     }
-    if (unlikely(dup_ct)) {
+    if (unlikely(dup_found)) {
       logerrputs("Error: --flip-scan reference fileset contains duplicate variant IDs.\n");
       reterr = kPglRetInconsistentInput;
       goto FlipScanMatchRefVariants_ret_1;
@@ -16811,7 +16808,7 @@ PglErr FlipScanMatchRefVariants(const uintptr_t* variant_include, const char* co
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       ref_uidxs[variant_uidx] = UINT32_MAX;
       const char* cur_id = variant_ids[variant_uidx];
-      const uint32_t ref_uidx = IdHtableFind(cur_id, ref_variant_ids, id_htable, strlen(cur_id), id_htable_size);
+      const uint32_t ref_uidx = IdHtableFindNnt(cur_id, ref_variant_ids, id_htable, strlen(cur_id), id_htable_size);
       if (ref_uidx == UINT32_MAX) {
         continue;
       }

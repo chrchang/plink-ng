@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (15 Sep 2026)";
+  " (16 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3327,7 +3327,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // explicit opt-in to the founders-only default, mirroring
         // --ac-founders.
         const uint32_t ldsc_use_all = (pcp->misc_flags / kfMiscNonfounders) & 1;
-        reterr = LdScore(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, maj_alleles, ldsc_use_all? sample_include : founder_info, &(pcp->ld_score_info), raw_variant_ct, variant_ct, raw_sample_ct, ldsc_use_all? sample_ct : founder_ct, max_variant_id_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = LdScore(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, maj_alleles, ldsc_use_all? sample_include : founder_info, &(pcp->ld_score_info), raw_variant_ct, variant_ct, raw_sample_ct, ldsc_use_all? sample_ct : founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
