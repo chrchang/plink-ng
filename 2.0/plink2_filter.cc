@@ -676,6 +676,331 @@ PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id
   return reterr;
 }
 
+// Parses --attrib/--attrib-indiv's comma-delimited attribute list into a
+// positive-match and a negative-match sorted strbox.  A name preceded by '-'
+// is a negative match condition; since the command-line parser cannot accept a
+// leading '-', a leading comma is allowed (and ignored) to get around that, as
+// in PLINK 1.x.
+PglErr ParseAttribCondition(const char* condition_str, const char* flagname_p, char** sorted_pos_ptr, uint32_t* pos_ct_ptr, uintptr_t* max_pos_blen_ptr, char** sorted_neg_ptr, uint32_t* neg_ct_ptr, uintptr_t* max_neg_blen_ptr) {
+  // Two flattened (null-delimited, double-null-terminated) lists are built
+  // first, so that MultistrToStrboxDedupAlloc() can do the sorting.
+  const uintptr_t slen = strlen(condition_str);
+  char* pos_flattened;
+  char* neg_flattened;
+  if (unlikely(bigstack_alloc_c(slen + 2, &pos_flattened) ||
+               bigstack_alloc_c(slen + 2, &neg_flattened))) {
+    return kPglRetNomem;
+  }
+  char* pos_iter = pos_flattened;
+  char* neg_iter = neg_flattened;
+  uint32_t raw_pos_ct = 0;
+  uint32_t raw_neg_ct = 0;
+  const char* cond_iter = condition_str;
+  while (*cond_iter) {
+    if (*cond_iter == ',') {
+      ++cond_iter;
+      continue;
+    }
+    uint32_t is_neg = 0;
+    if (*cond_iter == '-') {
+      ++cond_iter;
+      if (*cond_iter == ',') {
+        continue;
+      }
+      if (unlikely(*cond_iter == '-')) {
+        logerrprintf("Error: %s condition cannot contain consecutive dashes.\n", flagname_p);
+        return kPglRetInvalidCmdline;
+      }
+      is_neg = 1;
+    }
+    const char* name_end = strchrnul(cond_iter, ',');
+    const uintptr_t name_slen = name_end - cond_iter;
+    if (unlikely(!name_slen)) {
+      // only reachable via a trailing '-'
+      logerrprintf("Error: Empty attribute name in %s argument.\n", flagname_p);
+      return kPglRetInvalidCmdline;
+    }
+    if (is_neg) {
+      neg_iter = memcpyax(neg_iter, cond_iter, name_slen, '\0');
+      ++raw_neg_ct;
+    } else {
+      pos_iter = memcpyax(pos_iter, cond_iter, name_slen, '\0');
+      ++raw_pos_ct;
+    }
+    cond_iter = name_end;
+  }
+  *pos_iter = '\0';
+  *neg_iter = '\0';
+  *sorted_pos_ptr = nullptr;
+  *pos_ct_ptr = 0;
+  *max_pos_blen_ptr = 0;
+  *sorted_neg_ptr = nullptr;
+  *neg_ct_ptr = 0;
+  *max_neg_blen_ptr = 0;
+  if (raw_pos_ct) {
+    if (unlikely(MultistrToStrboxDedupAlloc(pos_flattened, sorted_pos_ptr, pos_ct_ptr, max_pos_blen_ptr))) {
+      return kPglRetNomem;
+    }
+  }
+  if (raw_neg_ct) {
+    if (unlikely(MultistrToStrboxDedupAlloc(neg_flattened, sorted_neg_ptr, neg_ct_ptr, max_neg_blen_ptr))) {
+      return kPglRetNomem;
+    }
+  }
+  if (unlikely((*pos_ct_ptr != raw_pos_ct) || (*neg_ct_ptr != raw_neg_ct))) {
+    logerrprintf("Error: Duplicate attribute in %s argument.\n", flagname_p);
+    return kPglRetInvalidCmdline;
+  }
+  // Presence of any negative match disqualifies, so an attribute listed both
+  // ways would make the positive listing dead weight; that's a typo, not a
+  // request.
+  const uint32_t pos_ct = *pos_ct_ptr;
+  const uintptr_t max_pos_blen = *max_pos_blen_ptr;
+  const char* sorted_pos = *sorted_pos_ptr;
+  for (uint32_t uii = 0; uii != *neg_ct_ptr; ++uii) {
+    const char* cur_neg = &((*sorted_neg_ptr)[uii * (*max_neg_blen_ptr)]);
+    if (unlikely(bsearch_strbox(cur_neg, sorted_pos, strlen(cur_neg), max_pos_blen, pos_ct) != -1)) {
+      logerrprintfww("Error: Attribute '%s' appears as both a positive and a negative match condition in %s argument.\n", cur_neg, flagname_p);
+      return kPglRetInvalidCmdline;
+    }
+  }
+  return kPglRetSuccess;
+}
+
+// Shared decision rule: keep the item when it has at least one positively
+// listed attribute (vacuously true when no positive names were given) and no
+// negatively listed one.
+HEADER_INLINE uint32_t AttribLineKeep(const char* attr_iter, const char* sorted_pos, uint32_t pos_ct, uintptr_t max_pos_blen, const char* sorted_neg, uint32_t neg_ct, uintptr_t max_neg_blen) {
+  uint32_t pos_match_needed = pos_ct;
+  while (!IsEolnKns(*attr_iter)) {
+    const char* token_end = CurTokenEnd(attr_iter);
+    const uintptr_t token_slen = token_end - attr_iter;
+    if (pos_match_needed && (bsearch_strbox(attr_iter, sorted_pos, token_slen, max_pos_blen, pos_ct) != -1)) {
+      pos_match_needed = 0;
+    } else if (neg_ct && (bsearch_strbox(attr_iter, sorted_neg, token_slen, max_neg_blen, neg_ct) != -1)) {
+      return 0;
+    }
+    attr_iter = FirstNonTspace(token_end);
+  }
+  return !pos_match_needed;
+}
+
+PglErr AttribFilter(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fname, const char* condition_str, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include_new;
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &variant_include_new) ||
+                 bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
+      goto AttribFilter_ret_NOMEM;
+    }
+    char* sorted_pos = nullptr;
+    char* sorted_neg = nullptr;
+    uint32_t pos_ct = 0;
+    uint32_t neg_ct = 0;
+    uintptr_t max_pos_blen = 0;
+    uintptr_t max_neg_blen = 0;
+    if (condition_str) {
+      // A bare --attrib <file> keeps every variant named in the file.
+      reterr = ParseAttribCondition(condition_str, "--attrib", &sorted_pos, &pos_ct, &max_pos_blen, &sorted_neg, &neg_ct, &max_neg_blen);
+      if (unlikely(reterr)) {
+        goto AttribFilter_ret_1;
+      }
+    }
+    reterr = SizeAndInitTextStream(fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto AttribFilter_ret_TSTREAM_FAIL;
+    }
+    uintptr_t miss_ct = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
+          break;
+        }
+        goto AttribFilter_ret_TSTREAM_FAIL;
+      }
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      char* varid_end = CurTokenEnd(line_start);
+      const char* attr_iter = FirstNonTspace(varid_end);
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(line_start, variant_ids, variant_id_htable, htable_dup_base, varid_end - line_start, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        ++miss_ct;
+        continue;
+      }
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' on line %" PRIuPTR " of --attrib file duplicates one earlier in the file.\n", variant_ids[variant_uidx], line_idx);
+        goto AttribFilter_ret_MALFORMED_INPUT_WW;
+      }
+      SetBit(variant_uidx, already_seen);
+      if (!AttribLineKeep(attr_iter, sorted_pos, pos_ct, max_pos_blen, sorted_neg, neg_ct, max_neg_blen)) {
+        continue;
+      }
+      for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
+        SetBit(variant_uidx, variant_include_new);
+        if (cur_llidx == UINT32_MAX) {
+          break;
+        }
+        variant_uidx = htable_dup_base[cur_llidx];
+      }
+    }
+    BitvecAnd(variant_include_new, raw_variant_ctl, variant_include);
+    const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    if (miss_ct) {
+      logprintfww("--attrib: %u variant%s remaining, %" PRIuPTR " ID%s missing.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      logprintf("--attrib: %u variant%s remaining.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s");
+    }
+    *variant_ct_ptr = new_variant_ct;
+  }
+  while (0) {
+  AttribFilter_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  AttribFilter_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--attrib file", &txs);
+    break;
+  AttribFilter_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ AttribFilter_ret_1:
+  CleanupTextStream2("--attrib file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr AttribFilterSample(const char* fname, const char* condition_str, const SampleIdInfo* siip, uint32_t raw_sample_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto AttribFilterSample_ret_1;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* seen_xid_idxs;
+    uintptr_t* keep_uidxs;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(orig_sample_ct), &seen_xid_idxs) ||
+                 bigstack_calloc_w(raw_sample_ctl, &keep_uidxs))) {
+      goto AttribFilterSample_ret_NOMEM;
+    }
+    char* sorted_pos = nullptr;
+    char* sorted_neg = nullptr;
+    uint32_t pos_ct = 0;
+    uint32_t neg_ct = 0;
+    uintptr_t max_pos_blen = 0;
+    uintptr_t max_neg_blen = 0;
+    if (condition_str) {
+      reterr = ParseAttribCondition(condition_str, "--attrib-indiv", &sorted_pos, &pos_ct, &max_pos_blen, &sorted_neg, &neg_ct, &max_neg_blen);
+      if (unlikely(reterr)) {
+        goto AttribFilterSample_ret_1;
+      }
+    }
+    reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), 1, &txs);
+    if (unlikely(reterr)) {
+      goto AttribFilterSample_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    XidMode xid_mode;
+    reterr = LoadXidHeader("attrib-indiv", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --attrib-indiv file.\n");
+        goto AttribFilterSample_ret_MALFORMED_INPUT;
+      }
+      goto AttribFilterSample_ret_TSTREAM_XID_FAIL;
+    }
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto AttribFilterSample_ret_1;
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto AttribFilterSample_ret_NOMEM;
+    }
+    if (*line_start == '#') {
+      ++line_idx;
+      line_start = TextGet(&txs);
+    }
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      const char* linebuf_iter = line_start;
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto AttribFilterSample_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      if (unlikely(IsSet(seen_xid_idxs, xid_idx_start))) {
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --attrib-indiv file duplicates one earlier in the file.\n", line_idx);
+        goto AttribFilterSample_ret_MALFORMED_INPUT;
+      }
+      SetBit(xid_idx_start, seen_xid_idxs);
+      // SortedXidboxReadMultifind() leaves the iterator on the delimiter which
+      // ends the last ID column, not on the next token.
+      const char* attr_iter = FirstNonTspace(linebuf_iter);
+      if (!AttribLineKeep(attr_iter, sorted_pos, pos_ct, max_pos_blen, sorted_neg, neg_ct, max_neg_blen)) {
+        continue;
+      }
+      for (uint32_t xid_idx = xid_idx_start; xid_idx != xid_idx_end; ++xid_idx) {
+        SetBit(xid_map[xid_idx], keep_uidxs);
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto AttribFilterSample_ret_TSTREAM_FAIL;
+    }
+    memcpy(sample_include, keep_uidxs, raw_sample_ctl * sizeof(intptr_t));
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    *sample_ct_ptr = sample_ct;
+    logprintf("--attrib-indiv: %u sample%s remaining.\n", sample_ct, (sample_ct == 1)? "" : "s");
+  }
+  while (0) {
+  AttribFilterSample_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  AttribFilterSample_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
+  AttribFilterSample_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--attrib-indiv file", &txs);
+    break;
+  AttribFilterSample_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  AttribFilterSample_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ AttribFilterSample_ret_1:
+  BigstackReset(bigstack_mark);
+  CleanupTextStream2("--attrib-indiv file", &txs, &reterr);
+  return reterr;
+}
+
 // could permit split-chromosome here
 PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t save_list, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
