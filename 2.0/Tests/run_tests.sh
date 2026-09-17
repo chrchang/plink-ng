@@ -208,4 +208,9 @@ cd TEST_OBLIG_MISSING
 cd ..
 echo "TEST_OBLIG_MISSING passed."
 
+cd TEST_GLM_MISSING
+./run_tests.sh $d $2 $3 > TEST_GLM_MISSING.log
+cd ..
+echo "TEST_GLM_MISSING passed."
+
 echo "All tests passed."
