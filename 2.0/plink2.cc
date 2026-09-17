@@ -167,6 +167,7 @@ static const char notestr_null_calc2[] =
 #ifndef NOLAPACK
 "     --pca                      principal components\n"
 #endif
+"     --neighbour                nearest-neighbour outlier detection\n"
 "     --homozyg                  runs of homozygosity\n"
 "\n"
 "  -- Association\n"
