@@ -713,7 +713,7 @@ PglErr ParseAttribCondition(const char* condition_str, const char* flagname_p, c
       }
       is_neg = 1;
     }
-    const char* name_end = strchrnul(cond_iter, ',');
+    const char* name_end = Strchrnul(cond_iter, ',');
     const uintptr_t name_slen = name_end - cond_iter;
     if (unlikely(!name_slen)) {
       // only reachable via a trailing '-'

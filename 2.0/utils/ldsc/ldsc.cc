@@ -43,6 +43,13 @@
 #include <unordered_map>
 #include <vector>
 
+#define FFC_IMPL
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#include "../../include/ffc.h"
+#pragma GCC diagnostic pop
+
 #include "../../include/plink2_base.h"
 #include "../../include/plink2_stats.h"
 #include "../../include/plink2_string.h"
@@ -176,6 +183,7 @@ double LdscNormalIsf(double p) {
 uint32_t LdscScanDouble(const char* str_iter, double* valp) {
   // strtod also accepts hexadecimal floats, nan and infinity; a summary
   // statistic file has no business containing those.
+  // possible todo: use ffc_parse_options
   const char* digits = str_iter;
   if ((*digits == '-') || (*digits == '+')) {
     ++digits;
@@ -183,12 +191,11 @@ uint32_t LdscScanDouble(const char* str_iter, double* valp) {
   if ((digits[0] == '0') && ((digits[1] == 'x') || (digits[1] == 'X'))) {
     return 0;
   }
-  char* endp;
-  const double val = strtod(str_iter, &endp);
-  if ((endp == str_iter) || (!isfinite(val))) {
+  const uintptr_t slen = strlen_se(str_iter);
+  ffc_result result = ffc_parse_double(slen, str_iter, valp);
+  if ((result.outcome != FFC_OUTCOME_OK) || (!isfinite(*valp))) {
     return 0;
   }
-  *valp = val;
   return 1;
 }
 
