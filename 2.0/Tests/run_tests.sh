@@ -178,6 +178,11 @@ cd TEST_MISSING_FUSION
 cd ..
 echo "TEST_MISSING_FUSION passed."
 
+cd TEST_SETS
+./run_tests.sh $d $2 $3 > TEST_SETS.log
+cd ..
+echo "TEST_SETS passed."
+
 cd TEST_TEST_MISHAP
 ./run_tests.sh $d $2 $3 > TEST_TEST_MISHAP.log
 cd ..
