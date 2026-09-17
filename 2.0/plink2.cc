@@ -291,6 +291,7 @@ ENUM_U31_DEF_START()
   kCmd1BitEpi,
   kCmd1BitBlocks,
   kCmd1BitMetaAnalysis,
+  kCmd1BitNeighbour,
   kCmd1BitWriteSet,
   kCmd1BitTestMishap,
   kCmd1BitCt
@@ -345,6 +346,7 @@ FLAGSET64_DEF_START()
   kfCommand1Epi = (1LLU << kCmd1BitEpi),
   kfCommand1Blocks = (1LLU << kCmd1BitBlocks),
   kfCommand1MetaAnalysis = (1LLU << kCmd1BitMetaAnalysis),
+  kfCommand1Neighbour = (1LLU << kCmd1BitNeighbour),
   kfCommand1WriteSet = (1LLU << kCmd1BitWriteSet),
   kfCommand1TestMishap = (1LLU << kCmd1BitTestMishap)
 FLAGSET64_DEF_END(Command1Flags);
@@ -572,6 +574,7 @@ typedef struct Plink2CmdlineStruct {
   VcorInfo vcor_info;
   TwolocusInfo twolocus_info;
   EpiInfo epi_info;
+  NeighbourInfo neighbour_info;
   SetInfo set_info;
   TagInfo tag_info;
   BlocksInfo blocks_info;
@@ -669,6 +672,7 @@ typedef struct Plink2CmdlineStruct {
   char* glm_local_pvar_fname;
   char* glm_local_psam_fname;
   char* read_freq_fname;
+  char* read_eigvec_fname;
   char* within_fname;
   char* catpheno_name;
   char* family_missing_catname;
@@ -2335,6 +2339,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->read_eigvec_fname) {
+        // --neighbour's other entry point is inside CalcPca(), where the
+        // scores are already in memory.
+        reterr = NeighbourFromEigvecFile(sample_include, &pii.sii, pcp->read_eigvec_fname, &(pcp->neighbour_info), raw_sample_ct, sample_ct, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+        if (!(pcp->command_flags1 & (~(kfCommand1Neighbour | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
+          continue;
+        }
+      }
+
       if (pgenname[0]) {
         if (unlikely((pcp->command_flags1 & (kfCommand1LdPrune | kfCommand1Ld)) && (founder_ct < 50) && (!(pcp->misc_flags & kfMiscAllowBadLd)))) {
           if (sample_ct < 50) {
@@ -3080,7 +3096,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
-        reterr = CalcPca(sample_include, &pii.sii, grm_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
+        reterr = CalcPca(sample_include, &pii.sii, grm_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->neighbour_info), raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -4303,6 +4319,7 @@ int main(int argc, char** argv) {
   pc.glm_local_pvar_fname = nullptr;
   pc.glm_local_psam_fname = nullptr;
   pc.read_freq_fname = nullptr;
+  pc.read_eigvec_fname = nullptr;
   pc.within_fname = nullptr;
   pc.catpheno_name = nullptr;
   pc.family_missing_catname = nullptr;
@@ -4377,6 +4394,7 @@ int main(int argc, char** argv) {
   InitVcor(&pc.vcor_info);
   InitTwolocus(&pc.twolocus_info);
   InitEpi(&pc.epi_info);
+  InitNeighbour(&pc.neighbour_info);
   InitSet(&pc.set_info);
   InitTag(&pc.tag_info);
   InitBlocks(&pc.blocks_info);
@@ -11621,6 +11639,36 @@ int main(int argc, char** argv) {
           }
           pc.load_filter_log_flags |= kfLoadFilterLogNotChr;
           // remaining processing now postponed to FinalizeChrset()
+        } else if (strequal_k_unsafe(flagname_p2, "eighbour") || strequal_k_unsafe(flagname_p2, "eighbor")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t nn_ct = 5;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.neighbour_info.flags |= kfNeighbourZs;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(pc.neighbour_info.flags & kfNeighbourColAll)) {
+                logerrprintf("Error: Multiple --%s cols= modifiers.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0distself\0distnn\0stat\0", flagname_p, kfNeighbourColMaybefid, kfNeighbourColDefault, 1, &pc.neighbour_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              if (unlikely(ScanPosintCappedx(cur_modif, 0x7ffffffe, &nn_ct))) {
+                logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+                goto main_ret_INVALID_CMDLINE;
+              }
+            }
+          }
+          if (!(pc.neighbour_info.flags & kfNeighbourColAll)) {
+            pc.neighbour_info.flags |= kfNeighbourColDefault;
+          }
+          pc.neighbour_info.nn_ct = nn_ct;
         } else if (strequal_k_unsafe(flagname_p2, "ew-id-max-allele-len")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -12690,6 +12738,16 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "emove-nosex")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclNosex;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ead-eigvec")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.read_eigvec_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.command_flags1 |= kfCommand1Neighbour;
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "ead-freq")) {
           if (unlikely(pc.command_flags1 & kfCommand1AlleleFreq)) {
             // --read-freq can't promise OBS_CTs, so simplest to just continue
@@ -14958,6 +15016,19 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
+    if (pc.neighbour_info.nn_ct) {
+      if (unlikely(pc.read_eigvec_fname && (pc.command_flags1 & kfCommand1Pca))) {
+        logerrputs("Error: --neighbour cannot take PC coordinates from both --pca and\n--read-eigvec.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely((!pc.read_eigvec_fname) && (!(pc.command_flags1 & kfCommand1Pca)))) {
+        logerrputs("Error: --neighbour must be used with --pca or --read-eigvec; it scores PC\ncoordinates.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+    } else if (unlikely(pc.read_eigvec_fname)) {
+      logerrputs("Error: --read-eigvec must be used with --neighbour.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (pc.command_flags1 & kfCommand1Blocks) {
       if (unlikely(pc.blocks_info.max_bp == 0)) {
         logerrputs("Error: --blocks-max-kb must be explicitly specified when using --blocks.\n");
@@ -15716,6 +15787,7 @@ int main(int argc, char** argv) {
   free_cond(pc.catpheno_name);
   free_cond(pc.within_fname);
   free_cond(pc.read_freq_fname);
+  free_cond(pc.read_eigvec_fname);
   free_cond(pc.glm_local_covar_fname);
   free_cond(pc.glm_local_pvar_fname);
   free_cond(pc.glm_local_psam_fname);
