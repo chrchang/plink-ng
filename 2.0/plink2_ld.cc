@@ -14332,6 +14332,24 @@ typedef struct BlockCandidateStruct {
 #endif
 } BlockCandidate;
 
+#ifndef __cplusplus
+int32_t BlockCandidateCmp(const void* aa, const void* bb) {
+  const BlockCandidate* bc1 = S_CAST(const BlockCandidate*, aa);
+  const BlockCandidate* bc2 = S_CAST(const BlockCandidate*, bb);
+  const uint32_t span1 = bc1->span;
+  const uint32_t span2 = bc2->span;
+  if (span1 != span2) {
+    return (span1 > span2)? -1 : 1;
+  }
+  const uint32_t first_uidx1 = bc1->first_uidx;
+  const uint32_t first_uidx2 = bc2->first_uidx;
+  if (first_uidx1 != first_uidx2) {
+    return (first_uidx1 > first_uidx2)? -1 : 1;
+  }
+  return S_CAST(int32_t, bc2->last_uidx) - S_CAST(int32_t, bc1->last_uidx);
+}
+#endif
+
 // 3x3 genotype counts for a pair, in the (hom-A1, het, hom-A2) order
 // haploview_blocks_classify() expects.  A1 is ALT, so plink2's nyp codes map
 // to rows 2, 1, 0.
@@ -15879,7 +15897,7 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
     loglik[model_idx] = EpiCovarLoglik(xx, yy, ctx->coef, sample_ctav, nm_ct, cur_predictor_ct);
   }
   const double stat = 2 * (loglik[1] - loglik[0]);
-  if (!std::isfinite(stat)) {
+  if (!isfinite(stat)) {
     return 1;
   }
   // A perfect fit lands on zero from either side.
@@ -16955,7 +16973,7 @@ static void EpiLinearOnePair(EpiLinearCtx* ctx, uint32_t tidx, uint32_t row_slot
   const double beta_int = betas[3];
   const double se = sqrt(se_sq);
   const double tstat = beta_int / se;
-  if (!std::isfinite(tstat)) {
+  if (!isfinite(tstat)) {
     return;
   }
   ctx->betas_out[result_idx] = beta_int;

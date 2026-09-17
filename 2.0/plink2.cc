@@ -298,7 +298,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
-static_assert(kCmd1BitCt <= 64);
+static_assert(kCmd1BitCt <= 64, "command_flags1 is not wide enough");
 
 FLAGSET64_DEF_START()
   kfCommand10,
