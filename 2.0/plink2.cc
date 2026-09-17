@@ -689,6 +689,7 @@ typedef struct Plink2CmdlineStruct {
   char* require_no_info_flattened;
   char* make_pheno_fname;
   char* make_pheno_val;
+  ObligMissingInfo oblig_missing_info;
   char* keep_col_match_fname;
   char* keep_col_match_flattened;
   char* keep_col_match_name;
@@ -1035,6 +1036,8 @@ void UpdateSampleSubsets(const uintptr_t* sample_include, uint32_t raw_sample_ct
 // command_flags2 will probably be needed before we're done
 static_assert(kPglMaxAlleleCt == 255, "Plink2Core() --maj-ref needs to be updated.");
 PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, ChrInfo* cip, sfmt_t* sfmtp) {
+  ObligMissingData oblig_missing_data;
+  PreinitObligMissingData(&oblig_missing_data);
   PhenoCol* pheno_cols = nullptr;
   PhenoCol* covar_cols = nullptr;
   PhenoCol* loop_cats_pheno_col = nullptr;
@@ -1651,7 +1654,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
     }
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
-    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_cm_flag || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_cm_flag || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || pcp->oblig_missing_info.variant_fname || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, pcp->bed_border_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1788,6 +1791,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         if (pcp->extract_col_cond_info.params) {
           reterr = ExtractColCond(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, &pcp->extract_col_cond_info, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->oblig_missing_info.variant_fname) {
+          reterr = LoadObligMissing(&pcp->oblig_missing_info, sample_include, &pii.sii, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, raw_sample_ct, sample_ct, max_variant_id_slen, variant_id_htable_size, &oblig_missing_data);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1998,7 +2007,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (XymtExists(cip, kChrOffsetY, &y_code)) {
             variant_ct_y = CountChrVariantsUnsafe(variant_include, cip, y_code);
           }
-          reterr = MindFilter((pcp->misc_flags & kfMiscMindDosage)? sample_missing_dosage_cts : sample_missing_hc_cts, (pcp->misc_flags & kfMiscMindHhMissing)? sample_hethap_cts : nullptr, &pii.sii, raw_sample_ct, variant_ct, variant_ct_y, pcp->mind_thresh, sample_include, sex_male, &sample_ct, outname, outname_end);
+          unsigned char* mind_bigstack_mark = g_bigstack_base;
+          uint32_t* sample_oblig_nony_cts = nullptr;
+          uint32_t* sample_oblig_y_cts = nullptr;
+          if (oblig_missing_data.entry_ct) {
+            if (unlikely(ObligMissingSampleCts(&oblig_missing_data, variant_include, cip, raw_sample_ct, &sample_oblig_nony_cts, &sample_oblig_y_cts))) {
+              goto Plink2Core_ret_NOMEM;
+            }
+          }
+          reterr = MindFilter((pcp->misc_flags & kfMiscMindDosage)? sample_missing_dosage_cts : sample_missing_hc_cts, (pcp->misc_flags & kfMiscMindHhMissing)? sample_hethap_cts : nullptr, sample_oblig_nony_cts, sample_oblig_y_cts, &pii.sii, raw_sample_ct, variant_ct, variant_ct_y, pcp->mind_thresh, sample_include, sex_male, &sample_ct, outname, outname_end);
+          BigstackReset(mind_bigstack_mark);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2624,7 +2642,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         if (pcp->geno_thresh != 1.0) {
           const uint32_t geno_hh_missing = S_CAST(uint32_t, pcp->misc_flags & kfMiscGenoHhMissing);
-          EnforceGenoThresh(cip, (pcp->misc_flags & kfMiscGenoDosage)? variant_missing_dosage_cts : variant_missing_hc_cts, geno_hh_missing? variant_hethap_cts : nullptr, sample_ct, male_ct, geno_hh_missing? first_hap_uidx : 0x7fffffff, pcp->geno_thresh, variant_include, &variant_ct);
+          unsigned char* geno_bigstack_mark = g_bigstack_base;
+          uint32_t* variant_oblig_cts = nullptr;
+          if (oblig_missing_data.entry_ct) {
+            if (unlikely(ObligMissingVariantCts(&oblig_missing_data, sample_include, sex_male, cip, raw_sample_ct, raw_variant_ct, &variant_oblig_cts))) {
+              goto Plink2Core_ret_NOMEM;
+            }
+          }
+          EnforceGenoThresh(cip, (pcp->misc_flags & kfMiscGenoDosage)? variant_missing_dosage_cts : variant_missing_hc_cts, geno_hh_missing? variant_hethap_cts : nullptr, variant_oblig_cts, sample_ct, male_ct, geno_hh_missing? first_hap_uidx : 0x7fffffff, pcp->geno_thresh, variant_include, &variant_ct);
+          BigstackReset(geno_bigstack_mark);
         }
 
         if ((pcp->command_flags1 & kfCommand1Hardy) || (pcp->hwe_ln_thresh != -DBL_MAX)) {
@@ -3365,7 +3391,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if (pcp->command_flags1 & kfCommand1Epi) {
-        reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (pcp->epi_info.flags & kfEpiRegress) {
+          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        } else {
+          reterr = CalcEpi(sample_include, pheno_cols, covar_cols, covar_names, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3550,6 +3580,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     break;
   }
  Plink2Core_ret_1:
+  CleanupObligMissingData(&oblig_missing_data);
   if (loop_cats_pheno_col) {
     // Current implementation requires this to happen before CleanupPhenoCols()
     // on pheno_cols/covar_cols, since loop_cats_pheno_col actually points to
@@ -4246,6 +4277,7 @@ int main(int argc, char** argv) {
   pc.require_no_info_flattened = nullptr;
   pc.make_pheno_fname = nullptr;
   pc.make_pheno_val = nullptr;
+  InitObligMissing(&pc.oblig_missing_info);
   pc.keep_col_match_fname = nullptr;
   pc.keep_col_match_flattened = nullptr;
   pc.keep_col_match_name = nullptr;
@@ -6556,11 +6588,37 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          if (unlikely(pc.epi_info.flags & kfEpiRegress)) {
+            logerrputs("Error: --epistasis-boost cannot be used with --epistasis.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0, &pc.epi_info.flags))) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1Epi;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "pistasis")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiZs;
+            } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiNoP;
+            } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --epistasis's '%s' modifier needs variant sets, which are not\nimplemented yet.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --epistasis argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.epi_info.flags |= kfEpiRegress;
+          pc.command_flags1 |= kfCommand1Epi;
+          pc.dependency_flags |= kfFilterAllReq | kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "xtract")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -7113,7 +7171,11 @@ int main(int argc, char** argv) {
             }
           }
           if (unlikely(!boost_found)) {
-            logerrputs("Error: --fast-epistasis's default test has been retired.  Use --epistasis-boost\nfor the BOOST test.\n");
+            logerrputs("Error: --fast-epistasis's default test has been retired.  Use --epistasis-boost\nfor the BOOST test, or --epistasis for the quantitative-phenotype test.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.epi_info.flags & kfEpiRegress)) {
+            logerrputs("Error: --fast-epistasis cannot be used with --epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 1, &pc.epi_info.flags))) {
@@ -11526,7 +11588,20 @@ int main(int argc, char** argv) {
         break;
 
       case 'o':
-        if (strequal_k_unsafe(flagname_p2, "utput-chr")) {
+        if (strequal_k_unsafe(flagname_p2, "blig-missing")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.oblig_missing_info.variant_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          reterr = AllocFname(argvk[arg_idx + 2], flagname_p, &pc.oblig_missing_info.sample_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.filter_flags |= kfFilterPvarReq | kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "utput-chr")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -14265,7 +14340,7 @@ int main(int argc, char** argv) {
           import_flags |= kfImportVcfAllowNoNonvar;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "if")) {
-          if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
+          if (unlikely((!(pc.command_flags1 & kfCommand1Glm)) && (!(pc.epi_info.flags & kfEpiRegress)))) {
             logerrputs("Error: --vif must be used with --glm/--epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -14989,7 +15064,7 @@ int main(int argc, char** argv) {
     // --epi1/--epi2 sort before --epistasis-boost, so their dependency cannot
     // be checked while parsing them.
     if (unlikely(epi_thresh_present && (!(pc.command_flags1 & kfCommand1Epi)))) {
-      logerrputs("Error: --epi1/--epi2 must be used with --epistasis-boost.\n");
+      logerrputs("Error: --epi1/--epi2 must be used with --epistasis-boost/--epistasis.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
 
@@ -15356,6 +15431,7 @@ int main(int argc, char** argv) {
   free_cond(pc.keep_col_match_flattened);
   free_cond(pc.make_pheno_fname);
   free_cond(pc.make_pheno_val);
+  CleanupObligMissing(&pc.oblig_missing_info);
   free_cond(pc.keep_col_match_fname);
   free_cond(pc.require_no_info_flattened);
   free_cond(pc.require_info_flattened);
