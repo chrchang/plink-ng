@@ -298,6 +298,8 @@ ENUM_U31_DEF_START()
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
+static_assert(kCmd1BitCt <= 64);
+
 FLAGSET64_DEF_START()
   kfCommand10,
   kfCommand1MakePlink2 = (1LLU << kCmd1BitMakePlink2),
