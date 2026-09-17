@@ -116,3 +116,65 @@ fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost boost --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost set-by-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epi1 0.01 --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --gap 100 --out plink2_bad
+
+# 13. Covariates.  PLINK 1.9 has none here, so the adjusted statistic is
+#     checked against oracle_covar.py, which fits the same two models with a
+#     different coding.
+plink --simulate simulate_covar.txt --simulate-ncases 75 --simulate-ncontrols 75 --out tmp_oc > /dev/null
+awk 'BEGIN{OFS=" "} {print $1, $2, ((NR*7)%11)*0.25, (NR%3)*1.0}' tmp_oc.fam > tmp_oc_cov_body.txt
+(echo "#FID IID Q1 B1"; cat tmp_oc_cov_body.txt) > tmp_oc_cov.txt
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_cov.txt --out plink2_oc
+python3 oracle_covar.py tmp_oc tmp_oc_cov.txt > tmp_oc_oracle.txt
+awk -f cmp_covar.awk tmp_oc_oracle.txt plink2_oc.epi.cc
+
+# 14. A sampling zero costs the full model a parameter but does not cost the
+#     table a degree of freedom, so the adjusted DF is the unadjusted one on
+#     every pair; only an empty row or column, which drops a genotype level
+#     outright, brings either below 4.
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --out plink2_oc_un
+awk 'NR == FNR { if (FNR > 1) df1[$2 "|" $4] = $6; next }
+     FNR > 1 {
+       k = $2 "|" $4
+       if ($6 != df1[k]) { print "adjusted DF " $6 " vs unadjusted " df1[k] " on " k; exit 1 }
+       if ($6 < 4) { ++reduced }
+       ++compared
+     }
+     END { if (compared == 0) { print "no pairs compared"; exit 1 }
+           print compared " pairs agree on DF, " reduced+0 " of them below 4" }' plink2_oc_un.epi.cc plink2_oc.epi.cc
+# A pair the unadjusted scan gives fewer than 4 degrees of freedom has a
+# variant with a missing genotype level, which is the case that does reduce
+# them; the refit of that one pair has to agree.  (The simulated data has
+# hundreds of these, but nothing guarantees one, so this is conditional.)
+awk 'FNR > 1 && $6 < 4 { print $2; print $4; exit }' plink2.epi.cc > tmp_df2_vars.txt
+df2_expected=$(awk 'FNR > 1 && $6 < 4 { print $6; exit }' plink2.epi.cc)
+if [ -n "$df2_expected" ]; then
+    awk 'BEGIN{OFS=" "} {print $1, $2, ((NR*7)%11)*0.25}' tmp_data.fam > tmp_df2_cov_body.txt
+    (echo "#FID IID Q1"; cat tmp_df2_cov_body.txt) > tmp_df2_cov.txt
+    $1/plink2 $2 $3 --bfile tmp_data --extract tmp_df2_vars.txt --epistasis-boost --epi1 1 --covar tmp_df2_cov.txt --out plink2_df2
+    awk -v want="$df2_expected" 'FNR > 1 { if ($6 != want) { print "expected DF " want ", got " $6; exit 1 }; ++n }
+         END { if (n != 1) { print "expected one pair, got " n+0; exit 1 }
+               print "reduced-DF pair refit at DF " want }' plink2_df2.epi.cc
+fi
+
+# 15. A covariate that is constant over the analysis samples is dropped, and
+#     the run then has nothing to adjust for, so it must reproduce the
+#     unadjusted report exactly.
+awk 'BEGIN{OFS=" "} {print $1, $2, 1}' tmp_oc.fam > tmp_oc_const_body.txt
+(echo "#FID IID CONST"; cat tmp_oc_const_body.txt) > tmp_oc_const.txt
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_const.txt --out plink2_oc_const 2> plink2_oc_const.err
+grep -q "Excluding constant covariate 'CONST'" plink2_oc_const.err
+diff -q plink2_oc_un.epi.cc plink2_oc_const.epi.cc
+
+# 16. A sample missing a covariate is left out of the whole scan, not just of
+#     the refit, so the screen sees the same samples the refit does.
+awk 'BEGIN{OFS=" "} {print $1, $2, (NR == 1)? "NA" : ((NR*7)%11)*0.25}' tmp_oc.fam > tmp_oc_miss_body.txt
+(echo "#FID IID Q1"; cat tmp_oc_miss_body.txt) > tmp_oc_miss.txt
+head -n 1 tmp_oc.fam | awk '{print $1, $2}' > tmp_oc_drop.txt
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_miss.txt --out plink2_oc_miss
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --remove tmp_oc_drop.txt --out plink2_oc_rm
+diff <(cut -f2,4 plink2_oc_miss.epi.cc.summary) <(cut -f2,4 plink2_oc_rm.epi.cc.summary)
+
+# 17. Rejected: a categorical covariate, which the refit cannot code yet.
+awk 'BEGIN{OFS=" "} {print $1, $2, (NR%2)? "left" : "right"}' tmp_oc.fam > tmp_oc_cat_body.txt
+(echo "#FID IID SIDE"; cat tmp_oc_cat_body.txt) > tmp_oc_cat.txt
+fails $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_cat.txt --out plink2_bad
