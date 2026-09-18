@@ -835,9 +835,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             }
           } else {
             if (!pgv.dosage_ct) {
-              // Past half missing, subtracting the missing samples costs more
-              // than copying the rest, and gives up precision.
-              sparse_optimization = sparse_optimization_eligible && ((!cur_covar_ct) || (missing_sparse_eligible && (missing_ct < nm_sample_ct) && (!MissingLeavesConstantCovar(sample_nm, cur_covars_cmaj, xtx_image, cur_sample_ct, nm_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_biallelic_predictor_ct))));
+              // Past 1/3 missing, subtracting the missing samples doesn't cost
+              // much less than copying the rest, and gives up precision.
+              sparse_optimization = sparse_optimization_eligible && ((!cur_covar_ct) || (missing_sparse_eligible && (missing_ct * 2 < nm_sample_ct) && (!MissingLeavesConstantCovar(sample_nm, cur_covars_cmaj, xtx_image, cur_sample_ct, nm_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_biallelic_predictor_ct))));
               if (!sparse_optimization) {
                 GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
               }
