@@ -16,8 +16,26 @@ set -exo pipefail
 
 plink2="$1/plink2 $2 $3"
 
-# 40 variants, each missing 0.2%, 2%, 20% or 60% of its calls.
-$plink2 --dummy 600 40 0.002,0.02,0.2,0.6 acgt --seed 5 --out tmp_data > /dev/null
+# 600 samples, 40 variants.  --dummy can blank calls itself, but it draws the
+# frequencies from a random stream that is split across threads, so the same
+# seed gives a different missingness pattern for a different --threads value.
+# The calls are blanked here instead, by variant and sample index, which gives
+# every run the same eight variants in each of five classes: no missing call,
+# then 2, 12, 120 and 360 of the 600 blanked.
+$plink2 --dummy 600 40 acgt --seed 5 --out tmp_dense > /dev/null
+$plink2 --pfile tmp_dense --export vcf --out tmp_dense > /dev/null
+awk 'BEGIN { OFS = "\t"; split("0 2 12 120 360", blank_ct, " ") }
+     /^#/ { print; next }
+     {
+       cur_blank_ct = blank_ct[(vidx % 5) + 1]
+       for (s = 10; s <= NF; ++s) {
+         # 37 and 600 are coprime, so this is a permutation of the samples.
+         if (((s - 10) * 37 + vidx * 11) % 600 < cur_blank_ct) { $s = "./." }
+       }
+       ++vidx
+       print
+     }' tmp_dense.vcf > tmp_blanked.vcf
+$plink2 --vcf tmp_blanked.vcf --make-pgen --out tmp_data > /dev/null
 
 # Five quantitative covariates, two 0/1 indicators of a three-level group, and
 # two samples with a missing covariate.  (A categorical covariate would not do:
@@ -46,11 +64,12 @@ $plink2 --pfile tmp_data --export A --out tmp_raw > /dev/null
 rm -f tmp_miss_*.txt
 awk 'NR == 1 { for (j = 7; j <= NF; ++j) { id[j] = $j; sub(/_[^_]*$/, "", id[j]) }; next }
      { for (j = 7; j <= NF; ++j) { if ($j == "NA") { print $2 > ("tmp_miss_" id[j] ".txt") } } }' tmp_raw.raw
-tail -n +2 tmp_data.pvar | cut -f 3 > tmp_variants.txt
+grep -v '^#' tmp_data.pvar | cut -f 3 > tmp_variants.txt
 
-# Most variants must sit below the 50% missingness mark, where the missing
-# samples are cheaper to take back out than the rest are to copy, and a few
-# above it.
+# Both sides of the 50% missingness mark have to be covered: below it the
+# missing samples are cheaper to take back out than the rest are to copy, above
+# it they are not.  Variants with no missing call at all go through a third
+# path.
 for v in $(cat tmp_variants.txt); do
     if [ -f tmp_miss_$v.txt ]; then
         wc -l < tmp_miss_$v.txt
@@ -58,8 +77,9 @@ for v in $(cat tmp_variants.txt); do
         echo 0
     fi
 done > tmp_miss_counts.txt
-test "$(awk '$1 > 0 && $1 < 300' tmp_miss_counts.txt | wc -l)" -ge 20
-test "$(awk '$1 >= 300' tmp_miss_counts.txt | wc -l)" -ge 3
+test "$(awk '$1 == 0' tmp_miss_counts.txt | wc -l)" -eq 8
+test "$(awk '$1 > 0 && $1 < 300' tmp_miss_counts.txt | wc -l)" -eq 24
+test "$(awk '$1 >= 300' tmp_miss_counts.txt | wc -l)" -eq 8
 
 check_model() {
     $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q1-Q4 --covar tmp_covar.txt --glm $1 --out tmp_main > /dev/null
