@@ -233,6 +233,10 @@ uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predicto
   // doubles
   workspace_size += RoundUpPow2((max_predictor_ct - 1) * MAXV((max_predictor_ct - 1), 4) * sizeof(double), kCacheline);
 
+  // nm_covar_inv_buf = (covar_ct + 1) * (covar_ct + 2) doubles, where
+  // covar_ct + 2 <= biallelic_predictor_ct
+  workspace_size += RoundUpPow2((biallelic_predictor_ct - 1) * biallelic_predictor_ct * sizeof(double), kCacheline);
+
   // semicomputed_biallelic_corr_matrix = (max_predictor_ct - 1)^2 doubles
   workspace_size += RoundUpPow2((biallelic_predictor_ct - 1) * (biallelic_predictor_ct - 1) * sizeof(double), kCacheline);
 
@@ -265,6 +269,99 @@ uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predicto
     workspace_size += RoundUpPow2(constraint_ct * max_predictor_ct * sizeof(double), kCacheline);
   }
   return workspace_size;
+}
+
+// Subtraction is only worth it while the result keeps most of its bits.  A
+// covariate that is constant over the variant's nonmissing samples has zero
+// variance there, and subtracting the missing samples leaves rounding noise
+// instead: its correlations with the other predictors then come out as large
+// values rather than as the undefined ones the generic path produces.  Such a
+// variant goes to the generic path, which computes the dot products directly.
+// Returns 1 when that is the case.
+BoolErr MissingLeavesConstantCovar(const uintptr_t* sample_nm, const double* covars_cmaj, const double* xtx_image, uintptr_t sample_ct, uint32_t nm_sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct) {
+  // 2^{-26} is about half the bits of a double's mantissa.
+  const double min_retained_frac = 0x1p-26;
+  const double nm_sample_ct_recip = 1.0 / u31tod(nm_sample_ct);
+  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+    const double* cur_covar = &(covars_cmaj[covar_idx * sample_ct]);
+    const double* xtx_image_row = &(xtx_image[(covar_idx + covar_pred_start) * predictor_ct]);
+    double missing_sum = 0.0;
+    double missing_ssq = 0.0;
+    uintptr_t sample_midx_base = 0;
+    uintptr_t sample_nm_inv_bits = ~sample_nm[0];
+    for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
+      const uintptr_t sample_midx = BitIter0(sample_nm, &sample_midx_base, &sample_nm_inv_bits);
+      const double cur_covar_val = cur_covar[sample_midx];
+      missing_sum += cur_covar_val;
+      missing_ssq = prefer_fma(cur_covar_val, cur_covar_val, missing_ssq);
+    }
+    const double full_ssq = xtx_image_row[covar_pred_start + covar_idx];
+    const double nm_ssq = full_ssq - missing_ssq;
+    if (nm_ssq <= min_retained_frac * full_ssq) {
+      return 1;
+    }
+    const double nm_sum = xtx_image_row[0] - missing_sum;
+    if (nm_ssq - nm_sum * nm_sum * nm_sample_ct_recip <= min_retained_frac * nm_ssq) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// A variant with missing genotype calls has its own intercept and covariate
+// dot products, over its nonmissing samples.  Rather than recompute them, the
+// sparse path subtracts the missing samples' contributions from copies of the
+// full-sample xtx_image (lower triangle) and xt_y_image in xtx and xt_y.
+// Covariates occupy predictor indices covar_pred_start onward, and xt_y has
+// pheno_ct rows.  xtx[0] is left to the caller.  covar_row_buf needs room for
+// covar_ct doubles.
+void SubtractMissingFromCovarDotprods(const uintptr_t* sample_nm, const double* covars_cmaj, const double* pheno_pmaj, uintptr_t sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct, uint32_t pheno_ct, double* __restrict covar_row_buf, double* __restrict xtx, double* __restrict xt_y) {
+  uintptr_t sample_midx_base = 0;
+  uintptr_t sample_nm_inv_bits = ~sample_nm[0];
+  for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
+    const uintptr_t sample_midx = BitIter0(sample_nm, &sample_midx_base, &sample_nm_inv_bits);
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      covar_row_buf[covar_idx] = covars_cmaj[covar_idx * sample_ct + sample_midx];
+    }
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const double neg_covar_val = -covar_row_buf[covar_idx];
+      double* xtx_row = &(xtx[(covar_idx + covar_pred_start) * predictor_ct]);
+      xtx_row[0] += neg_covar_val;
+      double* xtx_covar_row = &(xtx_row[covar_pred_start]);
+      for (uint32_t covar_idx2 = 0; covar_idx2 <= covar_idx; ++covar_idx2) {
+        xtx_covar_row[covar_idx2] = prefer_fma(neg_covar_val, covar_row_buf[covar_idx2], xtx_covar_row[covar_idx2]);
+      }
+    }
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      const double neg_pheno_val = -pheno_pmaj[pheno_idx * sample_ct + sample_midx];
+      double* cur_xt_y = &(xt_y[pheno_idx * predictor_ct]);
+      cur_xt_y[0] += neg_pheno_val;
+      double* xt_y_covar_iter = &(cur_xt_y[covar_pred_start]);
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        xt_y_covar_iter[covar_idx] = prefer_fma(neg_pheno_val, covar_row_buf[covar_idx], xt_y_covar_iter[covar_idx]);
+      }
+    }
+  }
+}
+
+// Inverts the intercept-and-covariate block of xtx (lower triangle) into
+// covar_inv, laid out like RegressionNmPrecomp.covarx_dotprod_inv.  dbl_2d_buf
+// needs room for max(covar_ct + 1, 3) * (covar_ct + 1) doubles.  Returns 1 if
+// the block is singular.
+BoolErr InvertNmCovarDotprods(const double* xtx, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* covar_inv) {
+  const uintptr_t dim = covar_ct + 1;
+  covar_inv[0] = xtx[0];
+  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+    const double* xtx_row = &(xtx[(covar_idx + covar_pred_start) * predictor_ct]);
+    double* covar_inv_row = &(covar_inv[(covar_idx + 1) * dim]);
+    covar_inv_row[0] = xtx_row[0];
+    memcpy(&(covar_inv_row[1]), &(xtx_row[covar_pred_start]), (covar_idx + 1) * sizeof(double));
+  }
+  if (InvertSymmdefMatrixChecked(dim, covar_inv, inv_1d_buf, dbl_2d_buf)) {
+    return 1;
+  }
+  ReflectMatrix(dim, covar_inv);
+  return 0;
 }
 
 // possible todo: delete this, and GlmLinear(), if GlmLinearSubbatchThread is
@@ -486,6 +583,16 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       double* inverse_corr_buf = S_CAST(double*, arena_alloc_raw_rd((max_predictor_ct - 1) * MAXV((max_predictor_ct - 1), 4) * sizeof(double), &workspace_iter));
 
       const uint32_t sparse_optimization_eligible = (!is_regular_x) && nm_precomp;
+      // With covariates, the sparse path can also take variants with missing
+      // calls; see SubtractMissingFromCovarDotprods().  --parameters is left
+      // to the generic path.
+      const uint32_t missing_sparse_eligible = sparse_optimization_eligible && cur_covar_ct && (!cur_parameter_subset);
+      double* nm_covar_inv_buf = nullptr;
+      double* nm_covar_row_buf = nullptr;
+      if (missing_sparse_eligible) {
+        nm_covar_inv_buf = S_CAST(double*, arena_alloc_raw_rd((cur_covar_ct + 1) * (cur_covar_ct + 2) * sizeof(double), &workspace_iter));
+        nm_covar_row_buf = &(nm_covar_inv_buf[(cur_covar_ct + 1) * (cur_covar_ct + 1)]);
+      }
       // Only try to load difflist in no-covariate no-dosage biallelic case,
       // where sparse_optimization is guaranteed to be true.
       const uint32_t difflist_eligible = sparse_optimization_eligible && (!pgv.dosage_present) && (!cur_covar_ct);
@@ -728,7 +835,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             }
           } else {
             if (!pgv.dosage_ct) {
-              sparse_optimization = sparse_optimization_eligible && (!cur_covar_ct);
+              // Past half missing, subtracting the missing samples costs more
+              // than copying the rest, and gives up precision.
+              sparse_optimization = sparse_optimization_eligible && ((!cur_covar_ct) || (missing_sparse_eligible && (missing_ct < nm_sample_ct) && (!MissingLeavesConstantCovar(sample_nm, cur_covars_cmaj, xtx_image, cur_sample_ct, nm_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_biallelic_predictor_ct))));
               if (!sparse_optimization) {
                 GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
               }
@@ -1325,23 +1434,39 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                   xt_y[0] = pheno_sum;
                   xtx_inv[0] = u31tod(nm_sample_ct);
                 } else {
+                  const uint32_t covar_pred_start = domdev_third + 2;
+                  // nm_predictors_pmaj_buf and nm_pheno_buf are only
+                  // guaranteed to hold the covariates and phenotype when there
+                  // are no missing calls, in which case they match
+                  // cur_covars_cmaj and cur_pheno.
+                  const double* covar_vals = &(nm_predictors_pmaj_buf[covar_pred_start * nm_sample_ct]);
+                  const double* pheno_vals = nm_pheno_buf;
+                  if (missing_ct) {
+                    SubtractMissingFromCovarDotprods(sample_nm, cur_covars_cmaj, cur_pheno, cur_sample_ct, missing_ct, cur_covar_ct, covar_pred_start, cur_predictor_ct, 1, nm_covar_row_buf, xtx_inv, xt_y);
+                    xtx_inv[0] = u31tod(nm_sample_ct);
+                    covar_vals = cur_covars_cmaj;
+                    pheno_vals = cur_pheno;
+                  }
                   double* geno_dotprod_row = &(xtx_inv[cur_predictor_ct]);
                   double* domdev_dotprod_row = &(xtx_inv[2 * cur_predictor_ct]);
                   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
                     uintptr_t geno_word = pgv.genovec[widx];
+                    if (missing_ct) {
+                      geno_word ^= (geno_word & (geno_word >> 1) & kMask5555) * 3;
+                    }
                     if (geno_word) {
                       const uint32_t sample_idx_base = widx * kBitsPerWordD2;
                       do {
                         const uint32_t lowest_set_bit = ctzw(geno_word);
-                        // since there are no missing values, we have a het if
+                        // with missing calls masked out, we have a het if
                         // (lowest_set_bit & 1) is zero, and a hom-alt when
                         // it's one.
                         const uint32_t sample_idx = sample_idx_base + (lowest_set_bit / 2);
                         const double geno_d = geno_d_lookup[lowest_set_bit & 1];
-                        const double cur_pheno_val = nm_pheno_buf[sample_idx];
+                        const double cur_pheno_val = pheno_vals[sample_idx];
                         geno_pheno_prod = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prod);
-                        for (uintptr_t pred_idx = domdev_third + 2; pred_idx != cur_predictor_ct; ++pred_idx) {
-                          geno_dotprod_row[pred_idx] = prefer_fma(geno_d, nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
+                        for (uintptr_t pred_idx = covar_pred_start; pred_idx != cur_predictor_ct; ++pred_idx) {
+                          geno_dotprod_row[pred_idx] = prefer_fma(geno_d, covar_vals[(pred_idx - covar_pred_start) * cur_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
                         }
                         // can have a separate categorical loop here
 
@@ -1350,7 +1475,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                           domdev_pheno_prod += cur_pheno_val;
                           domdev_geno_prod += geno_d;
                           for (uintptr_t pred_idx = 3; pred_idx != cur_predictor_ct; ++pred_idx) {
-                            domdev_dotprod_row[pred_idx] += nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
+                            domdev_dotprod_row[pred_idx] += covar_vals[(pred_idx - 3) * cur_sample_ct + sample_idx];
                           }
                           // categorical optimization possible here
                         }
@@ -1398,12 +1523,31 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               if (!missing_ct) {
                 glm_err = CheckMaxCorrAndVifNm(xtx_inv, corr_inv, cur_predictor_ct, domdev_third_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               } else {
+                if (cur_covar_ct) {
+                  // CheckMaxCorrAndVif() reads the lower triangle, while the
+                  // genotype dot products above went into rows 1 and 2.
+                  for (uint32_t pred_idx = 2; pred_idx != cur_predictor_ct; ++pred_idx) {
+                    xtx_inv[pred_idx * cur_predictor_ct + 1] = xtx_inv[cur_predictor_ct + pred_idx];
+                  }
+                  if (domdev_third) {
+                    for (uint32_t pred_idx = 3; pred_idx != cur_predictor_ct; ++pred_idx) {
+                      xtx_inv[pred_idx * cur_predictor_ct + 2] = xtx_inv[2 * cur_predictor_ct + pred_idx];
+                    }
+                  }
+                }
                 for (uint32_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
                   dbl_2d_buf[pred_idx] = xtx_inv[pred_idx * cur_predictor_ct];
                 }
                 glm_err = CheckMaxCorrAndVif(xtx_inv, 1, cur_predictor_ct, nm_sample_ct, max_corr, vif_thresh, dbl_2d_buf, nullptr, inverse_corr_buf, inv_1d_buf);
-                covarless_inverse_buf[0] = 1.0 / u31tod(nm_sample_ct);
-                covarxx_dotprod_inv = covarless_inverse_buf;
+                if (!cur_covar_ct) {
+                  covarless_inverse_buf[0] = 1.0 / u31tod(nm_sample_ct);
+                  covarxx_dotprod_inv = covarless_inverse_buf;
+                } else if (!glm_err) {
+                  if (InvertNmCovarDotprods(xtx_inv, cur_covar_ct, domdev_third + 2, cur_predictor_ct, inv_1d_buf, inverse_corr_buf, nm_covar_inv_buf)) {
+                    glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
+                  }
+                  covarxx_dotprod_inv = nm_covar_inv_buf;
+                }
               }
               if (glm_err) {
                 goto GlmLinearThread_skip_regression;
@@ -2502,6 +2646,10 @@ uintptr_t GetLinearSubbatchWorkspaceSize(uint32_t sample_ct, uint32_t subbatch_s
   // inverse_corr_buf = (max_predictor_ct - 1) * max(max_predictor_ct - 1, 4) doubles
   workspace_size += RoundUpPow2((max_predictor_ct - 1) * MAXV((max_predictor_ct - 1), 4) * sizeof(double), kCacheline);
 
+  // nm_covar_inv_buf = (covar_ct + 1) * (covar_ct + 2) doubles, where
+  // covar_ct + 2 <= biallelic_predictor_ct
+  workspace_size += RoundUpPow2((biallelic_predictor_ct - 1) * biallelic_predictor_ct * sizeof(double), kCacheline);
+
   // semicomputed_biallelic_corr_matrix = (max_predictor_ct - 1)^2 doubles
   workspace_size += RoundUpPow2((biallelic_predictor_ct - 1) * (biallelic_predictor_ct - 1) * sizeof(double), kCacheline);
 
@@ -2759,6 +2907,16 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       double* inverse_corr_buf = S_CAST(double*, arena_alloc_raw_rd((max_predictor_ct - 1) * MAXV((max_predictor_ct - 1), 4) * sizeof(double), &workspace_iter));
 
       const uint32_t sparse_optimization_eligible = (!is_regular_x) && nm_precomp;
+      // With covariates, the sparse path can also take variants with missing
+      // calls; see SubtractMissingFromCovarDotprods().  --parameters is left
+      // to the generic path.
+      const uint32_t missing_sparse_eligible = sparse_optimization_eligible && cur_covar_ct && (!cur_parameter_subset);
+      double* nm_covar_inv_buf = nullptr;
+      double* nm_covar_row_buf = nullptr;
+      if (missing_sparse_eligible) {
+        nm_covar_inv_buf = S_CAST(double*, arena_alloc_raw_rd((cur_covar_ct + 1) * (cur_covar_ct + 2) * sizeof(double), &workspace_iter));
+        nm_covar_row_buf = &(nm_covar_inv_buf[(cur_covar_ct + 1) * (cur_covar_ct + 1)]);
+      }
       const uint32_t difflist_eligible = sparse_optimization_eligible && (!pgv.dosage_present) && (!cur_covar_ct);
       uintptr_t* raregeno = nullptr;
       uint32_t* difflist_sample_ids = nullptr;
@@ -2969,8 +3127,14 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
             }
           } else {
             if (!pgv.dosage_ct) {
-              sparse_optimization = sparse_optimization_eligible && (!cur_covar_ct);
-              GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
+              // Past half missing, subtracting the missing samples costs more
+              // than copying the rest, and gives up precision.
+              sparse_optimization = sparse_optimization_eligible && ((!cur_covar_ct) || (missing_sparse_eligible && (missing_ct < nm_sample_ct) && (!MissingLeavesConstantCovar(sample_nm, cur_covars_cmaj, xtx_image, cur_sample_ct, nm_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_biallelic_predictor_ct))));
+              // The sparse path doesn't read genotype_vals, and writing them
+              // would clobber the intercept column that prev_nm vouches for.
+              if (!sparse_optimization) {
+                GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
+              }
             } else {
               uintptr_t sample_midx_base = 0;
               uintptr_t sample_nm_bits = sample_nm[0];
@@ -3583,39 +3747,55 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   }
                   xtx_inv[0] = u31tod(nm_sample_ct);
                 } else {
+                  const uint32_t covar_pred_start = domdev_third + 2;
+                  // nm_predictors_pmaj_buf and nm_pheno_buf are only
+                  // guaranteed to hold the covariates and phenotypes when
+                  // there are no missing calls, in which case they match
+                  // cur_covars_cmaj and cur_pheno_pmaj.
+                  const double* covar_vals = &(nm_predictors_pmaj_buf[covar_pred_start * nm_sample_ct]);
+                  const double* pheno_vals = nm_pheno_buf;
+                  if (missing_ct) {
+                    SubtractMissingFromCovarDotprods(sample_nm, cur_covars_cmaj, cur_pheno_pmaj, cur_sample_ct, missing_ct, cur_covar_ct, covar_pred_start, cur_predictor_ct, subbatch_size, nm_covar_row_buf, xtx_inv, xt_y);
+                    xtx_inv[0] = u31tod(nm_sample_ct);
+                    covar_vals = cur_covars_cmaj;
+                    pheno_vals = cur_pheno_pmaj;
+                  }
                   double* geno_dotprod_row = &(xtx_inv[cur_predictor_ct]);
                   double* domdev_dotprod_row = &(xtx_inv[2 * cur_predictor_ct]);
                   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
                     uintptr_t geno_word = pgv.genovec[widx];
+                    if (missing_ct) {
+                      geno_word ^= (geno_word & (geno_word >> 1) & kMask5555) * 3;
+                    }
                     if (geno_word) {
                       const uint32_t sample_idx_base = widx * kBitsPerWordD2;
                       do {
                         const uint32_t lowest_set_bit = ctzw(geno_word);
-                        // since there are no missing values, we have a het if
+                        // with missing calls masked out, we have a het if
                         // (lowest_set_bit & 1) is zero, and a hom-alt when
                         // it's one.
                         const uint32_t sample_idx = sample_idx_base + (lowest_set_bit / 2);
                         const double geno_d = geno_d_lookup[lowest_set_bit & 1];
-                        for (uintptr_t pred_idx = domdev_third + 2; pred_idx != cur_predictor_ct; ++pred_idx) {
-                          geno_dotprod_row[pred_idx] = prefer_fma(geno_d, nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
+                        for (uintptr_t pred_idx = covar_pred_start; pred_idx != cur_predictor_ct; ++pred_idx) {
+                          geno_dotprod_row[pred_idx] = prefer_fma(geno_d, covar_vals[(pred_idx - covar_pred_start) * cur_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
                         }
                         // can have a separate categorical loop here
 
                         if (domdev_third && (!(lowest_set_bit & 1))) {
                           // domdev = 1
                           for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
-                            const double cur_pheno_val = nm_pheno_buf[pheno_idx * nm_sample_ct + sample_idx];
+                            const double cur_pheno_val = pheno_vals[pheno_idx * cur_sample_ct + sample_idx];
                             geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prods[pheno_idx]);
                             domdev_pheno_prods[pheno_idx] += cur_pheno_val;
                           }
                           domdev_geno_prod += geno_d;
                           for (uintptr_t pred_idx = 3; pred_idx != cur_predictor_ct; ++pred_idx) {
-                            domdev_dotprod_row[pred_idx] += nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
+                            domdev_dotprod_row[pred_idx] += covar_vals[(pred_idx - 3) * cur_sample_ct + sample_idx];
                           }
                           // categorical optimization possible here
                         } else {
                           for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
-                            geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, nm_pheno_buf[pheno_idx * nm_sample_ct + sample_idx], geno_pheno_prods[pheno_idx]);
+                            geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, pheno_vals[pheno_idx * cur_sample_ct + sample_idx], geno_pheno_prods[pheno_idx]);
                           }
                         }
                         geno_word &= geno_word - 1;
@@ -3667,12 +3847,31 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               if (!missing_ct) {
                 glm_err = CheckMaxCorrAndVifNm(xtx_inv, corr_inv, cur_predictor_ct, domdev_third_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               } else {
+                if (cur_covar_ct) {
+                  // CheckMaxCorrAndVif() reads the lower triangle, while the
+                  // genotype dot products above went into rows 1 and 2.
+                  for (uint32_t pred_idx = 2; pred_idx != cur_predictor_ct; ++pred_idx) {
+                    xtx_inv[pred_idx * cur_predictor_ct + 1] = xtx_inv[cur_predictor_ct + pred_idx];
+                  }
+                  if (domdev_third) {
+                    for (uint32_t pred_idx = 3; pred_idx != cur_predictor_ct; ++pred_idx) {
+                      xtx_inv[pred_idx * cur_predictor_ct + 2] = xtx_inv[2 * cur_predictor_ct + pred_idx];
+                    }
+                  }
+                }
                 for (uint32_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
                   dbl_2d_buf[pred_idx] = xtx_inv[pred_idx * cur_predictor_ct];
                 }
                 glm_err = CheckMaxCorrAndVif(xtx_inv, 1, cur_predictor_ct, nm_sample_ct, max_corr, vif_thresh, dbl_2d_buf, nullptr, inverse_corr_buf, inv_1d_buf);
-                covarless_inverse_buf[0] = 1.0 / u31tod(nm_sample_ct);
-                covarxx_dotprod_inv = covarless_inverse_buf;
+                if (!cur_covar_ct) {
+                  covarless_inverse_buf[0] = 1.0 / u31tod(nm_sample_ct);
+                  covarxx_dotprod_inv = covarless_inverse_buf;
+                } else if (!glm_err) {
+                  if (InvertNmCovarDotprods(xtx_inv, cur_covar_ct, domdev_third + 2, cur_predictor_ct, inv_1d_buf, inverse_corr_buf, nm_covar_inv_buf)) {
+                    glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
+                  }
+                  covarxx_dotprod_inv = nm_covar_inv_buf;
+                }
               }
               if (glm_err) {
                 goto GlmLinearSubbatchThread_skip_regression;
