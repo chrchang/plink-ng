@@ -7970,15 +7970,25 @@ PglErr PmergePass(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInf
     // 3. Return to step 1 if input fileset(s) remain.
     uintptr_t input_filesets_remaining = fileset_ct;
     PmergeInputFilesetLl** next_filesets_end_ptr = next_filesets_ptr;
-    // Each fileset needs its .pgen and its .pvar open simultaneously, and we
-    // need a .pgen and .pvar open for writing.
-    if (fileset_ct <= (kMaxOpenFiles / 2) - 1) {
+    // Each fileset needs its .pgen and its .pvar open simultaneously, we need
+    // a .pgen and .pvar open for writing, and we're writing a .log.
+    //
+    // In theory, with this temporary implementation, *non*-workspace memory
+    // could be tight since:
+    // * when --memory is not specified, plink2 only confirms that a 64 MiB
+    //   non-workspace allocation succeeds when sizing the workspace, and
+    // * when a .pvar is compressed, its reader allocates ~1-3 MiB of
+    //   non-workspace memory.
+    // While this should practically never produce real problems, it would
+    // still be good to process a maximum of 20 filesets at a time once
+    // multipass merge is working.
+    if (fileset_ct <= ((kMaxOpenFiles - 3) / 2)) {
       reterr = PmergePassSingle(pmip, siip, cip, *input_filesets_ptr, missing_varid_match, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end);
       *input_filesets_ptr = nullptr;
       goto PmergePass_ret_1;
     }
     do {
-      logerrputs("Error: Non-concatenating --pmerge[-list] with more than 125 filesets is under\ndevelopment.\n");
+      logerrputs("Error: Non-concatenating --pmerge[-list] with more than 124 filesets is under\ndevelopment.\n");
       reterr = kPglRetNotYetSupported;
       goto PmergePass_ret_1;
     } while (input_filesets_remaining > 1);
