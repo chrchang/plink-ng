@@ -1870,6 +1870,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      out when duplicate variant ID(s) remain, like --write-snplist.  Add the\n"
 "      'allow-dups' modifier to suppress that.\n\n"
                );
+    HelpPrint("info-to-cols\0", &help_ctrl, 1,
+"  --info-to-cols {<key>[,<key>...] | 'all'} ['zs']\n"
+"    Write the named INFO keys as ordinary tab-delimited columns, one row per\n"
+"    variant, to <output prefix>.vinfo.  This is the direction that VCF-derived\n"
+"    data usually has to leave plink2 in: --extract-if-info can filter on a\n"
+"    key, but nothing else could get one out.\n"
+"    * The key list is comma-separated, since INFO keys cannot contain commas.\n"
+"      'all' takes every key declared in the ##INFO header lines.\n"
+"    * A key declared Number=0 is a Flag, and its column is 0 or 1.  Any other\n"
+"      key is reported as its value, or NA where the variant does not carry it.\n"
+"      A key present without a value, where the header did not declare it a\n"
+"      Flag, is reported as 1.\n\n"
+               );
     HelpPrint("set\0make-set\0make-set-border\0make-set-collapse-group\0set-names\0subset\0set-collapse-all\0complement-sets\0make-set-complement-all\0make-set-complement-group\0write-set\0set-table\0", &help_ctrl, 1,
 "  --set <filename>\n"
 "  --make-set <filename>\n"
