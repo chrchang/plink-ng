@@ -676,6 +676,331 @@ PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id
   return reterr;
 }
 
+// Parses --attrib/--attrib-indiv's comma-delimited attribute list into a
+// positive-match and a negative-match sorted strbox.  A name preceded by '-'
+// is a negative match condition; since the command-line parser cannot accept a
+// leading '-', a leading comma is allowed (and ignored) to get around that, as
+// in PLINK 1.x.
+PglErr ParseAttribCondition(const char* condition_str, const char* flagname_p, char** sorted_pos_ptr, uint32_t* pos_ct_ptr, uintptr_t* max_pos_blen_ptr, char** sorted_neg_ptr, uint32_t* neg_ct_ptr, uintptr_t* max_neg_blen_ptr) {
+  // Two flattened (null-delimited, double-null-terminated) lists are built
+  // first, so that MultistrToStrboxDedupAlloc() can do the sorting.
+  const uintptr_t slen = strlen(condition_str);
+  char* pos_flattened;
+  char* neg_flattened;
+  if (unlikely(bigstack_alloc_c(slen + 2, &pos_flattened) ||
+               bigstack_alloc_c(slen + 2, &neg_flattened))) {
+    return kPglRetNomem;
+  }
+  char* pos_iter = pos_flattened;
+  char* neg_iter = neg_flattened;
+  uint32_t raw_pos_ct = 0;
+  uint32_t raw_neg_ct = 0;
+  const char* cond_iter = condition_str;
+  while (*cond_iter) {
+    if (*cond_iter == ',') {
+      ++cond_iter;
+      continue;
+    }
+    uint32_t is_neg = 0;
+    if (*cond_iter == '-') {
+      ++cond_iter;
+      if (*cond_iter == ',') {
+        continue;
+      }
+      if (unlikely(*cond_iter == '-')) {
+        logerrprintf("Error: %s condition cannot contain consecutive dashes.\n", flagname_p);
+        return kPglRetInvalidCmdline;
+      }
+      is_neg = 1;
+    }
+    const char* name_end = Strchrnul(cond_iter, ',');
+    const uintptr_t name_slen = name_end - cond_iter;
+    if (unlikely(!name_slen)) {
+      // only reachable via a trailing '-'
+      logerrprintf("Error: Empty attribute name in %s argument.\n", flagname_p);
+      return kPglRetInvalidCmdline;
+    }
+    if (is_neg) {
+      neg_iter = memcpyax(neg_iter, cond_iter, name_slen, '\0');
+      ++raw_neg_ct;
+    } else {
+      pos_iter = memcpyax(pos_iter, cond_iter, name_slen, '\0');
+      ++raw_pos_ct;
+    }
+    cond_iter = name_end;
+  }
+  *pos_iter = '\0';
+  *neg_iter = '\0';
+  *sorted_pos_ptr = nullptr;
+  *pos_ct_ptr = 0;
+  *max_pos_blen_ptr = 0;
+  *sorted_neg_ptr = nullptr;
+  *neg_ct_ptr = 0;
+  *max_neg_blen_ptr = 0;
+  if (raw_pos_ct) {
+    if (unlikely(MultistrToStrboxDedupAlloc(pos_flattened, sorted_pos_ptr, pos_ct_ptr, max_pos_blen_ptr))) {
+      return kPglRetNomem;
+    }
+  }
+  if (raw_neg_ct) {
+    if (unlikely(MultistrToStrboxDedupAlloc(neg_flattened, sorted_neg_ptr, neg_ct_ptr, max_neg_blen_ptr))) {
+      return kPglRetNomem;
+    }
+  }
+  if (unlikely((*pos_ct_ptr != raw_pos_ct) || (*neg_ct_ptr != raw_neg_ct))) {
+    logerrprintf("Error: Duplicate attribute in %s argument.\n", flagname_p);
+    return kPglRetInvalidCmdline;
+  }
+  // Presence of any negative match disqualifies, so an attribute listed both
+  // ways would make the positive listing dead weight; that's a typo, not a
+  // request.
+  const uint32_t pos_ct = *pos_ct_ptr;
+  const uintptr_t max_pos_blen = *max_pos_blen_ptr;
+  const char* sorted_pos = *sorted_pos_ptr;
+  for (uint32_t uii = 0; uii != *neg_ct_ptr; ++uii) {
+    const char* cur_neg = &((*sorted_neg_ptr)[uii * (*max_neg_blen_ptr)]);
+    if (unlikely(bsearch_strbox(cur_neg, sorted_pos, strlen(cur_neg), max_pos_blen, pos_ct) != -1)) {
+      logerrprintfww("Error: Attribute '%s' appears as both a positive and a negative match condition in %s argument.\n", cur_neg, flagname_p);
+      return kPglRetInvalidCmdline;
+    }
+  }
+  return kPglRetSuccess;
+}
+
+// Shared decision rule: keep the item when it has at least one positively
+// listed attribute (vacuously true when no positive names were given) and no
+// negatively listed one.
+HEADER_INLINE uint32_t AttribLineKeep(const char* attr_iter, const char* sorted_pos, uint32_t pos_ct, uintptr_t max_pos_blen, const char* sorted_neg, uint32_t neg_ct, uintptr_t max_neg_blen) {
+  uint32_t pos_match_needed = pos_ct;
+  while (!IsEolnKns(*attr_iter)) {
+    const char* token_end = CurTokenEnd(attr_iter);
+    const uintptr_t token_slen = token_end - attr_iter;
+    if (pos_match_needed && (bsearch_strbox(attr_iter, sorted_pos, token_slen, max_pos_blen, pos_ct) != -1)) {
+      pos_match_needed = 0;
+    } else if (neg_ct && (bsearch_strbox(attr_iter, sorted_neg, token_slen, max_neg_blen, neg_ct) != -1)) {
+      return 0;
+    }
+    attr_iter = FirstNonTspace(token_end);
+  }
+  return !pos_match_needed;
+}
+
+PglErr AttribFilter(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fname, const char* condition_str, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include_new;
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &variant_include_new) ||
+                 bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
+      goto AttribFilter_ret_NOMEM;
+    }
+    char* sorted_pos = nullptr;
+    char* sorted_neg = nullptr;
+    uint32_t pos_ct = 0;
+    uint32_t neg_ct = 0;
+    uintptr_t max_pos_blen = 0;
+    uintptr_t max_neg_blen = 0;
+    if (condition_str) {
+      // A bare --attrib <file> keeps every variant named in the file.
+      reterr = ParseAttribCondition(condition_str, "--attrib", &sorted_pos, &pos_ct, &max_pos_blen, &sorted_neg, &neg_ct, &max_neg_blen);
+      if (unlikely(reterr)) {
+        goto AttribFilter_ret_1;
+      }
+    }
+    reterr = SizeAndInitTextStream(fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto AttribFilter_ret_TSTREAM_FAIL;
+    }
+    uintptr_t miss_ct = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
+          break;
+        }
+        goto AttribFilter_ret_TSTREAM_FAIL;
+      }
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      char* varid_end = CurTokenEnd(line_start);
+      const char* attr_iter = FirstNonTspace(varid_end);
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(line_start, variant_ids, variant_id_htable, htable_dup_base, varid_end - line_start, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        ++miss_ct;
+        continue;
+      }
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' on line %" PRIuPTR " of --attrib file duplicates one earlier in the file.\n", variant_ids[variant_uidx], line_idx);
+        goto AttribFilter_ret_MALFORMED_INPUT_WW;
+      }
+      SetBit(variant_uidx, already_seen);
+      if (!AttribLineKeep(attr_iter, sorted_pos, pos_ct, max_pos_blen, sorted_neg, neg_ct, max_neg_blen)) {
+        continue;
+      }
+      for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
+        SetBit(variant_uidx, variant_include_new);
+        if (cur_llidx == UINT32_MAX) {
+          break;
+        }
+        variant_uidx = htable_dup_base[cur_llidx];
+      }
+    }
+    BitvecAnd(variant_include_new, raw_variant_ctl, variant_include);
+    const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    if (miss_ct) {
+      logprintfww("--attrib: %u variant%s remaining, %" PRIuPTR " ID%s missing.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      logprintf("--attrib: %u variant%s remaining.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s");
+    }
+    *variant_ct_ptr = new_variant_ct;
+  }
+  while (0) {
+  AttribFilter_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  AttribFilter_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--attrib file", &txs);
+    break;
+  AttribFilter_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ AttribFilter_ret_1:
+  CleanupTextStream2("--attrib file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr AttribFilterSample(const char* fname, const char* condition_str, const SampleIdInfo* siip, uint32_t raw_sample_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto AttribFilterSample_ret_1;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* seen_xid_idxs;
+    uintptr_t* keep_uidxs;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(orig_sample_ct), &seen_xid_idxs) ||
+                 bigstack_calloc_w(raw_sample_ctl, &keep_uidxs))) {
+      goto AttribFilterSample_ret_NOMEM;
+    }
+    char* sorted_pos = nullptr;
+    char* sorted_neg = nullptr;
+    uint32_t pos_ct = 0;
+    uint32_t neg_ct = 0;
+    uintptr_t max_pos_blen = 0;
+    uintptr_t max_neg_blen = 0;
+    if (condition_str) {
+      reterr = ParseAttribCondition(condition_str, "--attrib-indiv", &sorted_pos, &pos_ct, &max_pos_blen, &sorted_neg, &neg_ct, &max_neg_blen);
+      if (unlikely(reterr)) {
+        goto AttribFilterSample_ret_1;
+      }
+    }
+    reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), 1, &txs);
+    if (unlikely(reterr)) {
+      goto AttribFilterSample_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    XidMode xid_mode;
+    reterr = LoadXidHeader("attrib-indiv", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --attrib-indiv file.\n");
+        goto AttribFilterSample_ret_MALFORMED_INPUT;
+      }
+      goto AttribFilterSample_ret_TSTREAM_XID_FAIL;
+    }
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto AttribFilterSample_ret_1;
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto AttribFilterSample_ret_NOMEM;
+    }
+    if (*line_start == '#') {
+      ++line_idx;
+      line_start = TextGet(&txs);
+    }
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      const char* linebuf_iter = line_start;
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto AttribFilterSample_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      if (unlikely(IsSet(seen_xid_idxs, xid_idx_start))) {
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --attrib-indiv file duplicates one earlier in the file.\n", line_idx);
+        goto AttribFilterSample_ret_MALFORMED_INPUT;
+      }
+      SetBit(xid_idx_start, seen_xid_idxs);
+      // SortedXidboxReadMultifind() leaves the iterator on the delimiter which
+      // ends the last ID column, not on the next token.
+      const char* attr_iter = FirstNonTspace(linebuf_iter);
+      if (!AttribLineKeep(attr_iter, sorted_pos, pos_ct, max_pos_blen, sorted_neg, neg_ct, max_neg_blen)) {
+        continue;
+      }
+      for (uint32_t xid_idx = xid_idx_start; xid_idx != xid_idx_end; ++xid_idx) {
+        SetBit(xid_map[xid_idx], keep_uidxs);
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto AttribFilterSample_ret_TSTREAM_FAIL;
+    }
+    memcpy(sample_include, keep_uidxs, raw_sample_ctl * sizeof(intptr_t));
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    *sample_ct_ptr = sample_ct;
+    logprintf("--attrib-indiv: %u sample%s remaining.\n", sample_ct, (sample_ct == 1)? "" : "s");
+  }
+  while (0) {
+  AttribFilterSample_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  AttribFilterSample_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
+  AttribFilterSample_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--attrib-indiv file", &txs);
+    break;
+  AttribFilterSample_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  AttribFilterSample_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ AttribFilterSample_ret_1:
+  BigstackReset(bigstack_mark);
+  CleanupTextStream2("--attrib-indiv file", &txs, &reterr);
+  return reterr;
+}
+
 // could permit split-chromosome here
 PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t save_list, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -3326,7 +3651,7 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele
   }
 }
 
-PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const uint32_t* sample_oblig_nony_cts, const uint32_t* sample_oblig_y_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -3352,7 +3677,24 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
       if (sample_hethap_cts) {
         cur_missing_geno_ct += sample_hethap_cts[sample_uidx];
       }
-      if (cur_missing_geno_ct > max_missing_cts[IsSet(sex_male, sample_uidx)]) {
+      const uint32_t is_male = IsSet(sex_male, sample_uidx);
+      uint32_t cur_max_ct = max_missing_cts[is_male];
+      if (sample_oblig_nony_cts) {
+        // --oblig-missing: same adjustment as --geno, on the other axis.  chrY
+        // variants only count against males, matching the denominator above.
+        uint32_t cur_oblig_ct = sample_oblig_nony_cts[sample_uidx];
+        uint32_t cur_denom = variant_ct - variant_ct_y;
+        if (is_male) {
+          cur_oblig_ct += sample_oblig_y_cts[sample_uidx];
+          cur_denom = variant_ct;
+        }
+        if (cur_oblig_ct >= cur_denom) {
+          continue;
+        }
+        cur_missing_geno_ct = (cur_missing_geno_ct > cur_oblig_ct)? (cur_missing_geno_ct - cur_oblig_ct) : 0;
+        cur_max_ct = S_CAST(int32_t, u31tod(cur_denom - cur_oblig_ct) * mind_thresh);
+      }
+      if (cur_missing_geno_ct > cur_max_ct) {
         SetBit(sample_uidx, newly_excluded);
       }
     }
@@ -3495,7 +3837,382 @@ PglErr SelectSidRepresentatives(const uintptr_t* sex_nm, const uintptr_t* sex_ma
   return reterr;
 }
 
-void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void InitObligMissing(ObligMissingInfo* omip) {
+  omip->variant_fname = nullptr;
+  omip->sample_fname = nullptr;
+}
+
+void CleanupObligMissing(ObligMissingInfo* omip) {
+  free_cond(omip->variant_fname);
+  free_cond(omip->sample_fname);
+}
+
+void PreinitObligMissingData(ObligMissingData* omdp) {
+  omdp->sample_block_idxs = nullptr;
+  omdp->entries = nullptr;
+  omdp->entry_ct = 0;
+  omdp->block_ct = 0;
+}
+
+void CleanupObligMissingData(ObligMissingData* omdp) {
+  free_cond(omdp->sample_block_idxs);
+  free_cond(omdp->entries);
+  omdp->entry_ct = 0;
+  omdp->block_ct = 0;
+}
+
+// Loads --oblig-missing's two files.  The sample file defines the blocks (a
+// sample belongs to at most one), and the variant file attaches variants to
+// them (a variant may be in several).  IDs which are absent from the dataset
+// are ignored, as in PLINK 1.x.
+PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, ObligMissingData* omdp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  const char* cur_fname = omip->sample_fname;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    if (!sample_ct) {
+      goto LoadObligMissing_ret_1;
+    }
+    // Pass 1 over the sample file: collect the block IDs.
+    reterr = SizeAndInitTextStream(omip->sample_fname, bigstack_left() / 4, 1, &txs);
+    if (unlikely(reterr)) {
+      goto LoadObligMissing_ret_TSTREAM_FAIL;
+    }
+    uintptr_t raw_block_ct = 0;
+    uintptr_t max_block_id_blen = 2;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      const char* block_id_start = NextTokenMult(line_start, 2);
+      if (unlikely(!block_id_start)) {
+        goto LoadObligMissing_ret_MISSING_TOKENS;
+      }
+      const uintptr_t slen = CurTokenEnd(block_id_start) - block_id_start;
+      if (unlikely(slen > kMaxIdSlen)) {
+        logerrputs("Error: --oblig-missing block IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+        goto LoadObligMissing_ret_MALFORMED_INPUT;
+      }
+      if (slen >= max_block_id_blen) {
+        max_block_id_blen = slen + 1;
+      }
+      ++raw_block_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadObligMissing_ret_TSTREAM_FAIL;
+    }
+    if (!raw_block_ct) {
+      logerrprintfww("Warning: --oblig-missing ignored, since %s has no entries.\n", omip->sample_fname);
+      goto LoadObligMissing_ret_1;
+    }
+    char* block_ids;
+    uint32_t* block_id_map;
+    if (unlikely(bigstack_alloc_c(raw_block_ct * max_block_id_blen, &block_ids) ||
+                 bigstack_alloc_u32(raw_block_ct, &block_id_map))) {
+      goto LoadObligMissing_ret_NOMEM;
+    }
+    reterr = TextRewind(&txs);
+    if (unlikely(reterr)) {
+      goto LoadObligMissing_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    uintptr_t block_idx = 0;
+    while (block_idx != raw_block_ct) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        goto LoadObligMissing_ret_REWIND_FAIL;
+      }
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      const char* block_id_start = NextTokenMult(line_start, 2);
+      if (unlikely(!block_id_start)) {
+        goto LoadObligMissing_ret_REWIND_FAIL;
+      }
+      const uintptr_t slen = CurTokenEnd(block_id_start) - block_id_start;
+      memcpyx(&(block_ids[block_idx * max_block_id_blen]), block_id_start, slen, '\0');
+      ++block_idx;
+    }
+    if (unlikely(SortStrboxIndexed(raw_block_ct, max_block_id_blen, 0, block_ids, block_id_map))) {
+      goto LoadObligMissing_ret_NOMEM;
+    }
+    uintptr_t block_ct = 1;
+    for (uintptr_t read_idx = 1; read_idx != raw_block_ct; ++read_idx) {
+      const char* cur_id = &(block_ids[read_idx * max_block_id_blen]);
+      if (strequal_overread(&(block_ids[(block_ct - 1) * max_block_id_blen]), cur_id)) {
+        continue;
+      }
+      if (block_ct != read_idx) {
+        strcpy(&(block_ids[block_ct * max_block_id_blen]), cur_id);
+      }
+      ++block_ct;
+    }
+
+    // Pass 2 over the sample file: attach samples to blocks.
+    uint32_t* sample_block_idxs;
+    if (unlikely(pgl_malloc(raw_sample_ct * sizeof(int32_t), &sample_block_idxs))) {
+      goto LoadObligMissing_ret_NOMEM;
+    }
+    omdp->sample_block_idxs = sample_block_idxs;
+    SetAllU32Arr(raw_sample_ct, sample_block_idxs);
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, kfXidModeFidIid, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto LoadObligMissing_ret_1;
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto LoadObligMissing_ret_NOMEM;
+    }
+    reterr = TextRewind(&txs);
+    if (unlikely(reterr)) {
+      goto LoadObligMissing_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      const char* linebuf_iter = line_start;
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, kfXidModeFidIid, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto LoadObligMissing_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      const char* block_id_start = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*block_id_start))) {
+        goto LoadObligMissing_ret_MISSING_TOKENS;
+      }
+      const uintptr_t slen = CurTokenEnd(block_id_start) - block_id_start;
+      const int32_t ii = bsearch_strbox(block_id_start, block_ids, slen, max_block_id_blen, block_ct);
+      // The block list came from this file, so this cannot fail.
+      assert(ii != -1);
+      for (uint32_t xid_idx = xid_idx_start; xid_idx != xid_idx_end; ++xid_idx) {
+        sample_block_idxs[xid_map[xid_idx]] = ii;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadObligMissing_ret_TSTREAM_FAIL;
+    }
+    CleanupTextStream2(cur_fname, &txs, &reterr);
+    if (unlikely(reterr)) {
+      goto LoadObligMissing_ret_1;
+    }
+
+    // The variant file.  Entries are collected on the bigstack and then copied
+    // to a right-sized allocation, since the count is not known in advance.
+    cur_fname = omip->variant_fname;
+    line_idx = 0;
+    PreinitTextStream(&txs);
+    reterr = SizeAndInitTextStream(omip->variant_fname, bigstack_left() / 4, 1, &txs);
+    if (unlikely(reterr)) {
+      goto LoadObligMissing_ret_TSTREAM_FAIL;
+    }
+    uint64_t* entries = R_CAST(uint64_t*, g_bigstack_base);
+    uint64_t* entries_end = entries;
+    const uint64_t* entries_limit = R_CAST(uint64_t*, g_bigstack_end);
+    uintptr_t missing_block_ct = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      char* varid_end = CurTokenEnd(line_start);
+      const char* block_id_start = FirstNonTspace(varid_end);
+      if (unlikely(IsEolnKns(*block_id_start))) {
+        goto LoadObligMissing_ret_MISSING_TOKENS;
+      }
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(line_start, variant_ids, variant_id_htable, htable_dup_base, varid_end - line_start, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        continue;
+      }
+      const uintptr_t slen = CurTokenEnd(block_id_start) - block_id_start;
+      const int32_t ii = bsearch_strbox(block_id_start, block_ids, slen, max_block_id_blen, block_ct);
+      if (ii == -1) {
+        ++missing_block_ct;
+        continue;
+      }
+      for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
+        if (unlikely(entries_end == entries_limit)) {
+          goto LoadObligMissing_ret_NOMEM;
+        }
+        *entries_end++ = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, ii);
+        if (cur_llidx == UINT32_MAX) {
+          break;
+        }
+        variant_uidx = htable_dup_base[cur_llidx];
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadObligMissing_ret_TSTREAM_FAIL;
+    }
+    if (missing_block_ct) {
+      logerrprintfww("Warning: %" PRIuPTR " entr%s in %s had block IDs missing from %s.\n", missing_block_ct, (missing_block_ct == 1)? "y" : "ies", omip->variant_fname, omip->sample_fname);
+    }
+    const uintptr_t entry_ct = entries_end - entries;
+    if (!entry_ct) {
+      logerrprintfww("Warning: --oblig-missing ignored, since %s has no entries which match both the dataset and %s.\n", omip->variant_fname, omip->sample_fname);
+      free_cond(omdp->sample_block_idxs);
+      omdp->sample_block_idxs = nullptr;
+      goto LoadObligMissing_ret_1;
+    }
+    STD_SORT(entry_ct, u64cmp, entries);
+    uint64_t* final_entries;
+    if (unlikely(pgl_malloc(entry_ct * sizeof(int64_t), &final_entries))) {
+      goto LoadObligMissing_ret_NOMEM;
+    }
+    memcpy(final_entries, entries, entry_ct * sizeof(int64_t));
+    omdp->entries = final_entries;
+    omdp->entry_ct = entry_ct;
+    omdp->block_ct = block_ct;
+    logprintf("--oblig-missing: %" PRIuPTR " block%s, %" PRIuPTR " variant-block pair%s.\n", block_ct, (block_ct == 1)? "" : "s", entry_ct, (entry_ct == 1)? "" : "s");
+  }
+  while (0) {
+  LoadObligMissing_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadObligMissing_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(cur_fname, &txs);
+    break;
+  LoadObligMissing_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, cur_fname);
+    reterr = kPglRetRewindFail;
+    break;
+  LoadObligMissing_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, cur_fname);
+    reterr = kPglRetMalformedInput;
+    break;
+  LoadObligMissing_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ LoadObligMissing_ret_1:
+  CleanupTextStream2(cur_fname, &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Per-variant obligatory-missing counts, as of the current sample_include: the
+// number of block members for the variant's blocks, restricted to males on
+// chrY since that is what --geno's denominator counts there.
+BoolErr ObligMissingVariantCts(const ObligMissingData* omdp, const uintptr_t* sample_include, const uintptr_t* sex_male, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t** variant_oblig_cts_ptr) {
+  const uintptr_t block_ct = omdp->block_ct;
+  uint32_t* block_sizes;
+  uint32_t* variant_oblig_cts;
+  if (bigstack_calloc_u32(block_ct * 2, &block_sizes) ||
+      bigstack_calloc_u32(raw_variant_ct, &variant_oblig_cts)) {
+    return 1;
+  }
+  const uint32_t* sample_block_idxs = omdp->sample_block_idxs;
+  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+    const uint32_t block_idx = sample_block_idxs[sample_uidx];
+    if (block_idx == UINT32_MAX) {
+      continue;
+    }
+    block_sizes[block_idx] += 1;
+    if (IsSet(sex_male, sample_uidx)) {
+      block_sizes[block_idx + block_ct] += 1;
+    }
+  }
+  uint32_t y_start = UINT32_MAX;
+  uint32_t y_end = UINT32_MAX;
+  uint32_t y_code;
+  if (XymtExists(cip, kChrOffsetY, &y_code)) {
+    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[y_code];
+    y_start = cip->chr_fo_vidx_start[y_chr_fo_idx];
+    y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
+  }
+  const uint64_t* entries = omdp->entries;
+  for (uintptr_t entry_idx = 0; entry_idx != omdp->entry_ct; ++entry_idx) {
+    const uint64_t cur_entry = entries[entry_idx];
+    const uint32_t variant_uidx = cur_entry >> 32;
+    uintptr_t block_idx = S_CAST(uint32_t, cur_entry);
+    if ((variant_uidx >= y_start) && (variant_uidx < y_end)) {
+      block_idx += block_ct;
+    }
+    variant_oblig_cts[variant_uidx] += block_sizes[block_idx];
+  }
+  *variant_oblig_cts_ptr = variant_oblig_cts;
+  return 0;
+}
+
+// Per-sample obligatory-missing counts, as of the current variant_include,
+// split the way --mind's denominator is: chrY variants count only for males.
+BoolErr ObligMissingSampleCts(const ObligMissingData* omdp, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t** sample_oblig_nony_cts_ptr, uint32_t** sample_oblig_y_cts_ptr) {
+  const uintptr_t block_ct = omdp->block_ct;
+  uint32_t* block_variant_cts;
+  uint32_t* sample_nony_cts;
+  uint32_t* sample_y_cts;
+  if (bigstack_calloc_u32(block_ct * 2, &block_variant_cts) ||
+      bigstack_calloc_u32(raw_sample_ct, &sample_nony_cts) ||
+      bigstack_calloc_u32(raw_sample_ct, &sample_y_cts)) {
+    return 1;
+  }
+  uint32_t y_start = UINT32_MAX;
+  uint32_t y_end = UINT32_MAX;
+  uint32_t y_code;
+  if (XymtExists(cip, kChrOffsetY, &y_code)) {
+    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[y_code];
+    y_start = cip->chr_fo_vidx_start[y_chr_fo_idx];
+    y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
+  }
+  const uint64_t* entries = omdp->entries;
+  for (uintptr_t entry_idx = 0; entry_idx != omdp->entry_ct; ++entry_idx) {
+    const uint64_t cur_entry = entries[entry_idx];
+    const uint32_t variant_uidx = cur_entry >> 32;
+    if (!IsSet(variant_include, variant_uidx)) {
+      continue;
+    }
+    uintptr_t block_idx = S_CAST(uint32_t, cur_entry);
+    if ((variant_uidx >= y_start) && (variant_uidx < y_end)) {
+      block_idx += block_ct;
+    }
+    block_variant_cts[block_idx] += 1;
+  }
+  const uint32_t* sample_block_idxs = omdp->sample_block_idxs;
+  for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+    const uint32_t block_idx = sample_block_idxs[sample_uidx];
+    if (block_idx == UINT32_MAX) {
+      continue;
+    }
+    sample_nony_cts[sample_uidx] = block_variant_cts[block_idx];
+    sample_y_cts[sample_uidx] = block_variant_cts[block_idx + block_ct];
+  }
+  *sample_oblig_nony_cts_ptr = sample_nony_cts;
+  *sample_oblig_y_cts_ptr = sample_y_cts;
+  return 0;
+}
+
+void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, const uint32_t* variant_oblig_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   geno_thresh *= 1 + kSmallEpsilon;
   const uint32_t missing_max_ct_nony = S_CAST(int32_t, geno_thresh * u31tod(sample_ct));
@@ -3527,7 +4244,20 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
     if (variant_uidx >= first_hap_uidx) {
       cur_missing_ct += variant_hethap_cts[variant_uidx - first_hap_uidx];
     }
-    if (cur_missing_ct > cur_missing_max_ct) {
+    uint32_t cur_max_ct = cur_missing_max_ct;
+    if (variant_oblig_cts) {
+      // --oblig-missing: the block members drop out of both the numerator and
+      // the denominator.  A block member which is actually genotyped can push
+      // the difference below zero, so it is clamped rather than wrapped.
+      const uint32_t cur_oblig_ct = variant_oblig_cts[variant_uidx];
+      const uint32_t cur_denom = (cur_missing_max_ct == missing_max_ct_y)? male_ct : sample_ct;
+      if (cur_oblig_ct >= cur_denom) {
+        continue;
+      }
+      cur_missing_ct = (cur_missing_ct > cur_oblig_ct)? (cur_missing_ct - cur_oblig_ct) : 0;
+      cur_max_ct = S_CAST(int32_t, geno_thresh * u31tod(cur_denom - cur_oblig_ct));
+    }
+    if (cur_missing_ct > cur_max_ct) {
       ClearBit(variant_uidx, variant_include);
       ++removed_ct;
     }

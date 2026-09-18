@@ -887,6 +887,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
 
     uintptr_t record_ct = 0;
     uintptr_t str_byte_ct = 0;
+    uint64_t p_underflow_ct = 0;
     MetaRecord* records = nullptr;
     char* str_arena = nullptr;
     char* str_iter = nullptr;
@@ -960,11 +961,14 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
           double cur_ln_pval = 0.0;
           double cur_ess = 0.0;
           if (weighted_z) {
-            double cur_pval;
-            if ((!ScantokDouble(token_ptrs[7], &cur_pval)) || (cur_pval <= 0.0) || (cur_pval > 1.0)) {
+            if ((!ScantokLn(token_ptrs[7], &cur_ln_pval)) || (cur_ln_pval > 0.0)) {
               continue;
             }
-            cur_ln_pval = log(cur_pval);
+            if (cur_ln_pval == -DBL_MAX) {
+              // truncate to log(DBL_MIN)
+              p_underflow_ct += pass_idx;
+              cur_ln_pval = -708.3964185322641;
+            }
             if ((!ScantokDouble(token_ptrs[8], &cur_ess)) || (cur_ess <= 0.0)) {
               continue;
             }
@@ -1331,6 +1335,9 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     logprintfww("--meta-analysis: %" PRIuPTR " variant%s written to %s .\n", written_ct, (written_ct == 1)? "" : "s", outname);
     if (flip_discard_ct) {
       logerrprintf("Warning: %" PRIuPTR " row%s discarded due to an unresolvable allele mismatch.\n", flip_discard_ct, (flip_discard_ct == 1)? "" : "s");
+    }
+    if (p_underflow_ct) {
+      logerrprintf("Warning: %" PRIu64 " p-value%s underflowed, treated as 2.22507e-308.\n", p_underflow_ct, (p_underflow_ct == 1)? "" : "s");
     }
   }
   while (0) {
