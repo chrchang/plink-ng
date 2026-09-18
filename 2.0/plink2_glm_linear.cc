@@ -1398,6 +1398,20 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               if (!missing_ct) {
                 glm_err = CheckMaxCorrAndVifNm(xtx_inv, corr_inv, cur_predictor_ct, domdev_third_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               } else {
+                // CheckMaxCorrAndVif() reads the lower triangle, while the
+                // genotype dot products above went into rows 1 and 2.  With no
+                // covariates and a domdev column, the entry it reads for the
+                // two genotype columns was xtx_image's zero, so their
+                // correlation came out wrong and variants were rejected that
+                // should not have been.
+                for (uint32_t pred_idx = 2; pred_idx != cur_predictor_ct; ++pred_idx) {
+                  xtx_inv[pred_idx * cur_predictor_ct + 1] = xtx_inv[cur_predictor_ct + pred_idx];
+                }
+                if (domdev_third) {
+                  for (uint32_t pred_idx = 3; pred_idx != cur_predictor_ct; ++pred_idx) {
+                    xtx_inv[pred_idx * cur_predictor_ct + 2] = xtx_inv[2 * cur_predictor_ct + pred_idx];
+                  }
+                }
                 for (uint32_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
                   dbl_2d_buf[pred_idx] = xtx_inv[pred_idx * cur_predictor_ct];
                 }
@@ -3667,6 +3681,20 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               if (!missing_ct) {
                 glm_err = CheckMaxCorrAndVifNm(xtx_inv, corr_inv, cur_predictor_ct, domdev_third_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               } else {
+                // CheckMaxCorrAndVif() reads the lower triangle, while the
+                // genotype dot products above went into rows 1 and 2.  With no
+                // covariates and a domdev column, the entry it reads for the
+                // two genotype columns was xtx_image's zero, so their
+                // correlation came out wrong and variants were rejected that
+                // should not have been.
+                for (uint32_t pred_idx = 2; pred_idx != cur_predictor_ct; ++pred_idx) {
+                  xtx_inv[pred_idx * cur_predictor_ct + 1] = xtx_inv[cur_predictor_ct + pred_idx];
+                }
+                if (domdev_third) {
+                  for (uint32_t pred_idx = 3; pred_idx != cur_predictor_ct; ++pred_idx) {
+                    xtx_inv[pred_idx * cur_predictor_ct + 2] = xtx_inv[2 * cur_predictor_ct + pred_idx];
+                  }
+                }
                 for (uint32_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
                   dbl_2d_buf[pred_idx] = xtx_inv[pred_idx * cur_predictor_ct];
                 }
