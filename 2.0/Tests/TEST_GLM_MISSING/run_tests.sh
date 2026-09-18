@@ -81,16 +81,18 @@ test "$(awk '$1 == 0' tmp_miss_counts.txt | wc -l)" -eq 8
 test "$(awk '$1 > 0 && $1 < 300' tmp_miss_counts.txt | wc -l)" -eq 24
 test "$(awk '$1 >= 300' tmp_miss_counts.txt | wc -l)" -eq 8
 
+# $1: --glm modifiers.  $2: the covariate arguments, defaulting to --covar; pass
+# an empty string to run without covariates.
 check_model() {
-    $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q1-Q4 --covar tmp_covar.txt --glm $1 --out tmp_main > /dev/null
+    $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q1-Q4 ${2---covar tmp_covar.txt} --glm $1 --out tmp_main > /dev/null
     rm -f tmp_oracle.Q?.glm.linear
     for v in $(cat tmp_variants.txt); do
         echo $v > tmp_one.txt
         if [ -f tmp_miss_$v.txt ]; then
             (echo "#IID"; cat tmp_miss_$v.txt) > tmp_remove.txt
-            $plink2 --pfile tmp_data --extract tmp_one.txt --remove tmp_remove.txt --pheno tmp_pheno.txt --pheno-name Q1-Q4 --covar tmp_covar.txt --glm $1 --out tmp_one > /dev/null
+            $plink2 --pfile tmp_data --extract tmp_one.txt --remove tmp_remove.txt --pheno tmp_pheno.txt --pheno-name Q1-Q4 ${2---covar tmp_covar.txt} --glm $1 --out tmp_one > /dev/null
         else
-            $plink2 --pfile tmp_data --extract tmp_one.txt --pheno tmp_pheno.txt --pheno-name Q1-Q4 --covar tmp_covar.txt --glm $1 --out tmp_one > /dev/null
+            $plink2 --pfile tmp_data --extract tmp_one.txt --pheno tmp_pheno.txt --pheno-name Q1-Q4 ${2---covar tmp_covar.txt} --glm $1 --out tmp_one > /dev/null
         fi
         for q in Q1 Q2 Q3 Q4; do
             if [ -f tmp_oracle.$q.glm.linear ]; then
@@ -132,3 +134,9 @@ awk -v var="$var" 'BEGIN { OFS = "\t"; while ((getline line < ("tmp_miss_" var "
 $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q4 --covar tmp_const_covar.txt --glm hide-covar --out tmp_const > /dev/null
 awk -v var="$var" 'FNR > 1 && $3 == var { if ($NF != "VIF_INFINITE") { print "expected VIF_INFINITE on " var ", got " $NF; exit 1 }; print var " reported " $NF; ++n }
      END { if (n != 1) { print "expected one row for " var ", got " n + 0; exit 1 } }' tmp_const.Q4.glm.linear
+
+# 5. Without covariates, the genotypic and hethom models still have two
+#    genotype columns to check against each other, and the missing-call branch
+#    has to see their dot product where its correlation check looks for it.
+check_model "genotypic allow-no-covars" ""
+check_model "hethom hide-covar allow-no-covars" ""
