@@ -37,8 +37,8 @@ namespace plink2 {
 
 void InitEpi(EpiInfo* epi_ip) {
   epi_ip->flags = kfEpi0;
-  epi_ip->epi1 = 0.0;
-  epi_ip->epi2 = 0.01;
+  epi_ip->ln_epi1 = 1.0;
+  epi_ip->ln_epi2 = -2 * kLn10;
 }
 
 // --epistasis-boost: the two-stage test of Wan X et al. (2010) BOOST: A fast
@@ -170,6 +170,8 @@ static uint32_t FepiBoost(const uint32_t* counts, const double* recip_cache, con
   // Iterative proportional fitting, cycling over the three two-way margins
   // until the fitted table stops moving.  mu is [geno1 * 6 + geno2 * 2 +
   // group].
+  // (Only 'no-firth' and 'firth-fallback' modes are supported, so there's no
+  // need to extend this to mirror Firth regression without covariates.)
   double mu[18];
   for (uint32_t cell_idx = 0; cell_idx != 18; ++cell_idx) {
     mu[cell_idx] = 1.0;
@@ -244,33 +246,6 @@ static uint32_t FepiBoost(const uint32_t* counts, const double* recip_cache, con
   *screen_ptr = MAXV(fit_stat, alpha1sq[df_adj]);
   *do_report_ptr = 1;
   return 0;
-}
-
-// Smallest chi-square statistic with an upper-tail p-value <= alpha.  plink2's
-// stats library has no chi-square quantile function, and this is called six
-// times per run, so bisect on ChisqToLnP().
-static double FepiChisqThresh(double alpha, uint32_t df) {
-  if (alpha >= 1.0) {
-    return 0.0;
-  }
-  const double ln_alpha = log(alpha);
-  double hi = 4.0;
-  while ((hi < 1e6) && (ChisqToLnP(hi, df) > ln_alpha)) {
-    hi *= 2;
-  }
-  double lo = 0.0;
-  for (uint32_t iter_idx = 0; iter_idx != 100; ++iter_idx) {
-    const double mid = 0.5 * (lo + hi);
-    if ((mid <= lo) || (mid >= hi)) {
-      break;
-    }
-    if (ChisqToLnP(mid, df) > ln_alpha) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-  }
-  return hi;
 }
 
 // Per-variant genotype bitvectors, one triple per group: index 0 is hom-REF,
@@ -362,8 +337,6 @@ static double EpiCovarLoglik(const double* xx, const double* yy, const double* c
 // triples over the analysis samples; counts is the 2x3x3 table the screen was
 // computed from, whose two groups partition those same samples.
 //
-// Returns 1 if the pair cannot be fit, in which case it is left out of the
-// report.
 // row_geno_bits and col_geno_bits are the two variants' genotype bitvector
 // triples over the analysis samples; counts is the 2x3x3 table the screen was
 // computed from, whose two groups partition those same samples.
@@ -512,7 +485,7 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
   return 0;
 }
 
-PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritetp = nullptr;
@@ -523,7 +496,6 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
   PreinitCstream(&csst);
   {
     const EpiFlags flags = epi_ip->flags;
-    const uint32_t no_p_value = (flags / kfEpiNoP) & 1;
 
     // PLINK 1.x had a single phenotype.  Rather than guess which of several
     // loaded case/control phenotypes an O(variant_ct^2) scan was meant for,
@@ -626,6 +598,12 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     // With no covariate left there is nothing for the refit to adjust for, and
     // the logistic likelihood ratio would only reproduce the log-linear fit,
     // so the screen-and-fit path is used unchanged.
+    if (unlikely(cur_covar_ct && (!(flags & kfEpiNoFirth)))) {
+      // temporary
+      logerrputs("Error: --epistasis-boost: Firth regression is not implemented yet.  Specify\n'no-firth' for now.\n");
+      reterr = kPglRetNotYetSupported;
+      goto CalcEpiBoost_ret_1;
+    }
     const uint32_t covar_refit = (cur_covar_ct != 0);
 
     const uint32_t group_ct = 2;
@@ -886,18 +864,18 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     // --epi1 is a screening threshold here, deciding which pairs are fit at
     // all, so PLINK 1.x's default for it is much stricter than a report
     // filter's.
-    double alpha1 = epi_ip->epi1;
-    if (alpha1 == 0.0) {
-      alpha1 = 0.000005;
+    double ln_alpha1 = epi_ip->ln_epi1;
+    if (ln_alpha1 > 0.0) {
+      ln_alpha1 = -5 * kLn10 - kLn2;  // log(5e-6)
     }
     // df varies from pair to pair, so the thresholds are chi-square quantiles
     // at df 4, 2 and 1 rather than one p-value cutoff.
     double alpha1sq[3];
     double alpha2sq[3];
-    alpha1sq[0] = FepiChisqThresh(alpha1, 4);
-    alpha1sq[1] = FepiChisqThresh(alpha1, 2);
-    alpha1sq[2] = FepiChisqThresh(alpha1, 1);
-    alpha2sq[0] = FepiChisqThresh(epi_ip->epi2, 4);
+    alpha1sq[0] = LnPToChisq(ln_alpha1, 4);
+    alpha1sq[1] = LnPToChisq(ln_alpha1, 2);
+    alpha1sq[2] = LnPToChisq(ln_alpha1, 1);
+    alpha2sq[0] = LnPToChisq(epi_ip->ln_epi2, 4);
     if (alpha1sq[0] == alpha2sq[0]) {
       // --epi1 and --epi2 agree: count the pairs that clear the fit rather
       // than the ones that cleared the screen.
@@ -905,8 +883,8 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       alpha2sq[1] = alpha1sq[1] * (1 + kSmallEpsilon);
       alpha2sq[2] = alpha1sq[2] * (1 + kSmallEpsilon);
     } else {
-      alpha2sq[1] = FepiChisqThresh(epi_ip->epi2, 2);
-      alpha2sq[2] = FepiChisqThresh(epi_ip->epi2, 1);
+      alpha2sq[1] = LnPToChisq(epi_ip->ln_epi2, 2);
+      alpha2sq[2] = LnPToChisq(epi_ip->ln_epi2, 1);
     }
     const uint32_t output_zst = (flags / kfEpiZs) & 1;
     char* outname_end2 = strcpya_k(outname_end, ".epi.cc");
@@ -922,14 +900,50 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     } else {
       *main_end = '\0';
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256;
+    const uint32_t chrom_col = flags & kfEpiColChrom;
+    const uint32_t pos_col = flags & kfEpiColPos;
+    const uint32_t a1_col = (flags & kfEpiColA1) || ((flags & kfEpiColMaybeA1) && MultiallelicVariantPresent(variant_include, allele_idx_offsets, variant_ct));
+    const uint32_t stat_col = flags & kfEpiColStat;
+    const uint32_t df_col = flags & kfEpiColDf;
+    const uint32_t p_col = flags & kfEpiColP;
+    uint32_t max_chr_slen = 0;
+    if (chrom_col) {
+      max_chr_slen = GetMaxChrSlen(cip);
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * max_chr_slen + 2 * a1_col * max_allele_slen + 2 * kMaxIdSlen + 256;
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto CalcEpiBoost_ret_1;
     }
     if (!parallel_idx) {
-      cswritep = strcpya_k(cswritep, "#CHROM1\tID1\tCHROM2\tID2\tSTAT\tDF");
-      if (!no_p_value) {
+      *cswritep++ = '#';
+      if (chrom_col) {
+        cswritep = strcpya_k(cswritep, "CHROM1\t");
+      }
+      if (pos_col) {
+        cswritep = strcpya_k(cswritep, "POS1\t");
+      }
+      cswritep = strcpya_k(cswritep, "ID1");
+      if (a1_col) {
+        cswritep = strcpya_k(cswritep, "\tALLELE1");
+      }
+      if (chrom_col) {
+        cswritep = strcpya_k(cswritep, "\tCHROM2");
+      }
+      if (pos_col) {
+        cswritep = strcpya_k(cswritep, "\tPOS2");
+      }
+      cswritep = strcpya_k(cswritep, "\tID2");
+      if (a1_col) {
+        cswritep = strcpya_k(cswritep, "\tALLELE2");
+      }
+      if (stat_col) {
+        cswritep = strcpya_k(cswritep, "\tSTAT");
+      }
+      if (df_col) {
+        cswritep = strcpya_k(cswritep, "\tDF");
+      }
+      if (p_col) {
         cswritep = strcpya_k(cswritep, "\tP");
       }
       AppendBinaryEoln(&cswritep);
@@ -949,6 +963,10 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     uint32_t pct = 0;
     uint64_t pairs_seen = 0;
 
+    if (flags & kfEpiRefBased) {
+      maj_alleles = nullptr;
+    }
+    AlleleCode aidx = 0;
     for (uint32_t row_block_start = row_start_idx; row_block_start < row_end_idx; row_block_start += row_block_size) {
       const uint32_t row_block_end = MINV(row_block_start + row_block_size, row_end_idx);
       const uint32_t cur_row_ct = row_block_end - row_block_start;
@@ -956,7 +974,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
         uintptr_t* dst = &(row_bits[slot_idx * words_per_variant]);
         for (uint32_t group_idx = 0; group_idx != load_group_ct; ++group_idx) {
           PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
-          reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[row_block_start + slot_idx], simple_pgrp, genovec);
+          const uint32_t variant_uidx = variant_uidxs[row_block_start + slot_idx];
+          if (maj_alleles) {
+            aidx = maj_alleles[variant_uidx];
+          }
+          reterr = PgrGetInv1(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidx, aidx, simple_pgrp, genovec);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidxs[row_block_start + slot_idx]);
             goto CalcEpiBoost_ret_1;
@@ -972,7 +994,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
           uintptr_t* dst = &(col_bits[slot_idx * words_per_variant]);
           for (uint32_t group_idx = 0; group_idx != load_group_ct; ++group_idx) {
             PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
-            reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[col_block_start + slot_idx], simple_pgrp, genovec);
+            const uint32_t variant_uidx = variant_uidxs[col_block_start + slot_idx];
+            if (maj_alleles) {
+              aidx = maj_alleles[variant_uidx];
+            }
+            reterr = PgrGetInv1(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidx, aidx, simple_pgrp, genovec);
             if (unlikely(reterr)) {
               PgenErrPrintNV(reterr, variant_uidxs[col_block_start + slot_idx]);
               goto CalcEpiBoost_ret_1;
@@ -1055,16 +1081,56 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
             }
             if (do_report) {
               ++pairs_reported;
-              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[row_idx]], cswritep);
-              *cswritep++ = '\t';
-              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[row_idx]], '\t');
-              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[col_idx]], cswritep);
-              *cswritep++ = '\t';
-              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[col_idx]], '\t');
-              cswritep = dtoa_g(report_stat, cswritep);
-              *cswritep++ = '\t';
-              cswritep = u32toa(report_df, cswritep);
-              if (!no_p_value) {
+              if (chrom_col) {
+                cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[row_idx]], cswritep);
+                *cswritep++ = '\t';
+              }
+              const uint32_t row_variant_uidx = variant_uidxs[row_idx];
+              if (pos_col) {
+                cswritep = u32toa_x(variant_bps[row_variant_uidx], '\t', cswritep);
+              }
+              cswritep = strcpyax(cswritep, variant_ids[row_variant_uidx], '\t');
+              if (a1_col) {
+                uintptr_t allele_idx_offset_base = row_variant_uidx * 2;
+                if (allele_idx_offsets) {
+                  allele_idx_offset_base = allele_idx_offsets[row_variant_uidx];
+                }
+                const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+                if (maj_alleles) {
+                  aidx = maj_alleles[row_variant_uidx];
+                }
+                cswritep = strcpyax(cswritep, cur_alleles[aidx], '\t');
+              }
+              if (chrom_col) {
+                cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[col_idx]], cswritep);
+                *cswritep++ = '\t';
+              }
+              const uint32_t col_variant_uidx = variant_uidxs[col_idx];
+              if (pos_col) {
+                cswritep = u32toa_x(variant_bps[col_variant_uidx], '\t', cswritep);
+              }
+              cswritep = strcpya(cswritep, variant_ids[col_variant_uidx]);
+              if (a1_col) {
+                *cswritep++ = '\t';
+                uintptr_t allele_idx_offset_base = col_variant_uidx * 2;
+                if (allele_idx_offsets) {
+                  allele_idx_offset_base = allele_idx_offsets[col_variant_uidx];
+                }
+                const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+                if (maj_alleles) {
+                  aidx = maj_alleles[col_variant_uidx];
+                }
+                cswritep = strcpya(cswritep, cur_alleles[aidx]);
+              }
+              if (stat_col) {
+                *cswritep++ = '\t';
+                cswritep = dtoa_g(report_stat, cswritep);
+              }
+              if (df_col) {
+                *cswritep++ = '\t';
+                cswritep = u32toa(report_df, cswritep);
+              }
+              if (p_col) {
                 *cswritep++ = '\t';
                 cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
               }
@@ -1116,33 +1182,79 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     if (unlikely(reterr)) {
       goto CalcEpiBoost_ret_1;
     }
-    cswritetp = strcpya_k(cswritetp, "#CHROM\tID\tN_SIG\tN_TOT");
-    if (parallel_tot == 1) {
+    const uint32_t nsig_col = flags & kfEpiColNsig;
+    const uint32_t ntot_col = flags & kfEpiColNtot;
+    const uint32_t prop_col = (flags & kfEpiColProp) && (parallel_tot == 1);
+    *cswritetp++ = '#';
+    if (chrom_col) {
+      cswritetp = strcpya_k(cswritetp, "CHROM\t");
+    }
+    if (pos_col) {
+      cswritetp = strcpya_k(cswritetp, "POS\t");
+    }
+    cswritetp = strcpya_k(cswritetp, "ID");
+    if (a1_col) {
+      cswritetp = strcpya_k(cswritetp, "\tALLELE");
+    }
+    if (nsig_col) {
+      cswritetp = strcpya_k(cswritetp, "\tN_SIG");
+    }
+    if (ntot_col) {
+      cswritetp = strcpya_k(cswritetp, "\tN_TOT");
+    }
+    if (prop_col) {
       cswritetp = strcpya_k(cswritetp, "\tPROP");
     }
-    cswritetp = strcpya_k(cswritetp, "\tBEST_CHISQ\tBEST_CHROM\tBEST_ID");
-    AppendBinaryEoln(&cswritetp);
+    cswritetp = strcpya_k(cswritetp, "\tBEST_CHISQ");
+    if (chrom_col) {
+      cswritetp = strcpya_k(cswritetp, "\tBEST_CHROM");
+    }
+    cswritetp = strcpya_k(cswritetp, "\tBEST_ID" EOLN_STR);
     uint32_t summary_row_ct = 0;
+    // after set-by-set / set-by-all implemented, see if this can still be
+    // simplified to usual BitIter1() loop with cached chromosome string, etc.
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const EpiSummaryEntry* cur = &(summary[variant_idx]);
       if (!cur->n_tot) {
         continue;
       }
       ++summary_row_ct;
-      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[variant_idx]], cswritetp);
-      *cswritetp++ = '\t';
-      cswritetp = strcpyax(cswritetp, variant_ids[variant_uidxs[variant_idx]], '\t');
-      cswritetp = u32toa_x(cur->n_sig, '\t', cswritetp);
-      cswritetp = u32toa(cur->n_tot, cswritetp);
-      if (parallel_tot == 1) {
+      if (chrom_col) {
+        cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[variant_idx]], cswritetp);
         *cswritetp++ = '\t';
-        cswritetp = dtoa_g(S_CAST(double, cur->n_sig) / S_CAST(double, cur->n_tot), cswritetp);
       }
-      *cswritetp++ = '\t';
+      const uint32_t variant_uidx = variant_uidxs[variant_idx];
+      if (pos_col) {
+        cswritetp = u32toa_x(variant_bps[variant_uidx], '\t', cswritetp);
+      }
+      cswritetp = strcpyax(cswritetp, variant_ids[variant_uidx], '\t');
+      if (a1_col) {
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        }
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        if (maj_alleles) {
+          aidx = maj_alleles[variant_uidx];
+        }
+        cswritetp = strcpyax(cswritetp, cur_alleles[aidx], '\t');
+      }
+      if (nsig_col) {
+        cswritetp = u32toa_x(cur->n_sig, '\t', cswritetp);
+      }
+      if (ntot_col) {
+        cswritetp = u32toa_x(cur->n_tot, '\t', cswritetp);
+      }
+      if (prop_col) {
+        cswritetp = dtoa_g(S_CAST(double, cur->n_sig) / S_CAST(double, cur->n_tot), cswritetp);
+        *cswritetp++ = '\t';
+      }
       cswritetp = dtoa_g(cur->best_chisq, cswritetp);
       *cswritetp++ = '\t';
-      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[cur->best_vidx]], cswritetp);
-      *cswritetp++ = '\t';
+      if (chrom_col) {
+        cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[cur->best_vidx]], cswritetp);
+        *cswritetp++ = '\t';
+      }
       cswritetp = strcpya(cswritetp, variant_ids[variant_uidxs[cur->best_vidx]]);
       AppendBinaryEoln(&cswritetp);
       if (unlikely(Cswrite(&csst, &cswritetp))) {
@@ -1628,7 +1740,7 @@ THREAD_FUNC_DECL EpiLinearThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double vif_thresh, double max_corr, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double vif_thresh, double max_corr, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritetp = nullptr;
@@ -1641,7 +1753,6 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
   PreinitThreads(&tg);
   {
     const EpiFlags flags = epi_ip->flags;
-    const uint32_t no_p_value = (flags / kfEpiNoP) & 1;
     const uint32_t output_zst = (flags / kfEpiZs) & 1;
 
     // As with --epistasis-boost, PLINK 1.x had a single phenotype, and an
@@ -2017,12 +2128,11 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
       summary[variant_idx].best_vidx = UINT32_MAX;
     }
 
-    double alpha1 = epi_ip->epi1;
-    if (alpha1 == 0.0) {
-      alpha1 = 0.0001;
+    double alpha1_ln = epi_ip->ln_epi1;
+    if (alpha1_ln > 0.0) {
+      alpha1_ln = -4 * kLn10;
     }
-    const double alpha1_ln = log(alpha1);
-    const double alpha2_ln = log(epi_ip->epi2);
+    const double alpha2_ln = epi_ip->ln_epi2;
     char* outname_end2 = strcpya_k(outname_end, ".epi.qt");
     char* main_end = outname_end2;
     if (parallel_tot > 1) {
@@ -2034,14 +2144,54 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
     } else {
       *main_end = '\0';
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256;
+    const uint32_t chrom_col = flags & kfEpiColChrom;
+    const uint32_t pos_col = flags & kfEpiColPos;
+    const uint32_t a1_col = (flags & kfEpiColA1) || ((flags & kfEpiColMaybeA1) && MultiallelicVariantPresent(variant_include, allele_idx_offsets, variant_ct));
+    const uint32_t beta_col = flags & (kfEpiColBeta | kfEpiColOrbeta);
+    const uint32_t se_col = flags & kfEpiColSe;
+    const uint32_t stat_col = flags & kfEpiColStat;
+    const uint32_t p_col = flags & kfEpiColP;
+    uint32_t max_chr_slen = 0;
+    if (chrom_col) {
+      max_chr_slen = GetMaxChrSlen(cip);
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * max_chr_slen + 2 * a1_col * max_allele_slen + 2 * kMaxIdSlen + 256;
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto CalcEpiLinear_ret_1;
     }
     if (!parallel_idx) {
-      cswritep = strcpya_k(cswritep, "#CHROM1\tID1\tCHROM2\tID2\tBETA_INT\tSE\tT_STAT");
-      if (!no_p_value) {
+      *cswritep++ = '#';
+      if (chrom_col) {
+        cswritep = strcpya_k(cswritep, "CHROM1\t");
+      }
+      if (pos_col) {
+        cswritep = strcpya_k(cswritep, "POS1\t");
+      }
+      cswritep = strcpya_k(cswritep, "ID1");
+      if (a1_col) {
+        cswritep = strcpya_k(cswritep, "\tALLELE1");
+      }
+      if (chrom_col) {
+        cswritep = strcpya_k(cswritep, "\tCHROM2");
+      }
+      if (pos_col) {
+        cswritep = strcpya_k(cswritep, "\tPOS2");
+      }
+      cswritep = strcpya_k(cswritep, "\tID2");
+      if (a1_col) {
+        cswritep = strcpya_k(cswritep, "\tALLELE2");
+      }
+      if (beta_col) {
+        cswritep = strcpya_k(cswritep, "\tBETA_INT");
+      }
+      if (se_col) {
+        cswritep = strcpya_k(cswritep, "\tSE");
+      }
+      if (stat_col) {
+        cswritep = strcpya_k(cswritep, "\tT_STAT");
+      }
+      if (p_col) {
         cswritep = strcpya_k(cswritep, "\tP");
       }
       AppendBinaryEoln(&cswritep);
@@ -2059,12 +2209,19 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
     uint64_t next_print_pair = pair_ct_total / 100;
     uint32_t pct = 0;
 
+    if (flags & kfEpiRefBased) {
+      maj_alleles = nullptr;
+    }
+    AlleleCode aidx = 0;
     for (uint32_t row_block_start = row_start_idx; row_block_start < row_end_idx; row_block_start += row_block_size) {
       const uint32_t row_block_end = MINV(row_block_start + row_block_size, row_end_idx);
       const uint32_t cur_row_ct = row_block_end - row_block_start;
       for (uint32_t slot_idx = 0; slot_idx != cur_row_ct; ++slot_idx) {
         const uint32_t variant_uidx = variant_uidxs[row_block_start + slot_idx];
-        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+        if (maj_alleles) {
+          aidx = maj_alleles[variant_uidx];
+        }
+        reterr = PgrGetInv1(sample_include, pssi, sample_ct, variant_uidx, aidx, simple_pgrp, genovec);
         if (unlikely(reterr)) {
           PgenErrPrintNV(reterr, variant_uidx);
           goto CalcEpiLinear_ret_1;
@@ -2077,7 +2234,10 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
         const uint32_t cur_col_ct = col_block_end - col_block_start;
         for (uint32_t slot_idx = 0; slot_idx != cur_col_ct; ++slot_idx) {
           const uint32_t variant_uidx = variant_uidxs[col_block_start + slot_idx];
-          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+          if (maj_alleles) {
+            aidx = maj_alleles[variant_uidx];
+          }
+          reterr = PgrGetInv1(sample_include, pssi, sample_ct, variant_uidx, aidx, simple_pgrp, genovec);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto CalcEpiLinear_ret_1;
@@ -2134,18 +2294,59 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
               }
               if (ln_pval <= alpha1_ln) {
                 ++pairs_reported;
-                cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[row_idx]], cswritep);
-                *cswritep++ = '\t';
-                cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[row_idx]], '\t');
-                cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[col_idx]], cswritep);
-                *cswritep++ = '\t';
-                cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[col_idx]], '\t');
-                cswritep = dtoa_g(beta_int, cswritep);
-                *cswritep++ = '\t';
-                cswritep = dtoa_g(se, cswritep);
-                *cswritep++ = '\t';
-                cswritep = dtoa_g(tstat, cswritep);
-                if (!no_p_value) {
+                if (chrom_col) {
+                  cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[row_idx]], cswritep);
+                  *cswritep++ = '\t';
+                }
+                const uint32_t row_variant_uidx = variant_uidxs[row_idx];
+                if (pos_col) {
+                  cswritep = u32toa_x(variant_bps[row_variant_uidx], '\t', cswritep);
+                }
+                cswritep = strcpyax(cswritep, variant_ids[row_variant_uidx], '\t');
+                if (a1_col) {
+                  uintptr_t allele_idx_offset_base = row_variant_uidx * 2;
+                  if (allele_idx_offsets) {
+                    allele_idx_offset_base = allele_idx_offsets[row_variant_uidx];
+                  }
+                  const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+                  if (maj_alleles) {
+                    aidx = maj_alleles[row_variant_uidx];
+                  }
+                  cswritep = strcpyax(cswritep, cur_alleles[aidx], '\t');
+                }
+                if (chrom_col) {
+                  cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[col_idx]], cswritep);
+                  *cswritep++ = '\t';
+                }
+                const uint32_t col_variant_uidx = variant_uidxs[col_idx];
+                if (pos_col) {
+                  cswritep = u32toa_x(variant_bps[col_variant_uidx], '\t', cswritep);
+                }
+                cswritep = strcpyax(cswritep, variant_ids[col_variant_uidx], '\t');
+                if (a1_col) {
+                  uintptr_t allele_idx_offset_base = col_variant_uidx * 2;
+                  if (allele_idx_offsets) {
+                    allele_idx_offset_base = allele_idx_offsets[col_variant_uidx];
+                  }
+                  const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+                  if (maj_alleles) {
+                    aidx = maj_alleles[col_variant_uidx];
+                  }
+                  cswritep = strcpya(cswritep, cur_alleles[aidx]);
+                }
+                if (beta_col) {
+                  *cswritep++ = '\t';
+                  cswritep = dtoa_g(beta_int, cswritep);
+                }
+                if (se_col) {
+                  *cswritep++ = '\t';
+                  cswritep = dtoa_g(se, cswritep);
+                }
+                if (stat_col) {
+                  *cswritep++ = '\t';
+                  cswritep = dtoa_g(tstat, cswritep);
+                }
+                if (p_col) {
                   *cswritep++ = '\t';
                   cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
                 }
@@ -2204,12 +2405,34 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
     if (unlikely(reterr)) {
       goto CalcEpiLinear_ret_1;
     }
-    cswritetp = strcpya_k(cswritetp, "#CHROM\tID\tN_SIG\tN_TOT");
-    if (parallel_tot == 1) {
+    const uint32_t nsig_col = flags & kfEpiColNsig;
+    const uint32_t ntot_col = flags & kfEpiColNtot;
+    const uint32_t prop_col = (flags & kfEpiColProp) && (parallel_tot == 1);
+    *cswritetp++ = '#';
+    if (chrom_col) {
+      cswritetp = strcpya_k(cswritetp, "CHROM\t");
+    }
+    if (pos_col) {
+      cswritetp = strcpya_k(cswritetp, "POS\t");
+    }
+    cswritetp = strcpya_k(cswritetp, "ID");
+    if (a1_col) {
+      cswritetp = strcpya_k(cswritetp, "\tALLELE");
+    }
+    if (nsig_col) {
+      cswritetp = strcpya_k(cswritetp, "\tN_SIG");
+    }
+    if (ntot_col) {
+      cswritetp = strcpya_k(cswritetp, "\tN_TOT");
+    }
+    if (prop_col) {
       cswritetp = strcpya_k(cswritetp, "\tPROP");
     }
-    cswritetp = strcpya_k(cswritetp, "\tBEST_CHISQ\tBEST_CHROM\tBEST_ID");
-    AppendBinaryEoln(&cswritetp);
+    cswritetp = strcpya_k(cswritetp, "\tBEST_CHISQ");
+    if (chrom_col) {
+      cswritetp = strcpya_k(cswritetp, "\tBEST_CHROM");
+    }
+    cswritetp = strcpya_k(cswritetp, "\tBEST_ID" EOLN_STR);
     uint32_t summary_row_ct = 0;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const EpiSummaryEntry* cur = &(summary[variant_idx]);
@@ -2217,20 +2440,42 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
         continue;
       }
       ++summary_row_ct;
-      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[variant_idx]], cswritetp);
-      *cswritetp++ = '\t';
-      cswritetp = strcpyax(cswritetp, variant_ids[variant_uidxs[variant_idx]], '\t');
-      cswritetp = u32toa_x(cur->n_sig, '\t', cswritetp);
-      cswritetp = u32toa(cur->n_tot, cswritetp);
-      if (parallel_tot == 1) {
+      if (chrom_col) {
+        cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[variant_idx]], cswritetp);
         *cswritetp++ = '\t';
-        cswritetp = dtoa_g(S_CAST(double, cur->n_sig) / S_CAST(double, cur->n_tot), cswritetp);
       }
-      *cswritetp++ = '\t';
+      const uint32_t variant_uidx = variant_uidxs[variant_idx];
+      if (pos_col) {
+        cswritetp = u32toa_x(variant_bps[variant_uidx], '\t', cswritetp);
+      }
+      cswritetp = strcpyax(cswritetp, variant_ids[variant_uidx], '\t');
+      if (a1_col) {
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        }
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        if (maj_alleles) {
+          aidx = maj_alleles[variant_uidx];
+        }
+        cswritetp = strcpyax(cswritetp, cur_alleles[aidx], '\t');
+      }
+      if (nsig_col) {
+        cswritetp = u32toa_x(cur->n_sig, '\t', cswritetp);
+      }
+      if (ntot_col) {
+        cswritetp = u32toa_x(cur->n_tot, '\t', cswritetp);
+      }
+      if (prop_col) {
+        cswritetp = dtoa_g(S_CAST(double, cur->n_sig) / S_CAST(double, cur->n_tot), cswritetp);
+        *cswritetp++ = '\t';
+      }
       cswritetp = dtoa_g(cur->best_chisq, cswritetp);
       *cswritetp++ = '\t';
-      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[cur->best_vidx]], cswritetp);
-      *cswritetp++ = '\t';
+      if (chrom_col) {
+        cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[cur->best_vidx]], cswritetp);
+        *cswritetp++ = '\t';
+      }
       cswritetp = strcpya(cswritetp, variant_ids[variant_uidxs[cur->best_vidx]]);
       AppendBinaryEoln(&cswritetp);
       if (unlikely(Cswrite(&csst, &cswritetp))) {

@@ -34,7 +34,7 @@ double ChisqToLnP(double chisq, uint32_t df);
 // only handles df=1 and 2 for now, plan to support 4 later
 // double PToChisq(double pval, uint32_t df);
 
-// only handles df=1 for now
+// handles df=1, 2, and 4 for now
 double LnPToChisq(double ln_pval, uint32_t df);
 
 // No -9 error return since that's a legitimate p-value logarithm.  Caller is

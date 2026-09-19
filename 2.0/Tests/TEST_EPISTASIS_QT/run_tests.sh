@@ -68,7 +68,7 @@ test "$(grep -vc '^#' plink2_p1.epi.qt)" -lt "$(grep -vc '^#' plink2.epi.qt)"
 diff <(cut -f2,4 plink2_p1.epi.qt.summary) <(cut -f2,4 plink2.epi.qt.summary)
 
 # 8. --threads 1 reproduces the default run, --parallel chunks concatenate to
-#    it, 'zs' round-trips, and 'nop' drops the p-value column.
+#    it, 'zs' round-trips, and 'cols=-p' drops the p-value column.
 $1/plink2 $2 $3 --bfile tmp_data --epistasis --epi1 1 --threads 1 --out plink2_st
 diff -q plink2.epi.qt plink2_st.epi.qt
 diff -q plink2.epi.qt.summary plink2_st.epi.qt.summary
@@ -90,7 +90,7 @@ $1/plink2 $2 $3 --bfile tmp_data --epistasis zs --epi1 1 --out plink2_zs
 $1/plink2 $2 $3 --zst-decompress plink2_zs.epi.qt.zst > plink2_zs.epi.qt
 diff -q plink2.epi.qt plink2_zs.epi.qt
 
-$1/plink2 $2 $3 --bfile tmp_data --epistasis nop --epi1 1 --out plink2_nop
+$1/plink2 $2 $3 --bfile tmp_data --epistasis cols=-p --epi1 1 --out plink2_nop
 head -n 1 plink2_nop.epi.qt | grep -qx '#CHROM1	ID1	CHROM2	ID2	BETA_INT	SE	T_STAT'
 
 # 9. Rejected: a case/control phenotype, the set modifiers, and the two

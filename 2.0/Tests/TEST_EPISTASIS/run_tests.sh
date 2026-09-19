@@ -92,8 +92,8 @@ $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost zs --epi1 1 --out plink2_zs
 $1/plink2 $2 $3 --zst-decompress plink2_zs.epi.cc.zst > plink2_zs.epi.cc
 diff -q plink2.epi.cc plink2_zs.epi.cc
 
-# 10. 'nop' drops the p-value column.
-$1/plink2 $2 $3 --bfile tmp_data --epistasis-boost nop --epi1 1 --out plink2_nop
+# 10. 'cols=-p' drops the p-value column, mirroring old 'nop'.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis-boost cols=-p --epi1 1 --out plink2_nop
 head -n 1 plink2_nop.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF'
 
 # 11. --fast-epistasis boost is accepted as a synonym, modifiers included, and
@@ -101,7 +101,7 @@ head -n 1 plink2_nop.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF'
 $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost --epi1 1 --out plink2_fe
 diff -q plink2.epi.cc plink2_fe.epi.cc
 diff -q plink2.epi.cc.summary plink2_fe.epi.cc.summary
-$1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost nop --epi1 1 --out plink2_fenop
+$1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost cols=-p --epi1 1 --out plink2_fenop
 diff -q plink2_nop.epi.cc plink2_fenop.epi.cc
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis --epi1 1 --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis zs --epi1 1 --out plink2_bad
@@ -123,7 +123,7 @@ fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --gap 100 --out plink2_
 plink --simulate simulate_covar.txt --simulate-ncases 75 --simulate-ncontrols 75 --out tmp_oc > /dev/null
 awk 'BEGIN{OFS=" "} {print $1, $2, ((NR*7)%11)*0.25, (NR%3)*1.0}' tmp_oc.fam > tmp_oc_cov_body.txt
 (echo "#FID IID Q1 B1"; cat tmp_oc_cov_body.txt) > tmp_oc_cov.txt
-$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_cov.txt --out plink2_oc
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_cov.txt --out plink2_oc
 python3 oracle_covar.py tmp_oc tmp_oc_cov.txt > tmp_oc_oracle.txt
 awk -f cmp_covar.awk tmp_oc_oracle.txt plink2_oc.epi.cc
 
@@ -150,7 +150,7 @@ df2_expected=$(awk 'FNR > 1 && $6 < 4 { print $6; exit }' plink2.epi.cc)
 if [ -n "$df2_expected" ]; then
     awk 'BEGIN{OFS=" "} {print $1, $2, ((NR*7)%11)*0.25}' tmp_data.fam > tmp_df2_cov_body.txt
     (echo "#FID IID Q1"; cat tmp_df2_cov_body.txt) > tmp_df2_cov.txt
-    $1/plink2 $2 $3 --bfile tmp_data --extract tmp_df2_vars.txt --epistasis-boost --epi1 1 --covar tmp_df2_cov.txt --out plink2_df2
+    $1/plink2 $2 $3 --bfile tmp_data --extract tmp_df2_vars.txt --epistasis-boost no-firth --epi1 1 --covar tmp_df2_cov.txt --out plink2_df2
     awk -v want="$df2_expected" 'FNR > 1 { if ($6 != want) { print "expected DF " want ", got " $6; exit 1 }; ++n }
          END { if (n != 1) { print "expected one pair, got " n+0; exit 1 }
                print "reduced-DF pair refit at DF " want }' plink2_df2.epi.cc
@@ -161,7 +161,7 @@ fi
 #     unadjusted report exactly.
 awk 'BEGIN{OFS=" "} {print $1, $2, 1}' tmp_oc.fam > tmp_oc_const_body.txt
 (echo "#FID IID CONST"; cat tmp_oc_const_body.txt) > tmp_oc_const.txt
-$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_const.txt --out plink2_oc_const 2> plink2_oc_const.err
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_const.txt --out plink2_oc_const 2> plink2_oc_const.err
 grep -q "Excluding constant covariate 'CONST'" plink2_oc_const.err
 diff -q plink2_oc_un.epi.cc plink2_oc_const.epi.cc
 
@@ -170,11 +170,11 @@ diff -q plink2_oc_un.epi.cc plink2_oc_const.epi.cc
 awk 'BEGIN{OFS=" "} {print $1, $2, (NR == 1)? "NA" : ((NR*7)%11)*0.25}' tmp_oc.fam > tmp_oc_miss_body.txt
 (echo "#FID IID Q1"; cat tmp_oc_miss_body.txt) > tmp_oc_miss.txt
 head -n 1 tmp_oc.fam | awk '{print $1, $2}' > tmp_oc_drop.txt
-$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_miss.txt --out plink2_oc_miss
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_miss.txt --out plink2_oc_miss
 $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --remove tmp_oc_drop.txt --out plink2_oc_rm
 diff <(cut -f2,4 plink2_oc_miss.epi.cc.summary) <(cut -f2,4 plink2_oc_rm.epi.cc.summary)
 
 # 17. Rejected: a categorical covariate, which the refit cannot code yet.
 awk 'BEGIN{OFS=" "} {print $1, $2, (NR%2)? "left" : "right"}' tmp_oc.fam > tmp_oc_cat_body.txt
 (echo "#FID IID SIDE"; cat tmp_oc_cat_body.txt) > tmp_oc_cat.txt
-fails $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --covar tmp_oc_cat.txt --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_cat.txt --out plink2_bad

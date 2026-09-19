@@ -753,13 +753,14 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 
 // not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
 // variants are retained, but let's keep this simpler for now
-uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags, FlipScanFlags flipscan_flags) {
+uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags, FlipScanFlags flipscan_flags, EpiFlags epi_flags) {
   // Keep this in sync with --error-on-freq-calc.
   return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1ShowTags | kfCommand1Blocks | kfCommand1TestMishap)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
     ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj)))) ||
-    ((command_flags1 & kfCommand1FlipScan) && (!(flipscan_flags & kfFlipScanRefBased)));
+    ((command_flags1 & kfCommand1FlipScan) && (!(flipscan_flags & kfFlipScanRefBased))) ||
+    ((command_flags1 & kfCommand1Epi) && (!(epi_flags & kfEpiRefBased)));
 }
 
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
@@ -2378,7 +2379,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
         const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->check_sex_info.flags, pcp->het_flags, pcp->score_info.flags);
-        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags, pcp->vcor_info.flags, pcp->ld_info.flipscan_flags);
+        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags, pcp->vcor_info.flags, pcp->ld_info.flipscan_flags, pcp->epi_info.flags);
         if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->vcor_info.flags, pcp->distance_flags, pcp->min_maf, pcp->max_maf)) {
           if (unlikely((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs)))) {
             if ((!nonfounders) && (sample_ct >= 50)) {
@@ -3460,9 +3461,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->command_flags1 & kfCommand1Epi) {
         if (pcp->epi_info.flags & kfEpiRegress) {
-          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         } else {
-          reterr = CalcEpiBoost(sample_include, pheno_cols, covar_cols, covar_names, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcEpiBoost(sample_include, pheno_cols, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
@@ -3817,31 +3818,58 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
   return kPglRetSuccess;
 }
 
-// flagname_p only needed when check_file_existence true
 // --epistasis-boost's modifiers.  --fast-epistasis is accepted as a synonym
 // when its 'boost' modifier is named, so that modifier is allowed through
 // there and rejected here.
 PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t accept_boost, EpiFlags* flags_ptr) {
   EpiFlags flags = *flags_ptr;
+  uint32_t explicit_firth_fallback = 0;
+  uint32_t explicit_cols = 0;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     const char* cur_modif = sources[param_idx];
     const uint32_t cur_modif_slen = strlen(cur_modif);
     if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
       flags |= kfEpiZs;
-    } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
-      flags |= kfEpiNoP;
-    } else if (accept_boost && strequal_k(cur_modif, "boost", cur_modif_slen)) {
+    } else if (strequal_k(cur_modif, "ref-based", cur_modif_slen)) {
+      flags |= kfEpiRefBased;
+    } else if (strequal_k(cur_modif, "no-firth", cur_modif_slen)) {
+      flags |= kfEpiNoFirth;
+    } else if (strequal_k(cur_modif, "firth-fallback", cur_modif_slen)) {
+      explicit_firth_fallback = 1;
+    } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
+      flags |= kfEpiLog10;
+    } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+      if (unlikely(explicit_cols)) {
+        logerrprintf("Error: Multiple --%s cols= modifiers.\n", flagname_p);
+        return kPglRetInvalidCmdline;
+      }
+      PglErr reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0maybea1\0a1\0beta\0orbeta\0se\0stat\0df\0p\0nsig\0ntot\0prop\0", flagname_p, kfEpiColChrom, kfEpiColDefault, 1, &flags);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+      explicit_cols = 1;
+    } else if (likely(accept_boost && strequal_k(cur_modif, "boost", cur_modif_slen))) {
       // The test selector, already found by the caller.
-    } else if (unlikely(strequal_k(cur_modif, "case-only", cur_modif_slen) || strequal_k(cur_modif, "no-ueki", cur_modif_slen) || strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
-      logerrprintfww("Error: --%s: '%s' only applies to PLINK 1.9's retired --fast-epistasis tests.\n", flagname_p, cur_modif);
+    } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
+      logerrprintfww("Error: --%s's '%s' modifier is not implemented yet.\n", flagname_p, cur_modif);
+      return kPglRetNotYetSupported;
+    } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
+      logerrprintf("Error: --%s: 'nop' modifier is retired.  Use e.g. 'cols=-p' instead.\n", flagname_p);
       return kPglRetInvalidCmdline;
-    } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
-      logerrprintfww("Error: --%s's '%s' modifier needs variant sets, which are not implemented yet.\n", flagname_p, cur_modif);
+    } else if (strequal_k(cur_modif, "case-only", cur_modif_slen) || strequal_k(cur_modif, "no-ueki", cur_modif_slen) || strequal_k(cur_modif, "joint-effects", cur_modif_slen)) {
+      logerrprintfww("Error: --%s: '%s' only applies to PLINK 1.9's retired --fast-epistasis tests.\n", flagname_p, cur_modif);
       return kPglRetInvalidCmdline;
     } else {
       logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
       return kPglRetInvalidCmdline;
     }
+  }
+  if (unlikely(explicit_firth_fallback && (flags & kfEpiNoFirth))) {
+    logerrprintfww("Error: --%s: 'no-firth' and 'firth-fallback' modifiers cannot be used together.\n", flagname_p);
+    return kPglRetInvalidCmdline;
+  }
+  if (!explicit_cols) {
+    flags |= kfEpiColDefault;
   }
   *flags_ptr = flags;
   return kPglRetSuccess;
@@ -6701,22 +6729,22 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           double dxx;
-          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+          if (unlikely((!ScanadvLn(argvk[arg_idx + 1], &dxx)) || (dxx > 0.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (flagname_p2[2] == '1') {
-            pc.epi_info.epi1 = dxx;
+            pc.epi_info.ln_epi1 = dxx;
           } else {
-            pc.epi_info.epi2 = dxx;
+            pc.epi_info.ln_epi2 = dxx;
           }
         } else if (strequal_k_unsafe(flagname_p2, "pistasis-boost")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
           if (unlikely(pc.epi_info.flags & kfEpiRegress)) {
             logerrputs("Error: --epistasis-boost cannot be used with --epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
+            goto main_ret_INVALID_CMDLINE_2A;
           }
           if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0, &pc.epi_info.flags))) {
             goto main_ret_INVALID_CMDLINE_A;
@@ -6724,23 +6752,52 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Epi;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "pistasis")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t explicit_firth_fallback = 0;
+          uint32_t explicit_cols = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.epi_info.flags |= kfEpiZs;
+            } else if (strequal_k(cur_modif, "no-firth", cur_modif_slen)) {
+              // may as well implement this bit of command-line parsing even
+              // though backend isn't ready
+              pc.epi_info.flags |= kfEpiNoFirth;
+            } else if (strequal_k(cur_modif, "firth-fallback", cur_modif_slen)) {
+              explicit_firth_fallback = 1;
+            } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiLog10;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(explicit_cols)) {
+                logerrputs("Error: Multiple --epistasis cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0maybea1\0a1\0beta\0orbeta\0se\0stat\0df\0p\0nsig\0ntot\0prop\0", "epistasis", kfEpiColChrom, kfEpiColDefault, 1, &pc.epi_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_cols = 1;
+            } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
+              logerrprintf("Error: --epistasis's '%s' modifier is not implemented yet.\n", cur_modif);
+              reterr = kPglRetNotYetSupported;
+              goto main_ret_1;
             } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
-              pc.epi_info.flags |= kfEpiNoP;
-            } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: --epistasis's '%s' modifier needs variant sets, which are not\nimplemented yet.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
+              logerrputs("Error: --epistasis: 'nop' modifier is retired.  Use e.g. 'cols=-p' instead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --epistasis argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (unlikely(explicit_firth_fallback && (pc.epi_info.flags & kfEpiNoFirth))) {
+            logerrputs("Error: --epistasis: 'no-firth' and 'firth-fallback' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (!explicit_cols) {
+            pc.epi_info.flags |= kfEpiColDefault;
           }
           pc.epi_info.flags |= kfEpiRegress;
           pc.command_flags1 |= kfCommand1Epi;
