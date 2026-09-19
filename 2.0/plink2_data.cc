@@ -2469,13 +2469,15 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               cur_x_male_geno_cts[0] = sex_specific_genocounts[0];
               cur_x_male_geno_cts[1] = sex_specific_genocounts[1];
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
-              if (x_nosex_geno_cts) {
-                GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
-                STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
-                cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
-                cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
-                cur_nosex_geno_cts[2] = sex_specific_genocounts[2];
-              }
+            }
+            // bugfix (19 Sep 2026): x_nosex_geno_cts can be defined without
+            // x_male_geno_cts
+            if (x_nosex_geno_cts) {
+              GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
+              STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
+              cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
+              cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
+              cur_nosex_geno_cts[2] = sex_specific_genocounts[2];
             }
           }
           if (variant_missing_dosage_cts) {
@@ -2659,13 +2661,13 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               cur_x_male_geno_cts[0] = sex_specific_genocounts[0];
               cur_x_male_geno_cts[1] = sex_specific_genocounts[1];
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
-              if (x_nosex_geno_cts) {
-                GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
-                STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
-                cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
-                cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
-                cur_nosex_geno_cts[2] = sex_specific_genocounts[2];
-              }
+            }
+            if (x_nosex_geno_cts) {
+              GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
+              STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
+              cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
+              cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
+              cur_nosex_geno_cts[2] = sex_specific_genocounts[2];
             }
           }
           if (variant_missing_dosage_cts) {
