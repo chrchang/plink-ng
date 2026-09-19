@@ -16181,43 +16181,61 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     // The refit's workspace, claimed before the variant blocks take what is
     // left of bigstack.
     EpiCovarCtx covar_ctx;
-    if (covar_refit) {
+    {
       // Intercept, up to two dummies per variant, up to four products, and the
       // covariates.
       const uint32_t max_predictor_ct = 9 + cur_covar_ct;
       const uintptr_t max_sample_ctav = RoundUpPow2(analysis_ct, kDoublePerDVec);
       const uintptr_t predictor_ctav = RoundUpPow2(max_predictor_ct, kDoublePerDVec);
+      // initialize even in !covar_refit case to address spurious compiler
+      // warnings for now
       covar_ctx.covar_vals = covar_vals;
       covar_ctx.case_bitvec = nullptr;
       covar_ctx.analysis_ct = analysis_ct;
       covar_ctx.covar_ct = cur_covar_ct;
       covar_ctx.max_sample_ctav = max_sample_ctav;
       covar_ctx.predictor_ctav = predictor_ctav;
-      covar_ctx.inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(max_predictor_ct * kMatrixInvertBuf1CheckedAlloc));
-      if (unlikely((!covar_ctx.inv_1d_buf) ||
-                   bigstack_alloc_d(max_sample_ctav, &covar_ctx.yy) ||
-                   bigstack_alloc_d(max_sample_ctav * max_predictor_ct, &covar_ctx.xx) ||
-                   bigstack_alloc_d(predictor_ctav, &covar_ctx.coef) ||
-                   bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.ll) ||
-                   bigstack_alloc_d(max_sample_ctav, &covar_ctx.pp) ||
-                   bigstack_alloc_d(max_sample_ctav, &covar_ctx.vv) ||
-                   bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.hh) ||
-                   bigstack_alloc_d(predictor_ctav, &covar_ctx.grad) ||
-                   bigstack_alloc_d(predictor_ctav, &covar_ctx.dcoef) ||
-                   bigstack_alloc_d(max_predictor_ct * MAXV(max_predictor_ct, 7), &covar_ctx.dbl_2d_buf) ||
-                   bigstack_alloc_u32(analysis_ct, &covar_ctx.nm_sample_idxs) ||
-                   bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_row_levels) ||
-                   bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_col_levels))) {
-        goto CalcEpi_ret_NOMEM;
+      covar_ctx.yy = nullptr;
+      covar_ctx.xx = nullptr;
+      covar_ctx.coef = nullptr;
+      covar_ctx.ll = nullptr;
+      covar_ctx.pp = nullptr;
+      covar_ctx.vv = nullptr;
+      covar_ctx.hh = nullptr;
+      covar_ctx.grad = nullptr;
+      covar_ctx.dcoef = nullptr;
+      covar_ctx.inv_1d_buf = nullptr;
+      covar_ctx.dbl_2d_buf = nullptr;
+      covar_ctx.nm_sample_idxs = nullptr;
+      covar_ctx.nm_row_levels = nullptr;
+      covar_ctx.nm_col_levels = nullptr;
+      if (covar_refit) {
+        covar_ctx.inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(max_predictor_ct * kMatrixInvertBuf1CheckedAlloc));
+        if (unlikely((!covar_ctx.inv_1d_buf) ||
+                     bigstack_alloc_d(max_sample_ctav, &covar_ctx.yy) ||
+                     bigstack_alloc_d(max_sample_ctav * max_predictor_ct, &covar_ctx.xx) ||
+                     bigstack_alloc_d(predictor_ctav, &covar_ctx.coef) ||
+                     bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.ll) ||
+                     bigstack_alloc_d(max_sample_ctav, &covar_ctx.pp) ||
+                     bigstack_alloc_d(max_sample_ctav, &covar_ctx.vv) ||
+                     bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.hh) ||
+                     bigstack_alloc_d(predictor_ctav, &covar_ctx.grad) ||
+                     bigstack_alloc_d(predictor_ctav, &covar_ctx.dcoef) ||
+                     bigstack_alloc_d(max_predictor_ct * MAXV(max_predictor_ct, 7), &covar_ctx.dbl_2d_buf) ||
+                     bigstack_alloc_u32(analysis_ct, &covar_ctx.nm_sample_idxs) ||
+                     bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_row_levels) ||
+                     bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_col_levels))) {
+          goto CalcEpi_ret_NOMEM;
+        }
+        // The refit indexes its phenotype by analysis-sample index, so the
+        // case set is needed in those coordinates rather than the raw ones.
+        uintptr_t* case_collapsed;
+        if (unlikely(bigstack_alloc_w(analysis_ctl, &case_collapsed))) {
+          goto CalcEpi_ret_NOMEM;
+        }
+        CopyBitarrSubset(case_include, analysis_include, analysis_ct, case_collapsed);
+        covar_ctx.case_bitvec = case_collapsed;
       }
-      // The refit indexes its phenotype by analysis-sample index, so the
-      // case set is needed in those coordinates rather than the raw ones.
-      uintptr_t* case_collapsed;
-      if (unlikely(bigstack_alloc_w(analysis_ctl, &case_collapsed))) {
-        goto CalcEpi_ret_NOMEM;
-      }
-      CopyBitarrSubset(case_include, analysis_include, analysis_ct, case_collapsed);
-      covar_ctx.case_bitvec = case_collapsed;
     }
 
     // Two variant blocks are held at once: the rows, and the columns they are

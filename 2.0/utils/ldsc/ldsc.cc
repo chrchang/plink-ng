@@ -47,6 +47,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wdouble-promotion"
 #include "../../include/ffc.h"
 #pragma GCC diagnostic pop
 
@@ -134,7 +135,7 @@ double LdscNormalPdf(double x) {
 // P(|Z| > |z|), i.e. the two-sided normal tail, which is also the chi-square
 // (1df) survival function at z^2.
 double LdscChisq1Sf(double z) {
-  return erfc(fabs(z) * M_SQRT1_2);
+  return erfc(fabs(z) * (1.0 / kSqrt2));
 }
 
 // Inverse survival function of the standard normal: returns the x with
@@ -142,10 +143,10 @@ double LdscChisq1Sf(double z) {
 // is more than accurate enough for a prevalence conversion.
 double LdscNormalIsf(double p) {
   if (p <= 0.0) {
-    return INFINITY;
+    return INFINITY_D;
   }
   if (p >= 1.0) {
-    return -INFINITY;
+    return -INFINITY_D;
   }
   // Solve for the lower tail, then negate.
   const double q = p;
@@ -167,7 +168,7 @@ double LdscNormalIsf(double p) {
     x = -(((((c[0] * u + c[1]) * u + c[2]) * u + c[3]) * u + c[4]) * u + c[5]) / ((((d[0] * u + d[1]) * u + d[2]) * u + d[3]) * u + 1);
   }
   // Halley refinement.
-  const double e = 0.5 * erfc(-x * M_SQRT1_2) - q;
+  const double e = 0.5 * erfc(-x * (1.0 / kSqrt2)) - q;
   const double u = e * kLdscSqrt2Pi * exp(x * x / 2);
   x = x - u / (1 + x * u / 2);
   return -x;
@@ -201,7 +202,7 @@ uint32_t LdscScanDouble(const char* str_iter, double* valp) {
 
 // P(Z > z) for a standard normal.
 double LdscNormalSf(double z) {
-  return 0.5 * erfc(z * M_SQRT1_2);
+  return 0.5 * erfc(z * (1.0 / kSqrt2));
 }
 
 double LdscMedian(const double* vals, uintptr_t ct) {
@@ -1476,7 +1477,7 @@ BoolErr LdscReadLdscores(const char* arg, uint32_t is_chr_split, LdscScores* dst
       }
     }
     dst->l2.swap(merged);
-    char suffix[16];
+    char suffix[24];
     snprintf(suffix, sizeof(suffix), "_%" PRIuPTR, file_idx);
     for (uint32_t j = 0; j != cur_annot_ct; ++j) {
       dst->annot_names.push_back(raw.annot_names[j] + suffix);

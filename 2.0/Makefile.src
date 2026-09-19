@@ -79,6 +79,11 @@ TEXTLIB_CCSRC = include/plink2_base.cc \
                 include/plink2_thread.cc \
                 include/plink2_zstfile.cc
 
+TSTATSLIB_CCSRC = $(TEXTLIB_CCSRC) \
+                  include/plink2_float.cc \
+                  include/plink2_highprec.cc \
+                  include/plink2_stats.cc
+
 CCSRC = $(PLINK2LIB_CCSRC) \
         plink2.cc \
         plink2_adjust.cc \
@@ -117,10 +122,12 @@ OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
 PGENLIB_OBJ = $(PGENLIB_CCSRC:.cc=.o)
 PLINK2LIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(PLINK2LIB_CCSRC:.cc=.o)
 TEXTLIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TEXTLIB_CCSRC:.cc=.o)
+TSTATSLIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TSTATSLIB_CCSRC:.cc=.o)
 OBJL = $(notdir $(OBJ))
 PGENLIB_OBJL = $(notdir $(PGENLIB_OBJ))
 PLINK2LIB_OBJL = $(notdir $(PLINK2LIB_OBJ))
 TEXTLIB_OBJL = $(notdir $(TEXTLIB_OBJ))
+TSTATSLIB_OBJL = $(notdir $(TSTATSLIB_OBJ))
 
 CSRC2 = $(foreach fname,$(CSRC),../$(fname))
 ZCSRC2 = $(foreach fname,$(ZCSRC),../$(fname))
@@ -129,6 +136,7 @@ CCSRC2 = $(foreach fname,$(CCSRC),../$(fname))
 PGENLIB_CCSRC2 = $(foreach fname,$(PGENLIB_CCSRC),../$(fname))
 PLINK2LIB_CCSRC2 = $(foreach fname,$(PLINK2LIB_CCSRC),../$(fname))
 TEXTLIB_CCSRC2 = $(foreach fname,$(TEXTLIB_CCSRC),../$(fname))
+TSTATSLIB_CCSRC2 = $(foreach fname,$(TSTATSLIB_CCSRC),../$(fname))
 OBJ2 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
 
 CSRC3 = $(foreach fname,$(CSRC),../../$(fname))
@@ -137,6 +145,7 @@ ZSSRC3 = $(foreach fname,$(ZSSRC),../../$(fname))
 CCSRC3 = $(foreach fname,$(CCSRC),../../$(fname))
 PLINK2LIB_CCSRC3 = $(foreach fname,$(PLINK2LIB_CCSRC),../../$(fname))
 TEXTLIB_CCSRC3 = $(foreach fname,$(TEXTLIB_CCSRC),../../$(fname))
+TSTATSLIB_CCSRC3 = $(foreach fname,$(TSTATSLIB_CCSRC),../../$(fname))
 OBJ3 = $(CSRC3:.c=.o) $(ZCSRC3:.c=.o) $(ZSSRC3:.S=.o) $(CCSRC3:.cc=.o)
 
 CINCLUDE = -Ilibdeflate
@@ -165,6 +174,8 @@ CLEAN = *.o \
         pgenlibr/src/*.o \
         pgenlibr/src/Makevars \
         pgenlibr/src/pgenlibr.so \
+        utils/ldsc/*.o \
+        utils/mtag/*.o \
         utils/vcf_subset/*.o \
         bin/plink2 bin/pgen_compress
 CLEAN2 = $(foreach expr,$(CLEAN),../$(expr))
