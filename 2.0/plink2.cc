@@ -3583,7 +3583,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
           if (unlikely(min_typed_freq < 0.05 * (1 - kSmallEpsilon))) {
-            logerrprintfww("Error: --homozyg requires --homozyg-min-af (equivalently, --homozyg-maf) when the data contains low-frequency variants, and the lowest allele frequency here is %g. 0.05 is a reasonable value with the other default parameters; 0 reproduces PLINK 1.x, which applied no frequency floor.\n", min_typed_freq);
+            logerrprintfww("Error: --homozyg requires --homozyg-maf (equivalently, --homozyg-min-af) when the data contains low-frequency variants, and the lowest allele frequency here is %g. 0.05 is a reasonable value with the other default parameters; 0 reproduces PLINK 1.x, which applied no frequency floor.\n", min_typed_freq);
             goto Plink2Core_ret_INCONSISTENT_INPUT;
           }
           homozyg_info.min_af = 0.0;
@@ -8439,6 +8439,10 @@ int main(int argc, char** argv) {
                    strequal_k_unsafe(flagname_p2, "omozyg-window-snp") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-window-het") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-window-missing")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Homozyg))) {
+            logerrprintf("Error: --%s must now be used with --homozyg.\n", flagname_p);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8467,10 +8471,12 @@ int main(int argc, char** argv) {
           } else {
             pc.homozyg_info.window_max_missing = uii;
           }
-          pc.command_flags1 |= kfCommand1Homozyg;
-          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "omozyg-min-af") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-maf")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Homozyg))) {
+            logerrputs("Error: --homozyg-maf must be used with --homozyg.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8481,14 +8487,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.homozyg_info.min_af = dxx;
-          if (!(pc.command_flags1 & kfCommand1Homozyg)) {
-            pc.command_flags1 |= kfCommand1Homozyg;
-            pc.filter_flags |= kfFilterAllReq;
-          }
         } else if (strequal_k_unsafe(flagname_p2, "omozyg-kb") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-density") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-gap") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-window-threshold")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Homozyg))) {
+            logerrprintf("Error: --%s must now be used with --homozyg.\n", flagname_p);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8524,8 +8530,6 @@ int main(int argc, char** argv) {
             }
             pc.homozyg_info.hit_threshold = dxx;
           }
-          pc.command_flags1 |= kfCommand1Homozyg;
-          pc.dependency_flags |= kfFilterAllReq;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "omozyg-match") ||
                             strequal_k_unsafe(flagname_p2, "omozyg-group") ||
                             strequal_k_unsafe(flagname_p2, "omozyg-include-missing") ||
