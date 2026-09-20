@@ -15906,6 +15906,7 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     if (unlikely(reterr)) {
       goto TestMishap_ret_1;
     }
+    // probable todo: make this customizable
     cswritep = strcpya_k(cswritep, "#ID\tHAPLOTYPE\tF_0\tF_1\tM_H1\tM_H2\tCHISQ\tP\tFLANKING" EOLN_STR);
 
     min_maf *= 1 - kSmallEpsilon;
