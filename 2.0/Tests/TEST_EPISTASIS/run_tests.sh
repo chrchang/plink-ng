@@ -49,7 +49,7 @@ plink --bfile tmp_data --fast-epistasis boost --epi2 0.005 --out plink19_bd
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi2 0.005 --out plink2_bd
 summary_compare plink19_bd.epi.cc.summary plink2_bd.PHENO1.epi.cc.summary
 plink --bfile tmp_data --fast-epistasis boost --epi1 5e-6 --epi2 0.005 --out plink19_be
-diff -q <(tail -n +2 plink19_bd.epi.cc) <(tail -n +2 plink19_be.PHENO1.epi.cc)
+diff -q <(tail -n +2 plink19_bd.epi.cc) <(tail -n +2 plink19_be.epi.cc)
 
 # 4. Rare variants with missing calls, where empty genotype rows and columns
 #    pull the degrees of freedom down and throw some pairs out altogether.
