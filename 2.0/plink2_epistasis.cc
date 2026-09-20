@@ -485,7 +485,7 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
   return 0;
 }
 
-PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritetp = nullptr;
@@ -497,9 +497,10 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
   {
     const EpiFlags flags = epi_ip->flags;
 
-    // PLINK 1.x had a single phenotype.  Rather than guess which of several
-    // loaded case/control phenotypes an O(variant_ct^2) scan was meant for,
-    // ask.
+    // For interface consistency with --glm, etc., this should loop over all
+    // case/control phenotypes.  But that's expensive, O(variant_ct^2) each.
+    // Should try to GPU-accelerate this before lifting the current
+    // one-phenotype restriction.
     uint32_t pheno_idx = UINT32_MAX;
     uint32_t cc_pheno_ct = 0;
     for (uint32_t uii = 0; uii != pheno_ct; ++uii) {
@@ -514,10 +515,24 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       logerrputs("Error: --epistasis-boost requires a case/control phenotype.\n");
       goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
     }
-    if (unlikely(cc_pheno_ct > 1)) {
-      logerrputs("Error: --epistasis-boost needs exactly one case/control phenotype; select one\nwith --pheno-name.\n");
+    if (cc_pheno_ct > 1) {
+      logerrputs("Error: --epistasis-boost is currently limited to exactly one case/control\nphenotype; select one with --pheno-name.\n");
+      reterr = kPglRetNotYetSupported;
+      goto CalcEpiBoost_ret_1;
+    }
+    const uint32_t output_zst = (flags / kfEpiZs) & 1;
+    // <output prefix>.<pheno name>.epi.cc.summary.32768[.zst]
+    const uint32_t pheno_name_blen_capacity = kPglFnamesize - 22 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
+    const char* pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
+    const uint32_t pheno_name_slen = strlen(pheno_name);
+    if (unlikely(pheno_name_slen >= pheno_name_blen_capacity)) {
+      logerrputs("Error: Phenotype name and/or --out argument too long.\n");
       goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
     }
+    char* outname_end2 = outname_end;
+    *outname_end2++ = '.';
+    outname_end2 = memcpya(outname_end2, pheno_name, pheno_name_slen);
+    outname_end2 = strcpya_k(outname_end2, ".epi.cc");
     const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
 
@@ -886,8 +901,6 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       alpha2sq[1] = LnPToChisq(epi_ip->ln_epi2, 2);
       alpha2sq[2] = LnPToChisq(epi_ip->ln_epi2, 1);
     }
-    const uint32_t output_zst = (flags / kfEpiZs) & 1;
-    char* outname_end2 = strcpya_k(outname_end, ".epi.cc");
     // Main report is <prefix>.epi.cc[.<job>], summary is
     // <prefix>.epi.cc.summary[.<job>], as in PLINK 1.x.
     char* main_end = outname_end2;
@@ -896,7 +909,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       main_end = u32toa(parallel_idx + 1, main_end);
     }
     if (output_zst) {
-      snprintf(main_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, main_end - outname_end), ".zst");
+      snprintf(main_end, kMaxOutfnameExtBlen - 22, ".zst");
     } else {
       *main_end = '\0';
     }
@@ -1174,7 +1187,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       summary_end = u32toa(parallel_idx + 1, summary_end);
     }
     if (output_zst) {
-      snprintf(summary_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, summary_end - outname_end), ".zst");
+      snprintf(summary_end, kMaxOutfnameExtBlen - 22, ".zst");
     } else {
       *summary_end = '\0';
     }
@@ -1771,9 +1784,10 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
       logerrputs("Error: --epistasis requires a quantitative phenotype.  Its case/control\nbranch is not implemented yet; --epistasis-boost covers case/control data.\n");
       goto CalcEpiLinear_ret_INCONSISTENT_INPUT;
     }
-    if (unlikely(qt_pheno_ct > 1)) {
-      logerrputs("Error: --epistasis needs exactly one quantitative phenotype; select one with\n--pheno-name.\n");
-      goto CalcEpiLinear_ret_INCONSISTENT_INPUT;
+    if (qt_pheno_ct > 1) {
+      logerrputs("Error: --epistasis is currently limited to exactly one quantitative phenotype; select one with --pheno-name.\n");
+      reterr = kPglRetNotYetSupported;
+      goto CalcEpiLinear_ret_1;
     }
     const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -1795,7 +1809,19 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
       logerrputs("Error: --epistasis needs more samples than regression parameters.\n");
       goto CalcEpiLinear_ret_DEGENERATE_DATA;
     }
-    logprintf("--epistasis: Regressing %s on %u sample%s.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]), sample_ct, (sample_ct == 1)? "" : "s");
+    // <output prefix>.<pheno name>.epi.qt.summary.32768[.zst]
+    const uint32_t pheno_name_blen_capacity = kPglFnamesize - 22 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
+    const char* pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
+    const uint32_t pheno_name_slen = strlen(pheno_name);
+    if (unlikely(pheno_name_slen >= pheno_name_blen_capacity)) {
+      logerrputs("Error: Phenotype name and/or --out argument too long.\n");
+      goto CalcEpiLinear_ret_INCONSISTENT_INPUT;
+    }
+    char* outname_end2 = outname_end;
+    *outname_end2++ = '.';
+    outname_end2 = memcpya(outname_end2, pheno_name, pheno_name_slen);
+    outname_end2 = strcpya_k(outname_end2, ".epi.qt");
+    logprintf("--epistasis: Regressing %s on %u sample%s.\n", pheno_name, sample_ct, (sample_ct == 1)? "" : "s");
 
     // The covariates are stored one column at a time, since the inner loops
     // walk a single covariate across many samples.
@@ -2133,14 +2159,13 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
       alpha1_ln = -4 * kLn10;
     }
     const double alpha2_ln = epi_ip->ln_epi2;
-    char* outname_end2 = strcpya_k(outname_end, ".epi.qt");
     char* main_end = outname_end2;
     if (parallel_tot > 1) {
       *main_end++ = '.';
       main_end = u32toa(parallel_idx + 1, main_end);
     }
     if (output_zst) {
-      snprintf(main_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, main_end - outname_end), ".zst");
+      snprintf(main_end, kMaxOutfnameExtBlen - 22, ".zst");
     } else {
       *main_end = '\0';
     }
@@ -2397,7 +2422,7 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
       summary_end = u32toa(parallel_idx + 1, summary_end);
     }
     if (output_zst) {
-      snprintf(summary_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, summary_end - outname_end), ".zst");
+      snprintf(summary_end, kMaxOutfnameExtBlen - 22, ".zst");
     } else {
       *summary_end = '\0';
     }
