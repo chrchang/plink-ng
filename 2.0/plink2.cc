@@ -91,7 +91,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Sep 2026)";
+  " (20 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1246,6 +1246,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         } else {
           // Same end state as loading a .pvar/.bim with no nonzero CM values;
           // the writers already emit '0' when variant_cms is null.
+          // probable todo: avoid allocating this in the first place when it
+          // isn't needed
           variant_cms = nullptr;
         }
       }
@@ -1564,12 +1566,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         goto Plink2Core_ret_1;
       }
     }
-    if (pcp->not_pheno_flattened) {
-      reterr = IgnorePhenosOrCovars(pcp->not_pheno_flattened, 0, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
-      if (unlikely(reterr)) {
-        goto Plink2Core_ret_1;
-      }
-    }
 
     // move processing of PLINK 1.x cluster-loading/filtering flags here, since
     // they're now under the categorical-phenotype umbrella
@@ -1581,7 +1577,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     }
 
     if (pcp->make_pheno_fname) {
+      // probable todo: make phenotype name configurable
       reterr = MakePheno(pcp->make_pheno_fname, pcp->make_pheno_val, sample_include, &pii.sii, raw_sample_ct, sample_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
+
+    if (pcp->not_pheno_flattened) {
+      reterr = IgnorePhenosOrCovars(pcp->not_pheno_flattened, 0, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1805,16 +1809,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
         }
-        if (pcp->extract_col_cond_info.params) {
-          reterr = ExtractColCond(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, &pcp->extract_col_cond_info, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
-          if (unlikely(reterr)) {
-            goto Plink2Core_ret_1;
-          }
-        }
         // Not a "standard" file format, but it can be more convenient than
         // forcing users to generate full-blown sites-only VCF files, etc.
         if (pcp->attrib_fname) {
           reterr = AttribFilter(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->attrib_fname, pcp->attrib_liststr, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->extract_col_cond_info.params) {
+          reterr = ExtractColCond(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, &pcp->extract_col_cond_info, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2871,8 +2875,19 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1Tucc) {
-        reterr = Tucc(sample_include, &pii, founder_info, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, (pcp->misc_flags / kfMiscTuccVzs) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+      // Sets index the filtered variant space, so they are defined once
+      // every variant filter has been applied.
+      VariantSets variant_sets;
+      variant_sets.set_ct = 0;
+      variant_sets.set_names = nullptr;
+      variant_sets.max_set_name_blen = 0;
+      variant_sets.setdefs = nullptr;
+      if (pcp->set_info.fname) {
+        if (unlikely((pcp->set_info.flags & kfSetMakeFromRanges) && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: --make-set requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        reterr = DefineSets(&(pcp->set_info), cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, 0, &variant_sets);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2953,24 +2968,23 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
       }
-      if (pcp->command_flags1 & kfCommand1Distance) {
-        reterr = CalcDistance(sample_include, &pii.sii, variant_include, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
       // --pca and GRM construction standardize each variant by
       // sqrt(2p(1-p)), which blows up as p goes to zero: below roughly the
       // inverse square root of the sample size, a single rare variant can
-      // dominate the result, and at p = 0 the standardization has nothing to
-      // divide by at all.  --grm-maf sets a floor for these commands alone.
+      // start dominating the result, and at p = 0 the standardization has
+      // nothing to divide by at all.  --grm-maf sets a floor for these
+      // commands alone.
       const uintptr_t* grm_variant_include = variant_include;
       uint32_t grm_variant_ct = variant_ct;
       if ((pcp->command_flags1 & (kfCommand1MakeRel | kfCommand1Pca)) || keep_grm) {
-        const double instability_thresh = 0.25 / sqrt(u31tod(sample_ct));
+        uint32_t assumed_sample_size = sample_ct;
+        if (pcp->read_freq_fname && (sample_ct < 2500)) {
+          assumed_sample_size = 2500;
+        }
+        const double instability_thresh = 0.25 * (1 - kSmallEpsilon) / sqrt(u31tod(assumed_sample_size));
         if (pcp->grm_min_maf >= 0.0) {
           if (unlikely((pcp->grm_min_maf < instability_thresh) && (!pcp->grm_maf_yes_really))) {
-            logerrprintfww("Error: --grm-maf %g is below %g, a quarter of the inverse square root of the sample size, where --pca/GRM construction becomes unreliable. Add 'yes-really' to --grm-maf if that is what you want.\n", pcp->grm_min_maf, instability_thresh);
+            logerrprintfww("Error: --grm-maf argument is below %g, a quarter of the inverse square root of the sample size; this is unusually low, and may not protect against instability. Add 'yes-really' to --grm-maf if you are sure you want to proceed.\n", pcp->grm_min_maf, instability_thresh);
             goto Plink2Core_ret_INCONSISTENT_INPUT;
           }
           uintptr_t* new_variant_include;
@@ -2998,8 +3012,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // 'yes-really' makes it usable.
         double min_typed_freq = 1.0;
         uint32_t monomorphic_ct = 0;
-        // below half an allele copy, no minor allele was observed at all
-        const double monomorphic_thresh = 0.25 / u31tod(sample_ct);
         {
           uintptr_t variant_uidx_base = 0;
           uintptr_t cur_bits = grm_variant_include[0];
@@ -3015,7 +3027,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
             const double* cur_allele_freqs = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
             const double cur_typed_freq = GetTypedFreq(cur_allele_freqs, allele_ct, kFreqFilterNonmajor);
-            if (cur_typed_freq < monomorphic_thresh) {
+            if (cur_typed_freq < kSmallEpsilon) {
               ++monomorphic_ct;
             }
             if (cur_typed_freq < min_typed_freq) {
@@ -3024,11 +3036,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (unlikely(monomorphic_ct)) {
-          logerrprintfww("Error: --pca/GRM construction cannot use monomorphic variants, and %u of the %u being scanned %s no minor allele. Exclude them, with any positive --grm-maf threshold or with --mac 1.\n", monomorphic_ct, grm_variant_ct, (monomorphic_ct == 1)? "carries" : "carry");
+          logerrprintfww("Error: --pca/GRM construction cannot use monomorphic variants, and %u of the %u being scanned %s no minor allele. Exclude them, with any positive --maf/--grm-maf threshold.\n", monomorphic_ct, grm_variant_ct, (monomorphic_ct == 1)? "carries" : "carry");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         if (unlikely((pcp->grm_min_maf < 0.0) && (min_typed_freq < instability_thresh))) {
-          logerrprintfww("Error: --pca/GRM construction is unreliable at very low minor allele frequencies, and the lowest remaining here is %g, under %g (a quarter of the inverse square root of the %u samples). Use --grm-maf <freq> to set a floor for this calculation alone, or \"--grm-maf <freq> yes-really\" to proceed anyway.\n", min_typed_freq, instability_thresh, sample_ct);
+          logerrprintfww("Error: --pca/GRM construction is unreliable at very low minor allele frequencies, and the lowest remaining here is %g, under %g (a quarter of the inverse square root of the %s%u samples). Ordinarily, --maf is used before this to remove very rare variants. Alternatively, you can use --grm-maf <freq> to set a floor for this calculation alone.\n", min_typed_freq, instability_thresh, (assumed_sample_size > sample_ct)? "assumed " : "", assumed_sample_size);
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
       }
@@ -3111,6 +3123,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         // possible todo: unrelated heritability?
       }
+
+      if (pcp->command_flags1 & kfCommand1Distance) {
+        reterr = CalcDistance(sample_include, &pii.sii, variant_include, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
@@ -3132,6 +3152,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1Tucc) {
+        reterr = Tucc(sample_include, &pii, founder_info, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, (pcp->misc_flags / kfMiscTuccVzs) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1MakePermPheno) {
         reterr = MakePermPheno(sample_include, &pii.sii, pheno_cols, pheno_names, pcp->perm_pheno_name, pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, pcp->perm_pheno_ct, (pcp->misc_flags / kfMiscMakePermPhenoZs) & 1, pcp->max_thread_ct, sfmtp, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3139,15 +3166,30 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1WriteVarRanges) {
-        reterr = WriteVarRanges(variant_include, variant_ids, pcp->write_var_range_ct, variant_ct, (pcp->misc_flags / kfMiscWriteVarRangesZs) & 1, (pcp->misc_flags / kfMiscWriteVarRangesAllowDups) & 1, max_variant_id_slen, pcp->max_thread_ct, outname, outname_end);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
+      if (pcp->command_flags1 & kfCommand1WriteSet) {
+        if (pcp->set_info.flags & kfSetWriteList) {
+          reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->set_info.flags & kfSetWriteTable) {
+          reterr = WriteSetTable(&variant_sets, variant_include, cip, variant_bps, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
         }
       }
 
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
         reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, (pcp->misc_flags / kfMiscWriteSnplistAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1WriteVarRanges) {
+        reterr = WriteVarRanges(variant_include, variant_ids, pcp->write_var_range_ct, variant_ct, (pcp->misc_flags / kfMiscWriteVarRangesZs) & 1, (pcp->misc_flags / kfMiscWriteVarRangesAllowDups) & 1, max_variant_id_slen, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3394,95 +3436,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1LdPrune) {
-        if (unlikely((pcp->ld_info.prune_flags & kfLdPruneWindowBp) && (vpos_sortstatus & kfUnsortedVarBp))) {
-          logerrputs("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
-          goto Plink2Core_ret_INCONSISTENT_INPUT;
-        }
-        reterr = LdPrune(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_nm, sex_male, &(pcp->ld_info), pcp->indep_preferred_fname, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, nosex_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-
-      if (pcp->command_flags1 & kfCommand1TestMissing) {
-        reterr = TestMissingReport(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->test_missing_flags, &simple_pgr, outname, outname_end);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-      if (pcp->command_flags1 & kfCommand1FlipScan) {
-        // Only the LD scan walks a positional window.
-        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname) && (!pcp->ld_info.flipscan_ref_pgen_fname))) {
-          logerrputs("Error: --flip-scan requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
-          goto Plink2Core_ret_INCONSISTENT_INPUT;
-        }
-        if (pcp->ld_info.flipscan_ref_pgen_fname) {
-          reterr = FlipScanRefDataset(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->ld_info), pcp->load_filter_log_flags, raw_variant_ct, variant_ct, max_allele_slen, pcp->input_missing_geno_char, pcp->max_thread_ct, outname, outname_end);
-        } else if (pcp->ld_info.flipscan_ref_freq_fname) {
-          reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
-        } else {
-          reterr = FlipScan(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
-        }
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-
-      if (pcp->command_flags1 & kfCommand1Ld) {
-        reterr = LdConsole(variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, founder_info, sex_nm, sex_male, &(pcp->ld_info), variant_ct, raw_sample_ct, founder_ct, &simple_pgr);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-
       if (pcp->command_flags1 & kfCommand1Twolocus) {
         reterr = TwolocusReport(sample_include, variant_include, variant_ids, allele_idx_offsets, allele_storage, pheno_cols, pheno_names, &(pcp->twolocus_info), raw_sample_ct, sample_ct, variant_ct, pheno_ct, max_pheno_name_blen, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
       }
-      // Sets index the filtered variant space, so they are defined once
-      // every variant filter has been applied.
-      VariantSets variant_sets;
-      variant_sets.set_ct = 0;
-      variant_sets.set_names = nullptr;
-      variant_sets.max_set_name_blen = 0;
-      variant_sets.setdefs = nullptr;
-      if (pcp->set_info.fname) {
-        if (unlikely((pcp->set_info.flags & kfSetMakeFromRanges) && (vpos_sortstatus & kfUnsortedVarBp))) {
-          logerrputs("Error: --make-set requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
-          goto Plink2Core_ret_INCONSISTENT_INPUT;
-        }
-        reterr = DefineSets(&(pcp->set_info), cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, 0, &variant_sets);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-      if (pcp->command_flags1 & kfCommand1Epi) {
-        if (pcp->epi_info.flags & kfEpiRegress) {
-          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
-        } else {
-          reterr = CalcEpiBoost(sample_include, pheno_cols, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
-        }
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-      if (pcp->command_flags1 & kfCommand1WriteSet) {
-        if (pcp->set_info.flags & kfSetWriteList) {
-          reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
-          if (unlikely(reterr)) {
-            goto Plink2Core_ret_1;
-          }
-        }
-        if (pcp->set_info.flags & kfSetWriteTable) {
-          reterr = WriteSetTable(&variant_sets, variant_include, cip, variant_bps, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
-          if (unlikely(reterr)) {
-            goto Plink2Core_ret_1;
-          }
-        }
-      }
+
       if (pcp->command_flags1 & kfCommand1ShowTags) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -3505,12 +3465,76 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1TestMishap) {
-        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
-          logerrputs("Error: --test-mishap requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
-          return kPglRetInconsistentInput;
+      if (pcp->command_flags1 & kfCommand1Homozyg) {
+        // --homozyg-maf is only load-bearing when the data still contains
+        // low-frequency variants: the run-length rules are calibrated for
+        // common ones, and a rare variant inflates the homozygous stretches.
+        // Rather than demand the flag unconditionally, check what is actually
+        // there, and only insist when it matters.
+        HomozygInfo homozyg_info = pcp->homozyg_info;
+        if (homozyg_info.min_af < 0.0) {
+          double min_typed_freq = 1.0;
+          uintptr_t variant_uidx_base = 0;
+          uintptr_t cur_bits = variant_include[0];
+          uint32_t allele_ct = 2;
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+            uintptr_t allele_idx_offset_base;
+            if (!allele_idx_offsets) {
+              allele_idx_offset_base = 2 * variant_uidx;
+            } else {
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+              allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+            }
+            const double* cur_allele_freqs = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
+            const double cur_typed_freq = GetTypedFreq(cur_allele_freqs, allele_ct, kFreqFilterNonmajor);
+            if (cur_typed_freq < min_typed_freq) {
+              min_typed_freq = cur_typed_freq;
+            }
+          }
+          if (unlikely(min_typed_freq < 0.05 * (1 - kSmallEpsilon))) {
+            logerrprintfww("Error: --homozyg requires --homozyg-maf (equivalently, --homozyg-min-af) when the data contains low-frequency variants, and the lowest allele frequency here is %g. 0.05 is a reasonable value with the other default parameters; 0 reproduces PLINK 1.x, which applied no frequency floor.\n", min_typed_freq);
+            goto Plink2Core_ret_INCONSISTENT_INPUT;
+          }
+          homozyg_info.min_af = 0.0;
         }
-        reterr = TestMishap(variant_include, cip, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, sample_include, pcp->test_mishap_flags, pcp->min_maf, pcp->output_min_ln, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &homozyg_info, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1LdPrune) {
+        if (unlikely((pcp->ld_info.prune_flags & kfLdPruneWindowBp) && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        reterr = LdPrune(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_nm, sex_male, &(pcp->ld_info), pcp->indep_preferred_fname, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, nosex_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1Ld) {
+        reterr = LdConsole(variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, founder_info, sex_nm, sex_male, &(pcp->ld_info), variant_ct, raw_sample_ct, founder_ct, &simple_pgr);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1FlipScan) {
+        // Only the LD scan walks a positional window.
+        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname) && (!pcp->ld_info.flipscan_ref_pgen_fname))) {
+          logerrputs("Error: --flip-scan requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        if (pcp->ld_info.flipscan_ref_pgen_fname) {
+          reterr = FlipScanRefDataset(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->ld_info), pcp->load_filter_log_flags, raw_variant_ct, variant_ct, max_allele_slen, pcp->input_missing_geno_char, pcp->max_thread_ct, outname, outname_end);
+        } else if (pcp->ld_info.flipscan_ref_freq_fname) {
+          reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
+        } else {
+          reterr = FlipScan(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3550,6 +3574,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1TestMishap) {
+        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+          logerrputs("Error: --test-mishap requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          return kPglRetInconsistentInput;
+        }
+        reterr = TestMishap(variant_include, cip, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, sample_include, pcp->test_mishap_flags, pcp->min_maf, pcp->output_min_ln, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Het) {
         reterr = HetReport(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, founder_info, raw_sample_ct, sample_ct, founder_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->het_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3557,47 +3592,19 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1Homozyg) {
-        // --homozyg-min-af is only load-bearing when the data still contains
-        // low-frequency variants: the run-length rules are calibrated for
-        // common ones, and a rare variant inflates the homozygous stretches.
-        // Rather than demand the flag unconditionally, check what is actually
-        // there, and only insist when it matters.
-        HomozygInfo homozyg_info = pcp->homozyg_info;
-        if (homozyg_info.min_af < 0.0) {
-          double min_typed_freq = 1.0;
-          uintptr_t variant_uidx_base = 0;
-          uintptr_t cur_bits = variant_include[0];
-          uint32_t allele_ct = 2;
-          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-            uintptr_t allele_idx_offset_base;
-            if (!allele_idx_offsets) {
-              allele_idx_offset_base = 2 * variant_uidx;
-            } else {
-              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-              allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
-            }
-            const double* cur_allele_freqs = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
-            const double cur_typed_freq = GetTypedFreq(cur_allele_freqs, allele_ct, kFreqFilterNonmajor);
-            if (cur_typed_freq < min_typed_freq) {
-              min_typed_freq = cur_typed_freq;
-            }
-          }
-          if (unlikely(min_typed_freq < 0.05 * (1 - kSmallEpsilon))) {
-            logerrprintfww("Error: --homozyg requires --homozyg-maf (equivalently, --homozyg-min-af) when the data contains low-frequency variants, and the lowest allele frequency here is %g. 0.05 is a reasonable value with the other default parameters; 0 reproduces PLINK 1.x, which applied no frequency floor.\n", min_typed_freq);
-            goto Plink2Core_ret_INCONSISTENT_INPUT;
-          }
-          homozyg_info.min_af = 0.0;
-        }
-        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &homozyg_info, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+      if (pcp->command_flags1 & kfCommand1Fst) {
+        reterr = FstReport(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->fst_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1Fst) {
-        reterr = FstReport(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->fst_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+      if (pcp->command_flags1 & kfCommand1Epi) {
+        if (pcp->epi_info.flags & kfEpiRegress) {
+          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        } else {
+          reterr = CalcEpiBoost(sample_include, pheno_cols, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3623,6 +3630,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->perm_config), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sfmtp, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1TestMissing) {
+        reterr = TestMissingReport(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->test_missing_flags, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -12851,6 +12865,10 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclNosex;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ead-eigvec")) {
+          if (unlikely(!pc.neighbour_info.nn_ct)) {
+            logerrputs("Error: --read-eigvec must be used with --neighbour.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -15137,9 +15155,6 @@ int main(int argc, char** argv) {
         logerrputs("Error: --neighbour must be used with --pca or --read-eigvec; it scores PC\ncoordinates.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
-    } else if (unlikely(pc.read_eigvec_fname)) {
-      logerrputs("Error: --read-eigvec must be used with --neighbour.\n");
-      goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.command_flags1 & kfCommand1Blocks) {
       if (unlikely(pc.blocks_info.max_bp == 0)) {

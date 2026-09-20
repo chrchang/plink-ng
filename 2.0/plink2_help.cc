@@ -1728,20 +1728,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        stat: sqrt(DIST_SELF / DIST_NN), or NA when DIST_NN is zero.\n"
 "      Default is maybefid,maybesid,distself,distnn,stat.\n\n"
                );
-    HelpPrint("read-eigvec\0neighbour\0neighbor\0pca\0", &help_ctrl, 1,
-"  --read-eigvec <.eigenvec file>\n"
-"    Load principal-component coordinates from a previous --pca run, instead of\n"
-"    recomputing them, and hand them to --neighbour.  Both PLINK 2.0 .eigenvec\n"
-"    files (with a #FID/#IID header line) and PLINK 1.9's (headerless, FID then\n"
-"    IID) are accepted; every column after the ID columns is treated as a\n"
-"    principal component.\n"
-"    * Every sample remaining after filtering must appear in the file; extra\n"
-"      samples in the file are ignored, so the same .eigenvec can be reused\n"
-"      with --keep/--remove.\n"
-"    * The coordinates come back with the precision they were printed at, so\n"
-"      the report can differ from an in-memory --pca run in the last digit or\n"
-"      two.\n\n"
-               );
     HelpPrint("king-cutoff\0king-cutoff-table\0make-king\0make-king-table\0rel-cutoff\0grm-cutoff\0", &help_ctrl, 1,
 "  --king-cutoff [.king.bin + .king.id fileset prefix] <threshold>\n"
 "  --king-cutoff-table <.kin0 filename> <threshold>\n"
@@ -1774,7 +1760,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "              force at least one phenotype column to be written.)\n"
 "      (Covariates are always present, and positioned here.)\n"
 "    The default is maybefid,maybesid.\n\n"
-               );
+              );
+    HelpPrint("write-set\0set-table\0set\0make-set\0", &help_ctrl, 1,
+"  --write-set ['zs']\n"
+"  --set-table ['zs']\n"
+"    If sets have been defined, --write-set dumps 'END'-terminated set\n"
+"    membership lists to <output prefix>.set, while --set-table writes a\n"
+"    variant-by-set membership table to <output prefix>.set.table.\n\n"
+              );
     HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0", &help_ctrl, 1,
 "  --pmerge <.pgen/.bed filename> <.pvar/.bim> <.psam/.fam>\n"
 "  --pmerge <.pgen + .pvar + .psam fileset prefix> ['vzs']\n"
@@ -1859,51 +1852,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Since the ranges are meant to be fed back in with --snps, this errors\n"
 "      out when duplicate variant ID(s) remain, like --write-snplist.  Add the\n"
 "      'allow-dups' modifier to suppress that.\n\n"
-               );
-    HelpPrint("set\0make-set\0make-set-border\0make-set-collapse-group\0set-names\0subset\0set-collapse-all\0complement-sets\0make-set-complement-all\0make-set-complement-group\0write-set\0set-table\0", &help_ctrl, 1,
-"  --set <filename>\n"
-"  --make-set <filename>\n"
-"  --make-set-border <kbs>\n"
-"  --make-set-collapse-group\n"
-"  --set-names <name(s)...>\n"
-"  --subset <filename>\n"
-"  --set-collapse-all <set name>\n"
-"  --complement-sets\n"
-"  --make-set-complement-all <set name>\n"
-"  --make-set-complement-group\n"
-"  --write-set ['zs']\n"
-"  --set-table ['zs']\n"
-"    Load named sets of variants, for the commands that take them.  A --set file\n"
-"    is a stream of whitespace-delimited tokens: each set is its name, then its\n"
-"    variant IDs, then END.  A --make-set file instead has one bp range per\n"
-"    line, as chromosome code, start position, end position, and set ID;\n"
-"    --make-set-border stretches every range by the given number of kbs, and\n"
-"    --make-set-collapse-group builds the sets from a group label in the fifth\n"
-"    column instead of the set IDs in the fourth.\n"
-"    * A variant ID that is not in your filtered variant set is ignored, and a\n"
-"      set can be empty, as in PLINK 1.x.  --set keeps the file's set order,\n"
-"      while --make-set sorts and deduplicates set names.\n"
-"    * --set-names and --subset keep only the sets named on the command line or\n"
-"      in the given file; --set-collapse-all replaces every set with their\n"
-"      union, under the given name.\n"
-"    * --complement-sets inverts every set, and prefixes its name with 'C_'.\n"
-"      --make-set-complement-all is --set-collapse-all plus inversion (and so\n"
-"      keeps the name you give it), and --make-set-complement-group is\n"
-"      --make-set-collapse-group plus inversion.\n"
-"    * --write-set writes the loaded sets back out in .set format, and\n"
-"      --set-table writes a variant-by-set membership table instead.\n"
-"    * Sets are defined after your variant filters have been applied, so a\n"
-"      filter that drops a variant drops it from every set as well.\n\n"
-               );
-    HelpPrint("gene\0gene-all\0set\0make-set\0", &help_ctrl, 1,
-"  --gene <set name(s)...>\n"
-"  --gene-all\n"
-"    Exclude variants which are not in any of the named sets (--gene), or in\n"
-"    any set at all (--gene-all).  The names are the ones --write-set reports,\n"
-"    so with --complement-sets they carry the 'C_' prefix.\n"
-"    * This is a variant filter, so it is applied before the sets the other\n"
-"      commands see are defined; those sets then cover only the variants it\n"
-"      kept.\n\n"
                );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
@@ -2662,6 +2610,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --family-missing-catname <nm> : Make --family treat the specified FID as\n"
 "                                  missing.\n"
                );
+    HelpPrint("set\0make-set\0make-set-border\0make-set-collapse-group\0set-names\0subset\0set-collapse-all\0complement-sets\0make-set-complement-all\0make-set-complement-group\0", &help_ctrl, 0,
+"  --set <filename>\n"
+"  --make-set <filename> :\n"
+"    Load named sets of variants, for the commands that take them.  A --set file\n"
+"    is a stream of whitespace-delimited tokens: each set is its name, then its\n"
+"    variant IDs, then END.  A --make-set file instead has one bp range per\n"
+"    line, as chromosome code, start position, end position, and set ID.\n"
+"    * Sets are defined after your variant filters have been applied, so a\n"
+"      filter that drops a variant drops it from every set as well.\n"
+"  --set-names <name(s)...>      : Load only the named sets.\n"
+"  --subset <filename>           : Load only sets named in the given text file.\n"
+"  --set-collapse-all <set name> : Merge all sets.\n"
+"  --complement-sets             : Invert all sets.  (Names gain 'C_' prefixes.)\n"
+"  --make-set-complement-all <s> : --set-collapse-all + inversion.\n"
+"  --make-set-border <kbs>       : Stretch regions in --make-set file.\n"
+"  --make-set-collapse-group     : Define sets from groups (5th col) instead of\n"
+"                                  sets in --make-set file.\n"
+"  --make-set-complement-group   : --make-set-collapse-group + inversion.\n"
+               );
     HelpPrint("keep\0remove\0keep-fam\0remove-fam\0samples-file\0", &help_ctrl, 0,
 "  --keep <fname...>    : Exclude all samples not named in a file.\n"
 "  --remove <fname...>  : Exclude all samples named in a file.\n"
@@ -2755,6 +2722,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            below Lt are controls.  When Hbt is unspecified it\n"
 "                            equals Lt; otherwise the values in between are set\n"
 "                            to missing.\n"
+               );
+    HelpPrint("gene\0gene-all\0set\0make-set\0", &help_ctrl, 1,
+"  --gene <set name(s)...>\n"
+"  --gene-all :\n"
+"    Exclude variants which are not in any of the named sets (--gene), or in\n"
+"    any set at all (--gene-all).  The names are the ones --write-set reports,\n"
+"    so with --complement-sets they carry the 'C_' prefix.\n"
+"    * This is a variant filter, so it is applied before the sets the other\n"
+"      commands see are defined; those sets then cover only the variants it\n"
+"      kept.\n"
                );
     HelpPrint("chr\0not-chr\0", &help_ctrl, 0,
 "  --chr <chr(s)...>  : Exclude all variants not on the given chromosome(s).\n"
@@ -2862,7 +2839,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("geno\0mind\0oblig-clusters\0oblig-missing\0", &help_ctrl, 0,
 "  --geno [val] [{dosage | hh-missing}]\n"
-"  --mind [val] [{dosage | hh-missing}] : \n"
+"  --mind [val] [{dosage | hh-missing}] :\n"
 "    Exclude variants (--geno) and/or samples (--mind) with missing call\n"
 "    frequencies greater than a threshold (default 0.1).  (Note that the default\n"
 "    threshold is only applied if --geno/--mind is invoked without an argument;\n"
@@ -2874,12 +2851,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    heterozygous haploid calls as missing.\n"
                );
     HelpPrint("oblig-missing\0geno\0mind\0", &help_ctrl, 0,
-"  --oblig-missing <variant file> <sample file> : Specify blocks of missing\n"
-"    genotype calls for --geno/--mind to ignore.  The first file should have\n"
-"    variant IDs in the first column and block IDs in the second; the second\n"
-"    file should have sample IDs in the usual leading columns and block IDs\n"
-"    after them.  A sample belongs to at most one block, while a variant may\n"
-"    belong to several.\n"
+"  --oblig-missing <variant file> <sample file> :\n"
+"    Specify blocks of missing genotype calls for --geno/--mind to ignore.  The\n"
+"    first file should have variant IDs in the first column and block IDs in the\n"
+"    second; the second file should have sample IDs in the usual leading columns\n"
+"    and block IDs after them.  A sample belongs to at most one block, while a\n"
+"    variant may belong to several.\n"
 "    The calls in a block drop out of both the numerator and the denominator of\n"
 "    the missing call frequency: a variant is compared against the samples\n"
 "    outside its blocks, and a sample against the variants outside its block.\n"
@@ -2927,13 +2904,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // 'major' mode intentionally omitted since it's almost entirely redundant,
     // and kind of forces the underlying flag to be renamed
-    HelpPrint("maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
+    HelpPrint("maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0test-mishap\0", &help_ctrl, 0,
 "  --maf [freq] [mode]     : Exclude variants with allele frequency lower than a\n"
 "    (alias: --min-af)       threshold (default 0.01).  By default, the nonmajor\n"
 "                            allele frequency is used; the other supported modes\n"
 "                            are 'nref' (non-reference), 'alt1', and 'minor'\n"
 "                            (least frequent).  bcftools freq:mode notation is\n"
 "                            permitted.\n"
+              );
+    HelpPrint("maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
 "  --max-maf <freq> [mode] : Exclude variants with MAF greater than the\n"
 "    (alias: --max-af)       threshold.\n"
 "  --mac <ct> [mode]       : Exclude variants with allele dosage lower than the\n"
@@ -2941,7 +2920,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --max-mac <ct> [mode]   : Exclude variants with allele dosage greater than\n"
 "    (alias: --max-ac)       the given threshold.\n"
                );
-    HelpPrint("grm-maf\0grm-min-af\0pca\0make-rel\0make-grm-list\0make-grm-bin\0", &help_ctrl, 0,
+    HelpPrint("grm-maf\0grm-min-af\0pca\0make-rel\0make-grm-list\0make-grm-bin\0make-grm-sparse\0", &help_ctrl, 0,
 "  --grm-maf <freq> [mode] ['yes-really'] :\n"
 "    (alias: --grm-min-af)\n"
 "    Exclude variants below the given allele frequency from --pca and GRM\n"
@@ -2949,14 +2928,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    mode parameter is the one --maf takes.\n"
 "    * These calculations standardize each variant by sqrt(2p(1-p)), which\n"
 "      blows up as p approaches zero, so a single very rare variant can\n"
-"      dominate the result.  A threshold below a quarter of the inverse square\n"
-"      root of the sample size is where that becomes a real risk, and requires\n"
-"      the 'yes-really' modifier.\n"
-"    * Without this flag, a variant below that point is an error rather than a\n"
-"      silently unstable answer; the message reports the lowest frequency\n"
-"      present.\n"
-"    * A monomorphic variant is rejected whatever the threshold, since there\n"
-"      is no minor allele to standardize by; 'yes-really' does not apply.\n\n"
+"      dominate the result.  Without this flag, GRM construction now errors out\n"
+"      instead of producing a silently unstable answer if there is a variant\n"
+"      with MAF < 0.25 * sqrt(sample size).\n"
+"      * With --read-freq, sample size is replaced with max(2500, sample size)\n"
+"        in that formula.\n"
+"    * To intentionally set an even lower --grm-maf threshold, you must specify\n"
+"      'yes-really'.\n\n"
                );
     HelpPrint("af-pseudocount\0maf-succ\0", &help_ctrl, 0,
 "  --af-pseudocount <x>    : Given j observations of one allele and k\n"
@@ -3512,6 +3490,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --ld-score-window-kb <max kb radius> : Specify --ld-score max kb distance.\n"
 "  --ld-score-window-cm <max cM radius> : Specify --ld-score max cM distance.\n"
               );
+    HelpPrint("read-eigvec\0neighbour\0neighbor\0", &help_ctrl, 0,
+"  --read-eigvec <.eigenvec file> :\n"
+"    Load principal-component coordinates from a previous --pca run, instead of\n"
+"    recomputing them, for --neighbour.  Both PLINK 2.0 .eigenvec files (with a\n"
+"    #FID/#IID header line) and PLINK 1.9's (headerless, FID then IID) are\n"
+"    accepted; every column after the ID columns is treated as a principal\n"
+"    component.\n"
+"    * Every sample remaining after filtering must appear in the file; extra\n"
+"      samples in the file are ignored, so the same .eigenvec can be reused\n"
+"      with --keep/--remove.\n"
+"    * The coordinates come back with the precision they were printed at, so\n"
+"      the report can differ from an in-memory --pca run in the last digit or\n"
+"      two.\n"
+               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
     // when it comes out
