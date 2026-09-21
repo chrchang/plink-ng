@@ -33,7 +33,10 @@ PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* varia
 FLAGSET_DEF_START()
   kfInfoCols0,
   kfInfoColsZs = (1 << 0),
-  kfInfoColsAll = (1 << 1)
+  kfInfoColsAll = (1 << 1),
+  // set when nothing else needs the variant file loaded, so it can be scanned
+  // directly
+  kfInfoColsStream = (1 << 2)
 FLAGSET_DEF_END(InfoColsFlags);
 
 typedef struct InfoColsInfoStruct {
@@ -47,7 +50,9 @@ void InitInfoCols(InfoColsInfo* icip);
 
 void CleanupInfoCols(InfoColsInfo* icip);
 
-PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* pvar_info_reload, const char* xheader, const InfoColsInfo* icip, uintptr_t xheader_blen, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlags misc_flags, char input_missing_geno_char, uint32_t max_thread_ct, ChrInfo* cip, char* outname, char* outname_end);
+
+PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* pvar_info_reload, const char* xheader, const InfoColsInfo* icip, uintptr_t xheader_blen, uint32_t variant_ct, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 FLAGSET_DEF_START()
   kfRecoverVarIds0,

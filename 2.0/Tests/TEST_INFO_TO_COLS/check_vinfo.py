@@ -26,11 +26,12 @@ def parse_vcf(path):
                 for sub in f8[7].split(';'):
                     if not sub:
                         continue
+                    # VCF prohibits duplicate keys; the first one wins.
                     if '=' in sub:
                         k, v = sub.split('=', 1)
-                        info[k] = v
+                        info.setdefault(k, v)
                     else:
-                        info[sub] = None
+                        info.setdefault(sub, None)
             rows.append((f8[0], f8[1], f8[2], f8[3], f8[4], info))
     return flags, rows
 

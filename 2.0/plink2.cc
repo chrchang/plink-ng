@@ -3188,7 +3188,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1InfoToCols) {
-        reterr = InfoToCols(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, info_reload_slen? pvarname : nullptr, xheader, &(pcp->info_cols_info), xheader_blen, variant_ct, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
+        reterr = InfoToCols(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, info_reload_slen? pvarname : nullptr, xheader, &(pcp->info_cols_info), xheader_blen, variant_ct, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -8910,7 +8910,6 @@ int main(int argc, char** argv) {
             pc.info_cols_info.flags |= kfInfoColsZs;
           }
           pc.command_flags1 |= kfCommand1InfoToCols;
-          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "d-delim")) {
           if (unlikely(const_fid || (import_flags & kfImportDoubleId))) {
             logerrputs("Error: --id-delim can no longer be used with --const-fid or --double-id.\n");
@@ -15249,6 +15248,14 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
+    if (pc.command_flags1 & kfCommand1InfoToCols) {
+      // When no other command, filter, or variant-modifying flag needs the
+      // variant file loaded, --info-to-cols just streams it once.
+      if ((pc.command_flags1 == kfCommand1InfoToCols) && (!pc.dependency_flags) && (!pc.load_filter_log_flags) && (pc.rmdup_mode == kRmDup0) && (!pc.splitpar_bound2) && (!pc.varid_template_str) && (!(pc.misc_flags & (kfMiscMergePar | kfMiscMergeX)))) {
+        pc.info_cols_info.flags |= kfInfoColsStream;
+      }
+      pc.dependency_flags |= kfFilterPvarReq;
+    }
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr) || (meta_info.fnames != nullptr);
     if (skip_main && (!batch_job)) {
@@ -15851,6 +15858,10 @@ int main(int argc, char** argv) {
         pc.dependency_flags |= kfFilterNoSplitChr;
       }
 
+      if (pc.info_cols_info.flags & kfInfoColsStream) {
+        reterr = InfoToColsStream(pvarname, &pc.info_cols_info, pc.misc_flags, pc.input_missing_geno_char, pc.max_thread_ct, &chr_info, outname, outname_end);
+        goto main_ret_1;
+      }
       BLAS_SET_NUM_THREADS(1);
       reterr = Plink2Core(&pc, make_plink2_flags, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info, &main_sfmt);
     }
