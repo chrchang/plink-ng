@@ -21,6 +21,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <time.h>
 
 #include "include/pgenlib_misc.h"
 #include "include/pgenlib_read.h"

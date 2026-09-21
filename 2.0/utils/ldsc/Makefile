@@ -16,7 +16,7 @@ BASEFLAGS=
 BASEFLAGS += ${DEBUG}
 
 include ../../Makefile.src
-OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TEXTLIB_CCSRC:.cc=.o)
+OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TSTATSLIB_CCSRC:.cc=.o)
 OBJL = $(notdir $(OBJ))
 
 LINKFLAGS=-lpthread ${DEBUG}
@@ -65,8 +65,8 @@ ifndef STATIC_ZSTD
   ZCSRC3 =
   ZSSRC3 =
   SKIP_STATIC_ZSTD = echo
-  TEXTLIB_OBJ = $(CSRC:.c=.o) $(TEXTLIB_CCSRC:.cc=.o)
-  TEXTLIB_OBJL = $(notdir $(TEXTLIB_OBJ))
+  TSTATSLIB_OBJ = $(CSRC:.c=.o) $(TSTATSLIB_CCSRC:.cc=.o)
+  TSTATSLIB_OBJL = $(notdir $(TSTATSLIB_OBJ))
   LINKFLAGS += -lzstd
 endif
 
@@ -96,17 +96,11 @@ SFX ?= ""
 
 all: ldsc$(SFX)
 
-# The t-distribution tail, for the overlapping-annotation difference test,
-# plus what it depends on.
-STATSSRC = ../../include/plink2_float.cc \
-           ../../include/plink2_highprec.cc \
-           ../../include/plink2_stats.cc
-
-ldsc$(SFX): $(CSRC3) $(ZCSRC3) $(ZSSRC3) $(TEXTLIB_CCSRC3) $(STATSSRC) ldsc.cc
+ldsc$(SFX): $(CSRC3) $(ZCSRC3) $(ZSSRC3) $(TSTATSLIB_CCSRC3) ldsc.cc
 	$(CC) $(CFLAGS) $(CSRC3) -c
 	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC3) $(ZSSRC3) -c
-	$(CXX) $(CXXFLAGS) $(TEXTLIB_CCSRC3) $(STATSSRC) ldsc.cc -c
-	$(CXX) $(TEXTLIB_OBJL) plink2_float.o plink2_highprec.o plink2_stats.o ldsc.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
+	$(CXX) $(CXXFLAGS) $(TSTATSLIB_CCSRC3) ldsc.cc -c
+	$(CXX) $(TSTATSLIB_OBJL) ldsc.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
 
 .PHONY: clean
 clean:

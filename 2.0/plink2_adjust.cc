@@ -931,7 +931,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
         uint32_t col_skips[9];
         uint32_t col_types[9];
         uint32_t relevant_col_ct;
-        uint32_t has_a2;
+        uint32_t has_a2 = 0;  // spurious gcc warning
         reterr = MetaSetupCols(mip, header_start, cur_fname, no_map, no_allele, input_is_beta, weighted_z, col_skips, col_types, &relevant_col_ct, &has_a2);
         if (unlikely(reterr)) {
           if (reterr == kPglRetInconsistentInput) {

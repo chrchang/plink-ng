@@ -12629,7 +12629,7 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
       }
       if (p_col) {
         *cswritep++ = '\t';
-        cswritep = dtoa_g(Fisher22TwoSidedP(case_missing_ct, ctrl_missing_ct, cur_case_ct - case_missing_ct, cur_ctrl_ct - ctrl_missing_ct, midp, 0), cswritep);
+        cswritep = lntoa_g(Fisher22TwoSidedP(case_missing_ct, ctrl_missing_ct, cur_case_ct - case_missing_ct, cur_ctrl_ct - ctrl_missing_ct, midp, 1), cswritep);
       }
       AppendBinaryEoln(&cswritep);
       if (unlikely(Cswrite(&css, &cswritep))) {

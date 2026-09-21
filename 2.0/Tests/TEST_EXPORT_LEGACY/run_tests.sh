@@ -66,9 +66,9 @@ same plink19_lgenref.ref plink2_lgenref.ref
 #    the sample count implied by the header.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --export beagle-unphased --out plink2_beagle
 test "$(grep -c '^M' plink2_beagle.dat)" -eq "$(wc -l < tmp_data.bim)"
-grep -q '^P FID' plink2_beagle.dat
-grep -q '^I IID' plink2_beagle.dat
-grep -q '^A ' plink2_beagle.dat
+grep -q '^P	FID' plink2_beagle.dat
+grep -q '^I	IID' plink2_beagle.dat
+grep -q '^A	' plink2_beagle.dat
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --export mgf --out plink2_mgf
 test "$(wc -l < plink2_mgf.mgf)" -eq "$(wc -l < tmp_data.bim)"
 test "$(wc -l < plink2_mgf.pos.txt)" -eq "$(wc -l < tmp_data.bim)"
