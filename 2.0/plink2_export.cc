@@ -12043,13 +12043,17 @@ PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sam
     for (uint32_t row_idx = 0; row_idx != 2 + pheno_ct; ++row_idx) {
       const uint32_t pheno_idx = row_idx - 2;
       if (row_idx == 0) {
-        write_iter = strcpya_k(write_iter, "P FID");
+        *write_iter++ = 'P';
+        *write_iter++ = exportf_delim;
+        write_iter = strcpya_k(write_iter, "FID");
       } else if (row_idx == 1) {
-        write_iter = strcpya_k(write_iter, "I IID");
+        *write_iter++ = 'I';
+        *write_iter++ = exportf_delim;
+        write_iter = strcpya_k(write_iter, "IID");
       } else {
         const PhenoDtype dtype = pheno_cols[pheno_idx].type_code;
         *write_iter++ = (dtype == kPhenoDtypeCc)? 'A' : ((dtype == kPhenoDtypeQt)? 'T' : 'C');
-        *write_iter++ = ' ';
+        *write_iter++ = exportf_delim;
         write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
       }
       uintptr_t sample_uidx_base = 0;
