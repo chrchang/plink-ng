@@ -12458,6 +12458,28 @@ int main(int argc, char** argv) {
           }
           pmerge_info.flags |= kfPmergeOutputVzs;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "merge-pass-size")) {
+          // Undocumented: overrides the number of filesets a
+          // non-concatenating merge processes at once, so that multipass
+          // merges can be tested without lots of input filesets, and compared
+          // against single-pass merges of more than 20 filesets.  The upper
+          // limit leaves room for three open files per temporary input
+          // fileset, plus the outputs and the log.
+          if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
+            logerrputs("Error: --pmerge-pass-size must be used with --pmerge or --pmerge-list.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t max_pass_fileset_ct_limit = (kMaxOpenFiles - 4) / 3;
+          uint32_t max_pass_fileset_ct;
+          if (unlikely(ScanPosintCappedx(cur_modif, max_pass_fileset_ct_limit, &max_pass_fileset_ct) || (max_pass_fileset_ct == 1))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pmerge-pass-size argument '%s' (must be in 2..%u).\n", cur_modif, max_pass_fileset_ct_limit);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pmerge_info.max_pass_fileset_ct = max_pass_fileset_ct;
         } else if (strequal_k_unsafe(flagname_p2, "gen-diff")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;

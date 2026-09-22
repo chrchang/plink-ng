@@ -63,6 +63,11 @@ cd TEST_PMERGE
 cd ..
 echo "TEST_PMERGE passed."
 
+cd TEST_PMERGE_MULTIPASS
+./run_tests.sh $d $2 $3 > TEST_PMERGE_MULTIPASS.log
+cd ..
+echo "TEST_PMERGE_MULTIPASS passed."
+
 cd TEST_EXPORT_LEGACY
 ./run_tests.sh $d $2 $3 > TEST_EXPORT_LEGACY.log
 cd ..
