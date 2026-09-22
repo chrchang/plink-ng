@@ -8300,6 +8300,14 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
           cur_allele_freq = allele_freqs[vidx];
           geno_slope = geno_slopes[vidx];
           geno_intercept = geno_intercepts[vidx];
+          if (domrec) {
+            // bugfix (22 Sep 2026): a missing genotype is mean-imputed as
+            // cur_allele_freq * geno_slope here (ploidy 1), which is not the
+            // mean of the dominant/recessive-coded value.  Replace the
+            // frequency with the Hardy-Weinberg expectation of that value:
+            // 1 - (1-f)^2 for 'dominant', f^2 for 'recessive'.
+            cur_allele_freq *= model_dominant? (2.0 - cur_allele_freq) : cur_allele_freq;
+          }
         }
         if ((!shard_dosage_ct) && (!is_nonx_haploid) && (!is_relevant_x)) {
           // Fast path for common no-dosage case.

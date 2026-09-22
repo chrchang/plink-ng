@@ -2172,6 +2172,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      variance-1.\n"
 "    * The 'dominant' modifier causes dosages greater than 1 to be treated as 1,\n"
 "      while 'recessive' uses max(dosage - 1, 0) on diploid chromosomes.\n"
+"      Missing genotypes are then mean-imputed as 1 - (1-f)^2 and f^2,\n"
+"      respectively, where f is the allele frequency.\n"
 "      ('dominant', 'recessive', and 'variance-standardize' cannot be used with\n"
 "      chrX.)\n"
 "    * The 'se' modifier causes the input coefficients to be treated as\n"
