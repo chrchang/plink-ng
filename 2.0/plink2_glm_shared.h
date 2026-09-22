@@ -67,8 +67,15 @@ FLAGSET_DEF_START()
   kfGlmQtResidualize = (1 << 26),
   kfGlmResidualizeMask = (kfGlmFirthResidualize | kfGlmCcResidualize | kfGlmQtResidualize),
   kfGlmSinglePrecCc = (1 << 27),
-  kfGlmAllowNoCovars = (1 << 28)
+  kfGlmAllowNoCovars = (1 << 28),
+  kfGlmMultinomial = (1 << 29)
 FLAGSET_DEF_END(GlmFlags);
+
+ENUM_U31_DEF_START()
+  kGlmMultinomialTestLrt,
+  kGlmMultinomialTestScore,
+  kGlmMultinomialTestWald
+ENUM_U31_DEF_END(GlmMultinomialTest);
 
 FLAGSET_DEF_START()
   kfGlmCol0,
@@ -119,6 +126,7 @@ typedef struct GlmInfoStruct {
   GlmFlags flags;
   GlmColFlags cols;
   GlmPermFlags perm_flags;
+  GlmMultinomialTest multinomial_test;
   uint32_t mperm_ct;
   uint32_t local_cat_ct;
   uint32_t local_header_line_ct;
@@ -128,6 +136,7 @@ typedef struct GlmInfoStruct {
   double max_corr;
   char* condition_varname;
   char* condition_list_fname;
+  char* multinomial_ref;
   RangeList parameters_range_list;
   RangeList tests_range_list;
 } GlmInfo;
