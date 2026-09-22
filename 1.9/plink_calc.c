@@ -7244,7 +7244,14 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  // matrix, and D is a diagonal eigenvalue matrix.
 	  fill_double_zero(pc_ct, cur_var_wts);
 	  dxx = set_allele_freqs[marker_uidx];
-	  dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
+	  if ((dxx != 0.0) && (dxx < (1.0 - EPSILON))) {
+	    dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
+	  } else {
+	    // monomorphic variants contribute nothing to the GRM (see
+	    // fill_subset_weights_r()), so they must get weight 0 here too
+	    // instead of infinity
+	    dyy = 0;
+	  }
 	  ulptr = loadbuf;
 
 	  var_wt_incr[1] = dyy; // het
