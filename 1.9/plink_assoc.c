@@ -530,8 +530,8 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	adjust_print(pv_bh[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	adjust_print(pv_by[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
       } else {
-	adjust_print_log10(pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
-	if (!is_set_test) {
+	adjust_print_log10(unadj_pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	if (!skip_gc) {
 	  adjust_print_log10(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
