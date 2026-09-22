@@ -27,6 +27,7 @@
 #include "include/pgenlib_misc.h"
 #include "include/pgenlib_write.h"
 #include "include/plink2_bgzf.h"
+#include "include/plink2_bitmap.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_memory.h"
@@ -58,6 +59,7 @@ void InitPmerge(PmergeInfo* pmerge_info_ptr) {
   pmerge_info_ptr->merge_pheno_sort = kSortNone;
   pmerge_info_ptr->merge_info_sort = kSortNone;
   pmerge_info_ptr->max_allele_ct = 0;
+  pmerge_info_ptr->max_pass_fileset_ct = 0;
   pmerge_info_ptr->pgen_fname = nullptr;
   pmerge_info_ptr->pvar_fname = nullptr;
   pmerge_info_ptr->psam_fname = nullptr;
@@ -94,6 +96,9 @@ typedef struct PmergeInputFilesetLlStruct {
   char* pvar_fname;
   char* psam_fname;
   char* pgen_locked_fname;
+  // Temporary filesets only: the merged samples they cover, in final-.psam
+  // order.  (There's no temporary .psam.)  Heap-allocated.
+  uintptr_t* tmp_sample_span;
 
   uint32_t read_sample_ct;
   uint32_t write_sample_ct;
@@ -204,6 +209,7 @@ PglErr LoadPmergeList(const char* list_fname, const char* list_base_dir, PmergeL
       }
       cur_entry->is_temporary = 0;
       cur_entry->pgen_locked_fname = nullptr;
+      cur_entry->tmp_sample_span = nullptr;
       cur_entry->first_varid = nullptr;
       cur_entry->last_varid = nullptr;
       const char* first_token_end = CurTokenEnd(first_token_start);
@@ -3394,6 +3400,7 @@ void CleanupFilesetLl(PmergeInputFilesetLl* filesets_iter, PglErr* reterrp) {
         }
         free(filesets_iter->pgen_locked_fname);
       }
+      free_cond(filesets_iter->tmp_sample_span);
     }
     PmergeInputFilesetLl* cur_node = filesets_iter;
     filesets_iter = filesets_iter->next;
@@ -3544,6 +3551,8 @@ typedef struct PvariantMergeContextStruct {
   char* locked_missing_comma_str;
   char* missing_comma_str;
   char* pr_str;
+  // "PR=;": marks where a synthesized PR key goes in a temporary .pvar.
+  char* pr_pending_str;
   uintptr_t* info_field_set;
   char** basic_info_fields;
   char*** ar_info_fields; // types A and R have multiple subfields
@@ -3555,6 +3564,8 @@ typedef struct PvariantMergeContextStruct {
 
   // low bit = writing to final, next bit = reading from tmp
   unsigned char tmp_status;
+  // Only tracked when writing to tmp.
+  uint32_t max_written_nonpass_filter_ct;
 
   char* chr_buf;
   uint32_t chr_slen;
@@ -3673,6 +3684,7 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
   pmcp->locked_missing_comma_str = nullptr;
   pmcp->missing_comma_str = nullptr;
   pmcp->pr_str = nullptr;
+  pmcp->pr_pending_str = nullptr;
   pmcp->info_field_set = nullptr;
   pmcp->basic_info_fields = nullptr;
   pmcp->ar_info_fields = nullptr;
@@ -3698,8 +3710,8 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
         continue;
       }
       ++ar_info_ct;
-      // One slot per merged allele, even under Number=A: MergePvariant()
-      // indexes these by merged allele index.
+      // One slot per merged allele, even under Number=A: a temporary .pvar
+      // keeps a REF-allele value in that case, see MergePvariant().
       const uintptr_t subfield_ct = write_max_allele_ct;
       if (unlikely(S_CAST(uintptr_t, ar_info_alloc_limit - ar_info_alloc_iter) < subfield_ct)) {
         return kPglRetNomem;
@@ -3719,17 +3731,18 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
       return kPglRetNomem;
     }
     if (unlikely(bigstack_alloc_c(2 * max_num, &pmcp->info_missing_str) ||
-                 bigstack_alloc_c(strlen("PR;==;=.;=,.,"), &pmcp->pr_str))) {
+                 bigstack_alloc_c(strlen("PR;==;=.;=,.,PR=;"), &pmcp->pr_str))) {
       return kPglRetNomem;
     }
     u16setsa(pmcp->info_missing_str, 0x2e2c, max_num);
     pmcp->info_missing_str[0] = '=';
     // bugfix (9 Sep 2026): forgot to initialize pr_str
-    memcpy(pmcp->pr_str, "PR;==;=.;=,.,", strlen("PR;==;=.;=,.,"));
+    memcpy(pmcp->pr_str, "PR;==;=.;=,.,PR=;", strlen("PR;==;=.;=,.,PR=;"));
     pmcp->locked_missing_semicolon_str = &(pmcp->pr_str[3]);
     pmcp->missing_semicolon_str = &(pmcp->pr_str[6]);
     pmcp->locked_missing_comma_str = &(pmcp->pr_str[9]);
     pmcp->missing_comma_str = &(pmcp->pr_str[11]);
+    pmcp->pr_pending_str = &(pmcp->pr_str[13]);
 
     pmcp->pr_kidx = IdHtableFind("PR", info_keys, info_keys_htable, strlen("PR"), info_keys_htable_size);
   }
@@ -3737,6 +3750,7 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
   pmcp->line_idx_body_starts = line_idx_body_starts;
 
   pmcp->tmp_status = is_final_dst + 2 * is_tmp_src;
+  pmcp->max_written_nonpass_filter_ct = 0;
 
   ppmcp->sort_vars_mode = sort_vars_mode;
   ppmcp->max_written_allele_ct = 2;
@@ -3767,10 +3781,13 @@ BoolErr FlushPvarCounted(PvariantMergeContext* pmcp, char** cswritepp, uint64_t*
 }
 
 static_assert(sizeof(AlleleCode) == 1, "RenderFinalInfoFromSingleTmp() needs to be updated.");
-PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, PvariantMergeContext* pmcp, char* read_info_start, char** cswritepp) {
-  // Since the input is from a tmp file, we can assume keys are already sorted
-  // and all values are valid.  We only need to convert '=' locked-missing
-  // values to regular missing values.
+// If is_pr is set, Number=A values have a leading REF-allele subfield, which
+// is removed.
+PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, uint32_t is_pr, PvariantMergeContext* pmcp, char* read_info_start, char** cswritepp) {
+  // Since the input is from a tmp file, we can assume keys are already
+  // filtered (and sorted, if --merge-info-sort was specified) and all values
+  // are valid.  We only need to convert '=' locked-missing and unset values to
+  // regular missing values, and "PR=" to a regular PR key.
   //   Flag (0) -> can't happen, there's no notion of a missing value (or a
   //               value at all, for that matter), there are only missing keys
   //   positive number -> that number of '.'; we do not resolve each entry
@@ -3792,17 +3809,24 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, PvariantMergeContex
   do {
     char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
     const uint32_t key_slen = key_end - read_info_iter;
-    if (*key_end == ';') {
-      // flag
-      cswritep = memcpya(cswritep, read_info_iter, key_slen + 1);
-      read_info_iter = &(key_end[1]);
+    if ((*key_end == ';') || ((key_end[1] == ';') && (key_slen == 2) && memequal_sk(read_info_iter, "PR"))) {
+      // flag, or pending PR
+      cswritep = memcpyax(cswritep, read_info_iter, key_slen, ';');
+      read_info_iter = AdvPastDelim(key_end, ';');
       continue;
     }
-    const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
-    assert(kidx && (kidx != UINT32_MAX));
-    const int32_t knum = const_container_of(info_keys[kidx], InfoVtype, key)->num;
     char* value_iter = &(key_end[1]);
-    read_info_iter = AdvPastDelim(value_iter, ';');
+    char* next_kv_start = AdvPastDelim(value_iter, ';');
+    const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
+    if (kidx == UINT32_MAX) {
+      // Undeclared key, retained since --merge-info-sort wasn't specified.
+      cswritep = memcpya(cswritep, read_info_iter, next_kv_start - read_info_iter);
+      read_info_iter = next_kv_start;
+      continue;
+    }
+    const int32_t knum = const_container_of(info_keys[kidx], InfoVtype, key)->num;
+    cswritep = memcpya(cswritep, read_info_iter, key_slen);
+    read_info_iter = next_kv_start;
     if (!IsInfoVtypeARSkip(knum)) {
       if (value_iter[0] != '=') {
         cswritep = memcpya(cswritep, key_end, read_info_iter - key_end);
@@ -3815,6 +3839,10 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, PvariantMergeContex
         *cswritep++ = ';';
       }
     } else {
+      *cswritep++ = '=';
+      if (is_pr && (knum == kInfoVtypeA)) {
+        value_iter = AdvPastDelim(value_iter, ',');
+      }
       char* field_end = &(read_info_iter[-1]);
       *field_end = '=';
       while (1) {
@@ -3835,7 +3863,9 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, PvariantMergeContex
 
 // Need to sort by key, but don't need to worry about reading/writing
 // locked-missing values or managing Number=A/R/G subfields.
-PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t line_idx, uint32_t read_info_slen, uint32_t lone_pgen_pr, PvariantMergeContext* pmcp, char* read_info_start, char** cswritepp, uint32_t* is_pr_ptr) {
+// If a_ref_slot_char is nonzero, it's inserted as a leading REF-allele
+// subfield into every Number=A value, see MergePvariant().
+PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t line_idx, uint32_t read_info_slen, uint32_t lone_pgen_pr, char a_ref_slot_char, PvariantMergeContext* pmcp, char* read_info_start, char** cswritepp, uint32_t* is_pr_ptr) {
   const char* const* info_keys = pmcp->info_keys;
   const uint32_t* info_keys_htable = pmcp->info_keys_htable;
   const uint32_t info_key_ct = pmcp->info_key_ct;
@@ -3886,7 +3916,7 @@ PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t li
   if (lone_pgen_pr) {
     const uint32_t pr_kidx = pmcp->pr_kidx;
     SetBit(pr_kidx, info_field_set);
-    basic_info_fields[pr_kidx] = pmcp->pr_str;
+    basic_info_fields[pr_kidx] = (pmcp->tmp_status & 1)? pmcp->pr_str : pmcp->pr_pending_str;
   }
   const uint32_t observed_key_ct = PopcountWords(info_field_set, info_key_ctl);
   if (!observed_key_ct) {
@@ -3901,6 +3931,13 @@ PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t li
     const uint32_t kidx = BitIter1(info_field_set, &kidx_base, &cur_bits);
     char* kv_start = basic_info_fields[kidx];
     char* kv_end = AdvPastDelim(kv_start, ';');
+    if (a_ref_slot_char && (const_container_of(info_keys[kidx], InfoVtype, key)->num == kInfoVtypeA)) {
+      const uint32_t key_blen = strlen(info_keys[kidx]) + 1;
+      cswritep = memcpya(cswritep, kv_start, key_blen);
+      *cswritep++ = a_ref_slot_char;
+      *cswritep++ = ',';
+      kv_start = &(kv_start[key_blen]);
+    }
     cswritep = memcpya(cswritep, kv_start, kv_end - kv_start);
   }
   if (is_pr_ptr) {
@@ -3922,11 +3959,42 @@ typedef struct SamePosPvarRecordStruct {
   uint64_t secondary_key;
   AlleleCode allele_ct;
   // low bit = .pgen PR flag; next bit = does .pvar have a INFO/PR field?
+  // (Always 0 for a temporary fileset, whose .pgen flag is authoritative.)
   unsigned char pgen_pr_status;
+  // Does this record come from a temporary fileset?  If so, QUAL, FILTER,
+  // INFO and CM may contain '='-based intermediate values; see
+  // MergePvariant().
+  unsigned char is_tmp;
   char variant_id[];
 } SamePosPvarRecord;
 // alignof(SamePosPvarRecord) == sizeof(int64_t)
 
+void UpdateMaxWrittenNonpassFilterCt(const char* filter_str, uint32_t filter_slen, PvariantMergeContext* pmcp) {
+  if (((filter_slen == 1) && (filter_str[0] == '.')) || strequal_k(filter_str, "PASS", filter_slen)) {
+    return;
+  }
+  const uint32_t filter_ct = 1 + CountByte(filter_str, ';', filter_slen);
+  if (filter_ct > pmcp->max_written_nonpass_filter_ct) {
+    pmcp->max_written_nonpass_filter_ct = filter_ct;
+  }
+}
+
+// When writing a temporary .pvar (tmp_status & 1 == 0), a value must also
+// capture how it would combine with records in later passes.  The otherwise-
+// disallowed '=' character is used for this:
+// - QUAL/FILTER/CM, 'first' mode: '=' is an absent value (no QUAL/FILTER/CM
+//   column in the source fileset), which doesn't block a later value.
+// - QUAL/FILTER/CM, 'nm-match' mode: '=' is a locked-missing value (conflict).
+// - QUAL 'nm-match'/'min' and CM 'nm-match': "=<value>" is a value collapsed
+//   from multiple sources, which must eventually be reformatted.
+// - INFO, 'nm-match' mode: "KEY==" or a "=" subfield is locked-missing.
+// - INFO Number=A/R, 'first' mode: a "=" subfield wasn't set by any source.
+// - INFO/PR: a synthesized PR key is written as "PR=".  Whether a merged
+//   variant is provisional-REF is carried by the temporary .pgen's flags,
+//   which are always stored explicitly.
+// Also, when REF is provisional, Number=A values have a leading subfield for
+// the REF allele, since it may become an ALT allele in a later pass.
+//
 // returns allele_ct == 0 if allele is filtered out, otherwise at least 2
 // if non-null, *is_pr_ptr must be initialized to 0
 // record fields assumed to be null-terminated, but this may change in the
@@ -3987,136 +4055,185 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
       allele_remap[0] = 0;
       allele_remap[1] = 1;
     }
+    const uint32_t final_dst = tmp_status & 1;
+    const uint32_t rec_is_tmp = cur_record->is_tmp;
     if (pmcp->write_qual) {
       const uint32_t read_qual_blen = other_field_offsets[3] - qual_offset;
+      char* read_qual_start = &(cur_variant_id[qual_offset]);
       if (!read_qual_blen) {
-        cswritep = strcpya_k(cswritep, "\t.");
-      } else {
-        char* read_qual_start = &(cur_variant_id[qual_offset]);
-        if ((tmp_status != 3) || (!strequal_k_unsafe(read_qual_start, "="))) {
-          *cswritep++ = '\t';
-          cswritep = memcpya(cswritep, read_qual_start, read_qual_blen - 1);
-        } else {
+        // Only 'first' mode distinguishes an absent QUAL from '.'.
+        if (final_dst || (pmcp->merge_qual_mode != kMergeQualModeFirst)) {
           cswritep = strcpya_k(cswritep, "\t.");
+        } else {
+          cswritep = strcpya_k(cswritep, "\t=");
         }
+      } else if (rec_is_tmp && final_dst && (read_qual_start[0] == '=')) {
+        if (read_qual_blen == 2) {
+          cswritep = strcpya_k(cswritep, "\t.");
+        } else {
+          // Collapsed from multiple values; see MergePvariant()'s multi-record
+          // QUAL code.
+          float cur_qual;
+          if (unlikely(ScanFloat(&(read_qual_start[1]), &cur_qual))) {
+            logputs("\n");
+            logerrprintfww("Error: Invalid QUAL value for variant '%s' at %s:%u.\n", cur_variant_id, pmcp->chr_buf, pmcp->cur_bp);
+            return kPglRetMalformedInput;
+          }
+          *cswritep++ = '\t';
+          cswritep = ftoa_g(cur_qual, cswritep);
+        }
+      } else {
+        *cswritep++ = '\t';
+        cswritep = memcpya(cswritep, read_qual_start, read_qual_blen - 1);
       }
     }
     if (pmcp->write_filter) {
       const uint32_t filter_offset = other_field_offsets[3];
       const uint32_t read_filter_blen = other_field_offsets[4] - filter_offset;
+      char* read_filter_start = &(cur_variant_id[filter_offset]);
       if (!read_filter_blen) {
+        if (final_dst || (pmcp->merge_filter_mode != kMergeFilterModeFirst)) {
+          cswritep = strcpya_k(cswritep, "\t.");
+        } else {
+          cswritep = strcpya_k(cswritep, "\t=");
+        }
+      } else if (rec_is_tmp && final_dst && strequal_k_unsafe(read_filter_start, "=")) {
         cswritep = strcpya_k(cswritep, "\t.");
       } else {
-        char* read_filter_start = &(cur_variant_id[filter_offset]);
-        if ((tmp_status != 3) || (!strequal_k_unsafe(read_filter_start, "="))) {
-          *cswritep++ = '\t';
-          cswritep = memcpya(cswritep, read_filter_start, read_filter_blen - 1);
-        } else {
-          cswritep = strcpya_k(cswritep, "\t.");
+        *cswritep++ = '\t';
+        cswritep = memcpya(cswritep, read_filter_start, read_filter_blen - 1);
+        if (!final_dst) {
+          UpdateMaxWrittenNonpassFilterCt(read_filter_start, read_filter_blen - 1, pmcp);
         }
       }
     }
     if (pmcp->write_info) {
       const uint32_t info_offset = other_field_offsets[4];
       const uint32_t read_info_blen = other_field_offsets[5] - info_offset;
+      const uint32_t pgen_pr_status = cur_record->pgen_pr_status;
+      char* read_info_start = &(cur_variant_id[info_offset]);
+      // bugfix (21 Sep 2026): read_info_blen includes the null terminator, so
+      // this compared against 1 and never matched '.', producing ".;PR".
+      const uint32_t info_missing = (!read_info_blen) || ((read_info_blen == 2) && (read_info_start[0] == '.'));
+      const uint32_t read_info_slen = read_info_blen - 1;
+      // (A temporary fileset's records have pgen_pr_status == 0 or 1, with
+      // the .pgen flag always accurate.)
+      uint32_t is_pr = pgen_pr_status & 1;
+      if ((!is_pr) && (!rec_is_tmp) && (!info_missing)) {
+        if (pmcp->merge_info_sort == kSortNone) {
+          is_pr = PrInInfo(read_info_slen, read_info_start);
+        } else {
+          is_pr = (pmcp->pr_kidx != UINT32_MAX) && PrInInfo(read_info_slen, read_info_start);
+        }
+      }
+      if (is_pr_ptr) {
+        *is_pr_ptr = is_pr;
+      }
       // A PR key is synthesized when the .pgen says PR but the .pvar has no
       // INFO/PR header line.
       // bugfix (21 Sep 2026): this happened even when the merged header had
       // no INFO/PR line.
-      const uint32_t lone_pgen_pr = (cur_record->pgen_pr_status == 1) && (pmcp->pr_kidx != UINT32_MAX);
-      if (is_pr_ptr && (cur_record->pgen_pr_status & 1)) {
-        *is_pr_ptr = 1;
-        is_pr_ptr = nullptr;
+      // When writing a temporary .pvar, we write "PR=" instead: a real PR key
+      // would be indistinguishable from an original one in the next pass,
+      // and the rules for those differ.  Similarly, Number=A values get a
+      // leading REF-allele subfield when REF is provisional, since the REF
+      // allele may turn into an ALT allele in the next pass.
+      const uint32_t lone_pgen_pr = (!rec_is_tmp) && (pgen_pr_status == 1) && (pmcp->pr_kidx != UINT32_MAX);
+      char a_ref_slot_char = '\0';
+      if (is_pr && (!final_dst) && (!rec_is_tmp)) {
+        a_ref_slot_char = (pmcp->merge_info_mode == kMergeInfoCmModeFirst)? '=' : '.';
       }
-      char* read_info_start = &(cur_variant_id[info_offset]);
-      // bugfix (21 Sep 2026): read_info_blen includes the null terminator, so
-      // this compared against 1 and never matched '.', producing ".;PR".
-      if ((!read_info_blen) || ((read_info_blen == 2) && (read_info_start[0] == '.'))) {
+      if (info_missing) {
         if (!lone_pgen_pr) {
           cswritep = strcpya_k(cswritep, "\t.");
         } else {
           cswritep = strcpya_k(cswritep, "\tPR");
-        }
-      } else {
-        const uint32_t read_info_slen = read_info_blen - 1;
-        if ((pmcp->merge_info_sort == kSortNone) || (tmp_status & 2)) {
-          if ((pmcp->merge_info_mode == kMergeInfoCmModeNmFirst) || (tmp_status != 3)) {
-            *cswritep++ = '\t';
-            char* initial_write_ptr = cswritep;
-            if ((!pmcp->info_conflict_present) || (tmp_status & 2)) {
-              cswritep = memcpya(cswritep, read_info_start, read_info_slen);
-            } else {
-              // Line may contain key(s) that were filtered out during .pvar
-              // header merge due to a conflict.  Remove the corresponding
-              // INFO keys from every line.  This incidentally also removes
-              // INFO keys that were (improperly) not declared at all in the
-              // header.
-              // We don't promise to remove undeclared INFO keys in the general
-              // case, since this code path is substantially more expensive
-              // than the memcpya() above.  Any user who does want to guarantee
-              // removal of such keys (and detection of duplicate keys) can use
-              // --merge-info-sort.
-              const char* const* info_keys = pmcp->info_keys;
-              const uint32_t* info_keys_htable = pmcp->info_keys_htable;
-              const uint32_t info_keys_htable_size = pmcp->info_keys_htable_size;
-              char* read_info_iter = read_info_start;
-              char* read_info_end = &(read_info_start[read_info_slen]);
-              *read_info_end++ = ';';
-              do {
-                char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
-                const uint32_t key_slen = key_end - read_info_iter;
-                const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
-                char* value_end = key_end;
-                if (*value_end != ';') {
-                  value_end = AdvToDelim(&(value_end[1]), ';');
-                }
-                ++value_end;
-                if (kidx != UINT32_MAX) {
-                  cswritep = memcpya(cswritep, read_info_iter, value_end - read_info_iter);
-                }
-                read_info_iter = value_end;
-              } while (read_info_iter != read_info_end);
-              read_info_end[-1] = '\0';
-              if (cswritep != initial_write_ptr) {
-                // strip trailing semicolon
-                --cswritep;
-              }
-            }
-            if (lone_pgen_pr) {
-              // bugfix (21 Sep 2026): this could produce ".;PR".
-              if (cswritep != initial_write_ptr) {
-                *cswritep++ = ';';
-              }
-              cswritep = strcpya_k(cswritep, "PR");
-            } else {
-              if (cswritep == initial_write_ptr) {
-                *cswritep++ = '.';
-              }
-              if (is_pr_ptr != nullptr) {
-                *is_pr_ptr = PrInInfo(read_info_slen, read_info_start);
-              }
-            }
-          } else {
-            // convert from tmp to final.
-            // lone_pgen_pr is impossible here, since we wrote an INFO column
-            // to the tmp file, and when we do we'll always insert INFO/PR when
-            // relevant.  is_pr_ptr != nullptr is also impossible, for the
-            // converse reason.
-            PglErr reterr = RenderFinalInfoFromSingleTmp(read_info_slen, pmcp, read_info_start, &cswritep);
-            if (unlikely(reterr)) {
-              return reterr;
-            }
+          if (!final_dst) {
+            *cswritep++ = '=';
           }
+        }
+      } else if (rec_is_tmp) {
+        // Keys are already filtered and sorted.
+        if (!final_dst) {
+          *cswritep++ = '\t';
+          cswritep = memcpya(cswritep, read_info_start, read_info_slen);
         } else {
-          // merge_info_sort != kSortNone, reading from original.
-          // So we need to sort by key, but we don't need to worry about
-          // reading/writing locked-missing values.
-          const uint32_t file_idx = cur_record->secondary_key >> 32;
-          const uint32_t variant_uidx = S_CAST(uint32_t, cur_record->secondary_key);
-          PglErr reterr = RenderTmpInfoFromSingleUnsorted(pmcp->fnames[file_idx], pmcp->line_idx_body_starts[file_idx] + variant_uidx, read_info_slen, lone_pgen_pr, pmcp, read_info_start, &cswritep, is_pr_ptr);
+          PglErr reterr = RenderFinalInfoFromSingleTmp(read_info_slen, is_pr, pmcp, read_info_start, &cswritep);
           if (unlikely(reterr)) {
             return reterr;
           }
+        }
+      } else if (pmcp->merge_info_sort == kSortNone) {
+        *cswritep++ = '\t';
+        char* initial_write_ptr = cswritep;
+        if ((!pmcp->info_conflict_present) && (!a_ref_slot_char)) {
+          cswritep = memcpya(cswritep, read_info_start, read_info_slen);
+        } else {
+          // Line may contain key(s) that were filtered out during .pvar
+          // header merge due to a conflict.  Remove the corresponding INFO
+          // keys from every line.  This incidentally also removes INFO keys
+          // that were (improperly) not declared at all in the header.
+          // We don't promise to remove undeclared INFO keys in the general
+          // case, since this code path is substantially more expensive than
+          // the memcpya() above.  Any user who does want to guarantee
+          // removal of such keys (and detection of duplicate keys) can use
+          // --merge-info-sort.
+          const char* const* info_keys = pmcp->info_keys;
+          const uint32_t* info_keys_htable = pmcp->info_keys_htable;
+          const uint32_t info_keys_htable_size = pmcp->info_keys_htable_size;
+          const uint32_t info_conflict_present = pmcp->info_conflict_present;
+          char* read_info_iter = read_info_start;
+          char* read_info_end = &(read_info_start[read_info_slen]);
+          *read_info_end++ = ';';
+          do {
+            char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+            const uint32_t key_slen = key_end - read_info_iter;
+            const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
+            char* value_end = key_end;
+            if (*value_end != ';') {
+              value_end = AdvToDelim(&(value_end[1]), ';');
+            }
+            ++value_end;
+            if (kidx != UINT32_MAX) {
+              if (a_ref_slot_char && (*key_end == '=') && (const_container_of(info_keys[kidx], InfoVtype, key)->num == kInfoVtypeA)) {
+                cswritep = memcpya(cswritep, read_info_iter, key_slen + 1);
+                *cswritep++ = a_ref_slot_char;
+                *cswritep++ = ',';
+                cswritep = memcpya(cswritep, &(key_end[1]), value_end - key_end - 1);
+              } else {
+                cswritep = memcpya(cswritep, read_info_iter, value_end - read_info_iter);
+              }
+            } else if (!info_conflict_present) {
+              cswritep = memcpya(cswritep, read_info_iter, value_end - read_info_iter);
+            }
+            read_info_iter = value_end;
+          } while (read_info_iter != read_info_end);
+          read_info_end[-1] = '\0';
+          if (cswritep != initial_write_ptr) {
+            // strip trailing semicolon
+            --cswritep;
+          }
+        }
+        if (lone_pgen_pr) {
+          // bugfix (21 Sep 2026): this could produce ".;PR".
+          if (cswritep != initial_write_ptr) {
+            *cswritep++ = ';';
+          }
+          cswritep = strcpya_k(cswritep, "PR");
+          if (!final_dst) {
+            *cswritep++ = '=';
+          }
+        } else if (cswritep == initial_write_ptr) {
+          *cswritep++ = '.';
+        }
+      } else {
+        // Need to sort by key, but we don't need to worry about
+        // reading/writing locked-missing values.
+        const uint32_t file_idx = cur_record->secondary_key >> 32;
+        const uint32_t variant_uidx = S_CAST(uint32_t, cur_record->secondary_key);
+        PglErr reterr = RenderTmpInfoFromSingleUnsorted(pmcp->fnames[file_idx], pmcp->line_idx_body_starts[file_idx] + variant_uidx, read_info_slen, lone_pgen_pr, a_ref_slot_char, pmcp, read_info_start, &cswritep, nullptr);
+        if (unlikely(reterr)) {
+          return reterr;
         }
       }
     } else if (is_pr_ptr) {
@@ -4125,7 +4242,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
       // bugfix (21 Sep 2026): the .pgen PR flag was ignored here.
       if (cur_record->pgen_pr_status & 1) {
         *is_pr_ptr = 1;
-      } else if (read_info_blen >= 2) {
+      } else if ((read_info_blen >= 2) && (!rec_is_tmp)) {
         char* read_info_start = &(cur_variant_id[info_offset]);
         *is_pr_ptr = PrInInfo(read_info_blen - 1, read_info_start);
       }
@@ -4134,11 +4251,28 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
       char* cm_start = &(cur_variant_id[other_field_offsets[5]]);
       // bugfix (21 Sep 2026): a fileset without a CM column left an empty
       // field here.
-      if ((cm_start[0] != '\0') && ((tmp_status != 3) || (!strequal_k_unsafe(cm_start, "=")))) {
+      if (cm_start[0] == '\0') {
+        if (final_dst || (pmcp->merge_cm_mode != kMergeInfoCmModeFirst)) {
+          cswritep = strcpya_k(cswritep, "\t0");
+        } else {
+          cswritep = strcpya_k(cswritep, "\t=");
+        }
+      } else if (rec_is_tmp && final_dst && (cm_start[0] == '=')) {
+        if (cm_start[1] == '\0') {
+          cswritep = strcpya_k(cswritep, "\t0");
+        } else {
+          double cur_cm;
+          if (unlikely(!ScantokDouble(&(cm_start[1]), &cur_cm))) {
+            logputs("\n");
+            logerrprintfww("Error: Invalid CM value for variant '%s' at %s:%u.\n", cur_variant_id, pmcp->chr_buf, pmcp->cur_bp);
+            return kPglRetMalformedInput;
+          }
+          *cswritep++ = '\t';
+          cswritep = dtoa_g(cur_cm, cswritep);
+        }
+      } else {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cm_start);
-      } else {
-        cswritep = strcpya_k(cswritep, "\t0");
       }
     }
   } else {
@@ -4301,6 +4435,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
       --cswritep;
       *allele_ct_ptr = merged_allele_ct;
     }
+    const uint32_t final_dst = tmp_status & 1;
     if (pmcp->write_qual) {
       const MergeQualMode merge_qual_mode = pmcp->merge_qual_mode;
       *cswritep++ = '\t';
@@ -4312,7 +4447,9 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           char* tmp_variant_id = cur_record->variant_id;
           const uint32_t qual_start = other_field_offsets[2];
           const uint32_t qual_blen = other_field_offsets[3] - qual_start;
-          if (qual_blen) {
+          // In 'first' mode, a temporary fileset's '=' stands for an absent
+          // QUAL.
+          if (qual_blen && ((!cur_record->is_tmp) || (tmp_variant_id[qual_start] != '='))) {
             if ((!((qual_blen == 2) && (tmp_variant_id[qual_start] == '.'))) || (merge_qual_mode == kMergeQualModeFirst)) {
               cswritep = memcpya(cswritep, &(tmp_variant_id[qual_start]), qual_blen - 1);
               break;
@@ -4320,11 +4457,19 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           }
         }
         if (rec_idx == merge_rec_ct) {
-          *cswritep++ = '.';
+          *cswritep++ = (final_dst || (merge_qual_mode != kMergeQualModeFirst))? '.' : '=';
         }
       } else {
+        // In a temporary fileset, "=" is a locked-missing 'nm-match' value,
+        // and "=<value>" is a value that was collapsed from two or more
+        // sources.  The latter must be printed with ftoa_g() in the end, even
+        // if it doesn't meet any other value, and it isn't safe to apply
+        // ftoa_g() early since it drops digits the 'nm-match' equality test
+        // depends on.
         char** cur_qual_strs = pmcp->cur_fields_buf;
         uintptr_t nm_qual_ct = 0;
+        uint32_t locked = 0;
+        uint32_t collapsed_present = 0;
         for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
           SamePosPvarRecord* cur_record = same_id_records[rec_idx];
           const uint32_t* other_field_offsets = cur_record->other_field_offsets;
@@ -4332,21 +4477,36 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           const uint32_t qual_start = other_field_offsets[2];
           const uint32_t qual_blen = other_field_offsets[3] - qual_start;
           if (qual_blen && (!((qual_blen == 2) && (tmp_variant_id[qual_start] == '.')))) {
-            cur_qual_strs[nm_qual_ct] = &(tmp_variant_id[qual_start]);
+            char* qual_str = &(tmp_variant_id[qual_start]);
+            if (cur_record->is_tmp && (qual_str[0] == '=')) {
+              if (qual_blen == 2) {
+                locked = 1;
+                continue;
+              }
+              collapsed_present = 1;
+            }
+            cur_qual_strs[nm_qual_ct] = qual_str;
             ++nm_qual_ct;
           }
         }
-        if ((!nm_qual_ct) || ((merge_qual_mode == kMergeQualModeMin) && (nm_qual_ct != merge_rec_ct))) {
+        if (locked) {
+          *cswritep++ = final_dst? '.' : '=';
+        } else if ((!nm_qual_ct) || ((merge_qual_mode == kMergeQualModeMin) && (nm_qual_ct != merge_rec_ct))) {
           *cswritep++ = '.';
-        } else if (nm_qual_ct == 1) {
+        } else if ((nm_qual_ct == 1) && (!collapsed_present)) {
           cswritep = strcpya(cswritep, cur_qual_strs[0]);
         } else {
           // Must parse and compare QUAL values.
           float main_qual = 0.0;
+          const char* main_qual_str = nullptr;
           uintptr_t nm_rec_idx = 0;
           for (; nm_rec_idx != nm_qual_ct; ++nm_rec_idx) {
+            const char* cur_qual_str = cur_qual_strs[nm_rec_idx];
+            if (cur_qual_str[0] == '=') {
+              ++cur_qual_str;
+            }
             float cur_qual;
-            if (unlikely(ScanFloat(cur_qual_strs[nm_rec_idx], &cur_qual))) {
+            if (unlikely(ScanFloat(cur_qual_str, &cur_qual))) {
               // Note that we only validate QUAL when we have to.
 
               // Yes, line number/filename would be better, but to get those
@@ -4358,20 +4518,27 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             }
             if (!nm_rec_idx) {
               main_qual = cur_qual;
+              main_qual_str = cur_qual_str;
               continue;
             }
             if (merge_qual_mode == kMergeQualModeMin) {
               if (cur_qual < main_qual) {
                 main_qual = cur_qual;
+                main_qual_str = cur_qual_str;
               }
             } else if (cur_qual != main_qual) {
               break;
             }
           }
           if (nm_rec_idx == nm_qual_ct) {
-            cswritep = ftoa_g(main_qual, cswritep);
+            if (final_dst) {
+              cswritep = ftoa_g(main_qual, cswritep);
+            } else {
+              *cswritep++ = '=';
+              cswritep = strcpya(cswritep, main_qual_str);
+            }
           } else {
-            *cswritep++ = '.';
+            *cswritep++ = final_dst? '.' : '=';
           }
         }
       }
@@ -4379,6 +4546,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
     if (pmcp->write_filter) {
       const MergeFilterMode merge_filter_mode = pmcp->merge_filter_mode;
       *cswritep++ = '\t';
+      char* filter_write_start = cswritep;
       if ((merge_filter_mode == kMergeFilterModeFirst) || (merge_filter_mode == kMergeFilterModeNmFirst)) {
         uintptr_t rec_idx = 0;
         for (; rec_idx != merge_rec_ct; ++rec_idx) {
@@ -4387,7 +4555,9 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           char* tmp_variant_id = cur_record->variant_id;
           const uint32_t filter_start = other_field_offsets[3];
           const uint32_t filter_blen = other_field_offsets[4] - filter_start;
-          if (filter_blen) {
+          // As with QUAL, a temporary fileset's '=' stands for an absent
+          // FILTER in 'first' mode.
+          if (filter_blen && ((!cur_record->is_tmp) || (tmp_variant_id[filter_start] != '='))) {
             if ((!((filter_blen == 2) && (tmp_variant_id[filter_start] == '.'))) || (merge_filter_mode == kMergeFilterModeFirst)) {
               cswritep = memcpya(cswritep, &(tmp_variant_id[filter_start]), filter_blen - 1);
               break;
@@ -4395,7 +4565,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           }
         }
         if (rec_idx == merge_rec_ct) {
-          *cswritep++ = '.';
+          *cswritep++ = (final_dst || (merge_filter_mode != kMergeFilterModeFirst))? '.' : '=';
         }
       } else {
         // First pass: count number of tokens in non-PASS entries so we can
@@ -4405,6 +4575,8 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
         uintptr_t nm_merge_rec_ct = 0;
         uintptr_t nonpass_subtoken_ct = 0;
         uint32_t pass_exists = 0;
+        // A temporary fileset's "=" is a locked-missing 'nm-match' value.
+        uint32_t locked = 0;
         for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
           SamePosPvarRecord* cur_record = same_id_records[rec_idx];
           const uint32_t* other_field_offsets = cur_record->other_field_offsets;
@@ -4413,6 +4585,10 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           const uint32_t filter_blen = other_field_offsets[4] - filter_start;
           if (filter_blen && (!((filter_blen == 2) && (tmp_variant_id[filter_start] == '.')))) {
             char* filter_str = &(tmp_variant_id[filter_start]);
+            if (cur_record->is_tmp && (filter_blen == 2) && (filter_str[0] == '=')) {
+              locked = 1;
+              continue;
+            }
             // bugfix (7 Jan 2023)
             if ((filter_blen == 5) && memequal_sk(filter_str, "PASS")) {
               pass_exists = 1;
@@ -4423,7 +4599,9 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             }
           }
         }
-        if (!nm_merge_rec_ct) {
+        if (locked) {
+          *cswritep++ = final_dst? '.' : '=';
+        } else if (!nm_merge_rec_ct) {
           if (pass_exists) {
             cswritep = strcpya_k(cswritep, "PASS");
           } else {
@@ -4513,9 +4691,12 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             }
             --cswritep;
           } else {
-            *cswritep++ = '.';
+            *cswritep++ = final_dst? '.' : '=';
           }
         }
+      }
+      if (!final_dst) {
+        UpdateMaxWrittenNonpassFilterCt(filter_write_start, cswritep - filter_write_start, pmcp);
       }
     }
     if (pmcp->write_info) {
@@ -4578,15 +4759,24 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             read_info_iter = &(key_end[1]);
             continue;
           }
-          if ((kidx == pmcp->pr_kidx) && (!is_pr)) {
-            // bugfix (21 Sep 2026): INFO/PR must not survive when some other
-            // record has a known REF allele, otherwise it contradicts the
-            // .pgen flag.
-            if (*key_end != ';') {
-              key_end = AdvToDelim(&(key_end[1]), ';');
+          if (kidx == pmcp->pr_kidx) {
+            if (cur_record->is_tmp && (*key_end == '=')) {
+              // "PR=": pending PR key in a temporary .pvar.  Whether PR is
+              // synthesized for the merged variant depends on the .pgen
+              // flags, like it would for the original records.
+              read_info_iter = &(key_end[2]);
+              continue;
             }
-            read_info_iter = &(key_end[1]);
-            continue;
+            if (!is_pr) {
+              // bugfix (21 Sep 2026): INFO/PR must not survive when some
+              // other record has a known REF allele, otherwise it contradicts
+              // the .pgen flag.
+              if (*key_end != ';') {
+                key_end = AdvToDelim(&(key_end[1]), ';');
+              }
+              read_info_iter = &(key_end[1]);
+              continue;
+            }
           }
           // possible todo: error out on duplicated INFO key in a single
           // input variant, like we already do in
@@ -4686,9 +4876,12 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 *read_info_field_order_iter++ = kidx;
               }
             }
+            // In a temporary .pvar, a provisional-REF variant's Number=A
+            // values include one for the REF allele.
+            const uint32_t rec_first_aidx = (cur_record->is_tmp && (cur_record->pgen_pr_status & 1))? 0 : first_aidx;
             read_info_iter = &(key_end[1]);
             char* value_end = AdvToDelim(read_info_iter, ';');
-            if (unlikely(CountByte(read_info_iter, ',', value_end - read_info_iter) != read_allele_ct - first_aidx - 1)) {
+            if (unlikely(CountByte(read_info_iter, ',', value_end - read_info_iter) != read_allele_ct - rec_first_aidx - 1)) {
               const uint32_t file_idx = cur_record->secondary_key >> 32;
               const uint32_t variant_uidx = S_CAST(uint32_t, cur_record->secondary_key);
               logputs("\n");
@@ -4696,11 +4889,11 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               return kPglRetInconsistentInput;
             }
             *value_end = ',';
-            uint32_t read_aidx = first_aidx;
+            uint32_t read_aidx = rec_first_aidx;
             // bugfix (21 Sep 2026): under Number=A, an ALT allele of a
             // provisional-REF record can become the merged REF allele.  Its
             // value was written out of bounds; it now goes to the REF slot,
-            // which isn't printed.
+            // which isn't printed in the final output.
             if (merge_info_mode == kMergeInfoCmModeNmFirst) {
               do {
                 const uint32_t write_aidx = cur_allele_remap[read_aidx];
@@ -4713,9 +4906,12 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             } else if (merge_info_mode == kMergeInfoCmModeFirst) {
               // bugfix (21 Sep 2026): this kept the last value instead of the
               // first.
+              // A temporary fileset's '=' subfield wasn't set by any of its
+              // sources, so it mustn't block a later value.
+              const uint32_t is_tmp = cur_record->is_tmp;
               do {
                 const uint32_t write_aidx = cur_allele_remap[read_aidx];
-                if (!cur_ar_info_fields[write_aidx]) {
+                if ((!cur_ar_info_fields[write_aidx]) && ((!is_tmp) || (!memequal_sk(read_info_iter, "=,")))) {
                   cur_ar_info_fields[write_aidx] = read_info_iter;
                 }
                 read_info_iter = AdvPastDelim(read_info_iter, ',');
@@ -4744,12 +4940,14 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
       }
       // bugfix (21 Sep 2026): this set an out-of-bounds bit when the merged
       // header had no INFO/PR line, and printed "PRPR" otherwise.
+      // When writing a temporary .pvar, the synthesized key is written as
+      // "PR="; see the single-record case above.
       const uint32_t pr_kidx = pmcp->pr_kidx;
       if (is_pr && (pr_kidx != UINT32_MAX)) {
         if (!IsSet(info_field_set, pr_kidx)) {
           SetBit(pr_kidx, info_field_set);
-          // just ";"
-          basic_info_fields[pr_kidx] = &(pmcp->pr_str[2]);
+          // ";" or "=;"
+          basic_info_fields[pr_kidx] = final_dst? (&(pmcp->pr_str[2])) : (&(pmcp->pr_str[4]));
           if (read_info_field_order_iter) {
             *read_info_field_order_iter++ = pr_kidx;
           }
@@ -4770,6 +4968,9 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           }
         }
         if ((merge_info_mode != kMergeInfoCmModeNmMatch) || (tmp_status != 3)) {
+          // In 'first' mode, a temporary .pvar must distinguish unset
+          // subfields from '.' ones.
+          const char* unset_ar_str = ((merge_info_mode == kMergeInfoCmModeFirst) && (!final_dst))? "=," : ".,";
           for (uint32_t uii = 0; uii != observed_key_ct; ++uii) {
             const uint32_t kidx = read_info_field_order[uii];
             const char* cur_key = info_keys[kidx];
@@ -4799,11 +5000,13 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             } else {
               *cswritep++ = '=';
               char** cur_ar_info_fields = ar_info_fields[kidx];
-              const uint32_t first_aidx = knum - kInfoVtypeR;
+              // Number=A: REF slot only kept in a temporary .pvar, when REF
+              // is provisional.
+              const uint32_t first_aidx = (knum == kInfoVtypeR) || ((!final_dst) && is_pr)? 0 : 1;
               for (uint32_t write_idx = first_aidx; write_idx != merged_info_allele_ct; ++write_idx) {
                 char* v_start = cur_ar_info_fields[write_idx];
                 if (!v_start) {
-                  cswritep = strcpya_k(cswritep, ".,");
+                  cswritep = strcpya(cswritep, unset_ar_str);
                 } else {
                   char* v_end = AdvPastDelim(v_start, ',');
                   cswritep = memcpya(cswritep, v_start, v_end - v_start);
@@ -4866,7 +5069,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           const uint32_t* other_field_offsets = cur_record->other_field_offsets;
           char* tmp_variant_id = cur_record->variant_id;
           char* cm_str = &(tmp_variant_id[other_field_offsets[5]]);
-          if (cm_str[0] != '\0') {
+          if ((cm_str[0] != '\0') && ((!cur_record->is_tmp) || (cm_str[0] != '='))) {
             if ((!strequal_k_unsafe(cm_str, "0")) || (merge_cm_mode == kMergeInfoCmModeFirst)) {
               cswritep = strcpya(cswritep, cm_str);
               break;
@@ -4874,38 +5077,55 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           }
         }
         if (rec_idx == merge_rec_ct) {
-          *cswritep++ = '0';
+          *cswritep++ = (final_dst || (merge_cm_mode != kMergeInfoCmModeFirst))? '0' : '=';
         }
       } else {
         char** cur_cm_strs = pmcp->cur_fields_buf;
         uintptr_t nz_cm_ct = 0;
+        uint32_t locked = 0;
+        uint32_t collapsed_present = 0;
         for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
           SamePosPvarRecord* cur_record = same_id_records[rec_idx];
           const uint32_t* other_field_offsets = cur_record->other_field_offsets;
           char* tmp_variant_id = cur_record->variant_id;
           char* cm_str = &(tmp_variant_id[other_field_offsets[5]]);
           if ((cm_str[0] != '\0') && (!strequal_k_unsafe(cm_str, "0"))) {
+            if (cur_record->is_tmp && (cm_str[0] == '=')) {
+              if (cm_str[1] == '\0') {
+                locked = 1;
+                continue;
+              }
+              collapsed_present = 1;
+            }
             cur_cm_strs[nz_cm_ct] = cm_str;
             ++nz_cm_ct;
           }
         }
-        if (!nz_cm_ct) {
+        if (locked) {
+          *cswritep++ = final_dst? '0' : '=';
+        } else if (!nz_cm_ct) {
           *cswritep++ = '0';
-        } else if (nz_cm_ct == 1) {
+        } else if ((nz_cm_ct == 1) && (!collapsed_present)) {
           cswritep = strcpya(cswritep, cur_cm_strs[0]);
         } else {
           // Parse and check equality of CM values.
           double main_cm = 0.0;
+          const char* main_cm_str = nullptr;
           uintptr_t nm_rec_idx = 0;
           for (; nm_rec_idx != nz_cm_ct; ++nm_rec_idx) {
+            const char* cur_cm_str = cur_cm_strs[nm_rec_idx];
+            if (cur_cm_str[0] == '=') {
+              ++cur_cm_str;
+            }
             double cur_cm;
-            if (unlikely(!ScantokDouble(cur_cm_strs[nm_rec_idx], &cur_cm))) {
+            if (unlikely(!ScantokDouble(cur_cm_str, &cur_cm))) {
               logputs("\n");
               logerrprintfww("Error: Invalid CM value for variant '%s' at %s:%u.\n", cur_variant_id, pmcp->chr_buf, pmcp->cur_bp);
               return kPglRetMalformedInput;
             }
             if (!nm_rec_idx) {
               main_cm = cur_cm;
+              main_cm_str = cur_cm_str;
               continue;
             }
             if (cur_cm != main_cm) {
@@ -4913,10 +5133,15 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             }
           }
           if (nm_rec_idx == nz_cm_ct) {
-            cswritep = dtoa_g(main_cm, cswritep);
+            if (final_dst) {
+              cswritep = dtoa_g(main_cm, cswritep);
+            } else {
+              *cswritep++ = '=';
+              cswritep = strcpya(cswritep, main_cm_str);
+            }
           } else {
             // '0' is the missing CM value; '.' can't be loaded back.
-            *cswritep++ = '0';
+            *cswritep++ = final_dst? '0' : '=';
           }
         }
       }
@@ -5222,6 +5447,15 @@ typedef struct MergeReaderStruct {
   uint32_t sample_idx_increasing;  // =2 in simplest case
 
   uint32_t sample_ct;
+
+  // Only used for a temporary fileset: its bitmap (see PmergePass()), and a
+  // read-space buffer for the current row's locked-missing bits.  locked_buf
+  // is nullptr in all other cases.
+  BitmapReader locked_br;
+  uintptr_t* locked_buf;
+  // Row currently in locked_buf (UINT32_MAX if none), and its dosage bit.
+  uint32_t locked_buf_row;
+  uint32_t row_dosage_seen;
 } MergeReader;
 
 typedef struct MergeWriterStruct {
@@ -5264,6 +5498,17 @@ typedef struct MergeWriterStruct {
   uintptr_t* phaseinfo_xor;
   AlleleCode* wide_codes;
 
+  // Non-null iff we're writing to a temporary fileset.  MergePgenVariant()
+  // fills it with the locked-missing bits of the variant it writes.
+  uintptr_t* write_locked;
+  // Set by MergePgenVariant() when any record it merged (or any record
+  // behind a temporary-fileset record) had dosage data.
+  uint32_t write_dosage_seen;
+  // Scratch buffers for temporary-fileset input, in read- and write-sample
+  // space respectively.
+  uintptr_t* tmp_read_mask;
+  uintptr_t* tmp_write_mask;
+
   MergeMode merge_mode;
   uint32_t vrtype_mask;
 } MergeWriter;
@@ -5284,7 +5529,119 @@ static inline void ApplyVrtypeMask(uint32_t vrtype_mask, PgenVariant* pgvp) {
   }
 }
 
-PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const AlleleCode* master_allele_remap, uintptr_t merge_rec_ct, uint32_t write_allele_ct, uint32_t allele_remap_stride, MergeReader** mrp_arr, MergeWriter* mwp) {
+// read_bitarr must have trailing bits zeroed.
+void ReadToWriteSampleBitarr(const uintptr_t* __restrict read_bitarr, const MergeReader* mrp, uint32_t write_sample_ct, uintptr_t* __restrict write_bitarr) {
+  const uint32_t write_sample_ctl = BitCtToWordCt(write_sample_ct);
+  const uint32_t sample_idx_increasing = mrp->sample_idx_increasing;
+  if (sample_idx_increasing == 2) {
+    memcpy(write_bitarr, read_bitarr, write_sample_ctl * sizeof(intptr_t));
+  } else if (sample_idx_increasing) {
+    ExpandBytearr(read_bitarr, mrp->sample_span, write_sample_ctl, mrp->sample_ct, 0, write_bitarr);
+  } else {
+    const uint32_t set_bit_ct = PopcountWords(read_bitarr, BitCtToWordCt(mrp->sample_ct));
+    CopyAndPermuteBitarr(read_bitarr, mrp->old_sample_idx_to_new, write_sample_ctl, set_bit_ct, write_bitarr);
+  }
+}
+
+// Loads a temporary-fileset record's bitmap row into mrp->locked_buf, unless
+// it's already there.  The extra last column is moved to
+// mrp->row_dosage_seen.
+PglErr LoadTmpBitmapRow(uint32_t read_variant_uidx, MergeReader* mrp) {
+  if (mrp->locked_buf_row == read_variant_uidx) {
+    return kPglRetSuccess;
+  }
+  const uint32_t read_sample_ct = mrp->sample_ct;
+  uintptr_t* locked_buf = mrp->locked_buf;
+  PgrColSubsetIndex null_pcsi;
+  PgrClearColSubsetIndex(nullptr, &null_pcsi);
+  PglErr reterr = BitmapGet(nullptr, null_pcsi, read_sample_ct + 1, read_variant_uidx, &mrp->locked_br, locked_buf);
+  if (unlikely(reterr)) {
+    logputs("\n");
+    logerrputs("Error: Failed to read temporary --pmerge[-list] bitmap file.\n");
+    return reterr;
+  }
+  mrp->row_dosage_seen = IsSet(locked_buf, read_sample_ct);
+  ClearBit(read_sample_ct, locked_buf);
+  mrp->locked_buf_row = read_variant_uidx;
+  return kPglRetSuccess;
+}
+
+// For a temporary-fileset record under --merge-mode nm-match, loads its
+// locked-missing bits into dst (write-sample space).  Under 'first', dst is
+// instead filled with the samples none of the temporary fileset's sources
+// covered, i.e. the missing-but-not-locked ones; these must not block a later
+// record.
+// pgvp must contain the record's (read-sample-space) genotypes, with trailing
+// bits cleared.
+// If the result is empty (always the case under 'nm-first'), *nonempty_ptr is
+// set to 0 and dst is left untouched.
+PglErr LoadTmpLockMask(const PgenVariant* pgvp, uint32_t read_variant_uidx, uint32_t write_sample_ct, MergeMode merge_mode, MergeReader* mrp, uintptr_t* read_scratch, uintptr_t* dst, uint32_t* nonempty_ptr) {
+  if (merge_mode == kMergeModeNmFirst) {
+    *nonempty_ptr = 0;
+    return kPglRetSuccess;
+  }
+  const uint32_t read_sample_ct = mrp->sample_ct;
+  const uint32_t read_sample_ctl = BitCtToWordCt(read_sample_ct);
+  PglErr reterr = LoadTmpBitmapRow(read_variant_uidx, mrp);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  const uintptr_t* locked_buf = mrp->locked_buf;
+  const uint32_t locked_any = !AllWordsAreZero(locked_buf, read_sample_ctl);
+  const uintptr_t* read_mask = locked_buf;
+  if (merge_mode == kMergeModeFirst) {
+    GenoarrToMissingnessUnsafe(pgvp->genovec, read_sample_ct, read_scratch);
+    if (pgvp->dosage_ct) {
+      BitvecInvmask(pgvp->dosage_present, read_sample_ctl, read_scratch);
+    }
+    if (locked_any) {
+      BitvecInvmask(locked_buf, read_sample_ctl, read_scratch);
+    }
+    if (AllWordsAreZero(read_scratch, read_sample_ctl)) {
+      *nonempty_ptr = 0;
+      return kPglRetSuccess;
+    }
+    read_mask = read_scratch;
+  } else if (!locked_any) {
+    *nonempty_ptr = 0;
+    return kPglRetSuccess;
+  }
+  *nonempty_ptr = 1;
+  ReadToWriteSampleBitarr(read_mask, mrp, write_sample_ct, dst);
+  return kPglRetSuccess;
+}
+
+// Fills write_locked for a variant copied from a single record.
+// covered_span (nullptr = every sample) and tmp_mask (see LoadTmpLockMask(),
+// nullptr = empty) are in write-sample space.
+void SetWriteLockedFromSingle(const uintptr_t* genovec, const uintptr_t* dosage_present, const uintptr_t* covered_span, const uintptr_t* tmp_mask, uint32_t write_sample_ct, MergeMode merge_mode, uintptr_t* write_locked) {
+  const uint32_t write_sample_ctl = BitCtToWordCt(write_sample_ct);
+  if (merge_mode == kMergeModeNmFirst) {
+    ZeroWArr(write_sample_ctl, write_locked);
+    return;
+  }
+  if (merge_mode == kMergeModeNmMatch) {
+    if (tmp_mask) {
+      memcpy(write_locked, tmp_mask, write_sample_ctl * sizeof(intptr_t));
+    } else {
+      ZeroWArr(write_sample_ctl, write_locked);
+    }
+    return;
+  }
+  // 'first': a covered sample with a missing value is locked.
+  GenoarrToMissingnessUnsafe(genovec, write_sample_ct, write_locked);
+  if (dosage_present) {
+    BitvecInvmask(dosage_present, write_sample_ctl, write_locked);
+  }
+  if (covered_span) {
+    BitvecAnd(covered_span, write_sample_ctl, write_locked);
+  }
+  if (tmp_mask) {
+    BitvecInvmask(tmp_mask, write_sample_ctl, write_locked);
+  }
+}
+
+PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* master_allele_remap, uintptr_t merge_rec_ct, uint32_t write_allele_ct, uint32_t allele_remap_stride, MergeReader** mrp_arr, MergeWriter* mwp) {
   PglErr reterr = kPglRetSuccess;
   {
     STPgenWriter* spgwp = &(mwp->spgw);
@@ -5322,6 +5679,10 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         }
       }
       uint32_t vrtype_or = 0;
+      // A temporary fileset's record may have lost the dosages of the
+      // records behind it (e.g. to an 'nm-match' conflict), but it still
+      // counts as having them below, as it would in a single-pass merge.
+      uint32_t tmp_dosage_seen = 0;
       for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
         const uint32_t file_idx = same_id_records[rec_idx]->secondary_key >> 32;
         // bugfix: this was reading same_id_records[0]'s variant index out of
@@ -5331,20 +5692,29 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         MergeReader* cur_mrp = mrp_arr[file_idx];
         PgenReader* pgrp = &(cur_mrp->pgr);
         vrtype_or |= PgrGetVrtype(pgrp, read_variant_uidx);
+        if (cur_mrp->locked_buf) {
+          reterr = LoadTmpBitmapRow(read_variant_uidx, cur_mrp);
+          if (unlikely(reterr)) {
+            goto MergePgenVariant_ret_1;
+          }
+          tmp_dosage_seen |= cur_mrp->row_dosage_seen;
+        }
       }
       vrtype_or &= vrtype_mask;
       hphase_exists = (vrtype_or / 0x10) & 1;
       dosage_exists = !!(vrtype_or & 0x60);
       dphase_exists = (vrtype_or / 0x80) & 1;
       assert((!dphase_exists) || dosage_exists);
-      if (dosage_exists && (write_allele_ct > 2)) {
+      mwp->write_dosage_seen = dosage_exists || tmp_dosage_seen;
+      if (mwp->write_dosage_seen && (write_allele_ct > 2)) {
         logputs("\n");
         logerrputs("Error: --pmerge[-list] multiallelic-variant dosage support is under development.\n");
         reterr = kPglRetNotYetSupported;
-        goto MergePgenVariantNoTmpLocked_ret_1;
+        goto MergePgenVariant_ret_1;
       }
     }
     const MergeMode merge_mode = mwp->merge_mode;
+    uintptr_t* write_locked = mwp->write_locked;
     if (simple_first_allele_remap) {
       const uint32_t file_idx = same_id_records[0]->secondary_key >> 32;
       const uint32_t read_variant_uidx = S_CAST(uint32_t, same_id_records[0]->secondary_key);
@@ -5356,6 +5726,16 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       const uint32_t read_phase_present = !!(vrtype & 0x90);
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
       const uintptr_t* sample_include = cur_mrp->sample_include;
+      if ((merge_rec_ct == 1) && write_locked) {
+        mwp->write_dosage_seen = read_dosage_present;
+        if (cur_mrp->locked_buf) {
+          reterr = LoadTmpBitmapRow(read_variant_uidx, cur_mrp);
+          if (unlikely(reterr)) {
+            goto MergePgenVariant_ret_1;
+          }
+          mwp->write_dosage_seen |= cur_mrp->row_dosage_seen;
+        }
+      }
       if ((read_allele_ct == 2) && (!read_dosage_present)) {
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
@@ -5374,16 +5754,29 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       }
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, read_variant_uidx);
-        goto MergePgenVariantNoTmpLocked_ret_1;
+        goto MergePgenVariant_ret_1;
       }
       if ((master_allele_remap[0] == kMissingAlleleCode) || (master_allele_remap[1] == kMissingAlleleCode)) {
         reterr = ValidateBiallelicVariantWithMissingCode(master_allele_remap, read_sample_ct, 1, pgvp);
         if (unlikely(reterr)) {
-          goto MergePgenVariantNoTmpLocked_ret_1;
+          goto MergePgenVariant_ret_1;
         }
       }
       uintptr_t* read_genovec = pgvp->genovec;
       ZeroTrailingNyps(read_sample_ct, read_genovec);
+      // For a temporary fileset under --merge-mode nm-match/first, tmp_mask
+      // is the locked-missing/uncovered sample set; see LoadTmpLockMask().
+      uintptr_t* tmp_mask = nullptr;
+      if (cur_mrp->locked_buf) {
+        uint32_t nonempty;
+        reterr = LoadTmpLockMask(pgvp, read_variant_uidx, write_sample_ct, merge_mode, cur_mrp, mwp->tmp_read_mask, mwp->tmp_write_mask, &nonempty);
+        if (unlikely(reterr)) {
+          goto MergePgenVariant_ret_1;
+        }
+        if (nonempty) {
+          tmp_mask = mwp->tmp_write_mask;
+        }
+      }
       const uint32_t sample_idx_increasing = cur_mrp->sample_idx_increasing;
       const uint32_t write_biallelic = (!pgvp->patch_01_ct) && (!pgvp->patch_10_ct);
       uint32_t unlocked_ct = 0;
@@ -5403,9 +5796,22 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             // kMergeModeNmMatch
             SetAllBits(write_sample_ct, mwp->unlocked_set);
             unlocked_ct = write_sample_ct;
+            if (tmp_mask) {
+              // Locked-missing values stay locked.
+              BitvecInvmask(tmp_mask, write_sample_ctl, mwp->unlocked_set);
+              BitvecInvmask(tmp_mask, write_sample_ctl, missingness);
+            }
           }
+        } else if (tmp_mask && (merge_rec_ct != 1)) {
+          // 'first' mode: samples the temporary fileset didn't cover remain
+          // open to later records.
+          memcpy(mwp->unlocked_set, tmp_mask, write_sample_ctl * sizeof(intptr_t));
+          unlocked_ct = PopcountWords(tmp_mask, write_sample_ctl);
         }
         if (unlocked_ct == 0) {
+          if (write_locked) {
+            SetWriteLockedFromSingle(read_genovec, pgvp->dosage_ct? pgvp->dosage_present : nullptr, nullptr, tmp_mask, write_sample_ct, merge_mode, write_locked);
+          }
           if (write_biallelic) {
             // Simplest cases: write directly from pgvp, no need to use
             // mwp.genovec, etc.
@@ -5437,7 +5843,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               reterr = SpgwAppendMultiallelicGenovecHphase(read_genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, pgvp->phasepresent, pgvp->phaseinfo, write_allele_ct, pgvp->patch_01_ct, pgvp->patch_10_ct, spgwp);
             }
           }
-          goto MergePgenVariantNoTmpLocked_ret_1;
+          goto MergePgenVariant_ret_1;
         }
         // Copy to write buffers.
         // bugfix (2 Mar 2021): did not copy enough bytes here
@@ -5556,7 +5962,12 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         }
         if (merge_rec_ct != 1) {
           if (merge_mode == kMergeModeFirst) {
-            if (read_sample_ct != write_sample_ct) {
+            if (tmp_mask) {
+              BitvecInvertCopy(sample_span, write_sample_ctl, mwp->unlocked_set);
+              BitvecOr(tmp_mask, write_sample_ctl, mwp->unlocked_set);
+              ZeroTrailingBits(write_sample_ct, mwp->unlocked_set);
+              unlocked_ct = PopcountWords(mwp->unlocked_set, write_sample_ctl);
+            } else if (read_sample_ct != write_sample_ct) {
               unlocked_ct = write_sample_ct - read_sample_ct;
               BitvecInvertCopy(sample_span, write_sample_ctl, mwp->unlocked_set);
               ZeroTrailingBits(write_sample_ct, mwp->unlocked_set);
@@ -5575,6 +5986,10 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               // kMergeModeNmMatch
               SetAllBits(write_sample_ct, mwp->unlocked_set);
               unlocked_ct = write_sample_ct;
+              if (tmp_mask) {
+                BitvecInvmask(tmp_mask, write_sample_ctl, mwp->unlocked_set);
+                BitvecInvmask(tmp_mask, write_sample_ctl, missingness);
+              }
             }
           }
         }
@@ -5661,6 +6076,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           }
         }
         if (unlocked_ct == 0) {
+          if (write_locked) {
+            SetWriteLockedFromSingle(genovec, dosage_ct? mwp->dosage_present : nullptr, sample_span, tmp_mask, write_sample_ct, merge_mode, write_locked);
+          }
           if (!dosage_ct) {
             if (write_biallelic) {
               if (!phasepresent_ct) {
@@ -5685,7 +6103,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               reterr = SpgwAppendBiallelicGenovecDphase16(genovec, mwp->phasepresent, mwp->phaseinfo, mwp->dosage_present, mwp->dphase_present, mwp->dosage_main, mwp->dphase_delta, dosage_ct, dphase_ct, spgwp);
             }
           }
-          goto MergePgenVariantNoTmpLocked_ret_1;
+          goto MergePgenVariant_ret_1;
         }
         // unlocked_ct > 0, some write buffers already copied to.  Only need
         // to initialize write buffers which don't happen to have been touched
@@ -5815,7 +6233,29 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       ZeroTrailingNyps(read_sample_ct, pgvp->genovec);
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, read_variant_uidx);
-        goto MergePgenVariantNoTmpLocked_ret_1;
+        goto MergePgenVariant_ret_1;
+      }
+      if (cur_mrp->locked_buf) {
+        uint32_t nonempty;
+        reterr = LoadTmpLockMask(pgvp, read_variant_uidx, write_sample_ct, merge_mode, cur_mrp, mwp->tmp_read_mask, mwp->tmp_write_mask, &nonempty);
+        if (unlikely(reterr)) {
+          goto MergePgenVariant_ret_1;
+        }
+        if (nonempty) {
+          const uintptr_t* tmp_mask = mwp->tmp_write_mask;
+          if (merge_mode == kMergeModeNmMatch) {
+            // Locked-missing values stay locked.
+            BitvecInvmask(tmp_mask, write_sample_ctl, unlocked_set);
+            BitvecInvmask(tmp_mask, write_sample_ctl, unlocked_missing_set);
+          }
+          // Under 'first', the uncovered samples must not be clobbered, or
+          // considered covered.
+          BitvecInvmask(tmp_mask, write_sample_ctl, unlocked_sample_span);
+          unlocked_sample_ct = PopcountWords(unlocked_sample_span, write_sample_ctl);
+          if (!unlocked_sample_ct) {
+            continue;
+          }
+        }
       }
 
       // Identify which samples we can blindly clobber the previous entry for,
@@ -5844,7 +6284,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           if ((cur_allele_remap[0] == kMissingAlleleCode) || (cur_allele_remap[1] == kMissingAlleleCode)) {
             reterr = ValidateBiallelicVariantWithMissingCode(cur_allele_remap, read_sample_ct, (write_allele_ct == 2), pgvp);
             if (unlikely(reterr)) {
-              goto MergePgenVariantNoTmpLocked_ret_1;
+              goto MergePgenVariant_ret_1;
             }
           } else {
             const uint32_t read_sample_ctl = BitCtToWordCt(read_sample_ct);
@@ -6134,7 +6574,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         if (cur_allele_remap && ((cur_allele_remap[0] == kMissingAlleleCode) || (cur_allele_remap[1] == kMissingAlleleCode))) {
           reterr = ValidateBiallelicVariantWithMissingCode(cur_allele_remap, clobber_sample_ct, (write_allele_ct == 2), clobber_pgvp);
           if (unlikely(reterr)) {
-            goto MergePgenVariantNoTmpLocked_ret_1;
+            goto MergePgenVariant_ret_1;
           }
         }
         uintptr_t* r_genovec = clobber_pgvp->genovec;
@@ -6213,14 +6653,15 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           }
         }
       }
-      if (clobber_sample_ct && (rec_idx + 1 != merge_rec_ct)) {
+      if (clobber_sample_ct && ((rec_idx + 1 != merge_rec_ct) || (write_locked && (merge_mode == kMergeModeFirst)))) {
         // Update unlocked_set for modes 'first'/'nm-first', or
         // unlocked_missing_set for mode 'nm-match'.
         //   'first': clear all bits intersecting clobber_sample_span.
         //   'nm-first', 'nm-match': clear all bits corresponding to nonmissing
         //                           genotypes.
         // Skip this on last input file, since this only affects eligibility
-        // for future clobbers, which don't exist.
+        // for future clobbers, which don't exist.  (Exception: under 'first',
+        // write_locked is derived from the final unlocked_set.)
         uintptr_t* untouched_set = unlocked_missing_set? unlocked_missing_set : unlocked_set;
         if (merge_mode == kMergeModeFirst) {
           BitvecInvmask(clobber_sample_span, write_sample_ctl, untouched_set);
@@ -6255,6 +6696,21 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         if (dphase_present) {
           BitvecAnd(unlocked_set, write_sample_ctl, dphase_present);
         }
+      }
+    }
+    if (write_locked) {
+      if (merge_mode == kMergeModeNmFirst) {
+        ZeroWArr(write_sample_ctl, write_locked);
+      } else if (merge_mode == kMergeModeNmMatch) {
+        BitvecInvertCopy(unlocked_set, write_sample_ctl, write_locked);
+        ZeroTrailingBits(write_sample_ct, write_locked);
+      } else {
+        // 'first': a covered sample with a missing value is locked.
+        GenoarrToMissingnessUnsafe(genovec, write_sample_ct, write_locked);
+        if (dosage_present) {
+          BitvecInvmask(dosage_present, write_sample_ctl, write_locked);
+        }
+        BitvecInvmask(unlocked_set, write_sample_ctl, write_locked);
       }
     }
     // Collapse dense representations to sparse when the latter is expected by
@@ -6307,14 +6763,12 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       }
     }
     if (unlikely(reterr)) {
-      goto MergePgenVariantNoTmpLocked_ret_1;
+      goto MergePgenVariant_ret_1;
     }
   }
- MergePgenVariantNoTmpLocked_ret_1:
+ MergePgenVariant_ret_1:
   return reterr;
 }
-
-// TODO: --merge-mode 'first'/'nm-match' + intermediate-file support
 
 typedef struct SamePosPvarRecordAsorterStruct {
   SamePosPvarRecord* pp;
@@ -6385,6 +6839,7 @@ typedef struct PvarRecordParseCtxStruct {
   uintptr_t* allele_idx_offsets;
   const uintptr_t* nonref_flags;
   uint32_t pgen_pr_status_base;
+  uint32_t is_tmp;
 } PvarRecordParseCtx;
 
 // Serializes one .pvar line, already split into tokens, as a
@@ -6448,6 +6903,7 @@ char* BuildPvarRecord(const PvarRecordParseCtx* ctxp, char** token_ptrs, const u
     pgen_pr_status |= IsSet(ctxp->nonref_flags, read_variant_idx);
   }
   cur_record->pgen_pr_status = pgen_pr_status;
+  cur_record->is_tmp = ctxp->is_tmp;
 
   if (ctxp->read_qual) {
     readbuf_iter = memcpyax(readbuf_iter, token_ptrs[4], token_slens[4], '\0');
@@ -6521,7 +6977,7 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
         AssignBit(write_variant_idx, is_pr, write_nonref_flags);
       }
 
-      reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
+      reterr = MergePgenVariant(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
       if (unlikely(reterr)) {
         return reterr;
       }
@@ -6565,6 +7021,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
   MergeWriter mw;
   PreinitPgfi(&pgfi);
   PreinitPgr(&mr.pgr);
+  mr.locked_buf = nullptr;
   PreinitSpgw(&mw.spgw);
   {
     // 1. Scan .pgen headers, to determine appropriate write_gflags.
@@ -6786,6 +7243,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
     }
     mw.merge_mode = pmip->merge_mode;
+    mw.write_locked = nullptr;
+    mw.tmp_read_mask = nullptr;
+    mw.tmp_write_mask = nullptr;
 
     InitXidHtable(siip, sample_ct, sample_id_htable_size, sample_id_htable, g_textbuf);
 
@@ -7033,6 +7493,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       record_parse_ctx.allele_idx_offsets = pgfi.allele_idx_offsets;
       record_parse_ctx.nonref_flags = pgfi.nonref_flags;
       record_parse_ctx.pgen_pr_status_base = pgen_pr_status_base;
+      record_parse_ctx.is_tmp = 0;
       for (uint32_t read_variant_idx = 0; read_variant_idx != read_variant_ct; ++read_variant_idx) {
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
@@ -7337,15 +7798,22 @@ uint32_t CountMergedAlleles(SamePosPvarRecord** same_id_records, uintptr_t merge
 // count and that isn't known until the .pvar merge has seen which records
 // collapse together and which MergePvariant() drops.
 //
+// If tmp_dst is non-null, a temporary fileset (see PmergePass()) is written
+// to the filenames it names instead of the final output, and the fields the
+// next pass needs are filled in.  Its samples are the union of the input
+// filesets' samples.
+//
 // Note that this currently lacks support for --variant-inner-join or
 // --merge-max-alleles.
-PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const PmergeInputFilesetLl* filesets, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t missing_varid_match_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end) {
+PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const PmergeInputFilesetLl* filesets, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t missing_varid_match_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, uint32_t write_qual, uint32_t write_filter, uint32_t write_info, uint32_t write_cm, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl* tmp_dst) {
   const char* read_pgen_fname = nullptr;
   const char* read_pvar_fname = nullptr;
   PvariantPosMergeContext ppmc;
   PreinitPvariantPosMergeContext(&ppmc);
   MergeWriter mw;
   PreinitSpgw(&mw.spgw);
+  BitmapWriter locked_bw;
+  PreinitBitmapWriter(&locked_bw);
   MergeReader* mrs = nullptr;
   PgenFileInfo* pgfis = nullptr;
   TextStream* pvar_txss = nullptr;
@@ -7359,10 +7827,6 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
     // 1. Scan .pgen headers, to determine appropriate write_gflags.
     uintptr_t max_write_variant_ct = 0;
-    uint32_t write_qual = 0;
-    uint32_t write_filter = 0;
-    uint32_t write_info = 0;
-    uint32_t write_cm = 0;
     uintptr_t overflow_buf_size = 0;
     uint32_t vrtype_8bit_needed = 0;
     uint32_t nonref_flags_storage = 0;
@@ -7371,14 +7835,12 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     uintptr_t total_read_variant_ct = 0;
     uintptr_t max_pvar_line_blen = 0;
     uint32_t max_read_sample_ct = 1;
+    uint32_t is_tmp_src = 0;
     const PmergeInputFilesetLl* filesets_iter = filesets;
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       max_write_variant_ct += filesets_iter->write_nondoomed_variant_ct;
       total_read_variant_ct += filesets_iter->read_variant_ct;
-      write_qual |= filesets_iter->nm_qual_exists;
-      write_filter |= filesets_iter->nm_filter_exists;
-      write_info |= filesets_iter->nm_info_exists;
-      write_cm |= filesets_iter->nz_cm_present;
+      is_tmp_src |= filesets_iter->is_temporary;
       if (overflow_buf_size < filesets_iter->max_pvar_line_blen) {
         overflow_buf_size = filesets_iter->max_pvar_line_blen;
       }
@@ -7423,6 +7885,13 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
                  BIGSTACK_ALLOC_X(TextStream, fileset_ct, &pvar_txss))) {
       goto PmergePassSingle_ret_NOMEM;
     }
+    for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
+      PreinitPgfi(&(pgfis[fileset_idx]));
+      PreinitPgr(&(mrs[fileset_idx].pgr));
+      PreinitBitmapReader(&(mrs[fileset_idx].locked_br));
+      mrs[fileset_idx].locked_buf = nullptr;
+      PreinitTextStream(&(pvar_txss[fileset_idx]));
+    }
     MergeReader** mrp_arr;
     uint32_t* relevant_postchr_col_cts;
     uint32_t* col_skips_arr;
@@ -7442,9 +7911,6 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
       goto PmergePassSingle_ret_NOMEM;
     }
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
-      PreinitPgfi(&(pgfis[fileset_idx]));
-      PreinitPgr(&(mrs[fileset_idx].pgr));
-      PreinitTextStream(&(pvar_txss[fileset_idx]));
       mrp_arr[fileset_idx] = &(mrs[fileset_idx]);
     }
     InitXidHtable(siip, sample_ct, sample_id_htable_size, sample_id_htable, g_textbuf);
@@ -7493,14 +7959,26 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
         goto PmergePassSingle_ret_NOMEM;
       }
       uint32_t cur_write_sample_ct;
-      reterr = ScrapeSampleOrder(filesets_iter->psam_fname, siip, sample_id_htable, read_sample_ct, sample_ct, sample_id_htable_size, fam_cols, merge_sids, psam_linebuf_capacity, max_thread_ct, mrp->old_sample_idx_to_new, &mrp->sample_idx_increasing, &cur_write_sample_ct, mrp->sample_include, mrp->sample_span);
-      if (unlikely(reterr)) {
-        goto PmergePassSingle_ret_1;
+      const uintptr_t* tmp_sample_span = filesets_iter->tmp_sample_span;
+      if (!tmp_sample_span) {
+        reterr = ScrapeSampleOrder(filesets_iter->psam_fname, siip, sample_id_htable, read_sample_ct, sample_ct, sample_id_htable_size, fam_cols, merge_sids, psam_linebuf_capacity, max_thread_ct, mrp->old_sample_idx_to_new, &mrp->sample_idx_increasing, &cur_write_sample_ct, mrp->sample_include, mrp->sample_span);
+        if (unlikely(reterr)) {
+          goto PmergePassSingle_ret_1;
+        }
+      } else {
+        // Temporary fileset: its samples are the tmp_sample_span ones, in
+        // order.
+        SetAllBits(read_sample_ct, mrp->sample_include);
+        memcpy(mrp->sample_span, tmp_sample_span, sample_ctl * sizeof(intptr_t));
+        uintptr_t sample_uidx_base = 0;
+        uintptr_t cur_bits = tmp_sample_span[0];
+        for (uint32_t read_sample_idx = 0; read_sample_idx != read_sample_ct; ++read_sample_idx) {
+          mrp->old_sample_idx_to_new[read_sample_idx] = BitIter1(tmp_sample_span, &sample_uidx_base, &cur_bits);
+        }
+        mrp->sample_idx_increasing = 1;
+        cur_write_sample_ct = read_sample_ct;
       }
       FillCumulativePopcounts(mrp->sample_include, read_sample_ctl, read_cumulative_popcounts);
-      if (mrp->sample_idx_increasing && (cur_write_sample_ct == sample_ct)) {
-        mrp->sample_idx_increasing = 2;
-      }
       mrp->sample_ct = cur_write_sample_ct;
 
       read_pgen_fname = filesets_iter->pgen_fname;
@@ -7552,6 +8030,35 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
         goto PmergePassSingle_ret_PGEN_REWIND_FAIL_N;
       }
       PgrSetSampleSubsetIndex(read_cumulative_popcounts, &mrp->pgr, &mrp->pssi);
+      if (filesets_iter->pgen_locked_fname) {
+        uintptr_t br_alloc_cacheline_ct;
+        reterr = BitmapReaderInitPhase1(filesets_iter->pgen_locked_fname, &mrp->locked_br, &br_alloc_cacheline_ct, g_logbuf);
+        if (unlikely(reterr)) {
+          logputs("\n");
+          WordWrapB(0);
+          logerrputsb();
+          goto PmergePassSingle_ret_1;
+        }
+        if (unlikely((BitmapReaderRowCt(&mrp->locked_br) != read_variant_ct) || (BitmapReaderColCt(&mrp->locked_br) != read_sample_ct + 1))) {
+          logputs("\n");
+          logerrprintfww("Error: %s has an unexpected shape.\n", filesets_iter->pgen_locked_fname);
+          reterr = kPglRetMalformedInput;
+          goto PmergePassSingle_ret_1;
+        }
+        unsigned char* br_alloc;
+        if (unlikely(bigstack_alloc_uc(br_alloc_cacheline_ct * kCacheline, &br_alloc) ||
+                     bigstack_alloc_w(BitCtToWordCt(read_sample_ct + 1), &mrp->locked_buf))) {
+          goto PmergePassSingle_ret_NOMEM;
+        }
+        mrp->locked_buf_row = UINT32_MAX;
+        reterr = BitmapReaderInitPhase2(&mrp->locked_br, br_alloc, g_logbuf);
+        if (unlikely(reterr)) {
+          logputs("\n");
+          WordWrapB(0);
+          logerrputsb();
+          goto PmergePassSingle_ret_1;
+        }
+      }
 
       reterr = InitTextStream(read_pvar_fname, MAXV(filesets_iter->max_pvar_line_blen, kDecompressMinBlen), 1, cur_txsp);
       if (unlikely(reterr)) {
@@ -7574,7 +8081,10 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
       const uint32_t read_filter = filesets_iter->nm_filter_exists;
       const uint32_t read_info_pr = filesets_iter->pvar_info_pr_exists;
       const uint32_t read_info = read_info_pr | filesets_iter->nm_info_exists;
-      const uint32_t pgen_pr_status_base = 2 * read_info_pr + (filesets_iter->nonref_flags_storage == 2);
+      // A temporary .pgen always stores explicit provisional-REF flags; its
+      // nonref_flags_storage value is what the flags *would* have been, see
+      // below.
+      const uint32_t pgen_pr_status_base = filesets_iter->is_temporary? 0 : (2 * read_info_pr + (filesets_iter->nonref_flags_storage == 2));
       const uint32_t read_cm = filesets_iter->nz_cm_present;
       uint32_t relevant_postchr_col_ct;
       if (line_start[0] == '#') {
@@ -7687,6 +8197,48 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
       cur_parse_ctxp->allele_idx_offsets = pgfip->allele_idx_offsets;
       cur_parse_ctxp->nonref_flags = pgfip->nonref_flags;
       cur_parse_ctxp->pgen_pr_status_base = pgen_pr_status_base;
+      cur_parse_ctxp->is_tmp = filesets_iter->is_temporary;
+    }
+
+    // When writing a temporary fileset, its samples are the union of the
+    // inputs', and the readers' sample indexes must be translated to that
+    // space.
+    uint32_t write_sample_ct = sample_ct;
+    uintptr_t* write_sample_span = nullptr;
+    if (tmp_dst) {
+      if (unlikely(bigstack_calloc_w(sample_ctl, &write_sample_span))) {
+        goto PmergePassSingle_ret_NOMEM;
+      }
+      for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
+        BitvecOr(mrs[fileset_idx].sample_span, sample_ctl, write_sample_span);
+      }
+      write_sample_ct = PopcountWords(write_sample_span, sample_ctl);
+      if (write_sample_ct != sample_ct) {
+        uint32_t* write_cumulative_popcounts;
+        uintptr_t* span_buf;
+        if (unlikely(bigstack_alloc_u32(sample_ctl, &write_cumulative_popcounts) ||
+                     bigstack_alloc_w(sample_ctl, &span_buf))) {
+          goto PmergePassSingle_ret_NOMEM;
+        }
+        FillCumulativePopcounts(write_sample_span, sample_ctl, write_cumulative_popcounts);
+        for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
+          MergeReader* mrp = &(mrs[fileset_idx]);
+          uint32_t* old_sample_idx_to_new = mrp->old_sample_idx_to_new;
+          const uint32_t cur_sample_ct = mrp->sample_ct;
+          for (uint32_t read_sample_idx = 0; read_sample_idx != cur_sample_ct; ++read_sample_idx) {
+            old_sample_idx_to_new[read_sample_idx] = RawToSubsettedPos(write_sample_span, write_cumulative_popcounts, old_sample_idx_to_new[read_sample_idx]);
+          }
+          CopyBitarrSubset(mrp->sample_span, write_sample_span, write_sample_ct, span_buf);
+          memcpy(mrp->sample_span, span_buf, sample_ctl * sizeof(intptr_t));
+        }
+        BigstackReset(write_cumulative_popcounts);
+      }
+    }
+    for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
+      MergeReader* mrp = &(mrs[fileset_idx]);
+      if (mrp->sample_idx_increasing && (mrp->sample_ct == write_sample_ct)) {
+        mrp->sample_idx_increasing = 2;
+      }
     }
 
     // Everything allocated from here on must come out of the record arena,
@@ -7891,12 +8443,18 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
 
     // 4. Merge the .pvar.  This is what determines the exact output variant
     //    count, which SpgwInitPhase1() needs.
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
-    const uint32_t pvar_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
-    if (pvar_zst) {
-      snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
+    const char* write_pvar_fname = outname;
+    uint32_t pvar_zst = 0;
+    if (!tmp_dst) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+      pvar_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
+      if (pvar_zst) {
+        snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
+      }
+    } else {
+      write_pvar_fname = tmp_dst->pvar_fname;
     }
-    reterr = InitPvariantPosMergeContext(pmip, outname, info_keys, info_keys_htable, pvar_fnames, line_idx_body_starts, write_qual, write_filter, write_info, write_cm, info_key_ct, info_keys_htable_size, info_conflict_present, sort_vars_mode, 0, 1, pvar_zst, overflow_buf_size, read_max_allele_ct, write_max_allele_ct, max_single_pos_ct, read_max_nonpass_filter_ct, &ppmc);
+    reterr = InitPvariantPosMergeContext(pmip, write_pvar_fname, info_keys, info_keys_htable, pvar_fnames, line_idx_body_starts, write_qual, write_filter, write_info, write_cm, info_key_ct, info_keys_htable_size, info_conflict_present, sort_vars_mode, is_tmp_src, !tmp_dst, pvar_zst, overflow_buf_size, read_max_allele_ct, write_max_allele_ct, max_single_pos_ct, read_max_nonpass_filter_ct, &ppmc);
     if (unlikely(reterr)) {
       goto PmergePassSingle_ret_1;
     }
@@ -7908,7 +8466,12 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
       }
       ppmc.write_allele_idx_offsets[0] = 0;
     }
-    if (nonref_flags_storage == 3) {
+    // When writing a temporary .pgen, we always store explicit
+    // provisional-REF flags, since they must also capture provisional-REF
+    // status recorded in .pvar INFO columns.  The nonref_flags_storage value
+    // saved for the next pass is still the one we'd otherwise use, so that
+    // the final .pgen header doesn't depend on how the merge was split up.
+    if ((nonref_flags_storage == 3) || tmp_dst) {
       if (unlikely(bigstack_calloc_w(BitCtToWordCt(write_variant_ct), &ppmc.write_nonref_flags))) {
         goto PmergePassSingle_ret_NOMEM;
       }
@@ -7916,7 +8479,12 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     // 5. Set up the .pgen writer.  Both files are then written by one pass
     //    over the records, so each variant's allele remap is consumed while
     //    it is still live in ppmc.pmc rather than being saved for later.
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    const char* write_pgen_fname = outname;
+    if (!tmp_dst) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    } else {
+      write_pgen_fname = tmp_dst->pgen_fname;
+    }
     const PmergeFlags pmerge_flags = pmip->flags;
     PgenGlobalFlags write_gflags = kfPgenGlobal0;
     // The read buffers must be able to hold everything present in the input,
@@ -7934,10 +8502,10 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(write_pgen_fname, nullptr, ppmc.write_nonref_flags, write_variant_ct, write_sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, tmp_dst? 3 : nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
-        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        logerrprintfww(kErrprintfFopen, write_pgen_fname, strerror(errno));
       }
       goto PmergePassSingle_ret_1;
     }
@@ -8003,8 +8571,35 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
       }
     }
     mw.merge_mode = pmip->merge_mode;
+    mw.write_locked = nullptr;
+    mw.tmp_read_mask = nullptr;
+    mw.tmp_write_mask = nullptr;
+    if (is_tmp_src && (pmip->merge_mode != kMergeModeNmFirst)) {
+      if (unlikely(bigstack_alloc_w(BitCtToWordCt(max_read_sample_ct), &mw.tmp_read_mask) ||
+                   bigstack_alloc_w(sample_ctl, &mw.tmp_write_mask))) {
+        goto PmergePassSingle_ret_NOMEM;
+      }
+    }
+    if (tmp_dst) {
+      uintptr_t bw_alloc_cacheline_ct;
+      reterr = BitmapWriterInitPhase1(tmp_dst->pgen_locked_fname, write_variant_ct, write_sample_ct + 1, &locked_bw, &bw_alloc_cacheline_ct);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, tmp_dst->pgen_locked_fname, strerror(errno));
+        }
+        goto PmergePassSingle_ret_1;
+      }
+      unsigned char* bw_alloc;
+      if (unlikely(bigstack_alloc_uc(bw_alloc_cacheline_ct * kCacheline, &bw_alloc) ||
+                   bigstack_alloc_w(BitCtToWordCt(sample_ct + 1), &mw.write_locked))) {
+        goto PmergePassSingle_ret_NOMEM;
+      }
+      BitmapWriterInitPhase2(&locked_bw, bw_alloc);
+    }
 
     const uintptr_t allele_remap_stride = ppmc.pmc.read_max_allele_ct;
+    uint64_t max_written_line_blen = 0;
+    uint32_t max_written_allele_ct = 2;
     uint32_t write_variant_idx = 0;
     uint32_t prev_chr_idx = UINT32_MAX;
     printf("\rMerging... 0/%u variants.", write_variant_ct);
@@ -8055,9 +8650,26 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
           if (ppmc.write_nonref_flags) {
             AssignBit(write_variant_idx, is_pr, ppmc.write_nonref_flags);
           }
-          reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmc.pmc.allele_remap, merge_rec_ct, allele_ct, allele_remap_stride, mrp_arr, &mw);
+          reterr = MergePgenVariant(same_id_records, ppmc.pmc.allele_remap, merge_rec_ct, allele_ct, allele_remap_stride, mrp_arr, &mw);
           if (unlikely(reterr)) {
             goto PmergePassSingle_ret_N;
+          }
+          if (mw.write_locked) {
+            // Last column: dosage bit, see PmergePass().
+            if (!(write_sample_ct % kBitsPerWord)) {
+              mw.write_locked[write_sample_ct / kBitsPerWord] = 0;
+            }
+            AssignBit(write_sample_ct, mw.write_dosage_seen, mw.write_locked);
+            reterr = BitmapAppend(mw.write_locked, &locked_bw);
+            if (unlikely(reterr)) {
+              goto PmergePassSingle_ret_N;
+            }
+          }
+          if (max_written_line_blen < cur_line_blen) {
+            max_written_line_blen = cur_line_blen;
+          }
+          if (max_written_allele_ct < allele_ct) {
+            max_written_allele_ct = allele_ct;
           }
           ++write_variant_idx;
           if (write_variant_idx >= ppmc.next_print_variant_idx) {
@@ -8080,6 +8692,11 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     if (unlikely(reterr)) {
       goto PmergePassSingle_ret_1;
     }
+    if (mw.write_locked) {
+      if (unlikely(BitmapWriterFinish(&locked_bw))) {
+        goto PmergePassSingle_ret_WRITE_FAIL_N;
+      }
+    }
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       read_pgen_fname = nullptr;
       if (unlikely(CleanupPgr2("", &(mrs[fileset_idx].pgr), &reterr) ||
@@ -8089,8 +8706,30 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
     fputs("\rMerging... ", stdout);
     logprintf("%u/%u variant%s complete.\n", write_variant_ct, write_variant_ct, (write_variant_ct == 1)? "" : "s");
-    *outname_end = '\0';
-    logprintfww("Results written to %s.pgen + %s.pvar%s .\n", outname, outname, pvar_zst? ".zst" : "");
+    if (!tmp_dst) {
+      *outname_end = '\0';
+      logprintfww("Results written to %s.pgen + %s.pvar%s .\n", outname, outname, pvar_zst? ".zst" : "");
+    } else {
+      // Everything the next pass needs to know about the temporary fileset.
+      tmp_dst->read_sample_ct = write_sample_ct;
+      tmp_dst->write_sample_ct = write_sample_ct;
+      tmp_dst->read_variant_ct = write_variant_ct;
+      tmp_dst->write_variant_ct = write_variant_ct;
+      tmp_dst->write_nondoomed_variant_ct = write_variant_ct;
+      tmp_dst->max_pvar_line_blen = max_written_line_blen + 1;
+      tmp_dst->read_max_nonpass_filter_ct = ppmc.pmc.max_written_nonpass_filter_ct;
+      tmp_dst->read_max_allele_ct = max_written_allele_ct;
+      tmp_dst->write_nondoomed_max_allele_ct = max_written_allele_ct;
+      // The column set is fixed by the full input list, see Pmerge().
+      tmp_dst->nm_qual_exists = write_qual;
+      tmp_dst->nm_filter_exists = write_filter;
+      tmp_dst->nm_info_exists = write_info;
+      tmp_dst->pvar_info_pr_exists = 0;
+      tmp_dst->nz_cm_present = write_cm;
+      tmp_dst->nonref_flags_storage = nonref_flags_storage;
+      tmp_dst->vrtype_8bit_needed = vrtype_8bit_needed;
+      memcpy(tmp_dst->tmp_sample_span, write_sample_span, sample_ctl * sizeof(intptr_t));
+    }
   }
   while (0) {
   PmergePassSingle_ret_NOMEM:
@@ -8124,15 +8763,15 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
  PmergePassSingle_ret_1:
   CleanupPvariantPosMergeContext(&ppmc);
   CleanupSpgw(&mw.spgw, &reterr);
+  CleanupBitmapWriter(&locked_bw, &reterr);
+  // pvar_txss is allocated last, and all three arrays are preinitialized
+  // right after.
   if (pvar_txss) {
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       CleanupTextStream2("", &(pvar_txss[fileset_idx]), &reterr);
-    }
-  }
-  if (mrs) {
-    for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       CleanupPgr2("", &(mrs[fileset_idx].pgr), &reterr);
       CleanupPgfi2("", &(pgfis[fileset_idx]), &reterr);
+      CleanupBitmapReader(&(mrs[fileset_idx].locked_br), &reterr);
     }
   }
   return reterr;
@@ -8142,8 +8781,25 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
 // *input_filesets_ptr is advanced as files are processed, and temporary files
 // are deleted while this happens.
 // next_filesets is left as nullptr on the last pass.
-PglErr PmergePass(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, __attribute__((unused)) uint32_t pass_idx, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t missing_varid_match_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl** input_filesets_ptr, PmergeInputFilesetLl** next_filesets_ptr, __attribute__((unused)) uint32_t* next_fileset_ctp) {
+//
+// A temporary fileset must let later passes reproduce the single-pass result
+// exactly.  The tricky part is "--merge-mode nm-match"/"first" conflict
+// resolution, which needs to distinguish 'locked' missing genotypes (from a
+// conflict under nm-match, or from a covering-but-missing source under
+// 'first') from 'unlocked' ones that a later source can still fill in.  Each
+// temporary .pgen is therefore accompanied by a plink-bitmap file (see
+// include/plink2_bitmap.h) with one row per variant, where a set bit marks a
+// locked missing genotype.  ("nm-first" has no locked state, so these bits
+// are all zero in that case.)
+// The bitmap has one extra column, set when any record merged into the
+// variant had dosage data, even if none of it survived.  The
+// multiallelic-dosage "under development" error depends on this.
+// The .pvar side of this is described above MergePvariant().
+PglErr PmergePass(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t pass_idx, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t missing_varid_match_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, uint32_t write_qual, uint32_t write_filter, uint32_t write_info, uint32_t write_cm, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl** input_filesets_ptr, PmergeInputFilesetLl** next_filesets_ptr, uintptr_t* next_fileset_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  // Filesets detached from the input list for the current group.
+  PmergeInputFilesetLl* cur_filesets = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
     // 1. Determine how many input filesets from the front of the list can be
@@ -8161,8 +8817,9 @@ PglErr PmergePass(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInf
     // 3. Return to step 1 if input fileset(s) remain.
     uintptr_t input_filesets_remaining = fileset_ct;
     PmergeInputFilesetLl** next_filesets_end_ptr = next_filesets_ptr;
-    // Each fileset needs its .pgen and its .pvar open simultaneously, we need
-    // a .pgen and .pvar open for writing, and we're writing a .log.
+    // Each fileset needs its .pgen and its .pvar (and, if temporary, its
+    // locked-missing bitmap) open simultaneously, we need a .pgen, a .pvar and
+    // a bitmap open for writing, and we're writing a .log.
     //
     // In theory, with this temporary implementation, *non*-workspace memory
     // could be tight since:
@@ -8170,28 +8827,86 @@ PglErr PmergePass(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInf
     //   non-workspace allocation succeeds when sizing the workspace, and
     // * when a .pvar is compressed, its reader allocates ~1-3 MiB of
     //   non-workspace memory.
-    // While this should practically never produce real problems, it would
-    // still be good to process a maximum of 20 filesets at a time once
-    // multipass merge is working.
-    if (fileset_ct <= ((kMaxOpenFiles - 3) / 2)) {
-      reterr = PmergePassSingle(pmip, siip, cip, *input_filesets_ptr, missing_varid_match, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end);
+    // While this should practically never produce real problems, we process a
+    // maximum of 20 filesets at a time.  The workspace-memory bound is not
+    // implemented yet; PmergePassSingle() still loads every .pvar record of
+    // the current group.
+    const uintptr_t max_group_size = pmip->max_pass_fileset_ct? pmip->max_pass_fileset_ct : kPmergeMaxPassFilesetCt;
+    if (fileset_ct <= max_group_size) {
+      reterr = PmergePassSingle(pmip, siip, cip, *input_filesets_ptr, missing_varid_match, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, write_qual, write_filter, write_info, write_cm, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, nullptr);
+      CleanupFilesetLl(*input_filesets_ptr, &reterr);
       *input_filesets_ptr = nullptr;
       goto PmergePass_ret_1;
     }
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    uintptr_t next_fileset_ct = 0;
+    uintptr_t fileset_idx_start = 0;
     do {
-      logerrputs("Error: Non-concatenating --pmerge[-list] with more than 124 filesets is under\ndevelopment.\n");
-      reterr = kPglRetNotYetSupported;
-      goto PmergePass_ret_1;
+      const uintptr_t cur_fileset_ct = MINV(max_group_size, input_filesets_remaining);
+      cur_filesets = *input_filesets_ptr;
+      PmergeInputFilesetLl* cur_filesets_last = cur_filesets;
+      for (uintptr_t uii = 1; uii != cur_fileset_ct; ++uii) {
+        cur_filesets_last = cur_filesets_last->next;
+      }
+      *input_filesets_ptr = cur_filesets_last->next;
+      cur_filesets_last->next = nullptr;
+
+      // Allocate the temporary fileset's entry, and append it to
+      // next_filesets immediately so that it's cleaned up on error.
+      PmergeInputFilesetLl* tmp_entry = S_CAST(PmergeInputFilesetLl*, calloc(1, sizeof(PmergeInputFilesetLl)));
+      if (unlikely(!tmp_entry)) {
+        goto PmergePass_ret_NOMEM;
+      }
+      tmp_entry->is_temporary = 1;
+      *next_filesets_end_ptr = tmp_entry;
+      next_filesets_end_ptr = &(tmp_entry->next);
+      ++next_fileset_ct;
+      char* outname_ext = strcpya_k(outname_end, "-merge-tmp");
+      outname_ext = u32toa_x(pass_idx, '-', outname_ext);
+      outname_ext = u32toa(next_fileset_ct, outname_ext);
+      const uint32_t fname_prefix_slen = outname_ext - outname;
+      if (unlikely(pgl_malloc(fname_prefix_slen + strlen(".pgen") + 1, &tmp_entry->pgen_fname) ||
+                   pgl_malloc(fname_prefix_slen + strlen(".pvar") + 1, &tmp_entry->pvar_fname) ||
+                   pgl_malloc(sample_ctl * sizeof(intptr_t), &tmp_entry->tmp_sample_span))) {
+        goto PmergePass_ret_NOMEM;
+      }
+      strcpy_k(outname_ext, ".pgen");
+      memcpy(tmp_entry->pgen_fname, outname, fname_prefix_slen + strlen(".pgen") + 1);
+      strcpy_k(outname_ext, ".pvar");
+      memcpy(tmp_entry->pvar_fname, outname, fname_prefix_slen + strlen(".pvar") + 1);
+      if (unlikely(pgl_malloc(fname_prefix_slen + strlen(".locked") + 1, &tmp_entry->pgen_locked_fname))) {
+        goto PmergePass_ret_NOMEM;
+      }
+      strcpy_k(outname_ext, ".locked");
+      memcpy(tmp_entry->pgen_locked_fname, outname, fname_prefix_slen + strlen(".locked") + 1);
+      *outname_end = '\0';
+      logprintfww("--pmerge%s pass %u: Merging filesets %" PRIuPTR "-%" PRIuPTR " into %s .\n", pmip->list_fname? "-list" : "", pass_idx, fileset_idx_start + 1, fileset_idx_start + cur_fileset_ct, tmp_entry->pgen_fname);
+      reterr = PmergePassSingle(pmip, siip, cip, cur_filesets, missing_varid_match, info_keys, info_keys_htable, sample_ct, fam_cols, cur_fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, write_qual, write_filter, write_info, write_cm, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, tmp_entry);
+      // This deletes the group's own temporary files, if any.
+      CleanupFilesetLl(cur_filesets, &reterr);
+      cur_filesets = nullptr;
+      if (unlikely(reterr)) {
+        goto PmergePass_ret_1;
+      }
+      BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+      input_filesets_remaining -= cur_fileset_ct;
+      fileset_idx_start += cur_fileset_ct;
     } while (input_filesets_remaining > 1);
     if (input_filesets_remaining == 1) {
       *next_filesets_end_ptr = *input_filesets_ptr;
       *input_filesets_ptr = nullptr;
+      ++next_fileset_ct;
     }
+    *next_fileset_ctp = next_fileset_ct;
   }
   while (0) {
+  PmergePass_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
   }
  PmergePass_ret_1:
-  BigstackReset(bigstack_mark);
+  CleanupFilesetLl(cur_filesets, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
@@ -8236,6 +8951,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
         cur_entry->psam_fname = fname_iter;
         memcpy(fname_iter, psamname, psam_fname_blen);
         cur_entry->pgen_locked_fname = nullptr;
+        cur_entry->tmp_sample_span = nullptr;
         cur_entry->first_varid = nullptr;
         cur_entry->last_varid = nullptr;
       }
@@ -8249,6 +8965,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
         cur_entry->pvar_fname = pmip->pvar_fname;
         cur_entry->psam_fname = pmip->psam_fname;
         cur_entry->pgen_locked_fname = nullptr;
+        cur_entry->tmp_sample_span = nullptr;
         cur_entry->first_varid = nullptr;
         cur_entry->last_varid = nullptr;
       } else {
@@ -8311,12 +9028,26 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
         goto Pmerge_ret_1;
       }
     }
+    // The set of .pvar columns is determined by the full input list, even when
+    // an intermediate pass only covers a few filesets: e.g. under
+    // --merge-qual-mode first, a missing QUAL column and a '.' QUAL entry
+    // behave differently.
+    uint32_t write_qual = 0;
+    uint32_t write_filter = 0;
+    uint32_t write_info = 0;
+    uint32_t write_cm = 0;
+    for (const PmergeInputFilesetLl* filesets_iter = input_filesets; filesets_iter; filesets_iter = filesets_iter->next) {
+      write_qual |= filesets_iter->nm_qual_exists;
+      write_filter |= filesets_iter->nm_filter_exists;
+      write_info |= filesets_iter->nm_info_exists;
+      write_cm |= filesets_iter->nz_cm_present;
+    }
     if (is_concat_job) {
       reterr = PmergeConcat(pmip, &sii, cip, input_filesets, missing_varid_match, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end);
     } else {
       for (uint32_t pass_idx = 1; ; ++pass_idx) {
-        uint32_t next_fileset_ct;
-        reterr = PmergePass(pmip, &sii, cip, missing_varid_match, info_keys, info_keys_htable, pass_idx, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, &input_filesets, &next_filesets, &next_fileset_ct);
+        uintptr_t next_fileset_ct;
+        reterr = PmergePass(pmip, &sii, cip, missing_varid_match, info_keys, info_keys_htable, pass_idx, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, missing_varid_match_slen, info_key_ct, info_keys_htable_size, info_conflict_present, write_qual, write_filter, write_info, write_cm, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, &input_filesets, &next_filesets, &next_fileset_ct);
         if (unlikely(reterr)) {
           goto Pmerge_ret_1;
         }
