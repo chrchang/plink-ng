@@ -1460,6 +1460,22 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logerrputs("Error: .pgen file contains multiallelic variants, while .pvar does not.\n");
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
+      if (pgfi.vrtypes && (!(header_ctrl & 0x30))) {
+        // The .pgen doesn't store allele counts (plink2 never writes them), so
+        // PgfiInitPhase2Ex() couldn't cross-check the .pvar's.  At least
+        // verify that no record with multiallelic hardcalls is biallelic
+        // according to the .pvar; the record parsers can't handle that.
+        // (The gflags check above only covers files with 8-bit vrtypes.)
+        const unsigned char* vrtypes = pgfi.vrtypes;
+        for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+          if (vrtypes[variant_uidx] & 8) {
+            if (unlikely((!allele_idx_offsets) || (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] == 2))) {
+              logerrprintfww("Error: Variant #%u has multiallelic hardcalls in the .pgen file, but only two alleles in the .pvar file.\n", variant_uidx + 1);
+              goto Plink2Core_ret_INCONSISTENT_INPUT;
+            }
+          }
+        }
+      }
       if (pcp->misc_flags & kfMiscRealRefAlleles) {
         if (unlikely(nonref_flags && (!AllBitsAreOne(nonref_flags, raw_variant_ct)))) {
           // To reduce the ease of foot-shooting, we don't allow this to
