@@ -11646,7 +11646,12 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, compressed_geno_start, compressed_byte_ct);
             if (unlikely(extracted_byte_ct != uncompressed_byte_ct)) {
-              assert(ZSTD_isError(extracted_byte_ct));
+              if (!ZSTD_isError(extracted_byte_ct)) {
+                // valid zstd frame, but shorter than the declared
+                // uncompressed length
+                new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeUncompressedByteCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                goto Bgen13DosageOrPhaseScanThread_err;
+              }
               ctx->err_extra[tidx] = ZSTD_getErrorName(extracted_byte_ct);
               new_err_info = (S_CAST(uint64_t, bidx) << 32) | (tidx << 16) | (S_CAST(uint32_t, kBgenImportErrSubtypeZstdDecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
               goto Bgen13DosageOrPhaseScanThread_err;
@@ -12151,7 +12156,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, grp->record_start, compressed_byte_ct);
             if (unlikely(extracted_byte_ct != uncompressed_byte_ct)) {
-              assert(ZSTD_isError(extracted_byte_ct));
+              if (!ZSTD_isError(extracted_byte_ct)) {
+                new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeUncompressedByteCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                goto Bgen13GenoToPgenThread_err;
+              }
               ctx->err_extra[tidx] = ZSTD_getErrorName(extracted_byte_ct);
               new_err_info = (S_CAST(uint64_t, bidx) << 32) | (tidx << 16) | (S_CAST(uint32_t, kBgenImportErrSubtypeZstdDecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
               goto Bgen13GenoToPgenThread_err;
