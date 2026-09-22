@@ -31,8 +31,8 @@ Authors@R: c(person(given = "Christopher",
                     role = c("ctb"),
                     comment = "Author of included Zstd library"))
 Description: A thin wrapper over 'PLINK' 2's core libraries which provides an R
-    interface for reading .pgen files.  A minimal .pvar loader is also
-    included.  Chang et al. (2015) <doi:10.1186/s13742-015-0047-8>.
+    interface for reading .pgen files.  A minimal .pvar loader and a basic
+    .pgen writer are also included.  Chang et al. (2015) <doi:10.1186/s13742-015-0047-8>.
 Encoding: UTF-8
 License: LGPL (>= 3)
 Copyright: This package includes sources of the libdeflate library owned by
