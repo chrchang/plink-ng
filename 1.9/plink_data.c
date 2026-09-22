@@ -13676,7 +13676,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_OPEN_FAIL;
     }
     if (delimiter == ' ') {
-      sample_delim_convert(unfiltered_sample_ct, sample_exclude, sample_ct, max_sample_id_len, '\t', ' ', sample_ids);
+      // sample_ids_collapsed is a private copy when the delimiter isn't a tab
+      if (bigstack_calloc_ul(sample_ctv2 / 2, &ulptr)) {
+	goto recode_ret_NOMEM;
+      }
+      sample_delim_convert(sample_ct, ulptr, sample_ct, max_sample_id_len, '\t', ' ', sample_ids_collapsed);
     } else {
       if (!(recode_modifier & RECODE_DELIMX)) {
 	delim2 = ' ';
@@ -13788,7 +13792,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	fflush(stdout);
       }
     }
-    sample_delim_convert(unfiltered_sample_ct, sample_exclude, sample_ct, max_sample_id_len, ' ', '\t', sample_ids);
   } else if (recode_modifier & (RECODE_A | RECODE_AD)) {
     memcpy(outname_end, ".raw", 5);
     if (bigstack_left() < ((uint64_t)unfiltered_sample_ct4) * marker_ct) {
