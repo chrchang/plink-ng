@@ -4237,7 +4237,13 @@ PglErr BcfHeaderLineIdxCheck(const char* line_iter, uint32_t header_line_idx) {
       logerrprintfww("Error: Line %u in BCF text header block has IDX= in the center instead of the end of the line; this is not currently supported by " PROG_NAME_STR ". Contact us if you need this to work.\n", header_line_idx);
       return kPglRetNotYetSupported;
     }
-    line_iter = AdvPastDelim(tag_start, '=');
+    // Don't let a key without '=' send the search past the end of the line
+    // (or of the header block).
+    line_iter = strchrnul_n(tag_start, '=');
+    if (unlikely(*line_iter != '=')) {
+      goto BcfHeaderLineIdxCheck_FAIL;
+    }
+    ++line_iter;
     if (*line_iter != '"') {
       line_iter = strchrnul_n(line_iter, ',');
       if (*line_iter == ',') {
