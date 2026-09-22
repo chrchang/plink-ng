@@ -5500,6 +5500,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     }
                   }
                   genovec_word >>= 2;
+                  sex_male_hw >>= 1;
                   multiallelic_hw >>= 1;
                 }
               }
