@@ -110,6 +110,8 @@ FLAGSET_DEF_START()
   // Report REF frequencies rather than major-allele frequencies, and name the
   // columns accordingly.
   kfFlipScanRefBased = (1 << 14),
+  // Compare signed D' between cases and controls instead of r.
+  kfFlipScanDprime = (1 << 15),
 
   kfFlipScanColChrom = (1 << 2),
   kfFlipScanColPos = (1 << 3),

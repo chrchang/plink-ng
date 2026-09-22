@@ -5498,7 +5498,7 @@ double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double
     lnlike = half_hethet_share * log(cross_sum);
   }
   if (adj_freq11 != 0.0) {
-    lnlike += prefer_fma(freq11, log(adj_freq11), lnlike);
+    lnlike = prefer_fma(freq11, log(adj_freq11), lnlike);
   }
   if (adj_freq12 != 0.0) {
     lnlike = prefer_fma(freq12, log(adj_freq12), lnlike);
@@ -16279,6 +16279,8 @@ typedef struct FlipScanCtxStruct {
   uint32_t window_size;
   uint32_t window_bp;
   uint32_t max_neg_ct;
+  // 'dprime': the per-pair statistic is signed D' rather than r.
+  uint32_t use_dprime;
 
   // Per-block work assignment.
   uint32_t phase;         // 0 = recode, 1 = correlate, 2 = tally
@@ -16302,9 +16304,9 @@ typedef struct FlipScanCtxStruct {
   uint32_t is_x;
   uint32_t is_fully_haploid;
 
-  // r for each (li, li + d) pair, d in [1, window_size), NaN when undefined.
-  // Computing each pair once and reading it from both endpoints halves the
-  // correlation work.
+  // r (or signed D', with 'dprime') for each (li, li + d) pair, d in
+  // [1, window_size), NaN when undefined.  Computing each pair once and
+  // reading it from both endpoints halves the correlation work.
   double* r_cache[2];
 
   FlipScanResult* results;
@@ -16336,6 +16338,57 @@ static double FlipScanR(const uintptr_t* first_genobuf, const VariantAggs* first
     return 0.0 / 0.0;
   }
   return cov12 / sqrt(denom);
+}
+
+// Signed D' between two variants, over the samples where both are nonmissing.
+// Haplotype frequencies are estimated from the unphased genotypes exactly the
+// way --r2-phased does it: the double heterozygotes are the only ambiguous
+// observations, and PhasedLD() picks the maximum-likelihood split of them.
+// The sign convention matches r's, so the same sign-flip test applies.
+static double FlipScanDprime(const uintptr_t* first_genobuf, const uintptr_t* second_genobuf, uint32_t subset_ctaw, uint32_t subset_ctl) {
+  const uintptr_t* hom0 = first_genobuf;
+  const uintptr_t* ref2het0 = &(first_genobuf[subset_ctaw]);
+  const uintptr_t* hom1 = second_genobuf;
+  const uintptr_t* ref2het1 = &(second_genobuf[subset_ctaw]);
+  // The allele counted below is the one that is not "0" in the hom/ref2het
+  // encoding (usually the dataset-wide minor allele), which is the one/two
+  // convention PhasedLD() and GenoBitvecPhasedDotprod() use.
+  uint32_t valid_obs_ct = 0;
+  uint32_t nalt_ct0 = 0;
+  uint32_t nalt_ct1 = 0;
+  uint32_t known_dotprod = 0;
+  uint32_t hethet_ct = 0;
+  for (uint32_t widx = 0; widx != subset_ctl; ++widx) {
+    const uintptr_t hom_word0 = hom0[widx];
+    const uintptr_t ref2het_word0 = ref2het0[widx];
+    const uintptr_t hom_word1 = hom1[widx];
+    const uintptr_t ref2het_word1 = ref2het1[widx];
+    const uintptr_t nm_word0 = hom_word0 | ref2het_word0;
+    const uintptr_t nm_word1 = hom_word1 | ref2het_word1;
+    const uintptr_t one_word0 = ref2het_word0 & (~hom_word0);
+    const uintptr_t two_word0 = hom_word0 & (~ref2het_word0);
+    const uintptr_t one_word1 = ref2het_word1 & (~hom_word1);
+    const uintptr_t two_word1 = hom_word1 & (~ref2het_word1);
+    valid_obs_ct += PopcountWord(nm_word0 & nm_word1);
+    nalt_ct0 += PopcountWord(one_word0 & nm_word1) + 2 * PopcountWord(two_word0 & nm_word1);
+    nalt_ct1 += PopcountWord(one_word1 & nm_word0) + 2 * PopcountWord(two_word1 & nm_word0);
+    known_dotprod += PopcountWord((one_word0 & two_word1) | (one_word1 & two_word0)) + 2 * PopcountWord(two_word0 & two_word1);
+    hethet_ct += PopcountWord(one_word0 & one_word1);
+  }
+  if (valid_obs_ct < 2) {
+    return 0.0 / 0.0;
+  }
+  double nmajsums_d[2];
+  nmajsums_d[0] = u31tod(nalt_ct0);
+  nmajsums_d[1] = u31tod(nalt_ct1);
+  double results[3];
+  uint32_t is_neg;
+  // A variant monomorphic within the group leaves D' undefined; the pair is
+  // skipped, as it is for r.
+  if (PhasedLD(nmajsums_d, u31tod(known_dotprod), u31tod(hethet_ct), 0.5 / u31tod(valid_obs_ct), 1, nullptr, results, &is_neg) != kLDErrNone) {
+    return 0.0 / 0.0;
+  }
+  return results[2];
 }
 
 // Splits the raw genotypes of local variants [start, end) into the two
@@ -16399,6 +16452,7 @@ static void FlipScanRecodeRange(FlipScanCtx* ctx, uintptr_t tidx, uint32_t start
 // Fills the r cache for local variants [start, end): each one against the up
 // to window_size - 1 variants after it.
 static void FlipScanCorrelateRange(FlipScanCtx* ctx, uint32_t start, uint32_t end) {
+  const uint32_t use_dprime = ctx->use_dprime;
   const uint32_t window_size = ctx->window_size;
   const uint32_t window_bp = ctx->window_bp;
   const uint32_t local_ct = ctx->local_ct;
@@ -16425,10 +16479,29 @@ static void FlipScanCorrelateRange(FlipScanCtx* ctx, uint32_t start, uint32_t en
           cur_cache[lj - li - 1] = 0.0 / 0.0;
           continue;
         }
-        cur_cache[lj - li - 1] = FlipScanR(&(genobufs[S_CAST(uintptr_t, li) * 2 * cur_ctaw]), &(vaggs[li]), &(genobufs[S_CAST(uintptr_t, lj) * 2 * cur_ctaw]), &(vaggs[lj]), ctx->subset_ct[is_case]);
+        const uintptr_t* first_genobuf = &(genobufs[S_CAST(uintptr_t, li) * 2 * cur_ctaw]);
+        const uintptr_t* second_genobuf = &(genobufs[S_CAST(uintptr_t, lj) * 2 * cur_ctaw]);
+        if (use_dprime) {
+          cur_cache[lj - li - 1] = FlipScanDprime(first_genobuf, second_genobuf, cur_ctaw, ctx->subset_ctl[is_case]);
+        } else {
+          cur_cache[lj - li - 1] = FlipScanR(first_genobuf, &(vaggs[li]), second_genobuf, &(vaggs[lj]), ctx->subset_ct[is_case]);
+        }
       }
     }
   }
+}
+
+// Whether a neighbor pair is strong enough to count toward POS_CT/NEG_CT.  The
+// r test is PLINK 1.9's: either group at or above the threshold.  D' needs
+// both, since it is unstable where LD is weak: a single empty haplotype cell
+// pins |D'| at 1 whatever the sign of D, so a pair near linkage equilibrium in
+// one group would otherwise pass on noise and read as a sign flip.  A genuine
+// strand flip only changes the sign, so |D'| is high in both groups anyway.
+HEADER_INLINE uint32_t FlipScanPairCounts(double ctrl_stat, double case_stat, double min_stat, uint32_t use_dprime) {
+  if (use_dprime) {
+    return (fabs(ctrl_stat) >= min_stat) && (fabs(case_stat) >= min_stat);
+  }
+  return (fabs(ctrl_stat) >= min_stat) || (fabs(case_stat) >= min_stat);
 }
 
 HEADER_INLINE double FlipScanCachedR(const FlipScanCtx* ctx, uint32_t is_case, uint32_t li, uint32_t lj) {
@@ -16447,6 +16520,7 @@ static void FlipScanRange(const FlipScanCtx* ctx, uint32_t index_start, uint32_t
   const uint32_t first_local = ctx->first_local;
   const uint32_t max_neg_ct = ctx->max_neg_ct;
   const double min_corr = ctx->min_corr;
+  const uint32_t use_dprime = ctx->use_dprime;
   for (uint32_t index_idx = index_start; index_idx != index_end; ++index_idx) {
     const uint32_t li = first_local + index_idx;
     uint32_t nbr_start = 0;
@@ -16469,7 +16543,7 @@ static void FlipScanRange(const FlipScanCtx* ctx, uint32_t index_start, uint32_t
       if ((ctrl_r != ctrl_r) || (case_r != case_r)) {
         continue;
       }
-      if ((fabs(ctrl_r) >= min_corr) || (fabs(case_r) >= min_corr)) {
+      if (FlipScanPairCounts(ctrl_r, case_r, min_corr, use_dprime)) {
         const double abs_sum = fabs(ctrl_r) + fabs(case_r);
         if (case_r * ctrl_r >= 0.0) {
           ++pos_ct;
@@ -17261,6 +17335,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       maj_alleles = nullptr;
     }
     const uint32_t output_zst = (ldip->flipscan_flags / kfFlipScanZs) & 1;
+    const uint32_t use_dprime = (ldip->flipscan_flags / kfFlipScanDprime) & 1;
 
     const uint32_t base_ctl = BitCtToWordCt(base_ct);
     const uint32_t base_ctl2 = NypCtToAlignedWordCt(base_ct);
@@ -17372,6 +17447,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     ctx.window_size = window_size;
     ctx.window_bp = window_bp;
     ctx.max_neg_ct = max_neg_ct;
+    ctx.use_dprime = use_dprime;
     ctx.results = results;
     ctx.neg_locals = neg_locals;
 
@@ -17444,13 +17520,21 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       cswritep = strcpya_k(cswritep, "\tPOS_CT");
     }
     if (col_rpos) {
-      cswritep = strcpya_k(cswritep, "\tR_POS");
+      if (use_dprime) {
+        cswritep = strcpya_k(cswritep, "\tDPRIME_POS");
+      } else {
+        cswritep = strcpya_k(cswritep, "\tR_POS");
+      }
     }
     if (col_negct) {
       cswritep = strcpya_k(cswritep, "\tNEG_CT");
     }
     if (col_rneg) {
-      cswritep = strcpya_k(cswritep, "\tR_NEG");
+      if (use_dprime) {
+        cswritep = strcpya_k(cswritep, "\tDPRIME_NEG");
+      } else {
+        cswritep = strcpya_k(cswritep, "\tR_NEG");
+      }
     }
     if (col_problem) {
       cswritep = strcpya_k(cswritep, "\tPROBLEM");
@@ -17485,7 +17569,11 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       if (col_alt) {
         cswritep_verbose = strcpya_k(cswritep_verbose, "\tALT_PAIR");
       }
-      cswritep_verbose = strcpya_k(cswritep_verbose, "\tR_CASE\tR_CTRL");
+      if (use_dprime) {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tD_PRIME_A\tD_PRIME_U");
+      } else {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tR_CASE\tR_CTRL");
+      }
       AppendBinaryEoln(&cswritep_verbose);
     }
 
@@ -17502,7 +17590,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       goto FlipScan_ret_NOMEM;
     }
     uint32_t blocks_left = total_block_ct;
-    logprintf("--flip-scan%s (%u compute thread%s).\n", verbose? " verbose" : "", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+    logprintf("--flip-scan%s%s (%u compute thread%s).\n", use_dprime? " dprime" : "", verbose? " verbose" : "", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
 
     uint32_t problem_ct = 0;
     const uint32_t chr_ct = cip->chr_ct;
@@ -17701,7 +17789,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
               if ((rr[0] != rr[0]) || (rr[1] != rr[1])) {
                 continue;
               }
-              if ((fabs(rr[0]) < min_corr) && (fabs(rr[1]) < min_corr)) {
+              if (!FlipScanPairCounts(rr[0], rr[1], min_corr, use_dprime)) {
                 continue;
               }
               const uint32_t other_uidx = local_uidxs[lj];
