@@ -7687,7 +7687,7 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "lip-scan") || strequal_k_unsafe(flagname_p2, "lipscan")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -7699,6 +7699,8 @@ int main(int argc, char** argv) {
               pc.ld_info.flipscan_flags |= kfFlipScanZs;
             } else if (strequal_k(cur_modif, "ref-allele-based", cur_modif_slen)) {
               pc.ld_info.flipscan_flags |= kfFlipScanRefBased;
+            } else if (strequal_k(cur_modif, "dprime", cur_modif_slen)) {
+              pc.ld_info.flipscan_flags |= kfFlipScanDprime;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (unlikely(pc.ld_info.flipscan_flags & kfFlipScanColAll)) {
                 logerrputs("Error: Multiple --flip-scan cols= modifiers.\n");
@@ -15360,6 +15362,11 @@ int main(int argc, char** argv) {
     }
     if (unlikely(pc.ld_info.flipscan_ref_freq_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
       logerrputs("Error: --flip-scan-ref-freq must be used with --flip-scan.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((pc.ld_info.flipscan_flags & kfFlipScanDprime) && (pc.ld_info.flipscan_ref_freq_fname || pc.ld_info.flipscan_ref_pgen_fname))) {
+      // The reference-based modes have no LD scan for D' to replace.
+      logerrputs("Error: --flip-scan 'dprime' cannot be used with --flip-scan-ref-freq,\n--flip-scan-ref-pfile, or --flip-scan-ref-bfile.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {

@@ -200,3 +200,72 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --maf
     echo "unknown phenotype name accepted"
     exit 1
 fi
+
+# 10. 'dprime': the LD scan on signed D' instead of r.  make_vcf.awk's blocks
+#     are built from two haplotypes, so their within-block D' is almost always
+#     +-1; make_vcf_dprime.awk draws from larger haplotype pools with some
+#     noise, so D' has to be estimated for real.
+awk -f make_vcf_dprime.awk > tmp_dp.vcf
+$BUILD/plink2 $EXTRA1 $EXTRA2 --vcf tmp_dp.vcf --double-id --make-bed --out tmp_dp
+awk 'BEGIN{OFS=" "} {print $1, $2, 0, 0, (NR % 2) + 1, (NR > 200)? 2 : 1}' tmp_dp.fam > tmp_dp_ped.fam
+mv tmp_dp_ped.fam tmp_dp.fam
+
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime verbose --out plink2_dp
+head -n 1 plink2_dp.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	CASE_MAJ_FREQ	CTRL_MAJ_FREQ	POS_CT	DPRIME_POS	NEG_CT	DPRIME_NEG	PROBLEM	NEG_IDS'
+head -n 1 plink2_dp.flipscan.verbose | grep -qx '#CHROM	ID_INDEX	POS_INDEX	ALT_INDEX	ID_PAIR	POS_PAIR	ALT_PAIR	D_PRIME_A	D_PRIME_U'
+
+# Every D' value against an independent computation: dprime_oracle.py fits
+# the haplotype frequencies by a direct likelihood search instead of plink2's
+# cubic solve.  Threshold 0 and the COMPAT settings put as many pairs as
+# possible in the verbose file, and 'ref-allele-based' codes every variant
+# against the same allele, as the --export A counts are.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime verbose ref-allele-based $COMPAT --flip-scan-threshold 0 --out plink2_dp0
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --export A --out tmp_dp_raw
+python3 dprime_oracle.py tmp_dp_raw.raw plink2_dp0.flipscan.verbose
+
+# |D'| agrees with --r2-phased's DPRIME on the cases alone.  (The sign is not
+# compared, since --r2-phased picks major alleles within the subset.)
+awk '$6 == 2 {print $1, $2}' tmp_dp.fam > tmp_dp_cases.txt
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --keep tmp_dp_cases.txt --r2-phased cols=+dprime --ld-window 10 --ld-window-r2 0 --out plink2_dp_r2
+awk -F '\t' '
+    FNR == NR {if (FNR > 1) {d = $8; if (d < 0) {d = -d}; dp[$3 "|" $6] = d; dp[$6 "|" $3] = d}; next}
+    FNR > 1 {
+        key = $2 "|" $5
+        if (!(key in dp)) {next}
+        d = $8; if (d < 0) {d = -d}
+        diff = d - dp[key]; if (diff < 0) {diff = -diff}
+        if (diff > 2e-5) {print "--r2-phased disagrees on " key ": " d " vs " dp[key]; exit 1}
+        ++matched
+    }
+    END {if (matched < 100) {print "only " matched " pairs compared"; exit 1}}' plink2_dp_r2.vcor plink2_dp0.flipscan.verbose
+
+# In D' mode a pair counts only when both groups reach the threshold, so every
+# verbose line does, and each variant's NEG_CT is the number of its verbose
+# lines with opposite signs.
+awk -F '\t' 'NR > 1 {a = ($8 < 0)? -$8 : $8; u = ($9 < 0)? -$9 : $9; if (a < 0.5 || u < 0.5) {print "below-threshold pair " $2 " " $5; exit 1}}' plink2_dp.flipscan.verbose
+awk -F '\t' '
+    FNR == NR {if (FNR > 1 && $8 * $9 < 0) {neg[$2]++}; next}
+    FNR > 1 && $10 > 0 {if (neg[$3] != $10) {print "NEG_CT " $10 " but " neg[$3] + 0 " sign-flipped verbose lines for " $3; exit 1}}' plink2_dp.flipscan.verbose plink2_dp.flipscan
+
+# The planted flips (every 9th variant; index = block * 12 + position) are all
+# found.
+awk -F '\t' 'NR > 1 {split(substr($3, 2), bv, "v"); idx = bv[1] * 12 + bv[2]; if (idx % 9 == 0 && $12 != "Y") {print "missed planted flip " $3; exit 1}}' plink2_dp.flipscan
+
+# 'dprime' changes the statistic columns and nothing before them.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan --out plink2_dp_r
+diff -q <(cut -f 1-7 plink2_dp_r.flipscan) <(cut -f 1-7 plink2_dp.flipscan)
+
+# Independent of --threads.
+for t in 1 3 8
+do
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime verbose --threads $t --out plink2_dp_t$t
+    diff -q plink2_dp.flipscan plink2_dp_t$t.flipscan
+    diff -q plink2_dp.flipscan.verbose plink2_dp_t$t.flipscan.verbose
+done
+
+# The reference-based modes have no LD scan, so 'dprime' is refused there.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --freq --out tmp_dp_panel
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime --flip-scan-ref-freq tmp_dp_panel.afreq --out plink2_bad > /dev/null 2>&1; then
+    echo "'dprime' accepted with --flip-scan-ref-freq"
+    exit 1
+fi
