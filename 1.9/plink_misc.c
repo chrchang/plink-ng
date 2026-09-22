@@ -1201,6 +1201,10 @@ int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_ht
       goto update_marker_alleles_ret_INVALID_FORMAT_2;
     }
     SET_BIT(marker_uidx, already_seen);
+    if (!next_token_mult(bufptr3, 4)) {
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of --update-alleles file has fewer tokens than expected.\n", line_idx);
+      goto update_marker_alleles_ret_INVALID_FORMAT_2;
+    }
     bufptr2 = skip_initial_spaces(bufptr2);
     len2 = strlen_se(bufptr2);
     bufptr = &(bufptr2[len2]);
