@@ -3931,8 +3931,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           // pvar_cswritep.
 
           // make sure POS starts with an integer, apply --output-chr setting
+          // (ScanUintDefcap() requires a nonspace first character, and POS
+          // may be empty here.)
           uint32_t cur_bp;
-          if (unlikely(ScanUintDefcap(pos_str, &cur_bp))) {
+          if (unlikely((ctou32(*pos_str) <= ' ') || ScanUintDefcap(pos_str, &cur_bp))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid POS on line %" PRIuPTR " of --vcf file.\n", line_idx);
             goto VcfToPgen_ret_MALFORMED_INPUT_2N;
           }
