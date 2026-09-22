@@ -3260,6 +3260,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (unlikely(reterr)) {
         goto VcfToPgen_ret_1;
       }
+      if (cip->output_infer) {
+        NoteChrCodeStyle(line_iter, chr_code_end - line_iter, cur_chr_code, cip);
+      }
       if (!IsSet(cip->chr_mask, cur_chr_code)) {
         ++variant_skip_ct;
         line_iter = info_end;
@@ -3444,6 +3447,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     } else {
       allele_idx_offsets = nullptr;
     }
+    // must happen before any chrtoa() call
+    InferChrOutputEncoding(cip);
 
     // Close file, then reopen with a smaller line-load buffer and (if bgzf)
     // reduce decompression thread count.  2 is good in the simplest cases
@@ -8148,6 +8153,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         if (unlikely(reterr)) {
           goto BcfToPgen_ret_1;
         }
+        if (cip->output_infer) {
+          NoteChrCodeStyle(contig_names[chrom], contig_slen, cur_chr_code, cip);
+        }
         SetBit(chrom, bcf_contig_seen);
         if (!IsSet(cip->chr_mask, cur_chr_code)) {
           continue;
@@ -8231,6 +8239,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           reterr = GetOrAddChrCode(contig_names[chrom], "--bcf file", 0, strlen(contig_names[chrom]), prohibit_extra_chr, cip, &cur_chr_code);
           if (unlikely(reterr)) {
             goto BcfToPgen_ret_1;
+          }
+          if (cip->output_infer) {
+            NoteChrCodeStyle(contig_names[chrom], strlen(contig_names[chrom]), cur_chr_code, cip);
           }
           SetBit(chrom, bcf_contig_seen);
           if (!IsSet(cip->chr_mask, cur_chr_code)) {
@@ -8539,6 +8550,23 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       BigstackFinalizeW(allele_idx_offsets, variant_ct + 1);
     } else {
       allele_idx_offsets = nullptr;
+    }
+    if (cip->output_infer) {
+      // Contig names were rendered before the output encoding was known.
+      InferChrOutputEncoding(cip);
+      contig_out_buf_iter = contig_out_buf;
+      for (uint32_t chrom = 0; chrom != contig_string_idx_end; ++chrom) {
+        if (!IsSet(bcf_contig_keep, chrom)) {
+          continue;
+        }
+        const uint32_t cur_chr_code = GetChrCode(contig_names[chrom], cip, contig_slens[chrom]);
+        if (cur_chr_code <= cip->max_code) {
+          char* rendered_chr_name = contig_out_buf_iter;
+          contig_out_buf_iter = chrtoa(cip, cur_chr_code, rendered_chr_name);
+          contig_out_names[chrom] = rendered_chr_name;
+          contig_out_slens[chrom] = contig_out_buf_iter - rendered_chr_name;
+        }
+      }
     }
 
     BigstackEndReset(bigstack_end_mark2);

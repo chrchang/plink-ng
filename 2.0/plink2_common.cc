@@ -1967,6 +1967,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
   // while the latter doesn't match any major resource.  no "chr" to reduce
   // file sizes and reduce the impact of this change.
   cip->output_encoding = kfChrOutputMT;
+  cip->output_infer = kfChrInfer0;
 
   cip->zero_extra_chrs = 0;
   cip->is_include_stack = 0;
@@ -2208,6 +2209,53 @@ char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encodi
     }
   }
   return buf;
+}
+
+void NoteChrCodeStyle(const char* chr_name, uint32_t name_slen, uint32_t chr_idx, ChrInfo* cip) {
+  // chr_idx == 0 is always rendered as '0', PAR1/PAR2 never get a 'chr'
+  // prefix, and contig names are never changed, so they tell us nothing.
+  if ((!chr_idx) || (chr_idx > cip->max_numeric_code)) {
+    return;
+  }
+  ChrInfer infer_flags = cip->output_infer;
+  // GetChrCodeRaw() only accepts a leading 'c'/'C' as part of a 'chr' prefix.
+  if ((ctou32(chr_name[0]) & 0xdf) == 'C') {
+    infer_flags |= kfChrInferPrefix;
+  } else {
+    infer_flags |= kfChrInferNoPrefix;
+  }
+  if (chr_idx > cip->autosome_ct) {
+    const uint32_t last_char_code = ctou32(chr_name[name_slen - 1]);
+    if (IsDigit(last_char_code)) {
+      infer_flags |= kfChrInferNumeric;
+    } else {
+      infer_flags |= kfChrInferLetter;
+      if (chr_idx == cip->xymt_codes[kChrOffsetMT]) {
+        infer_flags |= ((last_char_code & 0xdf) == 'T')? kfChrInferMT : kfChrInferM;
+      }
+    }
+  }
+  cip->output_infer = infer_flags;
+}
+
+void InferChrOutputEncoding(ChrInfo* cip) {
+  const ChrInfer infer_flags = cip->output_infer;
+  if (!infer_flags) {
+    return;
+  }
+  // Each part of the encoding is inferred separately; if the input is
+  // inconsistent or uninformative, we fall back on the default for that part.
+  ChrOutput output_encoding = kfChrOutputMT;
+  if ((infer_flags & (kfChrInferNumeric | kfChrInferLetter)) == kfChrInferNumeric) {
+    output_encoding = kfChrOutput0;
+  } else if ((infer_flags & (kfChrInferM | kfChrInferMT)) == kfChrInferM) {
+    output_encoding = kfChrOutputM;
+  }
+  if ((infer_flags & (kfChrInferPrefix | kfChrInferNoPrefix)) == kfChrInferPrefix) {
+    output_encoding |= kfChrOutputPrefix;
+  }
+  cip->output_encoding = output_encoding;
+  cip->output_infer = kfChrInferOn;
 }
 
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf) {

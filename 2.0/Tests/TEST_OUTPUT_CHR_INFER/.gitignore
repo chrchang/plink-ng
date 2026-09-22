@@ -1,0 +1,4 @@
+plink2_*
+tmp_*
+*.log
+!run_tests.sh

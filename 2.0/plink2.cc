@@ -11940,8 +11940,12 @@ int main(int argc, char** argv) {
             chr_info.output_encoding = kfChrOutputPrefix | kfChrOutputM;
           } else if (strequal_k(mt_code, "chrMT", code_slen)) {
             chr_info.output_encoding = kfChrOutputPrefix | kfChrOutputMT;
-          } else if (likely(strequal_k(mt_code, "26", code_slen))) {
+          } else if (strequal_k(mt_code, "26", code_slen)) {
             chr_info.output_encoding = kfChrOutput0;
+          } else if (likely(strequal_k(mt_code, "infer", code_slen))) {
+            // output_encoding stays at the default until it's inferred from
+            // the input.
+            chr_info.output_infer = kfChrInferOn;
           } else {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-chr argument '%s'.\n", mt_code);
             goto main_ret_INVALID_CMDLINE_WWA;
