@@ -8169,7 +8169,10 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   dosage_incr_lookup_table[2] = dosage_incr_lookup_table[1] + geno_incr;
                   dosage_incr_lookup_table[3] = 0.0;
                   if (!no_meanimpute) {
-                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope;
+                    // bugfix (22 Sep 2026): mean-imputed genotypes need
+                    // geno_intercept too, or 'center' and
+                    // 'variance-standardize' leave them uncentered.
+                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope + geno_intercept;
                   }
                   if (se_mode) {
                     for (uint32_t uii = 0; uii != 4; ++uii) {
@@ -8322,7 +8325,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (!domrec) {
               missing_effect *= 2;
             }
-            lookup_table[6] = missing_effect;
+            lookup_table[6] = missing_effect + geno_intercept;
           }
           if (se_mode) {
             lookup_table[0] *= lookup_table[0];
@@ -8350,7 +8353,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                   do {
                     const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonfemale_bits);
-                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                     cur_missing_nonfemale_bits &= cur_missing_nonfemale_bits - 1;
                   } while (cur_missing_nonfemale_bits);
                 }
@@ -8367,7 +8370,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_male_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                       cur_missing_male_bits &= cur_missing_male_bits - 1;
                     } while (cur_missing_male_bits);
                   }
@@ -8382,7 +8385,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonmale_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                       cur_missing_nonmale_bits &= cur_missing_nonmale_bits - 1;
                     } while (cur_missing_nonmale_bits);
                   }
@@ -8391,6 +8394,9 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             } else {
               const double ploidy_d = ploidy_m1s[vidx]? 2.0 : 1.0;
               missing_effect *= ploidy_d;
+              if (!no_meanimpute) {
+                missing_effect += geno_intercept;
+              }
               uintptr_t shard_sample_idx_base = 0;
               uintptr_t missing_bits = missing_bitvec_iter[0];
               for (uint32_t missing_idx = 0; missing_idx != shard_missing_ct; ++missing_idx) {
