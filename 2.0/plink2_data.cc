@@ -2598,12 +2598,15 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               uint64_t alt1_ddosage_sq_sum = 0;
               uint32_t additional_dosage_ct = 0;
               if (dosage_is_relevant) {
-                uintptr_t sample_widx = 0;
+                // bugfix (22 Sep 2026): this must skip females, since
+                // genocounts[] only covers nonfemales, and sample_uidx was
+                // never advanced, so every dosage was paired with sample 0's
+                // hardcall.
+                uintptr_t sample_uidx_base = 0;
                 uintptr_t dosage_present_bits = pgv.dosage_present[0];
-                uint32_t sample_uidx = 0;
                 for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ++dosage_idx) {
-                  const uintptr_t lowbit = BitIter1y(pgv.dosage_present, &sample_widx, &dosage_present_bits);
-                  if (sample_include[sample_widx] & lowbit) {
+                  const uintptr_t sample_uidx = BitIter1(pgv.dosage_present, &sample_uidx_base, &dosage_present_bits);
+                  if (IsSet(sex_nonfemale, sample_uidx)) {
                     const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                     alt1_ddosage += cur_dosage_val;
                     alt1_ddosage_sq_sum += cur_dosage_val * cur_dosage_val;

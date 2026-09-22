@@ -213,4 +213,9 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_CHRY_DOSAGE_FREQ
+./run_tests.sh $d $2 $3 > TEST_CHRY_DOSAGE_FREQ.log
+cd ..
+echo "TEST_CHRY_DOSAGE_FREQ passed."
+
 echo "All tests passed."
