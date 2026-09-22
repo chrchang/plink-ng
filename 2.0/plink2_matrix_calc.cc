@@ -2580,9 +2580,12 @@ PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const
               const uint32_t singleton_hom2_ct = singleton_hom_cts[sample_idx2];
               const uint32_t ibs0_ct = results_iter[kKingOffsetIbs0] + singleton_hom2_ct + singleton_hom1_ct;
               const uint32_t hethet_ct = results_iter[kKingOffsetHethet];
-              // '2' here refers to the larger index, so this is swapped
-              const uint32_t het2hom1_ct = results_iter[kKingOffsetHet2Hom1] + singleton_het1_ct;
-              const uint32_t het1hom2_ct = results_iter[kKingOffsetHet1Hom2] + singleton_het2_ct;
+              // '2' in the kKingOffset constants refers to the larger index,
+              // i.e. sample_idx1 (IID1) here, so this is swapped.
+              // bugfix (22 Sep 2026): the swap was missing, so the
+              // HET1_HOM2 and HET2_HOM1 columns were exchanged.
+              const uint32_t het2hom1_ct = results_iter[kKingOffsetHet1Hom2] + singleton_het2_ct;
+              const uint32_t het1hom2_ct = results_iter[kKingOffsetHet2Hom1] + singleton_het1_ct;
               const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
               const double kinship_coeff = 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
               if (kinship_table && (kinship_coeff > king_cutoff)) {
