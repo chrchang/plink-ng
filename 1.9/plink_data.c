@@ -12329,7 +12329,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   } else if (recode_modifier & (RECODE_LIST | RECODE_RLIST)) {
     // --list:
-    // 3 for chromosome and delim
+    // max chromosome name length, + 1 for delim
     // + max_marker_id_len
     // + 3, or (2 * max_marker_allele_len - 1)
     // + sample_ct * max_sample_id_len + 1
@@ -12346,6 +12346,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
     if (rlist) {
       ulii += 2;
+    } else {
+      ulii += get_max_chrom_slen(chrom_info_ptr) - 2;
     }
     if (bigstack_alloc_c(ulii * 4, &writebuf)) {
       goto recode_ret_NOMEM;
