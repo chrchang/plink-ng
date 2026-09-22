@@ -3083,6 +3083,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                           Options are '26', 'M', 'MT', '0M', 'chr26', 'chrM',\n"
 "                           and 'chrMT'; default is now 'MT' (note that this is\n"
 "                           a change from PLINK 1.x, which defaulted to '26').\n"
+"                           'infer' follows the style of the chromosome codes\n"
+"                           in the .pvar/.bim/VCF/BCF input instead: the 'chr'\n"
+"                           prefix is kept iff every standard code has it,\n"
+"                           X/Y/XY/MT codes are numeric iff the input's are,\n"
+"                           and 'M' replaces 'MT' iff the input spells it that\n"
+"                           way.  Inconsistent or absent evidence (e.g. no MT\n"
+"                           variants, or another input format) leaves the\n"
+"                           default in place.\n"
                );
     HelpPrint("output-missing-genotype\0output-missing-phenotype\0missing-genotype\0missing-phenotype\0", &help_ctrl, 0,
 "  --output-missing-genotype <ch> : Set the code used to represent missing\n"

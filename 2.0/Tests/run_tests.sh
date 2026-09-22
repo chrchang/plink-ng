@@ -213,4 +213,9 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_OUTPUT_CHR_INFER
+./run_tests.sh $d $2 $3 > TEST_OUTPUT_CHR_INFER.log
+cd ..
+echo "TEST_OUTPUT_CHR_INFER passed."
+
 echo "All tests passed."

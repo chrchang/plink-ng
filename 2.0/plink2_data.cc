@@ -10473,6 +10473,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
     write_chr_info.incl_excl_name_stack = K_CAST(LlStr*, cip->incl_excl_name_stack);
     write_chr_info.is_include_stack = cip->is_include_stack;
     write_chr_info.output_encoding = cip->output_encoding;
+    write_chr_info.output_infer = cip->output_infer;
 
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     uint32_t* chr_idx_to_size;
