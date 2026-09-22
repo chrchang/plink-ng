@@ -252,7 +252,6 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   uint32_t adjust_gc = (mtest_adjust & ADJUST_GC) && (!skip_gc);
   uint32_t output_min_p_strlen = 11;
   uint32_t uii = 0;
-  uint32_t* new_tcnt = nullptr;
   double* unadj = nullptr;
   char output_min_p_str[16];
   uint32_t pct;
@@ -295,9 +294,6 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       }
     }
   } else if (tcnt) {
-    if (bigstack_alloc_ui(chi_ct, &new_tcnt)) {
-      goto multcomp_ret_NOMEM;
-    }
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
       ujj = tcnt[cur_idx];
       if (ujj) {
@@ -305,9 +301,10 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	dyy = calc_tprob(dxx, ujj);
 	if (dyy > -1) {
 	  sp[uii] = dyy;
-	  new_order[uii] = marker_uidxs[cur_idx];
+	  // original index for now, so the GC-adjusted p-value can be computed
+	  // with the right df; converted to marker_uidx below
+	  new_order[uii] = cur_idx;
 	  schi[uii] = dxx * dxx;
-	  new_tcnt[uii] = ujj;
 	  uii++;
 	}
       }
@@ -334,17 +331,11 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   if (qsort_ext((char*)sp, chi_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)new_order, sizeof(int32_t))) {
     goto multcomp_ret_NOMEM;
   }
-  if (tcnt) {
-    if (qsort_ext((char*)schi, chi_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)new_tcnt, sizeof(int32_t))) {
-      goto multcomp_ret_NOMEM;
-    }
-  } else {
 #ifdef __cplusplus
-    std::sort(schi, &(schi[chi_ct]));
+  std::sort(schi, &(schi[chi_ct]));
 #else
-    qsort(schi, chi_ct, sizeof(double), double_cmp);
+  qsort(schi, chi_ct, sizeof(double), double_cmp);
 #endif
-  }
   dct = chi_ct;
 
   // get lambda...
@@ -381,9 +372,13 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   }
   uii = chi_ct;
   if (tcnt) {
+    // t-statistic order need not match p-value order when df varies, so
+    // this can't be read off the sorted schi[] array
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-      uii--;
-      pv_gc[cur_idx] = calc_tprob(sqrt(schi[uii] * lambda_recip), new_tcnt[uii]);
+      uii = new_order[cur_idx];
+      dxx = chi[uii];
+      pv_gc[cur_idx] = calc_tprob(sqrt(dxx * dxx * lambda_recip), tcnt[uii]);
+      new_order[cur_idx] = marker_uidxs[uii];
     }
   } else {
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
