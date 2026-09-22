@@ -3902,15 +3902,16 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
+	  // IBS of a sample with itself is 1, in square0 as in square
+	  if (fwrite_checked(&dyy, sizeof(double), *outfile2_ptr)) {
+	    goto distance_d_write_ret_WRITE_FAIL;
+	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(double), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii - 1) * sizeof(double), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
-	    if (fwrite_checked(&dyy, sizeof(double), *outfile2_ptr)) {
-	      goto distance_d_write_ret_WRITE_FAIL;
-	    }
 	    for (ulii = ii + 1; ulii < sample_ct; ulii++) {
 	      dxx = 1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip;
 	      if (fwrite_checked(&dxx, sizeof(double), *outfile2_ptr)) {
@@ -4017,15 +4018,15 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
+	  if (fwrite_checked(&fyy, sizeof(float), *outfile2_ptr)) {
+	    goto distance_d_write_ret_WRITE_FAIL;
+	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(float), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii - 1) * sizeof(float), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
-	    if (fwrite_checked(&fyy, sizeof(float), *outfile2_ptr)) {
-	      goto distance_d_write_ret_WRITE_FAIL;
-	    }
 	    for (ulii = ii + 1; ulii < sample_ct; ulii++) {
 	      fxx = (float)(1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip);
 	      fwrite(&fxx, 4, 1, *outfile2_ptr);
