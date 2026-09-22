@@ -13408,7 +13408,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 chr_name_slen = snpid_slen;
               }
               chr_name_start[chr_name_slen] = '\0';
-              cur_chr_code = GetChrCode(chr_name_start, cip, chr_name_slen);
+              // The first pass stops early once it has found a dosage, so it
+              // may not have seen (and registered) this chromosome name.
+              reterr = GetOrAddChrCode(chr_name_start, "--bgen file", 0, chr_name_slen, prohibit_extra_chr, cip, &cur_chr_code);
+              if (unlikely(reterr)) {
+                goto OxBgenToPgen_ret_1;
+              }
               skip |= !IsSet(cip->chr_mask, cur_chr_code);
             }
 
