@@ -5372,7 +5372,7 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
 	}
 	sptr_cur = memcpya(sptr_cur, wbuf, wbuf_ct);
 	sptr_cur = uint32toa_x(++new_col, '\t', sptr_cur);
-	if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+	if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != 1) || (fread(&fyy, sizeof(float), 1, in_binfile) != 1)) {
 	  // can't use return code here
 	  putc_unlocked('\n', stdout);
 	  fflush(stdout);
@@ -5896,13 +5896,13 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 		    break;
 		  }
 		}
-		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
+		fseeko(in_binfile, (col - uii) * sizeof(float), SEEK_CUR);
 		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
 		if (col > row) {
 		  break;
 		}
 	      }
-	      if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+	      if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != 1) || (fread(&fyy, sizeof(float), 1, in_binfile) != 1)) {
 		goto rel_cutoff_batch_ret_READ_FAIL;
 	      }
 	      fwrite(&fxx, 4, 1, out_bin_nfile);
