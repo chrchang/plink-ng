@@ -13721,7 +13721,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	wbufptr = &(marker_ids[marker_uidx * max_marker_id_len]);
 	cptr = strcpya(&(writebuf[1]), wbufptr);
-	cptr = memseta(cptr, delimiter, 2);
+	*cptr++ = delimiter;
 	ulii = (uintptr_t)(cptr - writebuf);
 	alen = 2 * max_marker_allele_len + ulii;
 	cur_mk_allelesx[0] = cptr;
