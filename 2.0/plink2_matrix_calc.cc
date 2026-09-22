@@ -788,6 +788,9 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingCutoffBatchTable_ret_MISSING_TOKENS;
+      }
       uint32_t sample_idx2;
       if (SortedXidboxReadFind(sorted_xidbox, xid_cmap, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_idx2, idbuf)) {
         if (unlikely(!linebuf_iter)) {
@@ -3093,6 +3096,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingTableSubsetLoad_ret_MISSING_TOKENS;
+      }
       if (rel_or_concordance_check) {
         // linebuf_iter must point to the start of the second FID, while
         // line_iter points to the start of the first.
@@ -3190,7 +3196,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
     reterr = kPglRetMalformedInput;
     break;
   KingTableSubsetLoad_ret_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    logerrprintfww("Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
   KingTableSubsetLoad_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
