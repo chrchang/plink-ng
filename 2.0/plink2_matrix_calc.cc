@@ -9579,8 +9579,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 } else {
                   GenoarrCountFreqsUnsafe(genovec_iter, sample_ct, genocounts);
                 }
-                if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: --score[-list] variance-standardize failure for variant '%s': estimated allele frequency is zero or NaN, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
+                // bugfix (22 Sep 2026): the scored allele may be fixed
+                // instead (e.g. the REF allele of a variant with no ALT
+                // call), in which case every genotype must carry two copies
+                // of it.
+                const uint32_t fixed_geno = (cur_allele_freq > 0.5)? 2 : 0;
+                if (unlikely(dosage_ct || genocounts[1] || genocounts[2 - fixed_geno])) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --score[-list] variance-standardize failure for variant '%s': estimated allele frequency is %s, but not all dosages are %s. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx], fixed_geno? "one" : "zero or NaN", fixed_geno? "two" : "zero");
                   goto ScoreReport_ret_DEGENERATE_DATA_WW;
                 }
                 geno_slope = 0.0;
