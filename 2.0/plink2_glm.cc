@@ -2431,7 +2431,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     // common linear/logistic initialization
     const GlmFlags glm_flags = glm_info_ptr->flags;
     if (glm_info_ptr->mnl_ref_flattened) {
-      // Every --mnl-ref entry must name a loaded categorical phenotype.
+      // Every --mnl-ref entry must name a loaded categorical phenotype and one
+      // of its categories; check them all before fitting anything.  Entries
+      // are split at their first '=', as in the parser and MnlRefCatname().
       for (const char* entry_iter = glm_info_ptr->mnl_ref_flattened; *entry_iter; ) {
         const char* eq_ptr = strchr(entry_iter, '=');
         const uint32_t pheno_name_slen = eq_ptr - entry_iter;
@@ -2447,11 +2449,29 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           snprintf(g_logbuf, kLogbufSize, "Error: --mnl-ref: There is no phenotype named '%.*s'.\n", pheno_name_slen, entry_iter);
           goto GlmMain_ret_INCONSISTENT_INPUT_WW;
         }
-        if (unlikely(pheno_cols[pheno_uidx].type_code != kPhenoDtypeCat)) {
+        const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
+        if (unlikely(cur_pheno_col->type_code != kPhenoDtypeCat)) {
           snprintf(g_logbuf, kLogbufSize, "Error: --mnl-ref: phenotype '%.*s' is not categorical.\n", pheno_name_slen, entry_iter);
           goto GlmMain_ret_INCONSISTENT_INPUT_WW;
         }
-        entry_iter = &(eq_ptr[strlen(eq_ptr) + 1]);
+        const char* catname = &(eq_ptr[1]);
+        const uint32_t nonnull_cat_ct = cur_pheno_col->nonnull_category_ct;
+        uint32_t cat_idx = 1;
+        for (; cat_idx <= nonnull_cat_ct; ++cat_idx) {
+          if (!strcmp(cur_pheno_col->category_names[cat_idx], catname)) {
+            break;
+          }
+        }
+        if (unlikely(cat_idx > nonnull_cat_ct)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --mnl-ref: category '%s' is not present in phenotype '%.*s'.\n", catname, pheno_name_slen, entry_iter);
+          goto GlmMain_ret_INCONSISTENT_INPUT_WW;
+        }
+        entry_iter = &(catname[strlen(catname) + 1]);
+      }
+      // Multinomial reports always have several rows per variant.
+      if (unlikely(!(glm_info_ptr->cols & kfGlmColTest))) {
+        logerrputs("Error: --glm's 'test' column cannot be omitted for multinomial logistic\nregression (--mnl-ref), which always reports several rows per variant.\n");
+        goto GlmMain_ret_INCONSISTENT_INPUT;
       }
       const char* unsupported_str = nullptr;
       if (glm_flags & kfGlmGenotypic) {
@@ -3785,6 +3805,15 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
           logprintfww("--glm: Skipping categorical phenotype '%s' since it has only one category among the remaining samples.\n", cur_pheno_name);
+          continue;
+        }
+        // The model has (cat_ct - 1) coefficients per predictor.
+        if (sample_ct <= (cat_ct - 1) * biallelic_predictor_ct) {
+          if (unlikely(!skip_invalid_pheno)) {
+            logerrprintfww("Error: # samples <= # model parameters for --glm phenotype '%s'.\n", cur_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
+          logprintfww("Note: Skipping --glm regression on phenotype '%s' since # samples <= # model parameters.\n", cur_pheno_name);
           continue;
         }
       } else {

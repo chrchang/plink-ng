@@ -10929,6 +10929,7 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mnl-ref argument '%s' (expected <phenotype name>=<reference category>).\n", cur_arg);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+            // split at the first '=', as in GlmMain() and MnlRefCatname()
             const uint32_t pheno_name_slen = eq_ptr - cur_arg;
             for (uint32_t param_idx2 = 1; param_idx2 != param_idx; ++param_idx2) {
               const char* prev_arg = argvk[arg_idx + param_idx2];

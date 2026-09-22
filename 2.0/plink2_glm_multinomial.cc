@@ -37,13 +37,15 @@ const char* MnlRefCatname(const char* mnl_ref_flattened, const char* pheno_name)
   if (!mnl_ref_flattened) {
     return nullptr;
   }
+  // Each entry is split at its first '=', as in the --mnl-ref parser and
+  // GlmMain(); a phenotype whose name contains '=' can't be named.
   const uint32_t pheno_name_slen = strlen(pheno_name);
   for (const char* entry_iter = mnl_ref_flattened; *entry_iter; ) {
-    const uint32_t entry_slen = strlen(entry_iter);
-    if ((entry_slen > pheno_name_slen) && (entry_iter[pheno_name_slen] == '=') && memequal(entry_iter, pheno_name, pheno_name_slen)) {
-      return &(entry_iter[pheno_name_slen + 1]);
+    const char* eq_ptr = strchr(entry_iter, '=');
+    if ((S_CAST(uintptr_t, eq_ptr - entry_iter) == pheno_name_slen) && memequal(entry_iter, pheno_name, pheno_name_slen)) {
+      return &(eq_ptr[1]);
     }
-    entry_iter = &(entry_iter[entry_slen + 1]);
+    entry_iter = &(eq_ptr[strlen(eq_ptr) + 1]);
   }
   return nullptr;
 }
@@ -187,7 +189,10 @@ void MnlSyrk(const double* zz, uint32_t dim, uint32_t col_ct, uint32_t stride, d
     const double* zz_row = &(zz[row_idx * stride]);
     double* gg_row = &(gg[row_idx * dim]);
     for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
-      gg_row[col_idx] = beta * gg_row[col_idx] + DotprodD(zz_row, &(zz[col_idx * stride]), col_ct);
+      const double dotprod = DotprodD(zz_row, &(zz[col_idx * stride]), col_ct);
+      // Like cblas_dsyrk(), don't read gg when beta is zero: it may be
+      // uninitialized.
+      gg_row[col_idx] = (beta == 0.0)? dotprod : (beta * gg_row[col_idx] + dotprod);
     }
   }
 #else
@@ -535,6 +540,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsMnl(const uintptr_t* sample_include, const
   MnlSolverBufs bufs;
   CarveMnlSolverBufs(sample_ct, null_predictor_ct, nonref_cat_ct, &arena_iter, &bufs);
   FillDVec(sample_ct, 1.0, xx);
+  ZeroDArr(sample_ctav - sample_ct, &(xx[sample_ct]));
   for (uintptr_t covar_idx = 0; covar_idx != new_covar_ct; ++covar_idx) {
     double* xx_row = &(xx[(covar_idx + 1) * sample_ctav]);
     memcpy(xx_row, &(mnl_set_ptr->covars_cmaj[covar_idx * sample_ct]), sample_ct * sizeof(double));
@@ -748,6 +754,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           // covariates are: its length changes with the missing-call count.
           if (missing_ct || (!prev_nm)) {
             FillDVec(nm_sample_ct, 1.0, xx);
+            ZeroDArr(nm_sample_ct_rem, &(xx[nm_sample_ct]));
             if (!missing_ct) {
               memcpy(nm_cats, cur_pheno_cats, cur_sample_ct * sizeof(int32_t));
               for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
@@ -867,7 +874,9 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           block_aux_iter->a1_dosage = a1_dosage;
           block_aux_iter->mach_r2 = mach_r2;
 
-          if (nm_sample_ct <= predictor_ct) {
+          // The model has (cat_ct - 1) * predictor_ct parameters; reported
+          // with the existing SAMPLE_CT<=PREDICTOR_CT code.
+          if (nm_sample_ct <= param_ct) {
             glm_err = SetGlmErr0(kGlmErrcodeSampleCtLtePredictorCt);
             goto GlmMultinomialThread_skip_regression;
           }
@@ -1036,10 +1045,8 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
     const uint32_t hide_covar = (glm_flags / kfGlmHideCovar) & 1;
     const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
     const GlmColFlags glm_cols = glm_info_ptr->cols;
-    if (unlikely(!(glm_cols & kfGlmColTest))) {
-      logerrputs("Error: --glm's 'test' column cannot be omitted for multinomial logistic\nregression, which always reports several rows per variant.\n");
-      goto GlmMultinomial_ret_INCONSISTENT_INPUT;
-    }
+    // checked up front by GlmMain()
+    assert(glm_cols & kfGlmColTest);
 
     // Per sample set: nonreference category count, reported tests per
     // category, and the omnibus test's name.
@@ -1620,9 +1627,6 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
     break;
   GlmMultinomial_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
-    break;
-  GlmMultinomial_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetInconsistentInput;
     break;
   GlmMultinomial_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;

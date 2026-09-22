@@ -140,17 +140,26 @@ awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { if ($i == "ERRCODE") { e = i 
      { ++n; if ($e != "MULTIALLELIC_UNSUPPORTED") { print "unexpected errcode " $e; exit 1 } }
      END { if (n != 16) { print "expected 16 rows, got " n; exit 1 } }' tmp_multi.PH4.glm.multinomial
 
-# 5b. Invalid usage.  Each of these must fail with the expected message.
+# 5b. Invalid usage.  Each of these must fail with the expected message, before
+#     any regression output is written.
 expect_error() {
     local msg="$1"
     shift
+    rm -f tmp_err.*
     if $plink2 --pfile tmp_data --pheno tmp_pheno.txt --covar tmp_covar.txt "$@" --out tmp_err > /dev/null; then
         echo "expected failure: $*"
         exit 1
     fi
     grep -q -- "$msg" tmp_err.log
+    if ls tmp_err.*.glm.* > /dev/null 2>&1; then
+        echo "output left behind: $*"
+        exit 1
+    fi
 }
 expect_error "category 'purple' is not present" --pheno-name PH4 --glm --mnl-ref PH4=purple
+# every reference category is checked before the first phenotype is fitted
+expect_error "category 'typo' is not present" --pheno-name PH4 B2 --glm --mnl-ref PH4=blue B2=typo
+expect_error "'test' column cannot be omitted" --pheno-name PH4 --glm cols=-test --mnl-ref PH4=blue
 expect_error "no phenotype named 'NOPE'" --pheno-name PH4 --glm --mnl-ref NOPE=blue
 expect_error "phenotype 'QT' is not categorical" --glm --mnl-ref QT=blue
 expect_error "phenotype 'PH4' appears more than once" --pheno-name PH4 --glm --mnl-ref PH4=blue PH4=red
