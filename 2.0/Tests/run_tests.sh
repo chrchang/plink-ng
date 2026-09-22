@@ -213,4 +213,9 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_BGEN_REF_FIRST_PHASE
+./run_tests.sh $d $2 $3 > TEST_BGEN_REF_FIRST_PHASE.log
+cd ..
+echo "TEST_BGEN_REF_FIRST_PHASE passed."
+
 echo "All tests passed."
