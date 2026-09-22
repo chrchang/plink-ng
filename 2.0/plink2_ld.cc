@@ -5498,7 +5498,7 @@ double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double
     lnlike = half_hethet_share * log(cross_sum);
   }
   if (adj_freq11 != 0.0) {
-    lnlike += prefer_fma(freq11, log(adj_freq11), lnlike);
+    lnlike = prefer_fma(freq11, log(adj_freq11), lnlike);
   }
   if (adj_freq12 != 0.0) {
     lnlike = prefer_fma(freq12, log(adj_freq12), lnlike);
