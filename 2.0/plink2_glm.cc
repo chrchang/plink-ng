@@ -35,6 +35,7 @@
 #include "plink2_decompress.h"
 #include "plink2_glm_linear.h"
 #include "plink2_glm_logistic.h"
+#include "plink2_glm_multinomial.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -55,6 +56,7 @@ void InitGlm(GlmInfo* glm_info_ptr) {
   glm_info_ptr->condition_list_fname = nullptr;
   InitRangeList(&(glm_info_ptr->parameters_range_list));
   InitRangeList(&(glm_info_ptr->tests_range_list));
+  glm_info_ptr->mnl_ref_flattened = nullptr;
 }
 
 void CleanupGlm(GlmInfo* glm_info_ptr) {
@@ -62,6 +64,7 @@ void CleanupGlm(GlmInfo* glm_info_ptr) {
   free_cond(glm_info_ptr->condition_list_fname);
   CleanupRangeList(&(glm_info_ptr->parameters_range_list));
   CleanupRangeList(&(glm_info_ptr->tests_range_list));
+  free_cond(glm_info_ptr->mnl_ref_flattened);
 }
 
 void InitGwasSsf(GwasSsfInfo* gwas_ssf_info_ptr) {
@@ -2195,6 +2198,8 @@ void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const ch
     snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since covariate-only logistic regression failed to converge, and Firth-fallback was disabled.\n", msg_start, domain_str, pheno_name);
   } else if (errcode == kGlmErrcodeFirthConvergeFail) {
     snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since covariate-only Firth regression failed to converge.\n", msg_start, domain_str, pheno_name);
+  } else if (errcode == kGlmErrcodeMnlConvergeFail) {
+    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since covariate-only multinomial logistic regression failed to converge. (This usually means that, for some covariate level, a phenotype category has no samples.)\n", msg_start, domain_str, pheno_name);
   } else {
     const char* covar_name1 = covar_names[GetGlmErrArg1(glm_err) + local_covar_ct];
     if (errcode == kGlmErrcodeVifTooHigh) {
@@ -2409,8 +2414,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   GlmCtx common;
   GlmLogisticCtx logistic_ctx;
   GlmLinearCtx linear_ctx;
+  GlmMultinomialCtx multinomial_ctx;
   logistic_ctx.common = &common;
   linear_ctx.common = &common;
+  multinomial_ctx.common = &common;
   {
     if (unlikely(!pheno_ct)) {
       logerrputs("Error: No phenotypes loaded.\n");
@@ -2423,6 +2430,58 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     assert(orig_variant_ct);
     // common linear/logistic initialization
     const GlmFlags glm_flags = glm_info_ptr->flags;
+    if (glm_info_ptr->mnl_ref_flattened) {
+      // Every --mnl-ref entry must name a loaded categorical phenotype.
+      for (const char* entry_iter = glm_info_ptr->mnl_ref_flattened; *entry_iter; ) {
+        const char* eq_ptr = strchr(entry_iter, '=');
+        const uint32_t pheno_name_slen = eq_ptr - entry_iter;
+        // (a name at least max_pheno_name_blen long can't match)
+        uint32_t pheno_uidx = (pheno_name_slen < max_pheno_name_blen)? 0 : pheno_ct;
+        for (; pheno_uidx != pheno_ct; ++pheno_uidx) {
+          const char* cur_pheno_name = &(pheno_names[pheno_uidx * max_pheno_name_blen]);
+          if (strequal_unsafe(cur_pheno_name, entry_iter, pheno_name_slen)) {
+            break;
+          }
+        }
+        if (unlikely(pheno_uidx == pheno_ct)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --mnl-ref: There is no phenotype named '%.*s'.\n", pheno_name_slen, entry_iter);
+          goto GlmMain_ret_INCONSISTENT_INPUT_WW;
+        }
+        if (unlikely(pheno_cols[pheno_uidx].type_code != kPhenoDtypeCat)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --mnl-ref: phenotype '%.*s' is not categorical.\n", pheno_name_slen, entry_iter);
+          goto GlmMain_ret_INCONSISTENT_INPUT_WW;
+        }
+        entry_iter = &(eq_ptr[strlen(eq_ptr) + 1]);
+      }
+      const char* unsupported_str = nullptr;
+      if (glm_flags & kfGlmGenotypic) {
+        unsupported_str = "--glm 'genotypic' modifier";
+      } else if (glm_flags & kfGlmHethom) {
+        unsupported_str = "--glm 'hethom' modifier";
+      } else if (glm_flags & kfGlmDominant) {
+        unsupported_str = "--glm 'dominant' modifier";
+      } else if (glm_flags & kfGlmRecessive) {
+        unsupported_str = "--glm 'recessive' modifier";
+      } else if (glm_flags & kfGlmHetonly) {
+        unsupported_str = "--glm 'hetonly' modifier";
+      } else if (glm_flags & kfGlmInteraction) {
+        unsupported_str = "--glm 'interaction' modifier";
+      } else if (glm_flags & kfGlmFirth) {
+        unsupported_str = "--glm 'firth' modifier";
+      } else if (local_covar_fname) {
+        unsupported_str = "--glm 'local-covar=' modifier";
+      } else if (glm_info_ptr->parameters_range_list.name_ct) {
+        unsupported_str = "--parameters";
+      } else if (glm_info_ptr->tests_range_list.name_ct || (glm_flags & kfGlmTestsAll)) {
+        unsupported_str = "--tests";
+      } else if (glm_info_ptr->mperm_ct || (glm_info_ptr->perm_flags & kfGlmPermAdaptive)) {
+        unsupported_str = "--glm permutation testing";
+      }
+      if (unlikely(unsupported_str)) {
+        logerrprintfww("Error: %s is not supported with multinomial logistic regression (--mnl-ref).\n", unsupported_str);
+        goto GlmMain_ret_INCONSISTENT_INPUT;
+      }
+    }
     const uintptr_t* early_variant_include = orig_variant_include;
     uint32_t* local_sample_uidx_order = nullptr;
     uintptr_t* local_variant_include = nullptr;
@@ -3576,14 +3635,24 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
       const PhenoDtype dtype_code = cur_pheno_col->type_code;
       const char* cur_pheno_name = &(pheno_names[pheno_uidx * max_pheno_name_blen]);
+      // Categorical phenotypes are analyzed with multinomial logistic
+      // regression when --mnl-ref names their reference category.
+      uint32_t is_multinomial = 0;
+      uint32_t mnl_ref_cat_idx = 0;
       if (dtype_code == kPhenoDtypeCat) {
-        // todo: check if there are only two categories after linear-style
-        // covariate QC, and automatically use ordinary logistic regression in
-        // that case?  (need to indicate which category is treated as 'case'
-        // and which is 'control'...)
-        // longer-term todo: multinomial logistic regression?
-        logprintfww("--glm: Skipping categorical phenotype '%s'.\n", cur_pheno_name);
-        continue;
+        const char* mnl_ref_catname = MnlRefCatname(glm_info_ptr->mnl_ref_flattened, cur_pheno_name);
+        if (!mnl_ref_catname) {
+          logprintfww("--glm: Skipping categorical phenotype '%s' (use --mnl-ref to analyze it with multinomial logistic regression).\n", cur_pheno_name);
+          continue;
+        }
+        const uint32_t nonnull_cat_ct = cur_pheno_col->nonnull_category_ct;
+        for (uint32_t cat_idx = 1; cat_idx <= nonnull_cat_ct; ++cat_idx) {
+          if (!strcmp(cur_pheno_col->category_names[cat_idx], mnl_ref_catname)) {
+            mnl_ref_cat_idx = cat_idx;
+            break;
+          }
+        }
+        is_multinomial = 1;
       }
 
       BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include);
@@ -3607,6 +3676,15 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
           logprintfww("--glm: Skipping case/control phenotype '%s' since all samples are %s.\n", cur_pheno_name, initial_case_ct? "cases" : "controls");
+          continue;
+        }
+      } else if (is_multinomial) {
+        if (IsConstCovar(cur_pheno_col, cur_sample_include, raw_sample_ct)) {
+          if (unlikely(!skip_invalid_pheno)) {
+            logerrprintfww("Error: --glm categorical phenotype '%s' has only one category.\n", cur_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
+          logprintfww("--glm: Skipping categorical phenotype '%s' since it has only one category.\n", cur_pheno_name);
           continue;
         }
       } else {
@@ -3691,6 +3769,23 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           } else {
             logerrprintfww("Warning: --glm remaining control count is less than 10x predictor count for phenotype '%s'.\n", cur_pheno_name);
           }
+        }
+      } else if (is_multinomial) {
+        uint32_t cat_ct;
+        if (unlikely(MnlCountCats(cur_sample_include, cur_pheno_col, sample_ct, mnl_ref_cat_idx, &cat_ct))) {
+          goto GlmMain_ret_NOMEM;
+        }
+        if (unlikely(!cat_ct)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --mnl-ref: category '%s' is not present among the samples analyzed for phenotype '%s'.\n", MnlRefCatname(glm_info_ptr->mnl_ref_flattened, cur_pheno_name), cur_pheno_name);
+          goto GlmMain_ret_INCONSISTENT_INPUT_WW;
+        }
+        if (cat_ct == 1) {
+          if (unlikely(!skip_invalid_pheno)) {
+            logerrprintfww("Error: --glm categorical phenotype '%s' has only one category among the remaining samples.\n", cur_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
+          logprintfww("--glm: Skipping categorical phenotype '%s' since it has only one category among the remaining samples.\n", cur_pheno_name);
+          continue;
         }
       } else {
         // verify phenotype is still nonconstant
@@ -3807,6 +3902,20 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_x? "cases" : "controls");
                 sample_ct_x = 0;
               }
+            } else if (is_multinomial) {
+              uint32_t cat_ct_x;
+              if (unlikely(MnlCountCats(cur_sample_include_x, cur_pheno_col, sample_ct_x, mnl_ref_cat_idx, &cat_ct_x))) {
+                goto GlmMain_ret_NOMEM;
+              }
+              if (cat_ct_x < 2) {
+                // cat_ct_x == 0: the reference category is absent
+                if (unlikely(!skip_invalid_pheno)) {
+                  logerrprintfww("Error: --glm categorical phenotype '%s' has %s on chrX.\n", cur_pheno_name, cat_ct_x? "only one category among the remaining samples" : "no remaining samples in the --mnl-ref category");
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', since it has %s there.\n", cur_pheno_name, cat_ct_x? "only one category among the remaining samples" : "no remaining samples in the --mnl-ref category");
+                sample_ct_x = 0;
+              }
             } else {
               if (IsConstCovar(cur_pheno_col, cur_sample_include_x, raw_sample_ct)) {
                 if (unlikely(!skip_invalid_pheno)) {
@@ -3916,6 +4025,20 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_y? "cases" : "controls");
                 sample_ct_y = 0;
               }
+            } else if (is_multinomial) {
+              uint32_t cat_ct_y;
+              if (unlikely(MnlCountCats(cur_sample_include_y, cur_pheno_col, sample_ct_y, mnl_ref_cat_idx, &cat_ct_y))) {
+                goto GlmMain_ret_NOMEM;
+              }
+              if (cat_ct_y < 2) {
+                // cat_ct_y == 0: the reference category is absent
+                if (unlikely(!skip_invalid_pheno)) {
+                  logerrprintfww("Error: --glm categorical phenotype '%s' has %s on chrY.\n", cur_pheno_name, cat_ct_y? "only one category among the remaining samples" : "no remaining samples in the --mnl-ref category");
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since it has %s there.\n", cur_pheno_name, cat_ct_y? "only one category among the remaining samples" : "no remaining samples in the --mnl-ref category");
+                sample_ct_y = 0;
+              }
             } else {
               if (IsConstCovar(cur_pheno_col, cur_sample_include_y, raw_sample_ct)) {
                 if (unlikely(!skip_invalid_pheno)) {
@@ -3969,6 +4092,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         logistic_ctx.pheno_d = pheno_d;
         logistic_ctx.covars_cmaj_f = covars_cmaj_f;
         logistic_ctx.covars_cmaj_d = covars_cmaj_d;
+      } else if (is_multinomial) {
+        common.nm_precomp = nullptr;
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include, cur_pheno_col, mnl_ref_cat_idx, covar_include, covar_cols, covar_names, sample_ct, covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, &multinomial_ctx.mnl_set, &cur_covar_names, &glm_err))) {
+          goto GlmMain_ret_NOMEM;
+        }
       } else {
         logistic_ctx.pheno_f = nullptr;
         logistic_ctx.covars_cmaj_f = nullptr;
@@ -4013,6 +4141,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           logistic_ctx.pheno_x_d = pheno_d;
           logistic_ctx.covars_cmaj_x_f = covars_cmaj_f;
           logistic_ctx.covars_cmaj_x_d = covars_cmaj_d;
+        } else if (is_multinomial) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include_x, cur_pheno_col, mnl_ref_cat_idx, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, &multinomial_ctx.mnl_set_x, &cur_covar_names_x, &glm_err))) {
+            goto GlmMain_ret_NOMEM;
+          }
         } else {
           double* pheno_d = nullptr;
           double* covars_cmaj_d = nullptr;
@@ -4054,6 +4186,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           logistic_ctx.pheno_y_d = pheno_d;
           logistic_ctx.covars_cmaj_y_f = covars_cmaj_f;
           logistic_ctx.covars_cmaj_y_d = covars_cmaj_d;
+        } else if (is_multinomial) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include_y, cur_pheno_col, mnl_ref_cat_idx, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, &multinomial_ctx.mnl_set_y, &cur_covar_names_y, &glm_err))) {
+            goto GlmMain_ret_NOMEM;
+          }
         } else {
           double* pheno_d = nullptr;
           double* covars_cmaj_d = nullptr;
@@ -4143,7 +4279,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, common.sample_include_cumulative_popcounts);
       common.sample_ct = sample_ct;
       common.sample_ct_x = sample_ct_x;
-      common.covar_ct = (is_qt_residualize && (!is_logistic))? 0 : (covar_ct + extra_cat_ct);
+      const uint32_t is_qt = (!is_logistic) && (!is_multinomial);
+      common.covar_ct = (is_qt_residualize && is_qt)? 0 : (covar_ct + extra_cat_ct);
       common.local_covar_ct = local_covar_ct;
       if (sample_ct_x) {
         uint32_t* cumulative_popcounts;
@@ -4153,7 +4290,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         FillCumulativePopcounts(cur_sample_include_x, raw_sample_ctl, cumulative_popcounts);
         common.sample_include_x_cumulative_popcounts = cumulative_popcounts;
         common.sample_include_x = cur_sample_include_x;
-        common.covar_ct_x = (is_qt_residualize && (!is_logistic))? 0 : (covar_ct_x + extra_cat_ct_x);
+        common.covar_ct_x = (is_qt_residualize && is_qt)? 0 : (covar_ct_x + extra_cat_ct_x);
         // common.male_ct = PopcountWordsIntersect(cur_sample_include_x, sex_male, raw_sample_ctl);
       } else {
         // technically only need this if variant_ct_x && (!skip_x)
@@ -4173,7 +4310,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         FillCumulativePopcounts(cur_sample_include_y, raw_sample_ctl, cumulative_popcounts);
         common.sample_include_y_cumulative_popcounts = cumulative_popcounts;
         common.sample_include_y = cur_sample_include_y;
-        common.covar_ct_y = (is_qt_residualize && (!is_logistic))? 0 : (covar_ct_y + extra_cat_ct_y);
+        common.covar_ct_y = (is_qt_residualize && is_qt)? 0 : (covar_ct_y + extra_cat_ct_y);
       } else {
         common.sample_include_y = nullptr;
         common.sample_include_y_cumulative_popcounts = nullptr;
@@ -4212,6 +4349,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         } else {
           outname_end2 = strcpya_k(outname_end2, ".glm.logistic");
         }
+      } else if (is_multinomial) {
+        outname_end2 = strcpya_k(outname_end2, ".glm.multinomial");
       } else {
         outname_end2 = strcpya_k(outname_end2, ".glm.linear");
       }
@@ -4247,7 +4386,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
 
       uintptr_t valid_allele_ct = 0;
-      if (is_logistic) {
+      if (is_multinomial) {
+        if (gwas_ssf_ll_ptr) {
+          logerrprintfww("Warning: --gwas-ssf does not support .glm.multinomial files; not converting the results for phenotype '%s'.\n", cur_pheno_name);
+        }
+        reterr = GlmMultinomial(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, outname, raw_variant_ct, cur_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, pgfip, &multinomial_ctx, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
+      } else if (is_logistic) {
         reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, cur_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_logistic_permstats, &valid_allele_ct);
       } else {
         // keep in sync with GlmLinearThread() difflist_eligible
@@ -4261,7 +4405,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         goto GlmMain_ret_1;
       }
       if (report_adjust) {
-        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, valid_alleles, allele_idx_offsets, allele_storage, pgfip->nonref_flags, nullptr, adjust_info_ptr, orig_ln_pvals, nullptr, raw_variant_ct, valid_allele_ct, max_allele_slen, pgfip->gflags, ln_pfilter, output_min_ln, joint_test, max_thread_ct, outname, outname_end2);
+        // The multinomial omnibus test has (category count - 1) degrees of
+        // freedom, so genomic control is skipped for it as for the other
+        // joint tests.
+        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, valid_alleles, allele_idx_offsets, allele_storage, pgfip->nonref_flags, nullptr, adjust_info_ptr, orig_ln_pvals, nullptr, raw_variant_ct, valid_allele_ct, max_allele_slen, pgfip->gflags, ln_pfilter, output_min_ln, joint_test || is_multinomial, max_thread_ct, outname, outname_end2);
         if (unlikely(reterr)) {
           goto GlmMain_ret_1;
         }
@@ -4315,6 +4462,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   GlmMain_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
+  GlmMain_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   GlmMain_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;

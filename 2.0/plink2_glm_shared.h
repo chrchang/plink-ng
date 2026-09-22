@@ -130,6 +130,8 @@ typedef struct GlmInfoStruct {
   char* condition_list_fname;
   RangeList parameters_range_list;
   RangeList tests_range_list;
+  // --mnl-ref: "<phenotype name>=<reference category>" entries, flattened
+  char* mnl_ref_flattened;
 } GlmInfo;
 
 // Useful precomputed values for linear and logistic regression, for variants
@@ -216,6 +218,12 @@ ENUM_U31_DEF_START()
   kGlmErrcodeLogisticConvergeFail,
   kGlmErrcodeFirthConvergeFail,
   kGlmErrcodeInvalidResult,
+  // multinomial logistic regression (--mnl-ref) does not handle multiallelic
+  // variants yet
+  kGlmErrcodeMultiallelicUnsupported,
+  // multinomial logistic regression failed to converge, with or without the
+  // genotype term
+  kGlmErrcodeMnlConvergeFail,
   // no codes for logistic-unfinished and firth-unfinished for now since we
   // still report results there
 

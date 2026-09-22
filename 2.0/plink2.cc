@@ -10912,6 +10912,36 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-corr argument '%s' (must be in [0, 1]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "nl-ref")) {
+          // flags are processed in alphabetical order, so --glm is already
+          // known here
+          if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
+            logerrputs("Error: --mnl-ref must be used with --glm.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_arg = argvk[arg_idx + param_idx];
+            const char* eq_ptr = strchr(cur_arg, '=');
+            if (unlikely((!eq_ptr) || (eq_ptr == cur_arg) || (!eq_ptr[1]))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mnl-ref argument '%s' (expected <phenotype name>=<reference category>).\n", cur_arg);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            const uint32_t pheno_name_slen = eq_ptr - cur_arg;
+            for (uint32_t param_idx2 = 1; param_idx2 != param_idx; ++param_idx2) {
+              const char* prev_arg = argvk[arg_idx + param_idx2];
+              if ((S_CAST(uintptr_t, strchr(prev_arg, '=') - prev_arg) == pheno_name_slen) && memequal(prev_arg, cur_arg, pheno_name_slen)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: --mnl-ref: phenotype '%.*s' appears more than once.\n", pheno_name_slen, cur_arg);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            }
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.glm_info.mnl_ref_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "ach-r2-filter")) {
           if (unlikely(pc.freq_rpt_flags & kfAlleleFreqColMinimac3R2)) {
             logerrputs("Error: --freq minimac3r2 output and --mach-r2-filter cannot be used together.\n");
