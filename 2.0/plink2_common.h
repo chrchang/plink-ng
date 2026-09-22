@@ -235,7 +235,12 @@ FLAGSET64_DEF_START()
   kfExportfOmitNonmaleY = (1LLU << 43),
   kfExportfSampleV2 = (1LLU << 44),
   kfExportfBgenOmitSampleIdBlock = (1LLU << 45),
-  kfExportfPhylipUsedSites = (1LLU << 46)
+  kfExportfPhylipUsedSites = (1LLU << 46),
+  // 'vcf-info=' modifier: INFO/AC and/or INFO/AN, computed from the exported
+  // hardcalls.
+  kfExportfVcfInfoAc = (1LLU << 47),
+  kfExportfVcfInfoAn = (1LLU << 48),
+  kfExportfVcfInfoAcAn = kfExportfVcfInfoAc | kfExportfVcfInfoAn
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()
