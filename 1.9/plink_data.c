@@ -13251,6 +13251,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     fputs("0%", stdout);
     fflush(stdout);
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
+    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+      goto recode_ret_READ_FAIL;
+    }
     retval = recode_beagle_new_chrom(outname, &(outname_end[5]), marker_exclude, chrom_info_ptr, &marker_uidx, &chrom_fo_idx, &chrom_idx, &chrom_end, bedfile, bed_offset, unfiltered_sample_ct4, &outfile, beagle_nomap? nullptr : (&outfile2), writebuf2, header_len);
     if (retval) {
       goto recode_ret_1;
