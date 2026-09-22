@@ -10196,7 +10196,12 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
               // .sample files are relatively small, so let's go ahead and
               // (i) validate we have a positive integer < 2^31
               // (ii) convert e.g. 9000000, 9000000., 9.0e6 all to 9000000
-              int32_t ii = S_CAST(int32_t, dxx);
+              // range-check before the cast: converting an out-of-range
+              // double to int32_t is undefined behavior
+              int32_t ii = 0;
+              if ((dxx >= 1.0) && (dxx <= 2147483647.0)) {
+                ii = S_CAST(int32_t, dxx);
+              }
               if (unlikely((num_end != token_end) || (ii <= 0) || (S_CAST(double, ii) != dxx))) {
                 *token_end = '\0';
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid categorical phenotype value '%s' on line %" PRIuPTR ", column %u of .sample file (positive integer < 2^31 or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);

@@ -213,4 +213,9 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_OXFORD_SAMPLE
+./run_tests.sh $d $2 $3 > TEST_OXFORD_SAMPLE.log
+cd ..
+echo "TEST_OXFORD_SAMPLE passed."
+
 echo "All tests passed."
