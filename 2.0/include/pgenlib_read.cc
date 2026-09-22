@@ -957,6 +957,12 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s does not correspond to a format supported by this version of pgenlib.\n", header_fname);
       return kPglRetNotYetSupported;
     }
+    // modes 12 and 14 are single-sample encodings; PgfiInitPhase2Ex() relies
+    // on this.
+    if (unlikely((header_ctrl_low3 >= 4) && (raw_sample_ct != 1))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s specifies a single-sample storage mode, but the file contains %u samples.\n", header_fname, raw_sample_ct);
+      return kPglRetMalformedInput;
+    }
   }
   *pgfi_alloc_cacheline_ct_ptr = CountPgfiAllocCachelinesRequired(raw_variant_ct);
   return kPglRetSuccess;

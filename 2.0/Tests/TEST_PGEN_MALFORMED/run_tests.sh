@@ -43,3 +43,22 @@ if $1/plink2 $2 $3 --pfile tmp_bad --freq --out plink2_bad 2> tmp_err.txt; then
 fi
 grep -q "Failed to unpack" tmp_err.txt
 test ! -e plink2_bad.afreq
+
+# Storage modes 12 and 14 (twelfth header byte) are single-sample encodings.
+# A multi-sample file claiming one of them must be rejected by the header
+# check instead of tripping an assert (or, with NDEBUG, reading dosage tracks
+# far past each 2-6 byte record).
+for mode in 12 14; do
+    python3 -c "
+b = bytearray(open('tmp_data.pgen', 'rb').read())
+b[11] = (b[11] & 0xf0) | $mode
+open('tmp_mode.pgen', 'wb').write(bytes(b))
+"
+    cp tmp_data.pvar tmp_mode.pvar
+    cp tmp_data.psam tmp_mode.psam
+    if $1/plink2 $2 $3 --pfile tmp_mode --validate --out plink2_mode 2> tmp_mode_err.txt; then
+        echo "expected --validate to reject storage mode $mode with 400 samples"
+        exit 1
+    fi
+    grep -q "single-sample storage mode" tmp_mode_err.txt
+done
