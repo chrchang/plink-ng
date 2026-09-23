@@ -1451,6 +1451,15 @@ HEADER_INLINE BoolErr CleanupPgr2(const char* file_descrip, PgenReader* pgrp, Pg
 
 void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr, uint32_t variant_uidx);
 
+// PgfiInitPhase2() can only cross-check the .pvar's allele counts when the
+// .pgen header stores them, which plink2 never does.  This catches the
+// mismatch the record parsers can't handle at all: a record with multiallelic
+// hardcalls that the .pvar calls biallelic.  Call it once allele_idx_offsets
+// (nullptr if the .pvar is entirely biallelic) and vrtypes are loaded.
+// Returns the 0-based index of the first such variant, or UINT32_MAX if there
+// is none.
+uint32_t FindMultiallelicHcVsBiallelicPvar(const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t raw_variant_ct);
+
 HEADER_INLINE void PgenErrPrintN(PglErr reterr) {
   PgenErrPrintEx(".pgen file", 1, reterr, UINT32_MAX);
 }

@@ -4728,6 +4728,10 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   }
   uint32_t hom_ct;
   reterr = CountAux1b(fread_end, sample_include, tmp_genovec, aux1b_mode, raw_sample_ct, allele_ct, allele_idx, raw_10_ct, subsetted_10_ct, &fread_ptr, &het_ct, &hom_ct, pgrp->workspace_difflist_sample_ids);
+  if (unlikely((!reterr) && (!(GetPgfiVrtype(&(pgrp->fi), vidx) & 0xf0)) && (fread_ptr != fread_end))) {
+    // see GetMultiallelicCodes()
+    return kPglRetMalformedInput;
+  }
   genocounts[0] = hom_ct;
   genocounts[1] = het_ct;
   genocounts[2] = sample_ct - genocounts[3] - hom_ct - het_ct;
@@ -5492,6 +5496,10 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
   }
   const unsigned char* aux1b_start = fread_ptr;
   reterr = GenoarrAux1bStandardUpdate(fread_end, sample_include, sample_include_cumulative_popcounts, raw_genovec, aux1b_mode, raw_sample_ct, allele_ct, allele_idx, raw_10_ct, &fread_ptr, allele_countvec, deltalist_workspace);
+  if (unlikely((!reterr) && (!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
+    // see GetMultiallelicCodes()
+    return kPglRetMalformedInput;
+  }
   if ((!fread_pp) || reterr) {
     return reterr;
   }
@@ -6100,6 +6108,10 @@ PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* _
   if (unlikely(reterr)) {
     return reterr;
   }
+  if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
+    // see GetMultiallelicCodes()
+    return kPglRetMalformedInput;
+  }
   if (invert) {
     GenovecInvertUnsafe(sample_ct, genovec);
   }
@@ -6647,6 +6659,12 @@ PglErr GetMultiallelicCodes(const uintptr_t* __restrict sample_include, const ui
       return reterr;
     }
   }
+  // A multiallelic-hardcall record with no later tracks must end here.  When
+  // the .pvar understates the allele count, the allele codes are read with
+  // the wrong width, and this is usually where that shows up.
+  if (unlikely((!(GetPgfiVrtype(&(pgrp->fi), vidx) & 0xf0)) && (fread_ptr != fread_end))) {
+    return kPglRetMalformedInput;
+  }
   if (fread_pp) {
     *fread_pp = fread_ptr;
     *fread_endp = fread_end;
@@ -7166,6 +7184,10 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   if (unlikely(reterr)) {
     return reterr;
   }
+  if (unlikely(VrtypeMultiallelicHc(vrtype) && (!(vrtype & 0xe0)) && (fread_ptr != fread_end))) {
+    // see GetMultiallelicCodes()
+    return kPglRetMalformedInput;
+  }
   if (VrtypeMultiallelicHc(vrtype) && (*phasepresent_ct_ptr)) {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     MaskWordsToHalfwordsInvmatch(genovec, kMaskAAAA, sample_ctl2, phasepresent, phasepresent);
@@ -7204,7 +7226,12 @@ PglErr PgrGetMP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
     return reterr;
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
-  return ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, nullptr, raw_sample_ct, sample_ct, &fread_ptr, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct), pgrp->workspace_subset);
+  reterr = ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, nullptr, raw_sample_ct, sample_ct, &fread_ptr, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct), pgrp->workspace_subset);
+  if (unlikely((!reterr) && (!(vrtype & 0xe0)) && (fread_ptr != fread_end))) {
+    // see GetMultiallelicCodes()
+    return kPglRetMalformedInput;
+  }
+  return reterr;
 }
 
 // ok for sample_include to be nullptr if not subsetting, though this is not
@@ -9027,6 +9054,10 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
     if (unlikely(reterr)) {
       return reterr;
     }
+    if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
+      // see GetMultiallelicCodes()
+      return kPglRetMalformedInput;
+    }
     if (raw_het_ct_needed) {
       if (!sample_include) {
         raw_het_ct += genocounts[2];
@@ -9474,6 +9505,10 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
 #endif
   }
   if (!save_dosage) {
+    if (unlikely(multiallelic_hc_present && (!(vrtype & 0x60)) && (fread_ptr != fread_end))) {
+      // see GetMultiallelicCodes()
+      return kPglRetMalformedInput;
+    }
     *loadbuf_iter_ptr = loadbuf_iter;
     return kPglRetSuccess;
   }
