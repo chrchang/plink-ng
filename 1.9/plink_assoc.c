@@ -10168,6 +10168,11 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
         fill_bits(marker_uidx, chrom_end - marker_uidx, marker_exclude);
 	marker_idx += chrom_end - marker_uidx - 1 - popcount_bit_idx(marker_exclude_orig, marker_uidx, chrom_end);
 	marker_uidx = chrom_end - 1;
+	// no load_raw() call was made, so the file position is still at the
+	// start of the Y chromosome
+	if (fseeko(bedfile, bed_offset + ((uint64_t)chrom_end) * unfiltered_sample_ct4, SEEK_SET)) {
+	  goto testmiss_ret_READ_FAIL;
+	}
 	continue;
       }
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
