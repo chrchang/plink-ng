@@ -110,6 +110,7 @@ jobs:
           plink2 --version
           plink2 --dummy 20 50 --make-pgen --out dummy
           plink2 --pfile dummy --freq --out dummy
+          plink2 --pfile dummy --read-freq dummy.afreq --pca 3 --out dummy
 
   macos:
     name: Build macOS ${{ matrix.arch }}
@@ -121,9 +122,9 @@ jobs:
           - { os: macos-latest, arch: arm64 }
           - { os: macos-15-intel, arch: x86_64 }
     env:
-      # Matches the official macOS binaries.  S3 itself needs the libcurl of
-      # macOS 12+; on 11 plink2 runs but reports that libcurl is too old.
-      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      # build_dynamic uses -DACCELERATE_NEW_LAPACK, whose symbols exist only on
+      # macOS 13.3+.  A lower target weak-links them and BLAS calls then crash.
+      MACOSX_DEPLOYMENT_TARGET: '13.3'
 
     steps:
       - name: Checkout
@@ -144,6 +145,14 @@ jobs:
             echo "::error::non-system libraries linked: $bad"
             exit 1
           fi
+          # A weak import is a symbol newer than the deployment target; it is
+          # NULL on older macOS.  Only runtime-guarded ones are acceptable.
+          weak=$(nm -m plink2 | grep '(undefined) weak external' |
+                 grep -vE ' (_BLASSetThreading|__availability_version_check|_dispatch_once_f) ' || true)
+          if [ -n "$weak" ]; then
+            echo "::error::unexpected weak imports (raise MACOSX_DEPLOYMENT_TARGET or guard them): $weak"
+            exit 1
+          fi
 
       - name: Smoke test
         working-directory: ./2.0/build_dynamic
@@ -151,6 +160,7 @@ jobs:
           ./plink2 --version
           ./plink2 --dummy 20 50 --make-pgen --out dummy
           ./plink2 --pfile dummy --freq --out dummy
+          ./plink2 --pfile dummy --read-freq dummy.afreq --pca 3 --out dummy
 
       - name: Package
         working-directory: ./2.0
