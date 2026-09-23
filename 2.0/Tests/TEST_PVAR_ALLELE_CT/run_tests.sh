@@ -53,9 +53,30 @@ done
 awk 'BEGIN { FS = OFS = "\t" } $3 == "v1" { $5 = "C" } { print }' tmp_u.pvar > tmp_ubi.pvar
 cp tmp_u.pgen tmp_ubi.pgen
 cp tmp_u.psam tmp_ubi.psam
-expect_fail "in the --pgen-diff fileset has multiallelic hardcalls" $1 $2 $3 --pfile tmp_u --pgen-diff tmp_ubi --out plink2_diff
-# (--flip-scan-ref-pfile gets the same check, but is still gated as under
-# development.)
+expect_fail "Variant #1 in the --pgen-diff fileset" $1 $2 $3 --pfile tmp_u --pgen-diff tmp_ubi --out plink2_diff
+# --flip-scan-ref-pfile gets the same check.  It is still gated as under
+# development, so this only runs once the gate is lifted.  (--flip-scan wants
+# at least 50 samples.)
+python3 -c "
+import random
+r = random.Random(3)
+n = 60
+print('##fileformat=VCFv4.3')
+print('##contig=<ID=1,length=100000>')
+print('##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">')
+print('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t' + '\t'.join('s%d' % i for i in range(n)))
+print('1\t10\tv1\tA\tC,G,T,AA\t.\t.\t.\tGT\t' + '\t'.join('%d/%d' % (r.randrange(5), r.randrange(5)) for i in range(n)))
+for v in range(2, 8):
+    print('1\t%d\tv%d\tA\tC\t.\t.\t.\tGT\t' % (v * 10, v) + '\t'.join('%d/%d' % (r.randrange(2), r.randrange(2)) for i in range(n)))
+" > tmp_flip.vcf
+$1/plink2 $2 $3 --vcf tmp_flip.vcf --make-pgen --out tmp_flipref
+$1/plink2 $2 $3 --pfile tmp_flipref --max-alleles 2 --make-pgen --out tmp_flipmain
+awk 'BEGIN { FS = OFS = "\t" } $3 == "v1" { $5 = "C" } { print }' tmp_flipref.pvar > tmp_flipbi.pvar
+if $1/plink2 $2 $3 --pfile tmp_flipmain --flip-scan --flip-scan-ref-pfile tmp_flipref --out plink2_flip_ok 2> tmp_err.txt; then
+    expect_fail "Variant #1 in the --flip-scan reference fileset" $1 $2 $3 --pfile tmp_flipmain --flip-scan --flip-scan-ref-pfile tmp_flipref.pgen tmp_flipbi.pvar tmp_flipref.psam --out plink2_flip_bad
+else
+    grep -q "under development" tmp_err.txt
+fi
 
 # --pmerge only reads genotype records one at a time when it merges
 # same-position records, which master reaches through duplicate records inside
@@ -80,4 +101,4 @@ VCF
 $1/plink2 $2 $3 --vcf tmp_other.vcf --make-pgen --out tmp_other
 # Sanity check: with the correct .pvar this merge runs.
 $1/plink2 $2 $3 --pfile tmp_other --pmerge tmp_dup --merge-mode nm-match --make-pgen --out plink2_merge_ok
-expect_fail "in a --pmerge\[-list\] fileset has multiallelic hardcalls" $1 $2 $3 --pfile tmp_other --pmerge tmp_dup.pgen tmp_dupbi.pvar tmp_dup.psam --merge-mode nm-match --make-pgen --out plink2_merge_bad
+expect_fail "Variant #1 in a --pmerge\[-list\] fileset" $1 $2 $3 --pfile tmp_other --pmerge tmp_dup.pgen tmp_dupbi.pvar tmp_dup.psam --merge-mode nm-match --make-pgen --out plink2_merge_bad
