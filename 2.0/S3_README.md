@@ -152,8 +152,13 @@ later range request is conditioned on it. If the object is overwritten
 mid-read, the run fails with an explicit error rather than silently splicing
 together two versions of the file.
 
-**Truncation.** A range response shorter than requested is an error, not an
-early EOF, so a partial transfer cannot be mistaken for a short file.
+**Truncation.** Every range response must be exactly as long as the range
+that was asked for. A short body is reported as a truncated transfer rather
+than an early EOF, so a partial transfer cannot be mistaken for a short file.
+A response *longer* than the range, or a `200` where a `206` was expected,
+means the server ignored `Range`; the transfer is aborted at the requested
+length and the read fails, because those bytes would otherwise land at the
+wrong file offset.
 
 **Retries.** Throttling (`503 SlowDown`), transient 5xx responses and dropped
 connections are retried five times with exponential backoff and full jitter.
@@ -163,6 +168,63 @@ hint in the error response is followed automatically.
 
 **Reads are sequential-friendly.** Data is fetched in 8 MiB chunks. `fseek`
 within the current chunk is free; seeking outside it costs one request.
+
+## Security
+
+S3 support is built so that it does not change what plink2 trusts, and adds
+as little new attack surface as possible. Reading a file from S3 carries the
+same risk as reading that file from local disk, from NFS, or from a bucket
+mounted through FUSE (s3fs, mountpoint-s3). The default binary is not
+affected at all.
+
+**The default build is unchanged.** Without `USE_S3=1`, no network code is
+compiled in and libcurl is not linked. The S3 entry points become stubs that
+reject remote paths. Local paths go straight to `fopen` in both builds.
+
+**plink2's parsers never touch the network.** The `.pgen`/`.pvar`/`.psam`
+readers get an ordinary `FILE*` and see the same byte stream a local file
+would give them. A malicious or corrupted file is exactly as dangerous from S3
+as from NFS or a FUSE mount: the trust boundary is the file's contents, and
+that boundary stays where it is. The stream layer also makes sure the bytes
+are the right ones:
+
+- Every range response must be exactly the length requested. Short responses,
+  oversized responses and responses that ignore `Range` are hard errors, so a
+  parser never sees data at the wrong offset or a silently truncated file.
+- Every read is pinned to the ETag recorded at open, so the object cannot
+  change underneath a running job. That is a stronger guarantee than NFS or
+  FUSE give, since there a file can be rewritten between reading its header
+  and reading its records.
+
+**The network-facing code is small, isolated and bounded.**
+
+- It lives in [`s3stream/`](s3stream/), includes no plink2 headers, and uses
+  `std::string`/`std::map` rather than plink2's manual buffer arithmetic.
+- TLS, HTTP parsing and SigV4 signing are handled by libcurl. htslib
+  (samtools, bcftools) does its S3/HTTP support the same way, and s3fs-fuse
+  is built on the same library.
+- Every server response has a fixed memory bound. Data bodies are capped at
+  the requested range (at most 8 MiB), only the four response headers
+  s3stream uses are kept, and credential-metadata responses are capped at
+  64 KiB. A hostile or misbehaving server cannot make plink2 allocate without
+  limit.
+- Server-supplied strings that are sent back later (ETag, region redirect
+  hint, IMDS token and role name) are validated first. A response therefore
+  cannot inject headers or send a signed request to another host.
+- TLS certificate verification is set explicitly, only `http`/`https` are
+  permitted, and HTTP redirects are never followed.
+- Nothing is written to disk: no temporary files and no credential caching.
+  Requests are signed with SigV4, so the secret key never leaves the process.
+  Secrets held in memory are overwritten when released (best-effort).
+
+**Things to keep in mind.**
+
+- A presigned URL works as a bearer credential until it expires. Like any
+  other argument, it shows up in the command line that plink2 echoes into its
+  `.log`.
+- A plain-`http://` custom endpoint (such as a local MinIO) is allowed, but
+  then the transfer is not encrypted. Use `https://` for anything that leaves
+  the machine.
 
 ## Windows is not supported
 
@@ -187,18 +249,7 @@ runtime (Cygwin/MSYS2's `newlib`-based CRT, which does support `funopen`, but
 pulls in `cygwin1.dll`/`msys-2.0.dll` and drops the dependency-free native
 `.exe`) or a virtual-filesystem layer (Windows ProjFS/Cloud Filter API, the
 mechanism OneDrive uses for placeholder files) — both far outside the scope
-of this project's old-school, single-translation-unit-friendly design.
-
-Windows isn't the only one to blame here, though. This is also a self-inflicted
-consequence of plink2's own age: its I/O layer is built directly on raw C
-`FILE*`/`fread`/`fseek` throughout the codebase, rather than behind an
-abstract stream interface (the way a modern C++ library would define a
-`Reader`/`Seekable` interface with virtual dispatch and plug in an S3-backed
-implementation directly, no libc cooperation required). Because every call
-site expects a genuine `FILE*`, the S3 layer has no choice but to fight libc
-on its own terms platform by platform. A rewrite around such an abstraction
-would sidestep this whole class of problem, but that is a much larger
-undertaking than adding S3 support was, and is out of scope here.
+of this change.
 
 ## Not planned
 
