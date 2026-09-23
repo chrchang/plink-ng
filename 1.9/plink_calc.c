@@ -3827,6 +3827,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  fflush(stdout);
 	} while (g_pct <= 100);
 	distance_print_done(1, outname, outname_end);
+	g_pct = 1;
       }
       if (write_1mibs_matrix) {
 	dist_ptr = dists;
