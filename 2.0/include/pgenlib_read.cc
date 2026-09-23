@@ -3386,8 +3386,14 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
 }
 
 PglErr SkipDeltalistIds(const unsigned char* fread_end, const unsigned char* group_info, uint32_t difflist_len, uint32_t raw_sample_ct, uint32_t has_genotypes, const unsigned char** fread_pp) {
-  assert(difflist_len);
   // fread_pp is a pure output parameter here
+  if (unlikely(!difflist_len)) {
+    // Only reachable via an empty dosage list (technically permitted) or a
+    // corrupted multiallelic-hardcall track; either way, there's nothing
+    // after the length to skip.
+    *fread_pp = group_info;
+    return kPglRetSuccess;
+  }
   const uint32_t group_ct = DivUp(difflist_len, kPglDifflistGroupSize);
   const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const unsigned char* extra_byte_cts = &(group_info[group_ct * sample_id_byte_ct]);
@@ -6141,13 +6147,18 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
   const unsigned char* group_info_iter;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, deltalist_len_ptr);
   const uint32_t deltalist_len = *deltalist_len_ptr;
-  if (reterr || (!deltalist_len)) {
+  if (unlikely(reterr)) {
     return reterr;
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  const uint32_t group_idx_last = (deltalist_len - 1) / kPglDifflistGroupSize;
   ZeroWArr(raw_sample_ctl, deltalist_include);
+  if (!deltalist_len) {
+    // Empty dosage lists are permitted, and the subsetting code paths popcount
+    // deltalist_include without checking *deltalist_len_ptr first.
+    return kPglRetSuccess;
+  }
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
+  const uint32_t group_idx_last = (deltalist_len - 1) / kPglDifflistGroupSize;
   uint32_t group_len_m1 = kPglDifflistGroupSize - 1;
   for (uint32_t group_idx = 0; ; ++group_idx) {
     if (group_idx >= group_idx_last) {
