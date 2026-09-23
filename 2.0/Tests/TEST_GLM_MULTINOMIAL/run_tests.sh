@@ -27,7 +27,11 @@
 #    c. with two categories, the ADD rows match --glm firth logistic;
 #    d. --threads 1 and --threads 4 give byte-identical 'firth' and hybrid
 #       output;
-#    e. missingness self-oracle, as in 2, in 'firth' mode.
+#    e. missingness self-oracle, as in 2, in 'firth' mode;
+#    f. a category emptied by missing calls gives EMPTY_CATEGORY in every
+#       mode;
+#    g. a covariate that separates a category: 'no-firth' refuses the
+#       phenotype, 'firth' and the default use Firth regression throughout.
 #
 # Parts 1 and 4 use 'no-firth', as they check the unpenalized fit; 2, 3 and 5
 # use the default (firth-fallback) mode.
@@ -286,12 +290,17 @@ awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { if ($i == "ID") { id = i }; i
      ($id ~ /^r1[3-6]$/) && ($e != ".") { print "unexpected errcode " $e " on " $id; exit 1 }' tmp_fn.PH3.glm.multinomial
 
 # 6c. Two categories: the ADD rows must match --glm firth logistic regression
-#     on the same phenotype coded as case/control.  Its convergence tolerance
-#     is logistf's default (1e-5), looser than this one (1e-10), so a relative
-#     slack of 1e-5 is allowed on top of the rounding allowance.
+#     on the same phenotype coded as case/control.  That fit stops once its
+#     steps and modified score are below logistf's default tolerances (1e-5),
+#     so its coefficients can be about 1e-5 off (relative) from the converged
+#     values this one (1e-10) reports: 8.4e-6 on this data, 1.4e-5 and 2.4e-4
+#     on other data.  A relative slack of 5e-5 is allowed on top of the
+#     rounding allowance: five times that tolerance, well below what a wrong
+#     standard-error convention or modified score would produce (percent
+#     level).
 $plink2 $firth_args --pheno-name CC --glm firth --out tmp_lf > /dev/null
 $plink2 $firth_args --pheno-name B2 --glm firth --mnl-ref B2=lo --out tmp_k2f > /dev/null
-awk -v rel_slack=1e-5 -f compare_logistic.awk tmp_lf.CC.glm.firth tmp_k2f.B2.glm.multinomial.firth
+awk -v rel_slack=5e-5 -f compare_logistic.awk tmp_lf.CC.glm.firth tmp_k2f.B2.glm.multinomial.firth
 
 # 6d. Thread count.
 for mode in firth hybrid; do
@@ -322,3 +331,52 @@ for v in r3 r10 r14; do
 done
 $plink2 $firth_args --extract tmp_fsubset.txt --pheno-name PH3 --glm firth --mnl-ref PH3=a --out tmp_fsub > /dev/null
 awk -f compare.awk tmp_foracle.PH3.glm.multinomial.firth tmp_fsub.PH3.glm.multinomial.firth
+
+# 6f. A variant whose missing calls leave category c with no samples is
+#     reported as EMPTY_CATEGORY in all three modes, without a fit.
+printf '##fileformat=VCFv4.2\n##contig=<ID=1>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT' > tmp_empty.vcf
+awk 'NR > 1 { printf "\t%s", $1 }' tmp_firth.psam >> tmp_empty.vcf
+printf '\n1\t500\te1\tA\tG\t.\t.\t.\tGT' >> tmp_empty.vcf
+awk -F '\t' 'NR == FNR { if (FNR > 1) { cat[$1] = $2 }; next }
+     FNR > 1 { printf "\t%s", (cat[$1] == "c")? "./." : (((FNR % 5) == 0)? "0/1" : "0/0") }
+     END { printf "\n" }' tmp_firth_pheno.txt tmp_firth.psam >> tmp_empty.vcf
+$plink2 --vcf tmp_empty.vcf --make-pgen --out tmp_empty > /dev/null
+for mode in firth hybrid no-firth; do
+    mod=$mode
+    if [ $mode = hybrid ]; then
+        mod=
+    fi
+    rm -f tmp_fe.PH3.glm.*
+    $plink2 --pfile tmp_empty --pheno tmp_firth_pheno.txt --covar tmp_firth_covar.txt --pheno-name PH3 --glm $mod --mnl-ref PH3=a --out tmp_fe > /dev/null
+    awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { if ($i == "ERRCODE") { e = i } }; next }
+         { ++n; if ($e != "EMPTY_CATEGORY") { print "unexpected errcode " $e; exit 1 } }
+         END { if (n != 7) { print "expected 7 rows, got " n; exit 1 } }' tmp_fe.PH3.glm.multinomial*
+done
+
+# 6g. A covariate that separates a category: PHS's category c is exactly
+#     Q1 > 0.85, so the covariate-only model has no finite maximum-likelihood
+#     estimate.  'no-firth' refuses the phenotype; 'firth' and the default fit
+#     the covariate-only model with Firth regression instead and use Firth
+#     regression for every variant (FIRTH?=Y, rows identical to 'firth').
+awk 'BEGIN { OFS = "\t" }
+     NR == FNR { if (FNR > 1) { q1[$1] = $2 }; next }
+     FNR == 1 { print "#IID", "PHS"; next }
+     { v = $2; if (v != "NONE") { v = (q1[$1] > 0.85)? "c" : ((v == "c")? "b" : v) }; print $1, v }' tmp_firth_covar.txt tmp_firth_pheno.txt > tmp_sep_pheno.txt
+sep_args="--pfile tmp_firth --pheno tmp_sep_pheno.txt --covar tmp_firth_covar.txt --pheno-name PHS"
+rm -f tmp_sep*.PHS.glm.*
+if $plink2 $sep_args --glm no-firth --mnl-ref PHS=a --out tmp_sepn > /dev/null; then
+    echo "expected 'no-firth' to refuse a covariate-separated phenotype"
+    exit 1
+fi
+grep -q "Firth-fallback was disabled" tmp_sepn.log
+$plink2 $sep_args --glm firth --mnl-ref PHS=a --out tmp_sepf > /dev/null
+$plink2 $sep_args --glm --mnl-ref PHS=a --out tmp_seph > /dev/null
+grep -q "Firth regression will be used for every variant" tmp_seph.log
+awk -F '\t' 'NR == FNR { if (FNR > 1) { firth[FNR] = $0 }; next }
+     FNR == 1 { for (i = 1; i <= NF; ++i) { if ($i == "FIRTH?") { f = i } }; next }
+     { if ($f != "Y") { print "FIRTH?=" $f " on " $3; exit 1 }
+       line = ""; for (i = 1; i <= NF; ++i) { if (i != f) { line = line ((line == "")? "" : "\t") $i } }
+       if (line != firth[FNR]) { print "hybrid row differs from firth: " $3; exit 1 }
+       if ($NF != ".") { print "errcode " $NF " on " $3; exit 1 }
+       ++n }
+     END { if (n != 112) { print "expected 112 rows, got " n; exit 1 } }' tmp_sepf.PHS.glm.multinomial.firth tmp_seph.PHS.glm.multinomial.hybrid

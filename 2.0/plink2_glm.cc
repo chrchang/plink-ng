@@ -2199,7 +2199,7 @@ void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const ch
   } else if (errcode == kGlmErrcodeFirthConvergeFail) {
     snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since covariate-only Firth regression failed to converge.\n", msg_start, domain_str, pheno_name);
   } else if (errcode == kGlmErrcodeMnlConvergeFail) {
-    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since covariate-only multinomial logistic regression failed to converge. (This usually means that, for some covariate level, a phenotype category has no samples.)\n", msg_start, domain_str, pheno_name);
+    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since covariate-only multinomial logistic regression failed to converge, and Firth-fallback was disabled. (This usually means that a covariate separates some phenotype category from the others, e.g. a covariate level with no samples in that category.)\n", msg_start, domain_str, pheno_name);
   } else {
     const char* covar_name1 = covar_names[GetGlmErrArg1(glm_err) + local_covar_ct];
     if (errcode == kGlmErrcodeVifTooHigh) {
@@ -4127,8 +4127,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         logistic_ctx.covars_cmaj_d = covars_cmaj_d;
       } else if (is_multinomial) {
         common.nm_precomp = nullptr;
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include, cur_pheno_col, mnl_ref_cat_idx, covar_include, covar_cols, covar_names, sample_ct, covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, &multinomial_ctx.mnl_set, &cur_covar_names, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include, cur_pheno_col, mnl_ref_cat_idx, covar_include, covar_cols, covar_names, sample_ct, covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, is_sometimes_firth, &multinomial_ctx.mnl_set, &cur_covar_names, &glm_err))) {
           goto GlmMain_ret_NOMEM;
+        }
+        if ((!glm_err) && multinomial_ctx.mnl_set.null_is_firth) {
+          logerrprintfww("Warning: Covariate-only multinomial logistic regression failed to converge for --glm phenotype '%s' (usually because a covariate separates some phenotype category from the others); Firth regression will be used for every variant. Its penalized likelihood can then have more than one local maximum, so the separated category's results may depend on where the fit starts.\n", cur_pheno_name);
         }
       } else {
         logistic_ctx.pheno_f = nullptr;
@@ -4175,8 +4178,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           logistic_ctx.covars_cmaj_x_f = covars_cmaj_f;
           logistic_ctx.covars_cmaj_x_d = covars_cmaj_d;
         } else if (is_multinomial) {
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include_x, cur_pheno_col, mnl_ref_cat_idx, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, &multinomial_ctx.mnl_set_x, &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include_x, cur_pheno_col, mnl_ref_cat_idx, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, is_sometimes_firth, &multinomial_ctx.mnl_set_x, &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
+          }
+          if ((!glm_err) && multinomial_ctx.mnl_set_x.null_is_firth) {
+            logerrprintfww("Warning: Covariate-only multinomial logistic regression failed to converge for --glm phenotype '%s' on chrX (usually because a covariate separates some phenotype category from the others); Firth regression will be used for every variant. Its penalized likelihood can then have more than one local maximum, so the separated category's results may depend on where the fit starts.\n", cur_pheno_name);
           }
         } else {
           double* pheno_d = nullptr;
@@ -4220,8 +4226,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           logistic_ctx.covars_cmaj_y_f = covars_cmaj_f;
           logistic_ctx.covars_cmaj_y_d = covars_cmaj_d;
         } else if (is_multinomial) {
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include_y, cur_pheno_col, mnl_ref_cat_idx, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, &multinomial_ctx.mnl_set_y, &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMnl(cur_sample_include_y, cur_pheno_col, mnl_ref_cat_idx, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, is_sometimes_firth, &multinomial_ctx.mnl_set_y, &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
+          }
+          if ((!glm_err) && multinomial_ctx.mnl_set_y.null_is_firth) {
+            logerrprintfww("Warning: Covariate-only multinomial logistic regression failed to converge for --glm phenotype '%s' on chrY (usually because a covariate separates some phenotype category from the others); Firth regression will be used for every variant. Its penalized likelihood can then have more than one local maximum, so the separated category's results may depend on where the fit starts.\n", cur_pheno_name);
           }
         } else {
           double* pheno_d = nullptr;

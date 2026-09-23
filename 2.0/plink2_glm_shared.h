@@ -224,6 +224,9 @@ ENUM_U31_DEF_START()
   // multinomial logistic regression failed to converge, with or without the
   // genotype term
   kGlmErrcodeMnlConvergeFail,
+  // multinomial logistic regression: missing calls left a phenotype category
+  // with no samples
+  kGlmErrcodeEmptyCategory,
   // no codes for logistic-unfinished and firth-unfinished for now since we
   // still report results there
 

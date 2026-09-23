@@ -51,6 +51,10 @@ typedef struct GlmMnlSetStruct {
   // Names of the nonreference categories, in output order.
   const char** cat_names;
   uint32_t cat_ct;
+  // The covariate-only model has no finite maximum-likelihood estimate, so
+  // null_coefs is its Firth-penalized fit (null_lli is then unused), and
+  // every variant is analyzed with Firth regression.
+  uint32_t null_is_firth;
 } GlmMnlSet;
 
 typedef struct {
@@ -60,6 +64,8 @@ typedef struct {
   double mach_r2;
   // Firth-fallback mode: the penalized fit was used for this variant
   uint32_t firth_fallback;
+  // a penalized fit hit its iteration limit; results are still reported
+  uint32_t is_unfinished;
 } MnlAuxResult;
 
 typedef struct GlmMultinomialCtxStruct {
@@ -81,9 +87,11 @@ const char* MnlRefCatname(const char* mnl_ref_flattened, const char* pheno_name)
 BoolErr MnlCountCats(const uintptr_t* sample_include, const PhenoCol* pheno_col, uint32_t sample_ct, uint32_t ref_cat_idx, uint32_t* cat_ct_ptr);
 
 // Fills *mnl_set_ptr, checks the covariates the same way as the other --glm
-// regressions do, and fits the covariate-only model.  On failure of either,
+// regressions do, and fits the covariate-only model (falling back on Firth
+// regression when is_sometimes_firth is set and the maximum-likelihood fit
+// fails; mnl_set_ptr->null_is_firth says so).  On failure of either,
 // *glm_err_ptr is set and the return value is still 0.
-BoolErr GlmAllocFillAndTestPhenoCovarsMnl(const uintptr_t* sample_include, const PhenoCol* pheno_col, uint32_t ref_cat_idx, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, GlmMnlSet* mnl_set_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr);
+BoolErr GlmAllocFillAndTestPhenoCovarsMnl(const uintptr_t* sample_include, const PhenoCol* pheno_col, uint32_t ref_cat_idx, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t is_sometimes_firth, GlmMnlSet* mnl_set_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr);
 
 PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const char* outname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, PgenFileInfo* pgfip, GlmMultinomialCtx* ctx, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr);
 
