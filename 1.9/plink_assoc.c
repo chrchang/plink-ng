@@ -6858,7 +6858,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      }
 	    } else {
 	      wptr = dtoa_g_wxp4(*ooptr, 12, wptr);
-	      if (display_ci) {
+	      if (display_ci && (da1 * du2 == 0.0)) {
+		// OR is 0, so SE is infinite and the CI undefined
+		wptr = memcpya(wptr, "           NA           NA           NA", 39);
+	      } else if (display_ci) {
 		dxx = log(*ooptr);
 		dyy = sqrt(1 / da1 + 1 / da2 + 1 / du1 + 1 / du2);
 		dzz = ci_zt * dyy;
