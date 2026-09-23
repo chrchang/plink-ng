@@ -1374,6 +1374,12 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
         }
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
       }
+      // GetLdbaseVidx() searches backward for the reference variant, and
+      // would run off the start of vrtypes[] if this were violated.
+      if (unlikely(VrtypeLdCompressed(vrtypes_iter[-S_CAST(intptr_t, cur_vblock_variant_ct)]))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: (0-based) variant #%u in .pgen file is LD-compressed; this is prohibited when the variant index is a multiple of 65536.\n", vblock_idx * kPglVblockSize);
+        return kPglRetMalformedInput;
+      }
       const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
       const uint32_t cur_byte_ct = cur_vblock_variant_ct * vrec_len_byte_ct;
       if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, header_ff))) {
@@ -1611,10 +1617,20 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       // This is also suboptimal for the vrtype_and_fpos_storage > 8
       // special encodings.
       VecW or_vvec = vecw_setzero();
+      // Also look for a phased-dosage bit without main dosage bits, which the
+      // dosage parsers assume can't happen.  (The >= 8 special encodings
+      // never set it, and don't zero the trailing bytes.)
+      VecW bad_dphase_vvec = vecw_setzero();
       for (vrtypes_alias_iter = vrtypes_alias_start; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
-        or_vvec |= *vrtypes_alias_iter;
+        const VecW cur_vvec = *vrtypes_alias_iter;
+        or_vvec |= cur_vvec;
+        bad_dphase_vvec |= vecw_and_notfirst(vecw_slli(cur_vvec, 1) | vecw_slli(cur_vvec, 2), cur_vvec);
       }
 #ifdef __LP64__
+      if (unlikely((vrtype_and_fpos_storage < 8) && vecw_movemask(bad_dphase_vvec))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen record type (phased dosage bit set, but main dosage bits unset).\n");
+        return kPglRetMalformedInput;
+      }
       const VecW or_vvec_bit3 = vecw_slli(or_vvec, 4);
       if (vecw_movemask(or_vvec_bit3)) {
         // note that, if no phase or dosage data is present, we don't
@@ -1634,6 +1650,10 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
         }
       }
 #else
+      if (unlikely((vrtype_and_fpos_storage < 8) && (bad_dphase_vvec & (0x80 * kMask0101)))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen record type (phased dosage bit set, but main dosage bits unset).\n");
+        return kPglRetMalformedInput;
+      }
       if (or_vvec & (8 * kMask0101)) {
         new_gflags |= kfPgenGlobalMultiallelicHardcallFound;
       }
@@ -2315,11 +2335,6 @@ PglErr ParseAndSaveDifflistProperSubset(const unsigned char* fread_end, const ui
     // best to make the inner loop have a period of 32 (call this a 'subgroup',
     // where 'group' refers to a set of 64 entries).
     if (!(subgroup_idx % (kPglDifflistGroupSize / kBitsPerWordD2))) {
-#ifdef __LP64__
-      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
-        return kPglRetMalformedInput;
-      }
-#endif
       raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
       group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     } else {
@@ -2327,11 +2342,9 @@ PglErr ParseAndSaveDifflistProperSubset(const unsigned char* fread_end, const ui
     }
     uintptr_t raregeno_workspace_word = *raregeno_workspace_iter++;
     for (uint32_t raw_difflist_idx_lowbits = 0; ; ++raw_difflist_idx_lowbits) {
-#ifndef __LP64__
       if (unlikely(raw_sample_idx >= raw_sample_ct)) {
         return kPglRetMalformedInput;
       }
-#endif
       if (IsSet(sample_include, raw_sample_idx)) {
         raregeno_word |= ((raregeno_workspace_word >> (2 * raw_difflist_idx_lowbits)) & 3) << (difflist_len_lowbits * 2);
         difflist_sample_ids_iter[difflist_len_lowbits] = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, raw_sample_idx);
@@ -3337,11 +3350,6 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
       remaining_deltas_in_subgroup &= raw_difflist_len - 1;
     }
     if (!(subgroup_idx % (kPglDifflistGroupSize / kBitsPerWordD2))) {
-#ifdef __LP64__
-      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
-        return kPglRetMalformedInput;
-      }
-#endif
       raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
       group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     } else {
@@ -3350,11 +3358,9 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
     uintptr_t cur_raregeno_word = *raregeno_workspace_iter++;
     if (!sample_include) {
       for (; ; --remaining_deltas_in_subgroup) {
-#ifndef __LP64__
         if (unlikely(raw_sample_idx >= raw_sample_ct)) {
           return kPglRetMalformedInput;
         }
-#endif
         const uintptr_t cur_geno = cur_raregeno_word & 3;
         delta_counts[cur_geno * 4 + GetNyparrEntry(ldbase_genovec, raw_sample_idx)] += 1;
         if (!remaining_deltas_in_subgroup) {
@@ -3365,11 +3371,9 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
       }
     } else {
       for (; ; --remaining_deltas_in_subgroup) {
-#ifndef __LP64__
         if (unlikely(raw_sample_idx >= raw_sample_ct)) {
           return kPglRetMalformedInput;
         }
-#endif
         if (IsSet(sample_include, raw_sample_idx)) {
           const uintptr_t cur_geno = cur_raregeno_word & 3;
           const uint32_t sample_idx = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, raw_sample_idx);
@@ -3488,11 +3492,6 @@ PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t*
       remaining_deltas_in_subgroup &= difflist_len - 1;
     }
     if (!(subgroup_idx % (kPglDifflistGroupSize / kBitsPerWordD2))) {
-#ifdef __LP64__
-      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
-        return kPglRetMalformedInput;
-      }
-#endif
       raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
       group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     } else {
@@ -3500,11 +3499,9 @@ PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t*
     }
     uintptr_t cur_raregeno_word = *raregeno_workspace_iter++;
     for (; ; --remaining_deltas_in_subgroup) {
-#ifndef __LP64__
       if (unlikely(raw_sample_idx >= raw_sample_ct)) {
         return kPglRetMalformedInput;
       }
-#endif
       if (IsSet(sample_include, raw_sample_idx)) {
         const uintptr_t cur_geno = cur_raregeno_word & 3;
         genocounts[cur_geno] += 1;
@@ -3575,11 +3572,6 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
       remaining_deltas_in_subgroup &= difflist_len - 1;
     }
     if (!(subgroup_idx % (kPglDifflistGroupSize / kBitsPerWordD2))) {
-#ifdef __LP64__
-      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
-        return kPglRetMalformedInput;
-      }
-#endif
       raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
       group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     } else {
@@ -3587,11 +3579,9 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
     }
     uintptr_t cur_raregeno_word = *raregeno_workspace_iter++;
     for (; ; --remaining_deltas_in_subgroup) {
-#ifndef __LP64__
       if (unlikely(raw_sample_idx >= raw_sample_ct)) {
         return kPglRetMalformedInput;
       }
-#endif
       if (IsSet(sample_include, raw_sample_idx)) {
         const uintptr_t cur_geno = cur_raregeno_word & 3;
         genocounts[cur_geno] += 1;
@@ -3633,6 +3623,15 @@ PglErr LdLoadGenovecSubsetIfNecessary(const uintptr_t* __restrict sample_include
     pgrp->ldbase_stypes |= kfPgrLdcacheNyp;
   }
   return kPglRetSuccess;
+}
+
+// A hardcall-phase track starts with a (het_ct + 1)-bit array, and the readers
+// take its popcount as a length; bits past it must be zero (PgrValidate()
+// checks this too).
+static inline BoolErr Aux2FirstPartIsInvalid(const unsigned char* fread_end, const unsigned char* aux2_start, uint32_t het_ct) {
+  const uint32_t byte_ct = 1 + (het_ct / CHAR_BIT);
+  const uint32_t bit_ct_mod8 = (het_ct + 1) % CHAR_BIT;
+  return PtrCheck(fread_end, aux2_start, byte_ct) || (bit_ct_mod8 && (aux2_start[byte_ct - 1] >> bit_ct_mod8));
 }
 
 PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, uint32_t* unphased_het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
@@ -3739,7 +3738,7 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
   assert((!subsetting_required) && ((vrtype & 0x18) == 0x10));
   const uint32_t het_ct = genocounts[1];
   const uint32_t aux2_first_part_byte_ct = 1 + (het_ct / CHAR_BIT);
-  if (PtrCheck(fread_end, fread_ptr, aux2_first_part_byte_ct)) {
+  if (Aux2FirstPartIsInvalid(fread_end, fread_ptr, het_ct)) {
     return kPglRetMalformedInput;
   }
   const uint32_t explicit_phasepresent = fread_ptr[0] & 1;
@@ -4050,19 +4049,12 @@ PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* 
     }
     // We need to pull a raw sample index from the deltalist header every 64
     // entries.
-#ifdef __LP64__
-    if (unlikely(raw_sample_idx >= raw_sample_ct)) {
-      return kPglRetMalformedInput;
-    }
-#endif
     raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
     group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     for (uint32_t raw_deltalist_idx_lowbits = 0; ; ++raw_deltalist_idx_lowbits) {
-#ifndef __LP64__
       if (unlikely(raw_sample_idx >= raw_sample_ct)) {
         return kPglRetMalformedInput;
       }
-#endif
       intersect_ct += IsSet(sample_include, raw_sample_idx);
       if (raw_deltalist_idx_lowbits == group_len_m1) {
         break;
@@ -4167,6 +4159,9 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
   const uint32_t allele_code_width = GetAux1aConsts(allele_ct, &detect_mask_hi, &detect_mask_lo, &allele_code_logwidth);
   const uintptr_t xor_word = (allele_idx - 2) * detect_mask_lo;
   if (!aux1a_mode) {
+    if (unlikely(!raw_01_ct)) {
+      return kPglRetMalformedInput;
+    }
     // 01-collapsed bitarray
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
     const uint32_t rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
@@ -4185,6 +4180,9 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
     uintptr_t sample_hwidx = 0;
     uintptr_t cur_raw_genoarr_hets = Word01(raw_genoarr[0]);
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
+    if (unlikely(!rare01_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
     uintptr_t fvals_bits = 0;
     uint32_t fvals_widx = 0;
@@ -4307,6 +4305,9 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
   if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
     return kPglRetMalformedInput;
   }
+  if (unlikely(!rare01_ct)) {
+    return kPglRetMalformedInput;
+  }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   uint32_t subsetted_hetx_ct = 0;
   for (uint32_t fvals_widx = 0; ; ++fvals_widx) {
@@ -4426,6 +4427,9 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
   const uint32_t allele_idx_m1 = allele_idx - 1;
   uint32_t rare10_lowbits = kBitsPerWord;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     // 10-collapsed bitarray
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     const uint32_t rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
@@ -4444,6 +4448,9 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     uintptr_t sample_hwidx = 0;
     uintptr_t cur_raw_genoarr_xys = Word10(raw_genoarr[0]);
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
+    if (unlikely(!rare10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
     uintptr_t fvals_bits = 0;
     uint32_t fvals_widx = 0;
@@ -4588,6 +4595,9 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
   const unsigned char* patch_10_fvals = *fread_pp;
   const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) << code10_logwidth, CHAR_BIT);
   if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    return kPglRetMalformedInput;
+  }
+  if (unlikely(!rare10_ct)) {
     return kPglRetMalformedInput;
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -4752,6 +4762,9 @@ PglErr GenoarrAux1aUpdate(const unsigned char* fread_end, const uintptr_t* __res
   const uint32_t allele_code_width = GetAux1aConsts(allele_ct, &detect_mask_hi, &detect_mask_lo, &allele_code_logwidth);
   const uintptr_t xor_word = (allele_idx - 2) * detect_mask_lo;
   if (!aux1a_mode) {
+    if (unlikely(!raw_01_ct)) {
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_01_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, 8);
     uint32_t rare01_ct = 0;
@@ -4768,6 +4781,10 @@ PglErr GenoarrAux1aUpdate(const unsigned char* fread_end, const uintptr_t* __res
       return kPglRetMalformedInput;
     }
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
+    // rare01_ct is only computed, and fvals only read, when allele_ct > 3
+    if (unlikely((allele_ct > 3) && (!rare01_ct))) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
     const uint32_t lshift = lshifted_bit - 1;
     uintptr_t fvals_bits = 0;
@@ -4918,6 +4935,9 @@ PglErr GenoarrAux1aUpdate(const unsigned char* fread_end, const uintptr_t* __res
     }
     return kPglRetSuccess;
   }
+  if (unlikely(!rare01_ct)) {
+    return kPglRetMalformedInput;
+  }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   for (uint32_t fvals_widx = 0; ; ++fvals_widx) {
     uintptr_t fvals_bits;
@@ -4975,6 +4995,9 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
   const uint32_t code10_width = 1U << code10_logwidth;
   uint32_t rare10_lowbits = kBitsPerWord;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, 8);
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
@@ -4985,6 +5008,9 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
     const unsigned char* patch_10_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) * code10_width, CHAR_BIT);
     if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+      return kPglRetMalformedInput;
+    }
+    if (unlikely(!rare10_ct)) {
       return kPglRetMalformedInput;
     }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -5179,6 +5205,9 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
   if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
     return kPglRetMalformedInput;
   }
+  if (unlikely(!rare10_ct)) {
+    return kPglRetMalformedInput;
+  }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   if ((!allele_idx_m1) || (allele_ct == 3)) {
     // bugfix (29 Dec 2019)
@@ -5295,6 +5324,9 @@ PglErr GetAux1bHets(const unsigned char* fread_end, const uintptr_t* __restrict 
   uint32_t rare10_lowbits = kBitsPerWord;
   uint32_t aux1b_het_present = 0;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, 8);
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
@@ -5305,6 +5337,9 @@ PglErr GetAux1bHets(const unsigned char* fread_end, const uintptr_t* __restrict 
     const unsigned char* patch_10_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) * code10_width, CHAR_BIT);
     if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+      return kPglRetMalformedInput;
+    }
+    if (unlikely(!rare10_ct)) {
       return kPglRetMalformedInput;
     }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -5380,6 +5415,9 @@ PglErr GetAux1bHets(const unsigned char* fread_end, const uintptr_t* __restrict 
   const unsigned char* patch_10_fvals = *fread_pp;
   const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) << code10_logwidth, CHAR_BIT);
   if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    return kPglRetMalformedInput;
+  }
+  if (unlikely(!rare10_ct)) {
     return kPglRetMalformedInput;
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -5624,6 +5662,9 @@ PglErr SkipAux1a(const unsigned char* fread_end, uint32_t aux1a_mode, uint32_t r
   }
   uint32_t rare01_ct;
   if (!aux1a_mode) {
+    if (unlikely(!raw_01_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
     rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
     *fread_pp += fset_byte_ct;
@@ -5676,6 +5717,9 @@ PglErr GenoarrAux1bUpdate2(const unsigned char* fread_end, const uintptr_t* __re
   xor_word2 = xor_word2 * detect_hom_mask_lo;
   uint32_t rare10_lowbits = kBitsPerWord;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, 8);
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
@@ -5686,6 +5730,9 @@ PglErr GenoarrAux1bUpdate2(const unsigned char* fread_end, const uintptr_t* __re
     const unsigned char* patch_10_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) * code10_width, CHAR_BIT);
     if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+      return kPglRetMalformedInput;
+    }
+    if (unlikely(!rare10_ct)) {
       return kPglRetMalformedInput;
     }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -5921,6 +5968,9 @@ PglErr GenoarrAux1bUpdate2(const unsigned char* fread_end, const uintptr_t* __re
       }
     }
     return kPglRetSuccess;
+  }
+  if (unlikely(!rare10_ct)) {
+    return kPglRetMalformedInput;
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   if (!allele_idx0) {
@@ -6171,7 +6221,9 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
     group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     for (uint32_t raw_deltalist_idx_lowbits = 0; ; ++raw_deltalist_idx_lowbits) {
       // always check, otherwise we may scribble over arbitrary memory
-      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+      // Also reject repeated indexes: callers pair *deltalist_len_ptr with the
+      // number of set bits.
+      if (unlikely((raw_sample_idx >= raw_sample_ct) || IsSet(deltalist_include, raw_sample_idx))) {
         return kPglRetMalformedInput;
       }
       SetBit(raw_sample_idx, deltalist_include);
@@ -6181,6 +6233,73 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
       raw_sample_idx += GetVint31(fread_end, fread_pp);
     }
   }
+}
+
+// The next two functions reject packed allele codes that are out of range
+// for allele_ct, applying the same tests as ValidateMultiallelicHc().  The
+// readers that turn these codes into array indexes (patch_01_vals/
+// patch_10_vals consumers, per-allele count arrays) call them; the ones that
+// only compare codes against a single allele index don't need to.
+BoolErr Aux1aFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uint32_t rare01_ct) {
+  // allele_ct == 3, 4, 6, and 18 use every bit pattern of their entry width.
+  const uint32_t max_code = allele_ct - 3;
+  if (allele_ct < 7) {
+    if (allele_ct != 5) {
+      return 0;
+    }
+    for (uint32_t uii = 0; uii != rare01_ct; ++uii) {
+      if (unlikely(((fvals[uii / 4] >> (2 * (uii % 4))) & 3) > max_code)) {
+        return 1;
+      }
+    }
+    return 0;
+  }
+  if (allele_ct < 19) {
+    if (allele_ct == 18) {
+      return 0;
+    }
+    for (uint32_t uii = 0; uii != rare01_ct; ++uii) {
+      if (unlikely(((fvals[uii / 2] >> (4 * (uii % 2))) & 15) > max_code)) {
+        return 1;
+      }
+    }
+    return 0;
+  }
+  for (uint32_t uii = 0; uii != rare01_ct; ++uii) {
+    if (unlikely(fvals[uii] > max_code)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+BoolErr Aux1bFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uint32_t rare10_ct) {
+  if (allele_ct == 3) {
+    // 1-bit entries, both values valid
+    return 0;
+  }
+  // Codes here are 0-based ALT indexes.  hi_code == 0 would mean ALT1/ALT1,
+  // which isn't stored in this track.
+  const uint32_t max_code = allele_ct - 2;
+  for (uint32_t uii = 0; uii != rare10_ct; ++uii) {
+    uint32_t lo_code;
+    uint32_t hi_code;
+    if (allele_ct < 6) {
+      const uint32_t cur_nybble = (fvals[uii / 2] >> (4 * (uii % 2))) & 15;
+      lo_code = cur_nybble & 3;
+      hi_code = cur_nybble >> 2;
+    } else if (allele_ct < 18) {
+      lo_code = fvals[uii] & 15;
+      hi_code = fvals[uii] >> 4;
+    } else {
+      lo_code = fvals[2 * uii];
+      hi_code = fvals[2 * uii + 1];
+    }
+    if (unlikely((!hi_code) || (hi_code > max_code) || (lo_code > hi_code))) {
+      return 1;
+    }
+  }
+  return 0;
 }
 
 static_assert(sizeof(AlleleCode) == 1, "GetAux1aCodes() must be updated.");
@@ -6193,7 +6312,7 @@ PglErr GetAux1aCodes(const unsigned char* fread_end, uint32_t rare01_ct, uint32_
   const unsigned char* patch_01_fvals = *fread_pp;
   if (allele_ct == 4) {
     const uint32_t patch_01_fvals_byte_ct = DivUp(rare01_ct, CHAR_BIT);
-    if (PtrAddCk(fread_end, patch_01_fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, patch_01_fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
       return kPglRetMalformedInput;
     }
     Expand1bitTo8(patch_01_fvals, rare01_ct, 2, patch_01_vals);
@@ -6201,7 +6320,7 @@ PglErr GetAux1aCodes(const unsigned char* fread_end, uint32_t rare01_ct, uint32_
   }
   if (allele_ct < 7) {
     const uint32_t patch_01_fvals_byte_ct = DivUp(rare01_ct, 4);
-    if (PtrAddCk(fread_end, patch_01_fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, patch_01_fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
       return kPglRetMalformedInput;
     }
     Expand2bitTo8(patch_01_fvals, rare01_ct, 2, patch_01_vals);
@@ -6209,13 +6328,13 @@ PglErr GetAux1aCodes(const unsigned char* fread_end, uint32_t rare01_ct, uint32_
   }
   if (allele_ct < 19) {
     const uint32_t patch_01_fvals_byte_ct = DivUp(rare01_ct, 2);
-    if (PtrAddCk(fread_end, patch_01_fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, patch_01_fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
       return kPglRetMalformedInput;
     }
     Expand4bitTo8(patch_01_fvals, rare01_ct, 2, patch_01_vals);
     return kPglRetSuccess;
   }
-  if (PtrAddCk(fread_end, rare01_ct, fread_pp)) {
+  if (PtrAddCk(fread_end, rare01_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
     return kPglRetMalformedInput;
   }
   // todo: verify the compiler recognizes this
@@ -6229,9 +6348,15 @@ PglErr GetAux1aCodes(const unsigned char* fread_end, uint32_t rare01_ct, uint32_
 PglErr ExportAux1a(const unsigned char* fread_end, const uintptr_t* __restrict raw_genoarr, uint32_t aux1a_mode, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t raw_01_ct, const unsigned char** fread_pp, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uint32_t* __restrict rare01_ctp) {
   uint32_t rare01_ct;
   if (!aux1a_mode) {
+    if (unlikely(!raw_01_ct)) {
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_01_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
-    if (PtrAddCk(fread_end, fset_byte_ct, fread_pp)) {
+    // Nonzero trailing bits would make rare01_ct exceed the number of bits
+    // set in patch_01_set.
+    const uint32_t raw_01_ct_mod8 = raw_01_ct % CHAR_BIT;
+    if (PtrAddCk(fread_end, fset_byte_ct, fread_pp) || (raw_01_ct_mod8 && (patch_01_fset[fset_byte_ct - 1] >> raw_01_ct_mod8))) {
       return kPglRetMalformedInput;
     }
     rare01_ct = PopcountBytes(patch_01_fset, fset_byte_ct);
@@ -6240,6 +6365,9 @@ PglErr ExportAux1a(const unsigned char* fread_end, const uintptr_t* __restrict r
     if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, fread_pp, patch_01_set, &rare01_ct))) {
       return kPglRetMalformedInput;
     }
+  }
+  if (unlikely(!rare01_ct)) {
+    return kPglRetMalformedInput;
   }
   *rare01_ctp = rare01_ct;
   return GetAux1aCodes(fread_end, rare01_ct, allele_ct, fread_pp, patch_01_vals);
@@ -6251,6 +6379,9 @@ PglErr ExportAux1aProperSubset(const unsigned char* fread_end, const uintptr_t* 
   memset(dst_01_set, 0, BitCtToWordCt(sample_ct) * sizeof(intptr_t));
   AlleleCode* dst_01_vals_iter = dst_01_vals;
   if (!aux1a_mode) {
+    if (unlikely(!raw_01_ct)) {
+      return kPglRetMalformedInput;
+    }
     // similar to GenoarrAux1aUpdate()
     const unsigned char* patch_01_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
@@ -6263,10 +6394,13 @@ PglErr ExportAux1aProperSubset(const unsigned char* fread_end, const uintptr_t* 
     uintptr_t cur_raw_genoarr_hets = Word01(raw_genoarr[0]);
     uint32_t loop_len = kBitsPerWord;
     const uintptr_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare01_ct) * allele_code_width, 8);
-    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
       return kPglRetMalformedInput;
     }
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
+    if (unlikely(!rare01_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
     uintptr_t fvals_bits = 0;
     uint32_t fvals_widx = 0;
@@ -6338,7 +6472,7 @@ PglErr ExportAux1aProperSubset(const unsigned char* fread_end, const uintptr_t* 
   }
   const unsigned char* patch_01_fvals = *fread_pp;
   const uintptr_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare01_ct) * allele_code_width, 8);
-  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
     return kPglRetMalformedInput;
   }
   if (allele_ct == 3) {
@@ -6356,6 +6490,9 @@ PglErr ExportAux1aProperSubset(const unsigned char* fread_end, const uintptr_t* 
     }
     *rare01_ctp = dst_01_vals_iter - dst_01_vals;
     return kPglRetSuccess;
+  }
+  if (unlikely(!rare01_ct)) {
+    return kPglRetMalformedInput;
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   const uint32_t allele_code_logwidth = ctzu32(allele_code_width);
@@ -6394,7 +6531,7 @@ PglErr GetAux1bCodes(const unsigned char* fread_end, uint32_t rare10_ct, uint32_
   if (allele_ct == 3) {
     // 1 bit, distinguishes between 0x0201 and 0x0202
     const uint32_t patch_10_fvals_byte_ct = DivUp(rare10_ct, CHAR_BIT);
-    if (PtrAddCk(fread_end, patch_10_fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, patch_10_fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
       return kPglRetMalformedInput;
     }
     Expand1bitTo16(patch_10_fvals, rare10_ct, 0x0201, patch_10_vals);
@@ -6404,7 +6541,7 @@ PglErr GetAux1bCodes(const unsigned char* fread_end, uint32_t rare10_ct, uint32_
   if (allele_ct < 6) {
     // 2+2 bits, add 1
     const uint32_t patch_10_fvals_byte_ct = DivUp(rare10_ct, 2);
-    if (PtrAddCk(fread_end, patch_10_fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, patch_10_fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
       return kPglRetMalformedInput;
     }
     Expand2bitTo8(patch_10_fvals, rare10_ct_x2, 1, patch_10_vals);
@@ -6412,13 +6549,13 @@ PglErr GetAux1bCodes(const unsigned char* fread_end, uint32_t rare10_ct, uint32_
   }
   if (allele_ct < 18) {
     // 4+4 bits
-    if (PtrAddCk(fread_end, rare10_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, rare10_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
       return kPglRetMalformedInput;
     }
     Expand4bitTo8(patch_10_fvals, rare10_ct_x2, 1, patch_10_vals);
     return kPglRetSuccess;
   }
-  if (PtrAddCk(fread_end, rare10_ct_x2, fread_pp)) {
+  if (PtrAddCk(fread_end, rare10_ct_x2, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
     return kPglRetMalformedInput;
   }
   // todo: verify the compiler recognizes this
@@ -6432,9 +6569,15 @@ PglErr GetAux1bCodes(const unsigned char* fread_end, uint32_t rare10_ct, uint32_
 PglErr ExportAux1b(const unsigned char* fread_end, const uintptr_t* __restrict raw_genoarr, uint32_t aux1b_mode, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t raw_10_ct, const unsigned char** fread_pp, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict rare10_ctp) {
   uint32_t rare10_ct;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
-    if (PtrAddCk(fread_end, fset_byte_ct, fread_pp)) {
+    // Nonzero trailing bits would make rare10_ct exceed the number of bits
+    // set in patch_10_set.
+    const uint32_t raw_10_ct_mod8 = raw_10_ct % CHAR_BIT;
+    if (PtrAddCk(fread_end, fset_byte_ct, fread_pp) || (raw_10_ct_mod8 && (patch_10_fset[fset_byte_ct - 1] >> raw_10_ct_mod8))) {
       return kPglRetMalformedInput;
     }
     rare10_ct = PopcountBytes(patch_10_fset, fset_byte_ct);
@@ -6443,6 +6586,9 @@ PglErr ExportAux1b(const unsigned char* fread_end, const uintptr_t* __restrict r
     if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, fread_pp, patch_10_set, &rare10_ct))) {
       return kPglRetMalformedInput;
     }
+  }
+  if (unlikely(!rare10_ct)) {
+    return kPglRetMalformedInput;
   }
   *rare10_ctp = rare10_ct;
   return GetAux1bCodes(fread_end, rare10_ct, allele_ct, fread_pp, patch_10_vals);
@@ -6458,6 +6604,9 @@ PglErr ExportAux1bProperSubset(const unsigned char* fread_end, const uintptr_t* 
   memset(dst_10_set, 0, BitCtToWordCt(sample_ct) * sizeof(intptr_t));
   AlleleCode* dst_10_vals_iter = dst_10_vals;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     const uint32_t rare10_ct = PopcountBytes(patch_10_fset, fset_byte_ct);
@@ -6469,10 +6618,13 @@ PglErr ExportAux1bProperSubset(const unsigned char* fread_end, const uintptr_t* 
     uintptr_t cur_raw_genoarr_xys = Word10(raw_genoarr[0]);
     uint32_t loop_len = kBitsPerWord;
     const uintptr_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) * code10_width, 8);
-    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
       return kPglRetMalformedInput;
     }
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
+    if (unlikely(!rare10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
     uintptr_t fvals_bits = 0;
     uint32_t fvals_widx = 0;
@@ -6560,7 +6712,10 @@ PglErr ExportAux1bProperSubset(const unsigned char* fread_end, const uintptr_t* 
   }
   const unsigned char* patch_10_fvals = *fread_pp;
   const uintptr_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) << code10_logwidth, 8);
-  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
+    return kPglRetMalformedInput;
+  }
+  if (unlikely(!rare10_ct)) {
     return kPglRetMalformedInput;
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -6736,6 +6891,9 @@ PglErr SkipAux1b(const unsigned char* fread_end, uint32_t aux1b_mode, uint32_t r
   }
   uint32_t rare10_ct;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
     *fread_pp += fset_byte_ct;
@@ -6822,6 +6980,9 @@ PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restri
 
     // explicit phasepresent
     uintptr_t* aux2_first_part_copy = workspace_subset;
+    if (Aux2FirstPartIsInvalid(fread_end, aux2_start, het_ct)) {
+      return kPglRetMalformedInput;
+    }
     aux2_first_part_copy[het_ctdl] = 0;
     memcpy(aux2_first_part_copy, aux2_start, 1 + (het_ct / CHAR_BIT));
     const uint32_t raw_phasepresent_ct = PopcountWords(aux2_first_part_copy, het_ctdl + 1) - 1;
@@ -6859,7 +7020,7 @@ PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restri
 PglErr SkipAux2(const unsigned char* fread_end, uint32_t het_ct, const unsigned char** fread_pp, uint32_t* __restrict phasepresent_ctp) {
   const unsigned char* aux2_start = *fread_pp;
   const uint32_t aux2_first_part_byte_ct = 1 + (het_ct / CHAR_BIT);
-  if (PtrAddCk(fread_end, aux2_first_part_byte_ct, fread_pp)) {
+  if (Aux2FirstPartIsInvalid(fread_end, aux2_start, het_ct) || PtrAddCk(fread_end, aux2_first_part_byte_ct, fread_pp)) {
     return kPglRetMalformedInput;
   }
   if (!(aux2_start[0] & 1)) {
@@ -7248,6 +7409,9 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     // case 3: dosage bitarray
     raw_dosage_present[raw_sample_ctl - 1] = 0;
     const uint32_t raw_sample_ctb = DivUp(raw_sample_ct, CHAR_BIT);
+    if (PtrCheck(fread_end, fread_ptr, raw_sample_ctb)) {
+      return kPglRetMalformedInput;
+    }
     memcpy(raw_dosage_present, fread_ptr, raw_sample_ctb);
     fread_ptr = &(fread_ptr[raw_sample_ctb]);
     raw_dosage_ct = PopcountWords(raw_dosage_present, raw_sample_ctl);
@@ -7269,6 +7433,9 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     }
     return kPglRetSuccess;
   }
+  if (PtrCheck(fread_end, fread_ptr, raw_dosage_ct * sizeof(int16_t))) {
+    return kPglRetMalformedInput;
+  }
   const unsigned char* dosage_main_read_biter = fread_ptr;
   uint16_t* dosage_main_write_iter = dosage_main;
   uint32_t raw_dphase_ct = 0;
@@ -7278,10 +7445,15 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     fread_ptr = &(fread_ptr[raw_dosage_ct * 2]);
     if (!is_unconditional_dosage) {
       const unsigned char* file_dphase_present = fread_ptr;
-      fread_ptr = &(fread_ptr[DivUp(raw_dosage_ct, CHAR_BIT)]);
+      if (PtrAddCk(fread_end, DivUp(raw_dosage_ct, CHAR_BIT), &fread_ptr)) {
+        return kPglRetMalformedInput;
+      }
       raw_dphase_present = subsetting_required? pgrp->workspace_dphase_present : dphase_present;
       ExpandBytearr(file_dphase_present, raw_dosage_present, raw_sample_ctl, raw_dosage_ct, 0, raw_dphase_present);
       raw_dphase_ct = PopcountWords(raw_dphase_present, raw_sample_ctl);
+      if (PtrCheck(fread_end, fread_ptr, raw_dphase_ct * sizeof(int16_t))) {
+        return kPglRetMalformedInput;
+      }
       dphase_ct = raw_dphase_ct;
       if (subsetting_required) {
         CopyBitarrSubset(raw_dphase_present, sample_include, sample_ct, dphase_present);
@@ -7289,6 +7461,9 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
       }
     } else {
       // raw_dphase_present = raw_dosage_present;
+      if (PtrCheck(fread_end, fread_ptr, raw_dosage_ct * sizeof(int16_t))) {
+        return kPglRetMalformedInput;
+      }
       dphase_ct = dosage_ct;
       SetAllBits(sample_ct, dphase_present);
     }
@@ -7748,6 +7923,9 @@ PglErr GetAux1bHetIncr(const unsigned char* fread_end, uint32_t aux1b_mode, uint
   }
   uint32_t rare10_ct;
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, 8);
     rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
     *fread_pp += fset_byte_ct;
@@ -7782,6 +7960,9 @@ PglErr GetAux1bHetIncr(const unsigned char* fread_end, uint32_t aux1b_mode, uint
   const uintptr_t detect_all_mask_lo = detect_hom_mask_lo | (detect_hom_mask_lo << allele_code_width);
   const uintptr_t detect_all_mask_hi = detect_all_mask_lo << (allele_code_width - 1);
   const uintptr_t detect_hom_mask_hi = detect_hom_mask_lo << (code10_width - 1);
+  if (unlikely(!rare10_ct)) {
+    return kPglRetMalformedInput;
+  }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   uint32_t het_incr = 0;
   for (uint32_t fvals_widx = 0; ; ++fvals_widx) {
@@ -7855,7 +8036,7 @@ uint64_t U16VecSum(const uint16_t* __restrict uint16_vec, uint32_t entry_ct) {
 PglErr GetPhasepresentAndSkipPhaseinfo(const unsigned char* fread_end, const uintptr_t* __restrict all_hets, uint32_t raw_sample_ct, uint32_t het_ct, const unsigned char** fread_pp, uintptr_t* __restrict phasepresent, uint32_t* __restrict phasepresent_ctp) {
   const unsigned char* aux2_start = *fread_pp;
   const uint32_t aux2_first_part_byte_ct = 1 + (het_ct / CHAR_BIT);
-  if (PtrAddCk(fread_end, aux2_first_part_byte_ct, fread_pp)) {
+  if (Aux2FirstPartIsInvalid(fread_end, aux2_start, het_ct) || PtrAddCk(fread_end, aux2_first_part_byte_ct, fread_pp)) {
     return kPglRetMalformedInput;
   }
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -7882,7 +8063,7 @@ PglErr GetUnphasedBiallelicHetCt(const uintptr_t* __restrict sample_include, con
     raw_het_ct = CountNyp(raw_genoarr, kMask5555, raw_sample_ct);
   }
   const uint32_t aux2_first_part_byte_ct = 1 + (raw_het_ct / CHAR_BIT);
-  if (PtrCheck(fread_end, fread_ptr, aux2_first_part_byte_ct)) {
+  if (Aux2FirstPartIsInvalid(fread_end, fread_ptr, raw_het_ct)) {
     return kPglRetMalformedInput;
   }
   const uint32_t explicit_phasepresent = fread_ptr[0] & 1;
@@ -8039,12 +8220,17 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
         raw_het_ct = PopcountWords(all_hets, raw_sample_ctl);
       }
       const uint32_t first_half_byte_ct = 1 + (raw_het_ct / CHAR_BIT);
+      if (Aux2FirstPartIsInvalid(fread_end, fread_ptr, raw_het_ct)) {
+        return kPglRetMalformedInput;
+      }
       const uint32_t explicit_phasepresent = fread_ptr[0] & 1;
       if (explicit_phasepresent) {
         ExpandBytearr(fread_ptr, all_hets, raw_sample_ctl, raw_het_ct, 1, raw_phasepresent);
         raw_phasepresent_ct = PopcountBytes(fread_ptr, first_half_byte_ct) - 1;
         const uint32_t second_half_byte_ct = DivUp(raw_phasepresent_ct, CHAR_BIT);
-        fread_ptr = &(fread_ptr[first_half_byte_ct + second_half_byte_ct]);
+        if (PtrAddCk(fread_end, first_half_byte_ct + second_half_byte_ct, &fread_ptr)) {
+          return kPglRetMalformedInput;
+        }
       } else {
         raw_phasepresent_ct = raw_het_ct;
         memcpy(raw_phasepresent, all_hets, raw_sample_ctl * sizeof(intptr_t));
@@ -8565,6 +8751,9 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
   if (!sample_include) {
     uint32_t rare01_ct;
     if (!aux1a_mode) {
+      if (unlikely(!raw_01_ct)) {
+        return kPglRetMalformedInput;
+      }
       const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
       rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
       *fread_pp += fset_byte_ct;
@@ -8581,7 +8770,7 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
     }
     const unsigned char* patch_01_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = GetAux1aAlleleEntryByteCt(allele_ct, rare01_ct);
-    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
       return kPglRetMalformedInput;
     }
     CountAllAux1aDense(patch_01_fvals, allele_ct, rare01_ct, one_cts);
@@ -8591,19 +8780,25 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
   const uintptr_t allele_code_mask = (1U << allele_code_width) - 1;
   uint64_t* one_cts_offset2 = &(one_cts[2]);
   if (!aux1a_mode) {
+    if (unlikely(!raw_01_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
     const uint32_t rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
     const unsigned char* patch_01_fset = *fread_pp;
     *fread_pp += fset_byte_ct;
     const unsigned char* patch_01_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare01_ct) * allele_code_width, 8);
-    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
       return kPglRetMalformedInput;
     }
     const Halfword* sample_include_hw = DowncastKWToHW(sample_include);
     uintptr_t sample_hwidx = 0;
     uintptr_t cur_raw_genoarr_hets = Word01(raw_genoarr[0]);
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
+    if (unlikely(!rare01_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
     uintptr_t fvals_bits = 0;
     uint32_t fvals_widx = 0;
@@ -8688,7 +8883,10 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
   }
   const unsigned char* patch_01_fvals = *fread_pp;
   const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare01_ct) * allele_code_width, 8);
-  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
+    return kPglRetMalformedInput;
+  }
+  if (unlikely(!rare01_ct)) {
     return kPglRetMalformedInput;
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -8784,6 +8982,9 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
   if (!sample_include) {
     uint32_t rare10_ct;
     if (!aux1b_mode) {
+      if (unlikely(!raw_10_ct)) {
+        return kPglRetMalformedInput;
+      }
       const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
       rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
       *fread_pp += fset_byte_ct;
@@ -8800,7 +9001,7 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
     }
     const unsigned char* patch_10_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = GetAux1bAlleleEntryByteCt(allele_ct, rare10_ct);
-    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
       return kPglRetMalformedInput;
     }
     CountAllAux1bDense(patch_10_fvals, allele_ct, rare10_ct, one_cts_offset1, two_cts_offset1);
@@ -8815,19 +9016,25 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
   uint32_t rare10_lowbits = kBitsPerWord;
   // probable todo: faster paths when two_cts_offset1 == nullptr
   if (!aux1b_mode) {
+    if (unlikely(!raw_10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     const uint32_t rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
     const unsigned char* patch_10_fset = *fread_pp;
     *fread_pp += fset_byte_ct;
     const unsigned char* patch_10_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) << code10_logwidth, 8);
-    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+    if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
       return kPglRetMalformedInput;
     }
     const Halfword* sample_include_hw = DowncastKWToHW(sample_include);
     uintptr_t sample_hwidx = 0;
     uintptr_t cur_raw_genoarr_xys = Word10(raw_genoarr[0]);
     const uint32_t fset_word_ct_m1 = (fset_byte_ct - 1) / kBytesPerWord;
+    if (unlikely(!rare10_ct)) {
+      return kPglRetMalformedInput;
+    }
     const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
     const uint32_t code10_width = 1U << code10_logwidth;
     uintptr_t fvals_bits = 0;
@@ -8923,7 +9130,10 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
   }
   const unsigned char* patch_10_fvals = *fread_pp;
   const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) << code10_logwidth, 8);
-  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
+  if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
+    return kPglRetMalformedInput;
+  }
+  if (unlikely(!rare10_ct)) {
     return kPglRetMalformedInput;
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
@@ -9429,6 +9639,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
     const uint32_t het_ctdl = het_ct / kBitsPerWord;
     uintptr_t* phaseraw = loadbuf_iter;
     const uint32_t first_half_byte_ct = 1 + (het_ct / CHAR_BIT);
+    if (Aux2FirstPartIsInvalid(fread_end, fread_ptr, het_ct)) {
+      return kPglRetMalformedInput;
+    }
     if (save_hphase) {
       // this needs to be synced with MakePgenThread()
 #ifdef __LP64__
@@ -9464,6 +9677,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
         return kPglRetMalformedInput;
       }
       const uint32_t second_half_byte_ct = DivUp(raw_phasepresent_ct, CHAR_BIT);
+      if (PtrCheck(fread_end, fread_ptr, second_half_byte_ct)) {
+        return kPglRetMalformedInput;
+      }
       if (save_hphase) {
 #ifdef __LP64__
         phaseraw[0] = het_ct | (S_CAST(uint64_t, raw_phasepresent_ct) << 32);
@@ -10368,6 +10584,49 @@ BoolErr ValidateHphase(const unsigned char* fread_end, uint32_t vidx, uint32_t h
     if (unlikely((*fread_pp)[-1] >> phasepresent_ct_mod8)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Hardcall phase track for (0-based) variant #%u has nonzero trailing bits.\n", vidx);
       return 1;
+    }
+  }
+  return 0;
+}
+
+BoolErr DosagesAreInvalid(const uintptr_t* __restrict dosage_present, const uint16_t* __restrict dosage_main, uint32_t dosage_ct, const uintptr_t* __restrict dphase_present, const int16_t* __restrict dphase_delta, uint32_t dphase_ct) {
+  uint32_t max_dosage = 0;
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uint32_t cur_dosage = dosage_main[dosage_idx];
+    if (cur_dosage > max_dosage) {
+      max_dosage = cur_dosage;
+    }
+  }
+  if (max_dosage > 32768) {
+    return 1;
+  }
+  if (!dphase_ct) {
+    return 0;
+  }
+  // dphase_present is a subset of dosage_present; pair each delta with its
+  // sample's dosage.
+  uint32_t dosage_idx = 0;
+  uint32_t dphase_idx = 0;
+  for (uint32_t widx = 0; dphase_idx != dphase_ct; ++widx) {
+    uintptr_t dosage_word = dosage_present[widx];
+    const uintptr_t dphase_word = dphase_present[widx];
+    if (unlikely(dphase_word & (~dosage_word))) {
+      return 1;
+    }
+    while (dosage_word) {
+      const uintptr_t lowbit = dosage_word & (-dosage_word);
+      if (dphase_word & lowbit) {
+        // same test as ValidateDosage16()
+        const int16_t cur_delta = dphase_delta[dphase_idx++];
+        const uint16_t cur_dosage = dosage_main[dosage_idx];
+        const uint16_t dpiece0_x2 = cur_dosage + cur_delta;
+        const uint16_t dpiece1_x2 = cur_dosage - cur_delta;
+        if ((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+          return 1;
+        }
+      }
+      ++dosage_idx;
+      dosage_word ^= lowbit;
     }
   }
   return 0;

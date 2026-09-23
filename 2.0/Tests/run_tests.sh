@@ -218,4 +218,9 @@ cd TEST_PGEN_EMPTY_DOSAGE_LIST
 cd ..
 echo "TEST_PGEN_EMPTY_DOSAGE_LIST passed."
 
+cd TEST_PGEN_CORRUPT_BODY
+./run_tests.sh $d $2 $3 > TEST_PGEN_CORRUPT_BODY.log
+cd ..
+echo "TEST_PGEN_CORRUPT_BODY passed."
+
 echo "All tests passed."
