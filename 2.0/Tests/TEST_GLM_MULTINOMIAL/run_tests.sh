@@ -79,20 +79,22 @@ test "$(grep -c '^X' tmp_single_x.SINGLE.glm.multinomial || true)" -eq 0
 #    standard errors, and Wald statistics must match --glm's, for every model.
 #    (Multiallelic variants only in the additive model: in the others,
 #    logistic regression's standard errors for them differ from statsmodels'
-#    by up to 5e-4, while this code's match statsmodels.)
+#    by up to 5e-4, while this code's match statsmodels.  And no variant
+#    with a missing call: until #526 is merged, logistic regression's results
+#    for those depend on how the threads split the variants.)
 for spec in add:ADD dominant:DOM recessive:REC hetonly:HET genotypic:ADD,DOMDEV hethom:HOM,HET; do
     model=${spec%%:*}
     modifier=$model
     if [ $model = add ]; then
         modifier=""
     fi
-    $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar $modifier cols=+beta --out tmp_logistic > /dev/null
-    $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald multinomial-ref=lo omit-ref $modifier cols=+beta --out tmp_two_levels > /dev/null
+    $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar $modifier cols=+beta --out tmp_logistic > /dev/null
+    $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald multinomial-ref=lo omit-ref $modifier cols=+beta --out tmp_two_levels > /dev/null
     awk -v terms=${spec#*:} -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
 done
-$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar cols=+beta --out tmp_logistic > /dev/null
-$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald multinomial-ref=lo omit-ref cols=+beta --out tmp_two_levels > /dev/null
-awk -v terms=ADD -v min_ct=4 -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
+$plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar cols=+beta --out tmp_logistic > /dev/null
+$plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald multinomial-ref=lo omit-ref cols=+beta --out tmp_two_levels > /dev/null
+awk -v terms=ADD -v min_ct=3 -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
 
 # 6. Invariance to the counted allele: swap REF and ALT, keep A1 = ALT.  The
 #    statistics stay, the coefficients change sign.
@@ -159,11 +161,14 @@ awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
        if ((expected - $c["MIN_EXPECTED"]) ^ 2 > (1e-5 * expected) ^ 2 + 1e-12) { print $3 ": MIN_EXPECTED " $c["MIN_EXPECTED"] ", expected " expected; exit 1 }
      }' tmp_multi_cols.CAT.glm.multinomial
 
-# 9. Results do not depend on the thread count.
-$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref cols=+beta --threads 1 --out tmp_1thread > /dev/null
-cmp tmp_1thread.CAT.glm.multinomial tmp_add_lrt_bi.CAT.glm.multinomial
-$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=lrt omit-ref genotypic cols=+beta --threads 1 --out tmp_1thread_multi > /dev/null
-cmp tmp_1thread_multi.CAT.glm.multinomial tmp_genotypic_lrt_multi.CAT.glm.multinomial
+# 9. Results do not depend on the thread count.  (Without $2/$3, which may
+#    set --threads themselves.)
+for th in 1 3; do
+    $1/plink2 --threads $th --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref cols=+beta --out tmp_threads$th > /dev/null
+    cmp tmp_threads$th.CAT.glm.multinomial tmp_add_lrt_bi.CAT.glm.multinomial
+    $1/plink2 --threads $th --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=lrt omit-ref genotypic cols=+beta --out tmp_threads${th}_multi > /dev/null
+    cmp tmp_threads${th}_multi.CAT.glm.multinomial tmp_genotypic_lrt_multi.CAT.glm.multinomial
+done
 
 # 10. --adjust reports every row with a valid statistic, one per ALT allele
 #     in the non-additive models.
