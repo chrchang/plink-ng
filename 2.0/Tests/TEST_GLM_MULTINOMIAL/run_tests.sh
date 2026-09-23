@@ -40,6 +40,28 @@ set -exo pipefail
 
 plink2="$1/plink2 $2 $3"
 
+# Logistic reference for parts 1 and 6c, fitted one variant at a time with
+# --snp and concatenated.  --glm logistic reuses its intercept column from one
+# variant to the next, and on master it leaves stale padding in that column
+# when a variant with missing calls follows one without (fixed in
+# chrchang/plink-ng#526).  Which variants follow which depends on how --threads
+# splits the work, so a whole-file run gives different standard errors on
+# different machines.  A run of one variant always refills the column.
+# Arguments: output file, .pvar file, plink2 arguments (without --out).
+logistic_by_variant() {
+    out=$1; pvar=$2; shift 2
+    rm -f "$out"
+    for vid in $(grep -v '^#' "$pvar" | cut -f 3); do
+        rm -f tmp_one.*.glm.*
+        $plink2 "$@" --snp "$vid" --out tmp_one > /dev/null
+        one=$(ls tmp_one.*.glm.*)
+        if [ ! -e "$out" ]; then
+            head -n 1 "$one" > "$out"
+        fi
+        tail -n +2 "$one" >> "$out"
+    done
+}
+
 # The data come from a Park-Miller minimal standard generator, which is exact
 # in double-precision arithmetic, so every awk produces the same values and the
 # fixture's expected values stay valid.  The phenotype is drawn from integer
@@ -111,7 +133,7 @@ awk 'function rnd() { seed = (seed * 16807) % 2147483647; return seed / 21474836
 $plink2 --vcf tmp_data.vcf dosage=DS --update-sex tmp_sex.txt --make-pgen --out tmp_data > /dev/null
 
 # 1. K = 2 against logistic regression.
-$plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name CC --covar tmp_covar.txt --glm no-firth --out tmp_logistic > /dev/null
+logistic_by_variant tmp_logistic.CC.glm.logistic tmp_data.pvar --pfile tmp_data --pheno tmp_pheno.txt --pheno-name CC --covar tmp_covar.txt --glm no-firth
 $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name B2 --covar tmp_covar.txt --glm no-firth --mnl-ref B2=lo --out tmp_k2 > /dev/null
 awk -f compare_logistic.awk tmp_logistic.CC.glm.logistic tmp_k2.B2.glm.multinomial
 
@@ -298,7 +320,7 @@ awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { if ($i == "ID") { id = i }; i
 #     rounding allowance: five times that tolerance, well below what a wrong
 #     standard-error convention or modified score would produce (percent
 #     level).
-$plink2 $firth_args --pheno-name CC --glm firth --out tmp_lf > /dev/null
+logistic_by_variant tmp_lf.CC.glm.firth tmp_firth.pvar $firth_args --pheno-name CC --glm firth
 $plink2 $firth_args --pheno-name B2 --glm firth --mnl-ref B2=lo --out tmp_k2f > /dev/null
 awk -v rel_slack=5e-5 -f compare_logistic.awk tmp_lf.CC.glm.firth tmp_k2f.B2.glm.multinomial.firth
 
