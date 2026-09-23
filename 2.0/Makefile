@@ -38,11 +38,6 @@ CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
 CXXFLAGS	+= -std=c++17 $(BASEFLAGS) $(CXXWARN) $(CXXINCLUDE)
 LDFLAGS		+= -lm -lpthread -flto $(ZLIB) $(ZSTD)
 
-ifdef USE_S3
-  CXXFLAGS	+= -DUSE_S3 -DS3STREAM_ENABLE
-  LDFLAGS	+= -lcurl
-endif
-
 # Installation defaults
 MKDIR		?= mkdir
 INSTALL		?= install
@@ -58,6 +53,14 @@ ifeq ($(UNAME), Darwin)
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
   LDFLAGS=-ldl -lpthread -lz -lzstd -flto -L/opt/homebrew/lib -L/usr/local/lib
+endif
+
+# Must come after the platform blocks above: they assign LDFLAGS outright
+# rather than appending, so an earlier -lcurl would be dropped.
+ifdef USE_S3
+  CXXFLAGS	+= -DUSE_S3 -DS3STREAM_ENABLE
+  LDFLAGS	+= -lcurl
+  S3LDFLAGS	= -lcurl
 endif
 
 %.o: %.c
@@ -79,7 +82,7 @@ plink2: $(OBJ)
 pgen_compress: $(PGCOBJ)
 	$(MKDIR) -p bin
 	$(CXX) $(PGCOBJ) \
-		-o bin/pgen_compress
+		-o bin/pgen_compress $(S3LDFLAGS)
 
 .PHONY: install-strip install clean
 

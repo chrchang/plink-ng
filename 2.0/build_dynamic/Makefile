@@ -20,7 +20,7 @@
 #     work)
 #   Debug symbols: change DEBUG to -g (still incompatible with -flto?)
 #   Enable S3 input support via libcurl: USE_S3
-#     (requires aws-sdk-cpp with s3 and core components)
+#     (requires libcurl >= 7.75.0)
 NO_AVX2 = 1
 NO_SSE42 = 1
 CPU_CHECK = 1
@@ -236,7 +236,7 @@ plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(CXX) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS) $(LDFLAGS)
 
 pgen_compress$(SFX): $(PGCSRC2)
-	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
+	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@ $(LINKFLAGS)
 
 pgenlib.a: $(PGENLIB_CCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
@@ -249,10 +249,10 @@ plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2)
 	$(LIBTOOL) $(STATIC) -o $@ $(PLINK2LIB_OBJL)
 
 static_pgenlib_test: pgenlib.a ../pgen_compress.cc
-	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. pgenlib.a
+	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. pgenlib.a $(LINKFLAGS)
 
 static_plink2lib_test: plink2lib.a ../pgen_compress.cc
-	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. plink2lib.a
+	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. plink2lib.a $(LINKFLAGS)
 
 .PHONY: clean
 clean:

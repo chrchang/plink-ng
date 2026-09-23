@@ -47,13 +47,22 @@ ZCSRC = zstd/lib/common/debug.c \
 
 ZSSRC = zstd/lib/decompress/huf_decompress_amd64.S
 
+# pgenlib_read.cc and plink2_text.cc call OpenMaybeS3(), so anything built
+# from PGENLIB_CCSRC or TEXTLIB_CCSRC needs these too -- not just plink2.
+# Without S3STREAM_ENABLE they compile to stubs and pull in no dependencies.
+S3_CCSRC = plink2_s3.cc \
+           s3stream/s3stream.cc \
+           s3stream/s3stream_creds.cc \
+           s3stream/s3stream_http.cc
+
 PGENLIB_CCSRC = include/plink2_base.cc \
                 include/plink2_bits.cc \
                 include/plink2_simd.cc \
                 include/pgenlib_misc.cc \
                 include/pgenlib_mtwrite.cc \
                 include/pgenlib_read.cc \
-                include/pgenlib_write.cc
+                include/pgenlib_write.cc \
+                $(S3_CCSRC)
 
 PLINK2LIB_CCSRC = $(PGENLIB_CCSRC) \
                   include/plink2_bgzf.cc \
@@ -78,7 +87,8 @@ TEXTLIB_CCSRC = include/plink2_base.cc \
                 include/plink2_string.cc \
                 include/plink2_text.cc \
                 include/plink2_thread.cc \
-                include/plink2_zstfile.cc
+                include/plink2_zstfile.cc \
+                $(S3_CCSRC)
 
 TSTATSLIB_CCSRC = $(TEXTLIB_CCSRC) \
                   include/plink2_float.cc \
@@ -89,10 +99,6 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2.cc \
         plink2_adjust.cc \
         plink2_cmdline.cc \
-        plink2_s3.cc \
-        s3stream/s3stream.cc \
-        s3stream/s3stream_creds.cc \
-        s3stream/s3stream_http.cc \
         plink2_common.cc \
         plink2_compress_stream.cc \
         plink2_data.cc \
@@ -171,6 +177,7 @@ PGCSRC2 = $(foreach fname,$(PGCSRC),../$(fname))
 
 CLEAN = *.o \
         include/*.o \
+        s3stream/*.o \
         libdeflate/lib/*.o \
         libdeflate/lib/arm/*.o \
         libdeflate/lib/x86/*.o \
