@@ -378,7 +378,22 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       uii = new_order[cur_idx];
       dxx = chi[uii];
       pv_gc[cur_idx] = calc_tprob(sqrt(dxx * dxx * lambda_recip), tcnt[uii]);
-      new_order[cur_idx] = marker_uidxs[uii];
+    }
+    if (adjust_gc) {
+      // for the same reason, the GC-adjusted p-values need not be in
+      // ascending order here, and the step-down/step-up procedures below
+      // require that; re-sort, and recompute the unadjusted p-values in the
+      // new order
+      if (qsort_ext((char*)pv_gc, chi_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)new_order, sizeof(int32_t))) {
+        goto multcomp_ret_NOMEM;
+      }
+      for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+        uii = new_order[cur_idx];
+        unadj[cur_idx] = calc_tprob(chi[uii], tcnt[uii]);
+      }
+    }
+    for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+      new_order[cur_idx] = marker_uidxs[new_order[cur_idx]];
     }
   } else {
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
