@@ -8045,6 +8045,7 @@ int main(int argc, char** argv) {
           }
           uint32_t explicit_firth_fallback = 0;
           uint32_t explicit_glm_perm_count = 0;
+          uint32_t explicit_multinomial_test = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -8220,8 +8221,44 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --glm local-cats0= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-            } else if (likely(strequal_k(cur_modif, "allow-no-covars", cur_modif_slen))) {
+            } else if (strequal_k(cur_modif, "allow-no-covars", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmAllowNoCovars;
+            } else if (strequal_k(cur_modif, "multinomial", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmMultinomial;
+            } else if (StrStartsWith(cur_modif, "multinomial=", cur_modif_slen)) {
+              if (unlikely(explicit_multinomial_test)) {
+                logerrputs("Error: Multiple --glm multinomial= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_multinomial_test = 1;
+              const char* test_name = &(cur_modif[strlen("multinomial=")]);
+              const uint32_t test_name_slen = cur_modif_slen - strlen("multinomial=");
+              if (strequal_k(test_name, "lrt", test_name_slen)) {
+                pc.glm_info.multinomial_test = kGlmMultinomialTestLrt;
+              } else if (strequal_k(test_name, "score", test_name_slen)) {
+                pc.glm_info.multinomial_test = kGlmMultinomialTestScore;
+              } else if (likely(strequal_k(test_name, "wald", test_name_slen))) {
+                pc.glm_info.multinomial_test = kGlmMultinomialTestWald;
+              } else {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm multinomial= test '%s' (must be 'lrt', 'score', or 'wald').\n", test_name);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.glm_info.flags |= kfGlmMultinomial;
+            } else if (StrStartsWith(cur_modif, "multinomial-ref=", cur_modif_slen)) {
+              if (unlikely(pc.glm_info.multinomial_ref)) {
+                logerrputs("Error: Multiple --glm multinomial-ref= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* ref_name = &(cur_modif[strlen("multinomial-ref=")]);
+              const uint32_t ref_name_blen = cur_modif_slen + 1 - strlen("multinomial-ref=");
+              if (unlikely(ref_name_blen == 1)) {
+                logerrputs("Error: Empty --glm multinomial-ref= level name.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(pgl_malloc(ref_name_blen, &pc.glm_info.multinomial_ref))) {
+                goto main_ret_NOMEM;
+              }
+              memcpy(pc.glm_info.multinomial_ref, ref_name, ref_name_blen);
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -8236,6 +8273,19 @@ int main(int argc, char** argv) {
           }
           if (unlikely((pc.glm_info.flags & (kfGlmSex | kfGlmNoXSex)) == (kfGlmSex | kfGlmNoXSex))) {
             logerrputs("Error: Conflicting --glm arguments.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.glm_info.flags & kfGlmMultinomial) {
+            if (unlikely(pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmInteraction))) {
+              logerrputs("Error: --glm 'multinomial' currently only supports the additive model; it\ncannot be used with 'genotypic', 'hethom', 'dominant', 'recessive', 'hetonly',\nor 'interaction'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(pc.glm_local_covar_fname)) {
+              logerrputs("Error: --glm 'multinomial' cannot be used with local covariates yet.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          } else if (unlikely(pc.glm_info.multinomial_ref)) {
+            logerrputs("Error: --glm 'multinomial-ref=' must be used with 'multinomial'.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           {
