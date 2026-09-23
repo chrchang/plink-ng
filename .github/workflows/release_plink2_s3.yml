@@ -1,0 +1,188 @@
+name: Release plink2 S3 binaries
+
+# Opt-in S3 build flavor.  The Linux packages depend on the distribution's own
+# libcurl instead of bundling one; the macOS build links only OS libraries.
+on:
+  push:
+    paths:
+      - '2.0/**'
+      - '!2.0/Python/**'
+      - '!2.0/pgenlibr/**'
+      - '!2.0/Tests/**'
+      - '!2.0/**/*.md'
+      - '.github/workflows/release_plink2_s3.yml'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  linux_package:
+    name: Build .${{ matrix.format }} on ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest release of each family with libcurl >= 7.75.0.
+          - format: deb
+            image: ubuntu:22.04
+          - format: rpm
+            image: rockylinux:9
+
+    steps:
+      - name: Install build dependencies (deb)
+        if: matrix.format == 'deb'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential dpkg-dev ca-certificates \
+            libcurl4-openssl-dev zlib1g-dev \
+            libopenblas-dev liblapack-dev liblapacke-dev
+
+      - name: Install build dependencies (rpm)
+        if: matrix.format == 'rpm'
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf config-manager --set-enabled crb
+          dnf install -y gcc gcc-c++ make rpm-build findutils \
+            libcurl-devel zlib-devel openblas-devel lapack-devel
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build package
+        working-directory: ./2.0
+        run: sh packaging/build_linux_package.sh ${{ matrix.format }} dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plink2-s3-${{ matrix.format }}
+          path: ./2.0/dist/*
+          if-no-files-found: error
+
+  # Installs each package in a clean container, which is the real test that
+  # the package manager can resolve every dependency, libcurl included.
+  linux_install_test:
+    name: Install .${{ matrix.format }} on ${{ matrix.image }}
+    needs: linux_package
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { format: deb, image: 'ubuntu:22.04' }
+          - { format: deb, image: 'ubuntu:24.04' }
+          - { format: deb, image: 'debian:12' }
+          - { format: rpm, image: 'rockylinux:9' }
+          - { format: rpm, image: 'fedora:latest' }
+
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: plink2-s3-${{ matrix.format }}
+          path: pkg
+
+      - name: Install (deb)
+        if: matrix.format == 'deb'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y ./pkg/*.deb
+
+      - name: Install (rpm)
+        if: matrix.format == 'rpm'
+        run: dnf install -y ./pkg/*.rpm
+
+      - name: Smoke test
+        run: |
+          plink2 --version
+          plink2 --dummy 20 50 --make-pgen --out dummy
+          plink2 --pfile dummy --freq --out dummy
+
+  macos:
+    name: Build macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, arch: arm64 }
+          - { os: macos-15-intel, arch: x86_64 }
+    env:
+      # Matches the official macOS binaries.  S3 itself needs the libcurl of
+      # macOS 12+; on 11 plink2 runs but reports that libcurl is too old.
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build
+        working-directory: ./2.0/build_dynamic
+        run: make USE_S3=1 -j"$(sysctl -n hw.ncpu)" plink2
+
+      - name: Check that only OS libraries are linked
+        working-directory: ./2.0/build_dynamic
+        run: |
+          otool -L plink2
+          otool -l plink2 | grep -A3 LC_BUILD_VERSION
+          bad=$(otool -L plink2 | tail -n +2 | awk '{print $1}' |
+                grep -vE '^(/usr/lib/|/System/Library/)' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::non-system libraries linked: $bad"
+            exit 1
+          fi
+
+      - name: Smoke test
+        working-directory: ./2.0/build_dynamic
+        run: |
+          ./plink2 --version
+          ./plink2 --dummy 20 50 --make-pgen --out dummy
+          ./plink2 --pfile dummy --freq --out dummy
+
+      - name: Package
+        working-directory: ./2.0
+        run: |
+          version=$(sed -n 's/.*ver_str\[\] = "PLINK v\([^"]*\)".*/\1/p' plink2.cc)
+          mkdir -p dist
+          zip -j "dist/plink2_s3_mac_${{ matrix.arch }}_${version}.zip" \
+            build_dynamic/plink2 COPYING
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plink2-s3-mac-${{ matrix.arch }}
+          path: ./2.0/dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Attach to release
+    if: github.event_name == 'release'
+    needs: [linux_install_test, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: plink2-s3-*
+          merge-multiple: true
+          path: dist
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
