@@ -23,7 +23,7 @@
 #include "include/plink2_float.h"
 
 #ifndef NOLAPACK
-#  if defined(__APPLE__) || defined(USE_MKL)
+#  if defined(USE_ACCELERATE) || defined(USE_MKL)
 #    define LAPACK_dgecon dgecon_
 #    define LAPACK_dgesvd dgesvd_
 #    define LAPACK_dgetrf dgetrf_

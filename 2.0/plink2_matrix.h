@@ -22,6 +22,9 @@
 // fallbacks).
 //
 // Currently supports Accelerate, AOCL, ATLAS, MKL, and OpenBLAS backends.
+// Accelerate is the macOS default; -DUSE_OPENBLAS or -DUSE_CBLAS_LAPACKE
+// selects the generic cblas.h/lapacke.h path there instead, the latter for
+// libraries without openblas_set_num_threads() (e.g. conda's libblas).
 //
 // BLAS functions are referred to as cblas_<fname>(), LAPACK functions are
 // referred to as LAPACK_<fname>(), and the integer index type is lapack_int.
@@ -37,8 +40,12 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #  define BLAS_SET_NUM_THREADS(num)
 #else  // not NOLAPACK
 
+#  if defined(__APPLE__) && !defined(USE_OPENBLAS) && !defined(USE_CBLAS_LAPACKE)
+#    define USE_ACCELERATE
+#  endif
+
 // 1. Define LAPACK_ILP64 and USE_MKL consistently.
-#  ifdef __APPLE__
+#  ifdef USE_ACCELERATE
 // Make -DLAPACK_ILP64 and -DACCELERATE_LAPACK_ILP64 have the same effect.
 #    if defined(LAPACK_ILP64) && !defined(ACCELERATE_LAPACK_ILP64)
 #      define ACCELERATE_LAPACK_ILP64
@@ -56,16 +63,13 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #    define USE_MKL
 #  endif
 
-#  ifdef __APPLE__
+#  ifdef USE_ACCELERATE
 // 2a. Apple Accelerate.
 #    ifdef USE_AOCL
 #      error "plink2 cannot use AOCL on macOS."
 #    endif
 #    ifdef USE_MKL
 #      error "plink2 cannot currently use MKL on macOS."
-#    endif
-#    ifdef USE_OPENBLAS
-#      error "plink2 cannot currently use OpenBLAS on macOS."
 #    endif
 
 #    if defined(LAPACK_ILP64) && !defined(ACCELERATE_NEW_LAPACK)
@@ -151,7 +155,7 @@ extern "C" {
 // 3. Make lapack_int and LAPACK_<fname>() work everywhere.
 #  ifndef lapack_int
 #    ifdef LAPACK_ILP64
-#      ifdef __APPLE__
+#      ifdef USE_ACCELERATE
 // argh
 #        define lapack_int long
 #      elif defined(USE_MKL)
@@ -164,7 +168,7 @@ extern "C" {
 #    endif
 #  endif
 
-#  if defined(__APPLE__) || defined(USE_MKL)
+#  if defined(USE_ACCELERATE) || defined(USE_MKL)
 #    define LAPACK_dpotri dpotri_
 #  endif
 

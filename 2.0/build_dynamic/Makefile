@@ -13,6 +13,8 @@
 #     LD_LIBRARY_PATH to include the appropriate directories)
 #   Link statically to AOCL with 64-bit indexes: STATIC_AOCL
 #     (this supports older OSes than dynamic linking)
+#   Link to generic -lcblas -llapacke -llapack -lblas, also on macOS instead
+#     of Accelerate (e.g. conda's switchable libblas): CBLAS_LAPACKE
 #   32-bit binary (also sets STATIC_ZLIB and ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
@@ -29,6 +31,7 @@ MKLROOT = /opt/intel/oneapi/mkl/2025.1
 MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
 STATIC_AOCL =
 AOCLROOT = /home/admin/aocl/5.1.0/gcc
+CBLAS_LAPACKE =
 FORCE_32BIT =
 # Giving up on -flto default for now (Mar 2026) due to the high frequency of
 # gcc 10.2 crashes.  Will try again after next upgrade of my own build
@@ -175,6 +178,20 @@ else
     BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a -L. ${AOCLROOT}/lib/libau_cpuid.a -lgomp
     LINKFLAGS += -ldl
   endif
+endif
+
+ifdef CBLAS_LAPACKE
+  ifdef NO_LAPACK
+    $(error CBLAS_LAPACKE and NO_LAPACK conflict)
+  endif
+  ifdef DYNAMIC_MKL
+    $(error CBLAS_LAPACKE and DYNAMIC_MKL conflict)
+  endif
+  ifdef STATIC_AOCL
+    $(error CBLAS_LAPACKE and STATIC_AOCL conflict)
+  endif
+  BASEFLAGS += -DUSE_CBLAS_LAPACKE
+  BLASFLAGS = -lcblas -llapacke -llapack -lblas
 endif
 
 ifdef NO_LAPACK
