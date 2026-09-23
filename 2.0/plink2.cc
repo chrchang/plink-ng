@@ -8284,6 +8284,10 @@ int main(int argc, char** argv) {
               logerrputs("Error: --glm 'multinomial' cannot be used with local covariates yet.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
+            if (unlikely((pc.glm_info.flags & kfGlmFirth) && (pc.glm_info.multinomial_test == kGlmMultinomialTestScore))) {
+              logerrputs("Error: --glm 'firth' cannot be used with 'multinomial=score'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
           } else if (unlikely(pc.glm_info.multinomial_ref)) {
             logerrputs("Error: --glm 'multinomial-ref=' must be used with 'multinomial'.\n");
             goto main_ret_INVALID_CMDLINE_A;

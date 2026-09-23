@@ -13,6 +13,9 @@
 # codes male haploid calls 0/2), and four multiallelic ones.  The multiallelic
 # variants are in their own file, since VCF import with dosage=DS does not
 # accept them.
+# The ref_firth_*.txt values come from 'oracle.py ... firth', which maximizes
+# Firth's penalized likelihood directly, and ref_firth_two_levels.txt from
+# oracle_logistf.R (R's logistf); both are committed too.
 
 set -exo pipefail
 
@@ -21,15 +24,16 @@ plink2="$1/plink2 $2 $3"
 $plink2 --vcf mn.vcf.gz dosage=DS --update-sex sex.txt --make-pgen --out tmp_data > /dev/null
 $plink2 --vcf mn_multi.vcf.gz --update-sex sex.txt --make-pgen --out tmp_multi > /dev/null
 
-# Runs --glm on both filesets and concatenates the reports.
+# Runs --glm on both filesets and concatenates the reports (.glm.multinomial,
+# .glm.multinomial.firth, or .glm.multinomial.hybrid).
 # $1: output name.  Remaining arguments: phenotype/covariate/--glm arguments.
 run_both() {
     out=$1
     shift
     $plink2 --pfile tmp_data "$@" --out ${out}_bi > /dev/null
     $plink2 --pfile tmp_multi "$@" --out ${out}_multi > /dev/null
-    cat ${out}_bi.*.glm.multinomial > $out.txt
-    tail -n +2 ${out}_multi.*.glm.multinomial >> $out.txt
+    cat ${out}_bi.*.glm.multinomial* > $out.txt
+    tail -n +2 ${out}_multi.*.glm.multinomial* >> $out.txt
 }
 
 # 1. Every model and test, with coefficients, against statsmodels.  In the
@@ -42,12 +46,12 @@ for model in add dominant recessive hetonly genotypic hethom; do
         modifier=""
     fi
     for t in lrt score wald; do
-        run_both tmp_${model}_$t --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=$t omit-ref $modifier cols=+beta
+        run_both tmp_${model}_$t --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=$t no-firth omit-ref $modifier cols=+beta
         awk -v stat=$(echo $t | tr a-z A-Z) -f compare.awk ref_$model.txt tmp_${model}_$t.txt
     done
 done
 # The default test is the likelihood ratio test.
-$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref cols=+beta --out tmp_default > /dev/null
+$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth omit-ref cols=+beta --out tmp_default > /dev/null
 cmp tmp_default.CAT.glm.multinomial tmp_add_lrt_bi.CAT.glm.multinomial
 
 # 2. The separated variant must not come out with a p-value.
@@ -55,23 +59,24 @@ awk -F '\t' '$3 == "sep1" { if ($NF != "SEPARATION,ALT1") { print "sep1: " $NF; 
              END { if (!found) { print "sep1 missing"; exit 1 } }' tmp_add_lrt.txt
 
 # 3. Without covariates (chrX still gets the sex covariate).
-run_both tmp_nocovar --pheno pheno.txt --pheno-name CAT --glm multinomial omit-ref allow-no-covars cols=+beta
+run_both tmp_nocovar --pheno pheno.txt --pheno-name CAT --glm multinomial no-firth omit-ref allow-no-covars cols=+beta
 awk -v stat=LRT -f compare.awk ref_add_nocovar.txt tmp_nocovar.txt
 
 # 4. A level with a single sample.  On the autosomes, the variants where that
 #    sample's dosage is at an extreme of the range are separated, and the rest
 #    have ordinary fits.  On chrX, the sex covariate separates that level
-#    already (it is empty in one sex), so the covariate-only fit fails: that
-#    is an error, or a skipped chromosome with skip-invalid-pheno.
+#    already (it is empty in one sex), so the covariate-only fit fails: with
+#    'no-firth', that is an error, or a skipped chromosome with
+#    skip-invalid-pheno.  (Part 16 covers the default mode.)
 grep -v '^x' ref_single_nocovar.txt > tmp_ref_single_autosomal.txt
-run_both tmp_single --not-chr X --pheno pheno.txt --pheno-name SINGLE --glm multinomial omit-ref allow-no-covars cols=+beta
+run_both tmp_single --not-chr X --pheno pheno.txt --pheno-name SINGLE --glm multinomial no-firth omit-ref allow-no-covars cols=+beta
 awk -v stat=LRT -f compare.awk tmp_ref_single_autosomal.txt tmp_single.txt
-if $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name SINGLE --glm multinomial allow-no-covars --out tmp_single_x > /dev/null 2>&1; then
+if $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name SINGLE --glm multinomial no-firth allow-no-covars --out tmp_single_x > /dev/null 2>&1; then
     echo "chrX covariate-only fit should have failed"
     exit 1
 fi
 grep -q "covariate-only multinomial logistic regression failed" tmp_single_x.log
-$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name SINGLE --glm multinomial allow-no-covars skip-invalid-pheno --out tmp_single_x > /dev/null
+$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name SINGLE --glm multinomial no-firth allow-no-covars skip-invalid-pheno --out tmp_single_x > /dev/null
 grep -q "Skipping chrX" tmp_single_x.log
 test "$(grep -c '^X' tmp_single_x.SINGLE.glm.multinomial || true)" -eq 0
 
@@ -89,24 +94,24 @@ for spec in add:ADD dominant:DOM recessive:REC hetonly:HET genotypic:ADD,DOMDEV 
         modifier=""
     fi
     $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar $modifier cols=+beta --out tmp_logistic > /dev/null
-    $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald multinomial-ref=lo omit-ref $modifier cols=+beta --out tmp_two_levels > /dev/null
+    $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald no-firth multinomial-ref=lo omit-ref $modifier cols=+beta --out tmp_two_levels > /dev/null
     awk -v terms=${spec#*:} -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
 done
 $plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar cols=+beta --out tmp_logistic > /dev/null
-$plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald multinomial-ref=lo omit-ref cols=+beta --out tmp_two_levels > /dev/null
+$plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald no-firth multinomial-ref=lo omit-ref cols=+beta --out tmp_two_levels > /dev/null
 awk -v terms=ADD -v min_ct=3 -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
 
 # 6. Invariance to the counted allele: swap REF and ALT, keep A1 = ALT.  The
 #    statistics stay, the coefficients change sign.
 awk '!/^#/ { print $3 "\t" $5 }' tmp_data.pvar > tmp_alt.txt
 $plink2 --pfile tmp_data --ref-allele force tmp_alt.txt 2 1 --make-pgen --out tmp_swapped > /dev/null
-$plink2 --pfile tmp_swapped --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref cols=+beta --out tmp_swapped > /dev/null
+$plink2 --pfile tmp_swapped --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth omit-ref cols=+beta --out tmp_swapped > /dev/null
 awk -v negate=1 -f same_stats.awk tmp_add_lrt_bi.CAT.glm.multinomial tmp_swapped.CAT.glm.multinomial
 
 # 7. Invariance to the reference level.
-run_both tmp_ref_gamma --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref multinomial-ref=gamma
+run_both tmp_ref_gamma --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth omit-ref multinomial-ref=gamma
 awk -f same_stats.awk tmp_add_lrt.txt tmp_ref_gamma.txt
-run_both tmp_ref_gamma_geno --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref genotypic multinomial-ref=gamma
+run_both tmp_ref_gamma_geno --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth omit-ref genotypic multinomial-ref=gamma
 awk -f same_stats.awk tmp_genotypic_lrt.txt tmp_ref_gamma_geno.txt
 if $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial multinomial-ref=omega --out tmp_bad_ref > /dev/null 2>&1; then
     echo "unknown multinomial-ref= level should have been rejected"
@@ -116,7 +121,7 @@ fi
 # 8. Per-level columns: the A1 counts add up, and MIN_EXPECTED is the smallest
 #    expected cell of the allele-by-level table.  (Biallelic variants, where
 #    each column holds one value.)
-$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial cols=+a1count,+totallele,+a1countcc,+totallelecc,+a1freqcc --out tmp_cols > /dev/null
+$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth cols=+a1count,+totallele,+a1countcc,+totallelecc,+a1freqcc --out tmp_cols > /dev/null
 awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
      {
        a1_sum = 0; obs_sum = 0; min_obs = -1
@@ -134,7 +139,7 @@ awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
      }' tmp_cols.CAT.glm.multinomial
 # Multiallelic, additive: one comma-separated entry per ALT allele, and
 # MIN_EXPECTED over the full allele-by-level table.
-$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref cols=+a1count,+totallele,+a1countcc,+totallelecc --out tmp_multi_cols > /dev/null
+$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth omit-ref cols=+a1count,+totallele,+a1countcc,+totallelecc --out tmp_multi_cols > /dev/null
 awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
      {
        alt_ct = split($c["A1"], alts, ",")
@@ -164,17 +169,17 @@ awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
 # 9. Results do not depend on the thread count.  (Without $2/$3, which may
 #    set --threads themselves.)
 for th in 1 3; do
-    $1/plink2 --threads $th --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial omit-ref cols=+beta --out tmp_threads$th > /dev/null
+    $1/plink2 --threads $th --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth omit-ref cols=+beta --out tmp_threads$th > /dev/null
     cmp tmp_threads$th.CAT.glm.multinomial tmp_add_lrt_bi.CAT.glm.multinomial
-    $1/plink2 --threads $th --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=lrt omit-ref genotypic cols=+beta --out tmp_threads${th}_multi > /dev/null
+    $1/plink2 --threads $th --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=lrt no-firth omit-ref genotypic cols=+beta --out tmp_threads${th}_multi > /dev/null
     cmp tmp_threads${th}_multi.CAT.glm.multinomial tmp_genotypic_lrt_multi.CAT.glm.multinomial
 done
 
 # 10. --adjust reports every row with a valid statistic, one per ALT allele
 #     in the non-additive models.
-$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial --adjust --out tmp_adjust > /dev/null
+$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth --adjust --out tmp_adjust > /dev/null
 test "$(tail -n +2 tmp_adjust.CAT.glm.multinomial.adjusted | wc -l)" -eq "$(awk -F '\t' 'NR > 1 && $NF == "."' tmp_adjust.CAT.glm.multinomial | wc -l)"
-$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial dominant --adjust --out tmp_adjust_multi > /dev/null
+$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth dominant --adjust --out tmp_adjust_multi > /dev/null
 test "$(tail -n +2 tmp_adjust_multi.CAT.glm.multinomial.adjusted | wc -l)" -eq "$(awk -F '\t' 'NR > 1 && $NF == "."' tmp_adjust_multi.CAT.glm.multinomial | wc -l)"
 
 # 11. Without 'multinomial', categorical phenotypes are still skipped, and the
@@ -184,10 +189,90 @@ test ! -e tmp_plain.CAT.glm.multinomial
 grep -q "Skipping categorical phenotype 'CAT'" tmp_plain.log
 $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name BIN,CAT --covar covar.txt --glm multinomial --out tmp_with > /dev/null
 cmp tmp_plain.BIN.glm.logistic.hybrid tmp_with.BIN.glm.logistic.hybrid
-test -e tmp_with.CAT.glm.multinomial
+test -e tmp_with.CAT.glm.multinomial.hybrid
 
 # 12. Modifiers it does not support yet are rejected.
 if $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial interaction --out tmp_bad > /dev/null 2>&1; then
     echo "'multinomial interaction' should have been rejected"
     exit 1
 fi
+
+# 13. Firth regression ('firth'), every model, against oracle.py's penalized
+#     fits: the penalized likelihood ratio statistic, the Wald statistic, and
+#     the coefficients with logistf-style standard errors.  Every variant gets
+#     a result, the separated one included.
+for model in add dominant recessive hetonly genotypic hethom; do
+    modifier=$model
+    if [ $model = add ]; then
+        modifier=""
+    fi
+    for t in lrt wald; do
+        run_both tmp_firth_${model}_$t --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=$t firth omit-ref $modifier cols=+beta
+        awk -v stat=$(echo $t | tr a-z A-Z) -f compare.awk ref_firth_$model.txt tmp_firth_${model}_$t.txt
+    done
+done
+awk -F '\t' '$3 == "sep1" { if ($NF != ".") { print "sep1 (firth): " $NF; exit 1 }; found = 1 }
+             END { if (!found) { print "sep1 missing"; exit 1 } }' tmp_firth_add_lrt.txt
+run_both tmp_firth_nocovar --pheno pheno.txt --pheno-name CAT --glm multinomial firth omit-ref allow-no-covars cols=+beta
+awk -v stat=LRT -f compare.awk ref_firth_add_nocovar.txt tmp_firth_nocovar.txt
+
+# 14. With two levels, against R logistf (oracle_logistf.R): coefficient,
+#     standard error, and penalized likelihood ratio statistic.  And the
+#     Wald statistics, coefficients and standard errors match --glm firth's,
+#     for every model (no variant with a missing call, see part 5).
+$plink2 --pfile tmp_data --not-chr X --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial firth multinomial-ref=lo omit-ref cols=+beta --out tmp_firth_two_levels > /dev/null
+awk -v stat=LRT -f compare.awk ref_firth_two_levels.txt tmp_firth_two_levels.CAT2.glm.multinomial.firth
+for spec in add:ADD dominant:DOM recessive:REC hetonly:HET genotypic:ADD,DOMDEV hethom:HOM,HET; do
+    model=${spec%%:*}
+    modifier=$model
+    if [ $model = add ]; then
+        modifier=""
+    fi
+    $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm firth omit-ref hide-covar $modifier cols=+beta --out tmp_logistic_firth > /dev/null
+    $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald firth multinomial-ref=lo omit-ref $modifier cols=+beta --out tmp_two_levels_firth > /dev/null
+    awk -v terms=${spec#*:} -f logistic_crosscheck.awk tmp_logistic_firth.BIN.glm.firth tmp_two_levels_firth.CAT2.glm.multinomial.firth
+done
+
+# 15. The default mode, 'firth-fallback': a variant gets the Firth result
+#     exactly when the ordinary fit has none, and a FIRTH? column says which.
+for model in add genotypic; do
+    modifier=$model
+    if [ $model = add ]; then
+        modifier=""
+    fi
+    for t in lrt wald; do
+        run_both tmp_hybrid_${model}_$t --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=$t omit-ref $modifier cols=+beta,+firth
+        awk -f compare_hybrid.awk tmp_${model}_$t.txt tmp_firth_${model}_$t.txt tmp_hybrid_${model}_$t.txt
+    done
+done
+# The score test needs no fit of the full model, so it never uses Firth
+# regression: same report as 'no-firth', under the same name.  And 'firth'
+# can't be combined with it.
+$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=score omit-ref cols=+beta --out tmp_score_default > /dev/null
+cmp tmp_score_default.CAT.glm.multinomial tmp_add_score_bi.CAT.glm.multinomial
+if $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=score firth --out tmp_bad > /dev/null 2>&1; then
+    echo "'multinomial=score firth' should have been rejected"
+    exit 1
+fi
+
+# 16. A covariate that separates the levels: on chrX, the sex covariate
+#     separates SINGLE's one-sample level (part 4).  The default mode and
+#     'firth' then fit the covariate-only model with Firth regression, warn,
+#     and use Firth regression for every chrX variant; the results match
+#     oracle.py's.
+run_both tmp_firth_single --pheno pheno.txt --pheno-name SINGLE --glm multinomial firth omit-ref allow-no-covars cols=+beta
+awk -v stat=LRT -f compare.awk ref_firth_single_nocovar.txt tmp_firth_single.txt
+grep -q "Firth regression will be used for every variant" tmp_firth_single_bi.log
+$plink2 --pfile tmp_data --pheno pheno.txt --pheno-name SINGLE --glm multinomial omit-ref allow-no-covars cols=+beta,+firth --out tmp_hybrid_single > /dev/null
+grep -q "Firth regression will be used for every variant" tmp_hybrid_single.log
+awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
+     $1 == "X" { if ($c["FIRTH?"] != "Y") { print $3 ": chrX variant not fitted with Firth regression"; exit 1 }; ++x_ct }
+     END { if (!x_ct) { print "no chrX variant"; exit 1 } }' tmp_hybrid_single.SINGLE.glm.multinomial.hybrid
+
+# 17. Firth results do not depend on the thread count either.
+for th in 1 3; do
+    $1/plink2 --threads $th --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=lrt firth omit-ref cols=+beta --out tmp_firth_threads$th > /dev/null
+    cmp tmp_firth_threads$th.CAT.glm.multinomial.firth tmp_firth_add_lrt_bi.CAT.glm.multinomial.firth
+    $1/plink2 --threads $th --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=wald firth omit-ref genotypic cols=+beta --out tmp_firth_threads${th}_multi > /dev/null
+    cmp tmp_firth_threads${th}_multi.CAT.glm.multinomial.firth tmp_firth_genotypic_wald_multi.CAT.glm.multinomial.firth
+done

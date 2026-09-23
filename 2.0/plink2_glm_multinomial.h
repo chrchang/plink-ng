@@ -58,6 +58,11 @@ typedef struct MultinomialSetStruct {
   uint32_t sample_ct;
   uint32_t covar_ct;  // excluding the intercept
   uint32_t null_class_ct;
+  // Set when the covariate-only model has no maximum-likelihood estimate (a
+  // covariate separates the levels), so that null_coefs holds the
+  // Firth-penalized fit instead and every variant is fitted with Firth
+  // regression.  null_ln_lik is then unused.
+  uint32_t firth_null;
 } MultinomialSet;
 
 // One per output row.  In the additive model, a variant has one row, which
@@ -73,6 +78,8 @@ typedef struct {
   // (non-reference classes) x (tested columns)
   uint32_t df;
   uint32_t is_unfinished;
+  // Firth regression was used
+  uint32_t is_firth;
   // nonzero if chisq is invalid
   uint64_t glm_err;
 } MultinomialAuxResult;
@@ -85,6 +92,9 @@ typedef struct GlmMultinomialCtxStruct {
   MultinomialSet sets[3];
   uint32_t level_ct;
   GlmMultinomialTest test_type;
+  // 0: 'no-firth' (and always with the score test), 1: 'firth-fallback', 2:
+  // 'firth'
+  uint32_t firth_mode;
   // fit the full model and save coefficients + standard errors?
   uint32_t save_coefs;
   uint32_t is_additive;
@@ -122,9 +132,11 @@ BoolErr GlmMultinomialInitLevels(const uintptr_t* sample_include, const PhenoCol
 uint32_t CountPhenoCats(const uintptr_t* sample_include, const PhenoCol* pheno_col, uint32_t sample_ct);
 
 // Fills *setp for the given samples, checks the covariates, and fits the
-// covariate-only model.  If that fit fails, *glm_err_ptr is set to
-// kGlmErrcodeLogisticConvergeFail.
-BoolErr GlmAllocFillAndTestPhenoCovarsMultinomial(const uintptr_t* sample_include, const PhenoCol* pheno_col, const uint32_t* cat_to_level, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t level_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, MultinomialSet* setp, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr);
+// covariate-only model.  If that fit fails, it is refitted with Firth
+// regression when firth_mode is nonzero (setting setp->firth_null), and
+// *glm_err_ptr is set to kGlmErrcodeLogisticConvergeFail (firth_mode zero) or
+// kGlmErrcodeFirthConvergeFail if no fit succeeds.
+BoolErr GlmAllocFillAndTestPhenoCovarsMultinomial(const uintptr_t* sample_include, const PhenoCol* pheno_col, const uint32_t* cat_to_level, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t level_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t firth_mode, MultinomialSet* setp, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr);
 
 PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const char* outname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, PgenFileInfo* pgfip, GlmMultinomialCtx* ctx, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr);
 
