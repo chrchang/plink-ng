@@ -3827,6 +3827,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  fflush(stdout);
 	} while (g_pct <= 100);
 	distance_print_done(1, outname, outname_end);
+	g_pct = 1;
       }
       if (write_1mibs_matrix) {
 	dist_ptr = dists;
@@ -3902,15 +3903,16 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
+	  // IBS of a sample with itself is 1, in square0 as in square
+	  if (fwrite_checked(&dyy, sizeof(double), *outfile2_ptr)) {
+	    goto distance_d_write_ret_WRITE_FAIL;
+	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(double), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii - 1) * sizeof(double), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
-	    if (fwrite_checked(&dyy, sizeof(double), *outfile2_ptr)) {
-	      goto distance_d_write_ret_WRITE_FAIL;
-	    }
 	    for (ulii = ii + 1; ulii < sample_ct; ulii++) {
 	      dxx = 1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip;
 	      if (fwrite_checked(&dxx, sizeof(double), *outfile2_ptr)) {
@@ -4017,15 +4019,15 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
+	  if (fwrite_checked(&fyy, sizeof(float), *outfile2_ptr)) {
+	    goto distance_d_write_ret_WRITE_FAIL;
+	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(float), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii - 1) * sizeof(float), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
-	    if (fwrite_checked(&fyy, sizeof(float), *outfile2_ptr)) {
-	      goto distance_d_write_ret_WRITE_FAIL;
-	    }
 	    for (ulii = ii + 1; ulii < sample_ct; ulii++) {
 	      fxx = (float)(1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip);
 	      fwrite(&fxx, 4, 1, *outfile2_ptr);
@@ -5372,7 +5374,7 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
 	}
 	sptr_cur = memcpya(sptr_cur, wbuf, wbuf_ct);
 	sptr_cur = uint32toa_x(++new_col, '\t', sptr_cur);
-	if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+	if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != 1) || (fread(&fyy, sizeof(float), 1, in_binfile) != 1)) {
 	  // can't use return code here
 	  putc_unlocked('\n', stdout);
 	  fflush(stdout);
@@ -5896,13 +5898,13 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 		    break;
 		  }
 		}
-		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
+		fseeko(in_binfile, (col - uii) * sizeof(float), SEEK_CUR);
 		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
 		if (col > row) {
 		  break;
 		}
 	      }
-	      if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+	      if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != 1) || (fread(&fyy, sizeof(float), 1, in_binfile) != 1)) {
 		goto rel_cutoff_batch_ret_READ_FAIL;
 	      }
 	      fwrite(&fxx, 4, 1, out_bin_nfile);
@@ -7244,7 +7246,14 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  // matrix, and D is a diagonal eigenvalue matrix.
 	  fill_double_zero(pc_ct, cur_var_wts);
 	  dxx = set_allele_freqs[marker_uidx];
-	  dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
+	  if ((dxx != 0.0) && (dxx < (1.0 - EPSILON))) {
+	    dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
+	  } else {
+	    // monomorphic variants contribute nothing to the GRM (see
+	    // fill_subset_weights_r()), so they must get weight 0 here too
+	    // instead of infinity
+	    dyy = 0;
+	  }
 	  ulptr = loadbuf;
 
 	  var_wt_incr[1] = dyy; // het

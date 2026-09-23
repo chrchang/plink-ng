@@ -14005,6 +14005,10 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1SampleCounts;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "trict-extra-chr")) {
+          // Already applied by CmdlineParsePhase2(), which needs it before
+          // the main parse; just check that no arguments were given.
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
           pc.misc_flags |= kfMiscStrictSid0;
           goto main_param_zero;

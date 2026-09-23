@@ -385,11 +385,11 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       // require that; re-sort, and recompute the unadjusted p-values in the
       // new order
       if (qsort_ext((char*)pv_gc, chi_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)new_order, sizeof(int32_t))) {
-	goto multcomp_ret_NOMEM;
+        goto multcomp_ret_NOMEM;
       }
       for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-	uii = new_order[cur_idx];
-	unadj[cur_idx] = calc_tprob(chi[uii], tcnt[uii]);
+        uii = new_order[cur_idx];
+        unadj[cur_idx] = calc_tprob(chi[uii], tcnt[uii]);
       }
     }
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
@@ -540,8 +540,8 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	adjust_print(pv_bh[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	adjust_print(pv_by[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
       } else {
-	adjust_print_log10(pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
-	if (!is_set_test) {
+	adjust_print_log10(unadj_pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	if (!skip_gc) {
 	  adjust_print_log10(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
@@ -10183,6 +10183,11 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
         fill_bits(marker_uidx, chrom_end - marker_uidx, marker_exclude);
 	marker_idx += chrom_end - marker_uidx - 1 - popcount_bit_idx(marker_exclude_orig, marker_uidx, chrom_end);
 	marker_uidx = chrom_end - 1;
+	// no load_raw() call was made, so the file position is still at the
+	// start of the Y chromosome
+	if (fseeko(bedfile, bed_offset + ((uint64_t)chrom_end) * unfiltered_sample_ct4, SEEK_SET)) {
+	  goto testmiss_ret_READ_FAIL;
+	}
 	continue;
       }
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
