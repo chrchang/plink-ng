@@ -417,7 +417,7 @@ void fill_subset_weights(double* subset_weights, double* main_weights) {
 #endif
 }
 
-void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, double* main_weights, uint32_t var_std) {
+void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, double* main_weights, uint32_t* infinite_variance_present_ptr, uint32_t var_std) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -488,6 +488,7 @@ void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, dou
 	wtarr[uii * 8 + 6] = mean * mean * mult;
       }
     } else {
+      *infinite_variance_present_ptr = 1;
       if (set_allele_freqs[uii] == 0.0) {
         wtarr[uii * 8] = 0;
         wtarr[uii * 8 + 1] = 0;
@@ -6392,6 +6393,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t dist_thread_ct = g_thread_ct;
   uint32_t rel_req = relationship_req(calculation_type);
   uint32_t all_missing_warning = 0;
+  uint32_t infinite_variance_warning = 0;
   int64_t llxx = 0;
   double rel_cutoff = relip->cutoff;
   double* dist_ptr = nullptr;
@@ -6585,7 +6587,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, ibc_type, sample_ct, ukk);
       }
       if (rel_req) {
-	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, (ibc_type != -1));
+	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, &infinite_variance_warning, (ibc_type != -1));
 	ulii = 0;
 	if (!main_weights_ptr) {
 	  if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
@@ -6610,6 +6612,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     dist_ptr = rel_dists;
   } else {
     putc_unlocked('\n', stdout);
+  }
+  if (infinite_variance_warning) {
+    logerrprint("Warning: Monomorphic variant(s) present; this implies GRM-destabilizing very\nrare variants are also present.  You should almost certainly apply a MAF filter\nand rerun this calculation, instead of using results from the current run.\n");
   }
   dptr2 = rel_ibc;
   if (calculation_type & CALC_IBC) {
@@ -7249,10 +7254,18 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  if ((dxx != 0.0) && (dxx < (1.0 - EPSILON))) {
 	    dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
 	  } else {
-	    // monomorphic variants contribute nothing to the GRM (see
-	    // fill_subset_weights_r()), so they must get weight 0 here too
-	    // instead of infinity
-	    dyy = 0;
+            // update (23 Sep 2026): GRM construction should never have
+            // tolerated monomorphic variants, since if they're present, it's
+            // practically certain that very-low-MAF variants which destabilize
+            // the GRM are also present.
+            // Unfortunately, changing regular GRM construction to error out
+            // would be out of line with compatibility expectations for 1.9.
+            // However, since the PCA-projection workflow supported by this
+            // variant-weight calculation was already broken by monomorphic
+            // variants, we are free to error out here.
+            logprint("\n");
+            logerrprint("Error: --pca: Monomorphic variant(s) present; this implies GRM-destabilizing\nvery rare variants are also present.  You should apply a MAF filter before\nretrying this calculation.\n");
+            goto calc_pca_ret_DEGENERATE_DATA;
 	  }
 	  ulptr = loadbuf;
 
