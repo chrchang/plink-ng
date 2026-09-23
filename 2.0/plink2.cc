@@ -8276,8 +8276,8 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (pc.glm_info.flags & kfGlmMultinomial) {
-            if (unlikely(pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmInteraction))) {
-              logerrputs("Error: --glm 'multinomial' currently only supports the additive model; it\ncannot be used with 'genotypic', 'hethom', 'dominant', 'recessive', 'hetonly',\nor 'interaction'.\n");
+            if (unlikely(pc.glm_info.flags & kfGlmInteraction)) {
+              logerrputs("Error: --glm 'multinomial' cannot be used with 'interaction' yet.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_local_covar_fname)) {

@@ -4285,33 +4285,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         cur_variant_include = tmp_variant_include;
         cur_local_variant_include = tmp_local_variant_include;
       }
-      if (is_multinomial && max_extra_allele_ct) {
-        // todo: multiallelic variants
-        uintptr_t* biallelic_variant_include;
-        if (unlikely(bigstack_alloc_w(raw_variant_ctl, &biallelic_variant_include))) {
-          goto GlmMain_ret_NOMEM;
-        }
-        memcpy(biallelic_variant_include, cur_variant_include, raw_variant_ctl * sizeof(intptr_t));
-        uint32_t multiallelic_ct = 0;
-        uintptr_t variant_uidx_base = 0;
-        uintptr_t cur_bits = cur_variant_include[0];
-        for (uint32_t variant_idx = 0; variant_idx != cur_variant_ct; ++variant_idx) {
-          const uintptr_t variant_uidx = BitIter1(cur_variant_include, &variant_uidx_base, &cur_bits);
-          if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] > 2) {
-            ClearBit(variant_uidx, biallelic_variant_include);
-            ++multiallelic_ct;
-          }
-        }
-        if (multiallelic_ct) {
-          logerrprintfww("Warning: Skipping %u multiallelic variant%s in --glm multinomial regression on phenotype '%s' (not supported yet).\n", multiallelic_ct, (multiallelic_ct == 1)? "" : "s", cur_pheno_name);
-          cur_variant_ct -= multiallelic_ct;
-          cur_variant_include = biallelic_variant_include;
-          if (!cur_variant_ct) {
-            logprintfww("Note: Skipping --glm regression on phenotype '%s', since no biallelic variants remain.\n", cur_pheno_name);
-            continue;
-          }
-        }
-      }
       if (sex_male_collapsed_buf && (!skip_x)) {
         if (!cur_sample_include_x) {
           CopyBitarrSubset(sex_male, cur_sample_include, sample_ct, sex_male_collapsed_buf);
