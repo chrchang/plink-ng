@@ -21,7 +21,8 @@
 // --mnl-ref): per variant, the model is fitted with and without the genotype
 // term, and a likelihood-ratio test with (category count - 1) degrees of
 // freedom is reported along with per-category Wald statistics from the full
-// fit.
+// fit.  Firth's penalized likelihood is used instead when the maximum-
+// likelihood fit fails (default), or for every variant ('firth').
 
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
@@ -57,6 +58,8 @@ typedef struct {
   uint32_t allele_obs_ct;
   double a1_dosage;
   double mach_r2;
+  // Firth-fallback mode: the penalized fit was used for this variant
+  uint32_t firth_fallback;
 } MnlAuxResult;
 
 typedef struct GlmMultinomialCtxStruct {

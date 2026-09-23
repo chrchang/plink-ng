@@ -15,6 +15,22 @@
 #    per variant), compared at 5 significant digits.
 # 5. Multiallelic variants report MULTIALLELIC_UNSUPPORTED, and invalid
 #    --mnl-ref usage is rejected.
+# 6. Firth regression, on a second dataset with rare variants, separation and
+#    a small category:
+#    a. 'firth' against expected values computed independently (direct
+#       numerical maximization of the penalized log-likelihood, full and with
+#       the genotype coefficients fixed at 0, with scipy), at plink2's print
+#       precision;
+#    b. the default firth-fallback report: variants flagged FIRTH?=Y are NA
+#       under 'no-firth' and identical to the 'firth' rows, the others are
+#       identical to the 'no-firth' rows;
+#    c. with two categories, the ADD rows match --glm firth logistic;
+#    d. --threads 1 and --threads 4 give byte-identical 'firth' and hybrid
+#       output;
+#    e. missingness self-oracle, as in 2, in 'firth' mode.
+#
+# Parts 1 and 4 use 'no-firth', as they check the unpenalized fit; 2, 3 and 5
+# use the default (firth-fallback) mode.
 
 set -exo pipefail
 
@@ -92,7 +108,7 @@ $plink2 --vcf tmp_data.vcf dosage=DS --update-sex tmp_sex.txt --make-pgen --out 
 
 # 1. K = 2 against logistic regression.
 $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name CC --covar tmp_covar.txt --glm no-firth --out tmp_logistic > /dev/null
-$plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name B2 --covar tmp_covar.txt --glm --mnl-ref B2=lo --out tmp_k2 > /dev/null
+$plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name B2 --covar tmp_covar.txt --glm no-firth --mnl-ref B2=lo --out tmp_k2 > /dev/null
 awk -f compare_logistic.awk tmp_logistic.CC.glm.logistic tmp_k2.B2.glm.multinomial
 
 # 2. Missingness self-oracle, on the four-category phenotype.
@@ -102,7 +118,7 @@ rm -f tmp_miss_*.txt
 awk 'NR == 1 { for (j = 7; j <= NF; ++j) { id[j] = $j; sub(/_[^_]*$/, "", id[j]) }; next }
      { for (j = 7; j <= NF; ++j) { if ($j == "NA") { print $2 > ("tmp_miss_" id[j] ".txt") } } }' tmp_raw.raw
 grep -v '^#' tmp_data.pvar | cut -f 3 > tmp_variants.txt
-rm -f tmp_oracle.PH4.glm.multinomial
+rm -f tmp_oracle.PH4.glm.multinomial.hybrid
 for v in $(cat tmp_variants.txt); do
     echo $v > tmp_one.txt
     if [ -f tmp_miss_$v.txt ]; then
@@ -111,21 +127,21 @@ for v in $(cat tmp_variants.txt); do
     else
         $plink2 --pfile tmp_data --extract tmp_one.txt --pheno tmp_pheno.txt --pheno-name PH4 --covar tmp_covar.txt --glm --mnl-ref PH4=green --out tmp_one > /dev/null
     fi
-    if [ -f tmp_oracle.PH4.glm.multinomial ]; then
-        tail -n +2 tmp_one.PH4.glm.multinomial >> tmp_oracle.PH4.glm.multinomial
+    if [ -f tmp_oracle.PH4.glm.multinomial.hybrid ]; then
+        tail -n +2 tmp_one.PH4.glm.multinomial.hybrid >> tmp_oracle.PH4.glm.multinomial.hybrid
     else
-        cp tmp_one.PH4.glm.multinomial tmp_oracle.PH4.glm.multinomial
+        cp tmp_one.PH4.glm.multinomial.hybrid tmp_oracle.PH4.glm.multinomial.hybrid
     fi
 done
-awk -f compare.awk tmp_oracle.PH4.glm.multinomial tmp_main.PH4.glm.multinomial
+awk -f compare.awk tmp_oracle.PH4.glm.multinomial.hybrid tmp_main.PH4.glm.multinomial.hybrid
 
 # 3. Thread count must not change a byte.
 $1/plink2 $2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name PH4 --covar tmp_covar.txt --glm --mnl-ref PH4=green --threads 1 --out tmp_t1 > /dev/null
 $1/plink2 $2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name PH4 --covar tmp_covar.txt --glm --mnl-ref PH4=green --threads 4 --out tmp_t4 > /dev/null
-cmp tmp_t1.PH4.glm.multinomial tmp_t4.PH4.glm.multinomial
+cmp tmp_t1.PH4.glm.multinomial.hybrid tmp_t4.PH4.glm.multinomial.hybrid
 
 # 4. statsmodels fixture (autosomes, with the intercept and covariate rows).
-$plink2 --pfile tmp_data --chr 1 --pheno tmp_pheno.txt --pheno-name PH4 --covar tmp_covar.txt --glm intercept --mnl-ref PH4=green --out tmp_fixture > /dev/null
+$plink2 --pfile tmp_data --chr 1 --pheno tmp_pheno.txt --pheno-name PH4 --covar tmp_covar.txt --glm intercept no-firth --mnl-ref PH4=green --out tmp_fixture > /dev/null
 awk -f compare_fixture.awk expected.txt tmp_fixture.PH4.glm.multinomial
 
 # 5a. A multiallelic variant gets one row set of NAs.
@@ -138,7 +154,7 @@ $plink2 --vcf tmp_multi.vcf --make-pgen --out tmp_multi > /dev/null
 $plink2 --pfile tmp_multi --pheno tmp_pheno.txt --pheno-name PH4 --covar tmp_covar.txt --glm --mnl-ref PH4=green --out tmp_multi > /dev/null
 awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { if ($i == "ERRCODE") { e = i } }; next }
      { ++n; if ($e != "MULTIALLELIC_UNSUPPORTED") { print "unexpected errcode " $e; exit 1 } }
-     END { if (n != 16) { print "expected 16 rows, got " n; exit 1 } }' tmp_multi.PH4.glm.multinomial
+     END { if (n != 16) { print "expected 16 rows, got " n; exit 1 } }' tmp_multi.PH4.glm.multinomial.hybrid
 
 # 5b. Invalid usage.  Each of these must fail with the expected message, before
 #     any regression output is written.
@@ -166,7 +182,6 @@ expect_error "phenotype 'PH4' appears more than once" --pheno-name PH4 --glm --m
 expect_error "must be used with --glm" --pheno-name PH4 --mnl-ref PH4=blue
 expect_error "not supported with multinomial" --pheno-name PH4 --glm genotypic --mnl-ref PH4=blue
 expect_error "not supported with multinomial" --pheno-name PH4 --glm interaction --mnl-ref PH4=blue
-expect_error "not supported with multinomial" --pheno-name PH4 --glm firth --mnl-ref PH4=blue
 expect_error "not supported with multinomial" --pheno-name PH4 --glm --parameters 1-2 --mnl-ref PH4=blue
 expect_error "not supported with multinomial" --pheno-name PH4 --glm --tests 1-2 --mnl-ref PH4=blue
 expect_error "not supported with multinomial" --pheno-name PH4 --glm mperm=10 --mnl-ref PH4=blue
@@ -174,4 +189,136 @@ expect_error "not supported with multinomial" --pheno-name PH4 --glm mperm=10 --
 # A categorical phenotype without --mnl-ref is still skipped.
 $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name PH4 --covar tmp_covar.txt --glm --out tmp_skip > /dev/null
 grep -q "Skipping categorical phenotype 'PH4'" tmp_skip.log
-test ! -e tmp_skip.PH4.glm.multinomial
+if ls tmp_skip.PH4.glm.* > /dev/null 2>&1; then
+    echo "output written for a skipped categorical phenotype"
+    exit 1
+fi
+
+# 6. Firth regression.  240 samples (5 with a missing phenotype); PH3 has
+# categories a (the reference, ~150 samples), b (~65) and c (~20), shifted by
+# Q1 and Q2, and B2 (CC) collapses b and c.  16 variants:
+#   r1-r4: MAF ~3%, no A1 allele in category c (separation)
+#   r5-r6: 2 or 3 carriers, all in category c (separation)
+#   r7-r8: singletons
+#   r9-r12: MAF 1-3%, unconstrained
+#   r13-r16: MAF 0.15-0.4
+# r3, r10 and r14 blank 12 calls (never a carrier's), and r11 carries dosages.
+awk 'function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+     BEGIN {
+       seed = 918273645; n = 240; OFS = "\t"
+       # Phenotype first: category c (small, ~10%), b (~30%), a (the rest),
+       # shifted by Q1; B2 collapses {b, c} vs a.
+       print "#IID", "PH3", "B2", "CC" > "tmp_firth_pheno.txt"
+       print "#IID", "Q1", "Q2" > "tmp_firth_covar.txt"
+       for (s = 1; s <= n; ++s) {
+         q1 = rnd(); q2 = 2 * rnd() - 1
+         u = rnd()
+         t1 = 0.06 + 0.08 * q1; t2 = t1 + 0.25 + 0.1 * (q2 > 0)
+         cat[s] = (u < t1)? "c" : ((u < t2)? "b" : "a")
+         print "f" s, sprintf("%.6f", q1), sprintf("%.6f", q2) > "tmp_firth_covar.txt"
+         if (s % 47 == 0) {
+           print "f" s, "NONE", "NONE", "NA" > "tmp_firth_pheno.txt"
+           cat[s] = "x"
+         } else {
+           print "f" s, cat[s], (cat[s] == "a")? "lo" : "hi", (cat[s] == "a")? 1 : 2 > "tmp_firth_pheno.txt"
+         }
+       }
+       print "##fileformat=VCFv4.2"
+       print "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
+       print "##FORMAT=<ID=DS,Number=A,Type=Float,Description=\"Dosage\">"
+       print "##contig=<ID=1>"
+       line = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
+       for (s = 1; s <= n; ++s) { line = line "\tf" s }
+       print line
+       # Variant kinds, by j:
+       #   1-4: MAF ~3%, no A1 allele in category c (separation)
+       #   5-6: 2 or 3 carriers, all in category c (separation)
+       #   7-8: singletons
+       #   9-12: MAF 1-3%, unconstrained
+       #   13-16: MAF 0.15-0.4
+       # Variants 3, 10 and 14 blank 12 calls (never a carrier); variant 11
+       # carries dosages (exact multiples of 1/16384).
+       for (j = 1; j <= 16; ++j) {
+         if (j <= 4) { maf = 0.03 } else if (j <= 8) { maf = 0 } else if (j <= 12) { maf = 0.01 + 0.005 * (j - 9) } else { maf = 0.15 + 0.08 * (j - 13) }
+         carriers_left = (j == 5)? 2 : ((j == 6)? 3 : ((j <= 8)? 1 : 0))
+         line = "1" OFS (j * 1000) OFS ("r" j) OFS "A" OFS "G" OFS "." OFS "." OFS "." OFS "GT:DS"
+         blank_left = ((j == 3) || (j == 10) || (j == 14))? 12 : 0
+         for (s = 1; s <= n; ++s) {
+           g = (rnd() < maf) + (rnd() < maf)
+           if ((j <= 4) && (cat[s] == "c")) { g = 0 }
+           if ((j == 5) || (j == 6)) { g = 0; if ((cat[s] == "c") && carriers_left) { g = 1; --carriers_left } }
+           if ((j == 7) || (j == 8)) { g = 0; if ((s == 17 * j) && carriers_left) { g = 1; --carriers_left } }
+           cell = ((g == 0)? "0/0" : ((g == 1)? "0/1" : "1/1")) ":" g
+           if ((j == 11) && g) {
+             k = g * 16384 - 1 - int(rnd() * 6000)
+             cell = ((k < 24576)? "0/1" : "1/1") ":" sprintf("%.14f", k / 16384)
+           }
+           if (blank_left && (!g) && (s % 11 == j % 11)) { cell = "./.:."; --blank_left }
+           line = line OFS cell
+         }
+         print line
+       }
+     }' > tmp_firth.vcf
+$plink2 --vcf tmp_firth.vcf dosage=DS --make-pgen --out tmp_firth > /dev/null
+firth_args="--pfile tmp_firth --pheno tmp_firth_pheno.txt --covar tmp_firth_covar.txt"
+
+# 6a. Independent fixture: expected_firth.txt was computed by maximizing the
+#     penalized log-likelihood l*(b) = l(b) + 0.5 log det I(b) directly
+#     (scipy L-BFGS-B, then Newton polishing with a finite-difference Hessian;
+#     I built from explicit per-sample Kronecker products and the penalty's
+#     gradient from explicit dI/db matrices, so none of plink2's algebra is
+#     shared), full and with the genotype coefficients fixed at zero.  The
+#     standard errors are those of logistf (inverse information matrix with
+#     each sample weighted by 1 + its leverage).  Small likelihood-ratio
+#     statistics were recomputed in 40-digit arithmetic.
+$plink2 $firth_args --pheno-name PH3 --glm firth intercept --mnl-ref PH3=a --out tmp_ff > /dev/null
+awk -f compare_firth_fixture.awk expected_firth.txt tmp_ff.PH3.glm.multinomial.firth
+
+# 6b. Firth-fallback (default) against 'firth' and 'no-firth'.
+$plink2 $firth_args --pheno-name PH3 --glm firth --mnl-ref PH3=a --out tmp_fa > /dev/null
+$plink2 $firth_args --pheno-name PH3 --glm no-firth --mnl-ref PH3=a --out tmp_fn > /dev/null
+$plink2 $firth_args --pheno-name PH3 --glm --mnl-ref PH3=a --out tmp_fh > /dev/null
+awk -f compare_hybrid.awk tmp_fa.PH3.glm.multinomial.firth tmp_fn.PH3.glm.multinomial tmp_fh.PH3.glm.multinomial.hybrid
+# 'no-firth' reports the separated variants as SEPARATION, and fits the common
+# ones
+awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { if ($i == "ID") { id = i }; if ($i == "ERRCODE") { e = i } }; next }
+     ($id ~ /^r[1-8]$/) && ($e !~ /^SEPARATION/) { print "unexpected errcode " $e " on " $id; exit 1 }
+     ($id ~ /^r1[3-6]$/) && ($e != ".") { print "unexpected errcode " $e " on " $id; exit 1 }' tmp_fn.PH3.glm.multinomial
+
+# 6c. Two categories: the ADD rows must match --glm firth logistic regression
+#     on the same phenotype coded as case/control.  Its convergence tolerance
+#     is logistf's default (1e-5), looser than this one (1e-10), so a relative
+#     slack of 1e-5 is allowed on top of the rounding allowance.
+$plink2 $firth_args --pheno-name CC --glm firth --out tmp_lf > /dev/null
+$plink2 $firth_args --pheno-name B2 --glm firth --mnl-ref B2=lo --out tmp_k2f > /dev/null
+awk -v rel_slack=1e-5 -f compare_logistic.awk tmp_lf.CC.glm.firth tmp_k2f.B2.glm.multinomial.firth
+
+# 6d. Thread count.
+for mode in firth hybrid; do
+    mod=firth
+    if [ $mode = hybrid ]; then
+        mod=
+    fi
+    $1/plink2 $2 $firth_args --pheno-name PH3 --glm $mod --mnl-ref PH3=a --threads 1 --out tmp_ft1 > /dev/null
+    $1/plink2 $2 $firth_args --pheno-name PH3 --glm $mod --mnl-ref PH3=a --threads 4 --out tmp_ft4 > /dev/null
+    cmp tmp_ft1.PH3.glm.multinomial.$mode tmp_ft4.PH3.glm.multinomial.$mode
+done
+
+# 6e. Missingness self-oracle for the variants with missing calls.
+$plink2 --pfile tmp_firth --export A --out tmp_fraw > /dev/null
+rm -f tmp_fmiss_*.txt tmp_foracle.PH3.glm.multinomial.firth
+awk 'NR == 1 { for (j = 7; j <= NF; ++j) { id[j] = $j; sub(/_[^_]*$/, "", id[j]) }; next }
+     { for (j = 7; j <= NF; ++j) { if ($j == "NA") { print $2 > ("tmp_fmiss_" id[j] ".txt") } } }' tmp_fraw.raw
+printf 'r3\nr10\nr14\n' > tmp_fsubset.txt
+for v in r3 r10 r14; do
+    echo $v > tmp_one.txt
+    (echo "#IID"; cat tmp_fmiss_$v.txt) > tmp_remove.txt
+    $plink2 $firth_args --extract tmp_one.txt --remove tmp_remove.txt --pheno-name PH3 --glm firth --mnl-ref PH3=a --out tmp_fone > /dev/null
+    if [ -f tmp_foracle.PH3.glm.multinomial.firth ]; then
+        tail -n +2 tmp_fone.PH3.glm.multinomial.firth >> tmp_foracle.PH3.glm.multinomial.firth
+    else
+        cp tmp_fone.PH3.glm.multinomial.firth tmp_foracle.PH3.glm.multinomial.firth
+    fi
+done
+$plink2 $firth_args --extract tmp_fsubset.txt --pheno-name PH3 --glm firth --mnl-ref PH3=a --out tmp_fsub > /dev/null
+awk -f compare.awk tmp_foracle.PH3.glm.multinomial.firth tmp_fsub.PH3.glm.multinomial.firth

@@ -202,6 +202,9 @@ void MnlSyrk(const double* zz, uint32_t dim, uint32_t col_ct, uint32_t stride, d
 
 // Computes the log-likelihood gradient and the lower triangle of the
 // information matrix (negated Hessian) at the probabilities in prob[].
+// If sqrt_wts is not nullptr, sample i's contribution to the information
+// matrix is weighted by sqrt_wts[i]^2, and the gradient is not computed (grad
+// and xty may then be nullptr).
 // Parameters are ordered category-major, so the information matrix's (c, d)
 // block, predictor_ct square, is
 //   X^T diag(P_c (1[c = d] - P_d)) X  =  1[c = d] D_c - Z_c^T Z_d,
@@ -211,7 +214,7 @@ void MnlSyrk(const double* zz, uint32_t dim, uint32_t col_ct, uint32_t stride, d
 // The gradient's block c is
 //   X^T (Y_c - P_c)  =  xty_c - (column 0 of D_c),
 // since predictor 0 is the intercept.  xty must hold X^T Y (category-major).
-void MnlGradAndInfo(const double* xx, const double* prob, const double* xty, uint32_t sample_ct, uint32_t predictor_ct, uint32_t nonref_cat_ct, double* __restrict zz, double* __restrict ss, double* __restrict grad, double* __restrict info) {
+void MnlGradAndInfo(const double* xx, const double* prob, const double* xty, const double* sqrt_wts, uint32_t sample_ct, uint32_t predictor_ct, uint32_t nonref_cat_ct, double* __restrict zz, double* __restrict ss, double* __restrict grad, double* __restrict info) {
   const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
   const uint32_t param_ct = predictor_ct * nonref_cat_ct;
   const uint32_t stacked_ct = param_ct + predictor_ct;
@@ -222,7 +225,15 @@ void MnlGradAndInfo(const double* xx, const double* prob, const double* xty, uin
     }
     double* zz_row = zz;
     for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
-      memcpy(zz_row, &(xx[pred_idx * sample_ctav + block_start]), block_len * sizeof(double));
+      const double* xx_row = &(xx[pred_idx * sample_ctav + block_start]);
+      if (!sqrt_wts) {
+        memcpy(zz_row, xx_row, block_len * sizeof(double));
+      } else {
+        const double* cur_sqrt_wts = &(sqrt_wts[block_start]);
+        for (uint32_t uii = 0; uii != block_len; ++uii) {
+          zz_row[uii] = cur_sqrt_wts[uii] * xx_row[uii];
+        }
+      }
       zz_row = &(zz_row[kMnlSampleBlockSize]);
     }
     for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
@@ -242,7 +253,9 @@ void MnlGradAndInfo(const double* xx, const double* prob, const double* xty, uin
   for (uint32_t row_idx = 0; row_idx != param_ct; ++row_idx) {
     const double* ss_row = &(ss[(predictor_ct + row_idx) * stacked_ct]);
     const double* gg_row = &(ss_row[predictor_ct]);
-    grad[row_idx] = xty[row_idx] - ss_row[0];
+    if (!sqrt_wts) {
+      grad[row_idx] = xty[row_idx] - ss_row[0];
+    }
     double* info_row = &(info[row_idx * param_ct]);
     const uint32_t block_start_col = row_idx - (row_idx % predictor_ct);
     for (uint32_t col_idx = 0; col_idx != block_start_col; ++col_idx) {
@@ -371,7 +384,7 @@ GlmErrcode MultinomialRegressionD(const double* xx, const uint32_t* cats, uint32
   // is being re-evaluated there for the standard errors.
   uint32_t final_pass = 0;
   for (uint32_t iter_idx = 0; ; ++iter_idx) {
-    MnlGradAndInfo(xx, bufs->prob, bufs->xty, sample_ct, predictor_ct, nonref_cat_ct, bufs->zz, bufs->ss, bufs->grad, bufs->info);
+    MnlGradAndInfo(xx, bufs->prob, bufs->xty, nullptr, sample_ct, predictor_ct, nonref_cat_ct, bufs->zz, bufs->ss, bufs->grad, bufs->info);
     if (MnlCholesky(bufs->info, param_ct, bufs->chol)) {
       return final_pass? kGlmErrcodeInvalidResult : kGlmErrcodeMnlConvergeFail;
     }
@@ -435,6 +448,421 @@ GlmErrcode MultinomialRegressionD(const double* xx, const uint32_t* cats, uint32
   }
   // bufs->step is free now
   MnlCholInvDiag(bufs->chol, param_ct, bufs->step, se);
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+    const double cur_var = se[param_idx];
+    if ((cur_var < 1e-20) || (!isfinite_d(cur_var))) {
+      return kGlmErrcodeInvalidResult;
+    }
+    se[param_idx] = sqrt(cur_var);
+  }
+  return kGlmErrcodeNone;
+}
+
+// Firth-penalized fit limits.  The iteration (a quasi-Newton step on the
+// modified score) converges linearly, so it needs more iterations than
+// Newton-Raphson on the unpenalized likelihood, and a tighter step tolerance
+// to reach the same accuracy.
+CONSTI32(kMnlFirthMaxIter, 100);
+
+// Additional scratch space for MultinomialFirthRegressionD(), with the same
+// notation as MnlSolverBufs:
+//   iinv, linv, info_aug: (J * p)^2 doubles each
+//   ww: J * n doubles
+//   sqrt_wts: n doubles
+//   hab: kMnlSampleBlockSize doubles
+//   ustar: J * p doubles
+//   xtw: p doubles
+typedef struct MnlFirthBufsStruct {
+  double* iinv;
+  double* linv;
+  double* info_aug;
+  double* ww;
+  double* sqrt_wts;
+  double* hab;
+  double* ustar;
+  double* xtw;
+} MnlFirthBufs;
+
+uintptr_t GetMnlFirthBufsSize(uint32_t sample_ct, uint32_t predictor_ct, uint32_t nonref_cat_ct) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uintptr_t param_ct = S_CAST(uintptr_t, predictor_ct) * nonref_cat_ct;
+  uintptr_t size = 3 * RoundUpPow2(param_ct * param_ct * sizeof(double), kCacheline);
+  size += RoundUpPow2(nonref_cat_ct * sample_ctav * sizeof(double), kCacheline);
+  size += RoundUpPow2(sample_ctav * sizeof(double), kCacheline);
+  size += RoundUpPow2(kMnlSampleBlockSize * sizeof(double), kCacheline);
+  size += RoundUpPow2(param_ct * sizeof(double), kCacheline);
+  size += RoundUpPow2(predictor_ct * sizeof(double), kCacheline);
+  return size;
+}
+
+void CarveMnlFirthBufs(uint32_t sample_ct, uint32_t predictor_ct, uint32_t nonref_cat_ct, unsigned char** arena_iterp, MnlFirthBufs* fbufs) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uintptr_t param_ct = S_CAST(uintptr_t, predictor_ct) * nonref_cat_ct;
+  fbufs->iinv = S_CAST(double*, arena_alloc_raw_rd(param_ct * param_ct * sizeof(double), arena_iterp));
+  fbufs->linv = S_CAST(double*, arena_alloc_raw_rd(param_ct * param_ct * sizeof(double), arena_iterp));
+  fbufs->info_aug = S_CAST(double*, arena_alloc_raw_rd(param_ct * param_ct * sizeof(double), arena_iterp));
+  fbufs->ww = S_CAST(double*, arena_alloc_raw_rd(nonref_cat_ct * sample_ctav * sizeof(double), arena_iterp));
+  fbufs->sqrt_wts = S_CAST(double*, arena_alloc_raw_rd(sample_ctav * sizeof(double), arena_iterp));
+  fbufs->hab = S_CAST(double*, arena_alloc_raw_rd(kMnlSampleBlockSize * sizeof(double), arena_iterp));
+  fbufs->ustar = S_CAST(double*, arena_alloc_raw_rd(param_ct * sizeof(double), arena_iterp));
+  fbufs->xtw = S_CAST(double*, arena_alloc_raw_rd(predictor_ct * sizeof(double), arena_iterp));
+}
+
+// Full inverse (both triangles, row-major) of L L^T, via L^{-1}: the inverse is
+// L^{-T} L^{-1}.  linv is scratch space (dim x dim).
+void MnlCholInvFull(const double* ll, uint32_t dim, double* __restrict linv, double* __restrict inv) {
+  // Row-major lower triangle of L^{-1}, one column at a time.
+  for (uint32_t col_idx = 0; col_idx != dim; ++col_idx) {
+    for (uint32_t row_idx = col_idx; row_idx != dim; ++row_idx) {
+      const double* ll_row = &(ll[row_idx * dim]);
+      double dxx = (row_idx == col_idx)? 1.0 : 0.0;
+      for (uint32_t uii = col_idx; uii != row_idx; ++uii) {
+        dxx -= ll_row[uii] * linv[uii * dim + col_idx];
+      }
+      linv[row_idx * dim + col_idx] = dxx / ll_row[row_idx];
+    }
+  }
+  // inv[i][j] = sum_{k >= max(i, j)} linv[k][i] * linv[k][j]
+  for (uint32_t row_idx = 0; row_idx != dim; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+      double dxx = 0.0;
+      for (uint32_t kk = row_idx; kk != dim; ++kk) {
+        const double* linv_row = &(linv[kk * dim]);
+        dxx += linv_row[row_idx] * linv_row[col_idx];
+      }
+      inv[row_idx * dim + col_idx] = dxx;
+      inv[col_idx * dim + row_idx] = dxx;
+    }
+  }
+}
+
+// cc (row_ct x col_ct, column-major with stride ldc) := aa bb, where aa is
+// row_ct x common_ct (column-major, stride lda) and bb is common_ct x col_ct
+// (column-major, stride ldb).  Unlike the NOLAPACK version of
+// ColMajorMatrixMultiplyStrided(), never reads cc.
+void MnlGemm(const double* aa, const double* bb, uint32_t row_ct, uint32_t lda, uint32_t col_ct, uint32_t ldb, uint32_t common_ct, uint32_t ldc, double* cc) {
+#ifdef NOLAPACK
+  for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+    double* cc_col = &(cc[col_idx * ldc]);
+    ZeroDArr(row_ct, cc_col);
+    const double* bb_col = &(bb[col_idx * ldb]);
+    for (uint32_t com_idx = 0; com_idx != common_ct; ++com_idx) {
+      const double mult = bb_col[com_idx];
+      const double* aa_col = &(aa[com_idx * lda]);
+      for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+        cc_col[row_idx] += mult * aa_col[row_idx];
+      }
+    }
+  }
+#else
+  cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row_ct, col_ct, common_ct, 1.0, aa, lda, bb, ldb, 0.0, cc, ldc);
+#endif
+}
+
+// Evaluates everything the penalized fit needs at coef[]: prob[] and lli[] (see
+// MnlProbsAndLoglik()), the gradient and information matrix (see
+// MnlGradAndInfo()), and the information matrix's Cholesky factor.  Sets
+// *loglik_ptr and *logdet_ptr (log det of the information matrix).  Returns 1
+// if the log-likelihood is not finite or the information matrix is not
+// numerically positive definite.
+BoolErr MnlFirthEval(const double* xx, const double* coef, const uint32_t* cats, uint32_t sample_ct, uint32_t predictor_ct, uint32_t nonref_cat_ct, double* __restrict lli, MnlSolverBufs* bufs, double* __restrict loglik_ptr, double* __restrict logdet_ptr) {
+  const uint32_t param_ct = predictor_ct * nonref_cat_ct;
+  const double loglik = MnlProbsAndLoglik(xx, coef, cats, sample_ct, predictor_ct, nonref_cat_ct, bufs->prob, bufs->max_eta, bufs->denom, lli);
+  if (!isfinite_d(loglik)) {
+    return 1;
+  }
+  MnlGradAndInfo(xx, bufs->prob, bufs->xty, nullptr, sample_ct, predictor_ct, nonref_cat_ct, bufs->zz, bufs->ss, bufs->grad, bufs->info);
+  if (MnlCholesky(bufs->info, param_ct, bufs->chol)) {
+    return 1;
+  }
+  double half_logdet = 0.0;
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+    half_logdet += log(bufs->chol[param_idx * (param_ct + 1)]);
+  }
+  *loglik_ptr = loglik;
+  *logdet_ptr = 2 * half_logdet;
+  return 0;
+}
+
+// Firth's modified score (Firth 1993; multinomial form of Bull, Mak and
+// Greenwood 2002) at the point last evaluated by MnlFirthEval():
+//   U*_(c,j) = U_(c,j) + 0.5 tr(I^{-1} dI/db_(c,j)).
+// With W_i = diag(p_i) - p_i p_i^T and the per-sample "hat" blocks
+//   h_i^(ab) = x_i^T (I^{-1})_(ab) x_i,
+// the trace is sum_i x_ij sum_(a,b) [dW_i/deta_ic]_(ab) h_i^(ab), which works
+// out to sum_i x_ij p_ic (r_ic - sum_a p_ia r_ia), where
+//   r_ia = h_i^(aa) - 2 sum_b p_ib h_i^(ab).
+// (With two categories, 0.5 p (r - p r) = v h (0.5 - p), logistf's
+// correction.)  The h_i^(ab) are computed a block of samples and a category a
+// at a time: G = X (I^{-1})_(a, b >= a) is one matrix product, and
+// h_i^(ab) = sum_l G[i][(b - a) * p + l] x_il (h_i^(ba) = h_i^(ab)).
+//
+// Also computes the matrix the fitting step is solved with: the information
+// matrix of the pseudo-data whose score is U* (Heinze and Schemper 2002),
+// treating the hat blocks as fixed, i.e. the information matrix with sample i
+// weighted by 1 + tr(W_i h_i) (1 + its leverage).  With two categories that is
+// X^T diag((1 + h_i) v_i) X, FirthRegressionD()'s step matrix.  Near a
+// separated solution the plain information matrix underestimates the
+// curvature of l* badly enough for the step to overshoot and oscillate.
+// Its lower triangle is left in fbufs->info_aug, and the full inverse of the
+// information matrix in fbufs->iinv.
+void MnlFirthScore(const double* xx, uint32_t sample_ct, uint32_t predictor_ct, uint32_t nonref_cat_ct, MnlSolverBufs* bufs, MnlFirthBufs* fbufs) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uint32_t param_ct = predictor_ct * nonref_cat_ct;
+  double* iinv = fbufs->iinv;
+  MnlCholInvFull(bufs->chol, param_ct, fbufs->linv, iinv);
+  const double* prob = bufs->prob;
+  double* ww = fbufs->ww;
+  double* sqrt_wts = fbufs->sqrt_wts;
+  double* hab = fbufs->hab;
+  // G, block_len x param_ct with stride kMnlSampleBlockSize, fits in zz.
+  double* gg = bufs->zz;
+  for (uint32_t block_start = 0; block_start < sample_ct; block_start += kMnlSampleBlockSize) {
+    uint32_t block_len = sample_ct - block_start;
+    if (block_len > kMnlSampleBlockSize) {
+      block_len = kMnlSampleBlockSize;
+    }
+    const double* xx_block = &(xx[block_start]);
+    // tr(W_i h_i) = sum_(a,b) p_a (1[a = b] - p_b) h^(ab), accumulated here
+    // before becoming sqrt(1 + tr(W_i h_i))
+    double* cur_sqrt_wts = &(sqrt_wts[block_start]);
+    ZeroDArr(block_len, cur_sqrt_wts);
+    for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+      ZeroDArr(block_len, &(ww[cat_idx * sample_ctav + block_start]));
+    }
+    for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+      const double* prob_a = &(prob[cat_idx * sample_ctav + block_start]);
+      double* rr_a = &(ww[cat_idx * sample_ctav + block_start]);
+      // Columns b >= a of (I^{-1})_(a, *), i.e. predictor_ct rows of iinv
+      // from column a * predictor_ct on, are (by symmetry) also the transpose
+      // of the corresponding columns: a column-major predictor_ct x
+      // ((J - a) * predictor_ct) matrix with stride param_ct.
+      const uint32_t col_start = cat_idx * predictor_ct;
+      MnlGemm(xx_block, &(iinv[col_start * param_ct + col_start]), block_len, sample_ctav, param_ct - col_start, param_ct, predictor_ct, kMnlSampleBlockSize, gg);
+      for (uint32_t cat_idx2 = cat_idx; cat_idx2 != nonref_cat_ct; ++cat_idx2) {
+        const double* gg_iter = &(gg[(cat_idx2 - cat_idx) * predictor_ct * kMnlSampleBlockSize]);
+        for (uint32_t uii = 0; uii != block_len; ++uii) {
+          hab[uii] = gg_iter[uii] * xx_block[uii];
+        }
+        for (uint32_t pred_idx = 1; pred_idx != predictor_ct; ++pred_idx) {
+          const double* gg_col = &(gg_iter[pred_idx * kMnlSampleBlockSize]);
+          const double* xx_col = &(xx_block[pred_idx * sample_ctav]);
+          for (uint32_t uii = 0; uii != block_len; ++uii) {
+            hab[uii] += gg_col[uii] * xx_col[uii];
+          }
+        }
+        const double* prob_b = &(prob[cat_idx2 * sample_ctav + block_start]);
+        if (cat_idx2 == cat_idx) {
+          for (uint32_t uii = 0; uii != block_len; ++uii) {
+            rr_a[uii] += hab[uii] * (1.0 - 2 * prob_a[uii]);
+            cur_sqrt_wts[uii] += hab[uii] * prob_a[uii] * (1.0 - prob_a[uii]);
+          }
+        } else {
+          // h^(ab) and h^(ba) both
+          double* rr_b = &(ww[cat_idx2 * sample_ctav + block_start]);
+          for (uint32_t uii = 0; uii != block_len; ++uii) {
+            const double twice_hab = 2 * hab[uii];
+            rr_a[uii] -= twice_hab * prob_b[uii];
+            rr_b[uii] -= twice_hab * prob_a[uii];
+            cur_sqrt_wts[uii] -= twice_hab * prob_a[uii] * prob_b[uii];
+          }
+        }
+      }
+    }
+    for (uint32_t uii = 0; uii != block_len; ++uii) {
+      // (the trace is nonnegative; this only guards against rounding)
+      cur_sqrt_wts[uii] = sqrt(1.0 + MAXV(cur_sqrt_wts[uii], 0.0));
+    }
+    // ww_c := 0.5 p_c (r_c - sum_a p_a r_a); hab is reused for the sums
+    ZeroDArr(block_len, hab);
+    for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+      const double* cur_prob = &(prob[cat_idx * sample_ctav + block_start]);
+      const double* rr = &(ww[cat_idx * sample_ctav + block_start]);
+      for (uint32_t uii = 0; uii != block_len; ++uii) {
+        hab[uii] += cur_prob[uii] * rr[uii];
+      }
+    }
+    for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+      const double* cur_prob = &(prob[cat_idx * sample_ctav + block_start]);
+      double* rr = &(ww[cat_idx * sample_ctav + block_start]);
+      for (uint32_t uii = 0; uii != block_len; ++uii) {
+        rr[uii] = 0.5 * cur_prob[uii] * (rr[uii] - hab[uii]);
+      }
+    }
+  }
+  double* ustar = fbufs->ustar;
+  double* xtw = fbufs->xtw;
+  for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+    ColMajorVectorMatrixMultiplyStrided(&(ww[cat_idx * sample_ctav]), xx, sample_ct, sample_ctav, predictor_ct, xtw);
+    const double* grad_iter = &(bufs->grad[cat_idx * predictor_ct]);
+    double* ustar_iter = &(ustar[cat_idx * predictor_ct]);
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+      ustar_iter[pred_idx] = grad_iter[pred_idx] + xtw[pred_idx];
+    }
+  }
+  MnlGradAndInfo(xx, prob, nullptr, sqrt_wts, sample_ct, predictor_ct, nonref_cat_ct, bufs->zz, bufs->ss, nullptr, fbufs->info_aug);
+}
+
+// Maximizes the Firth-penalized log-likelihood
+//   l*(b) = l(b) + 0.5 log det I(b),
+// I being the full information matrix, by quasi-Newton steps on the modified
+// score (b += I_aug^{-1} U*, I_aug as described above MnlFirthScore(); this
+// is FirthRegressionD()'s step), capped at 5 per coefficient (as in logistf)
+// and halved while l* decreases.  Converged when the step computed at the
+// current coefficients is below 1e-10 * (1 + |coefficient|) for every
+// coefficient; that step is then applied without re-evaluating anything, as
+// in MultinomialRegressionD(): lli[], the log-determinant and I_aug are those
+// at the point the step was taken from, which moves l* by about U* . step, far
+// below anything reported.
+//
+// fixed_pred_idx: if not UINT32_MAX, that predictor's coefficients (one per
+//   nonreference category) are held at zero, and l* (whose penalty is still
+//   that of the full model) is maximized over the others: the restricted fit
+//   of a penalized likelihood-ratio test, as in logistf.  The step is then
+//   solved with the free coefficients' block of I_aug.
+// xx, cats, coef: as in MultinomialRegressionD().
+// lli: set to each sample's (unpenalized) log-likelihood contribution at the
+//   estimate.
+// logdet_ptr: set to log det I at the estimate, so that
+//   l* = sum(lli) + 0.5 * (*logdet_ptr).
+// se: if not nullptr (the full fit only), set to sqrt(diag(I_aug^{-1})).  This
+//   is the covariance logistf reports (its 'var', the inverse of
+//   X^T diag((1 + h) v) X) and FirthRegressionD() returns, rather than the
+//   inverse of I itself.
+// lli and the estimate's l* are those at the point the last step was taken
+// from, as described above.
+//
+// Returns kGlmErrcodeNone, kGlmErrcodeFirthConvergeFail, or (se requested,
+// nonpositive or tiny variance) kGlmErrcodeInvalidResult.
+GlmErrcode MultinomialFirthRegressionD(const double* xx, const uint32_t* cats, uint32_t sample_ct, uint32_t predictor_ct, uint32_t nonref_cat_ct, uint32_t fixed_pred_idx, double* __restrict coef, double* __restrict lli, double* __restrict logdet_ptr, double* __restrict se, MnlSolverBufs* bufs, MnlFirthBufs* fbufs) {
+  const uint32_t param_ct = predictor_ct * nonref_cat_ct;
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  {
+    double* xty = bufs->xty;
+    ZeroDArr(param_ct, xty);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uint32_t cur_cat = cats[sample_idx];
+      if (cur_cat) {
+        double* xty_iter = &(xty[(cur_cat - 1) * predictor_ct]);
+        for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+          xty_iter[pred_idx] += xx[pred_idx * sample_ctav + sample_idx];
+        }
+      }
+    }
+  }
+  const uint32_t is_restricted = (fixed_pred_idx != UINT32_MAX);
+  if (is_restricted) {
+    for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+      coef[cat_idx * predictor_ct + fixed_pred_idx] = 0.0;
+    }
+  }
+  const uint32_t free_param_ct = is_restricted? (param_ct - nonref_cat_ct) : param_ct;
+  double loglik;
+  double logdet;
+  if (MnlFirthEval(xx, coef, cats, sample_ct, predictor_ct, nonref_cat_ct, lli, bufs, &loglik, &logdet)) {
+    return kGlmErrcodeFirthConvergeFail;
+  }
+  double lstar = loglik + 0.5 * logdet;
+  double* step = bufs->step;
+  for (uint32_t iter_idx = 0; ; ++iter_idx) {
+    MnlFirthScore(xx, sample_ct, predictor_ct, nonref_cat_ct, bufs, fbufs);
+    const double* ustar = fbufs->ustar;
+    // bufs->chol isn't needed any more at this point: logdet has been
+    // extracted, and iinv computed.
+    if (!is_restricted) {
+      if (MnlCholesky(fbufs->info_aug, param_ct, bufs->chol)) {
+        return kGlmErrcodeFirthConvergeFail;
+      }
+      MnlCholSolve(bufs->chol, ustar, param_ct, step);
+    } else {
+      // Free coefficients' block of I_aug (lower triangle), and of U*,
+      // packed.  iinv and grad aren't needed any more at this point.
+      double* info_ff = fbufs->iinv;
+      double* ustar_f = bufs->grad;
+      uint32_t row_f = 0;
+      for (uint32_t row_idx = 0; row_idx != param_ct; ++row_idx) {
+        if ((row_idx % predictor_ct) == fixed_pred_idx) {
+          continue;
+        }
+        ustar_f[row_f] = ustar[row_idx];
+        const double* info_row = &(fbufs->info_aug[row_idx * param_ct]);
+        double* info_ff_row = &(info_ff[row_f * free_param_ct]);
+        uint32_t col_f = 0;
+        for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+          if ((col_idx % predictor_ct) == fixed_pred_idx) {
+            continue;
+          }
+          info_ff_row[col_f++] = info_row[col_idx];
+        }
+        ++row_f;
+      }
+      if (MnlCholesky(info_ff, free_param_ct, bufs->chol)) {
+        return kGlmErrcodeFirthConvergeFail;
+      }
+      // Solve into coef_old, then scatter into step.
+      MnlCholSolve(bufs->chol, ustar_f, free_param_ct, bufs->coef_old);
+      row_f = free_param_ct;
+      for (uint32_t param_idx = param_ct; param_idx; ) {
+        --param_idx;
+        step[param_idx] = ((param_idx % predictor_ct) == fixed_pred_idx)? 0.0 : bufs->coef_old[--row_f];
+      }
+    }
+    double max_step = 0.0;
+    uint32_t converged = 1;
+    for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+      const double abs_step = fabs(step[param_idx]);
+      if (abs_step > max_step) {
+        max_step = abs_step;
+      }
+      if (abs_step >= 1e-10 * (1.0 + fabs(coef[param_idx]))) {
+        converged = 0;
+      }
+    }
+    if (converged) {
+      for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+        coef[param_idx] += step[param_idx];
+      }
+      break;
+    }
+    if (iter_idx == kMnlFirthMaxIter) {
+      return kGlmErrcodeFirthConvergeFail;
+    }
+    if (max_step > 5.0) {
+      const double scale = 5.0 / max_step;
+      for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+        step[param_idx] *= scale;
+      }
+    }
+    memcpy(bufs->coef_old, coef, param_ct * sizeof(double));
+    const double lstar_tol = 1e-10 * (0.1 + fabs(lstar));
+    uint32_t halving_ct = 0;
+    while (1) {
+      for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+        coef[param_idx] = bufs->coef_old[param_idx] + step[param_idx];
+      }
+      if (!MnlFirthEval(xx, coef, cats, sample_ct, predictor_ct, nonref_cat_ct, lli, bufs, &loglik, &logdet)) {
+        const double new_lstar = loglik + 0.5 * logdet;
+        if (new_lstar > lstar - lstar_tol) {
+          lstar = new_lstar;
+          break;
+        }
+      }
+      if (++halving_ct == kMnlMaxHalvings) {
+        return kGlmErrcodeFirthConvergeFail;
+      }
+      for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+        step[param_idx] *= 0.5;
+      }
+    }
+  }
+  *logdet_ptr = logdet;
+  if (!se) {
+    return kGlmErrcodeNone;
+  }
+  // (se is only requested for the full fit, so bufs->chol holds the Cholesky
+  // factor of I_aug the last step was solved with)
+  assert(!is_restricted);
+  MnlCholInvDiag(bufs->chol, param_ct, step, se);
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     const double cur_var = se[param_idx];
     if ((cur_var < 1e-20) || (!isfinite_d(cur_var))) {
@@ -569,7 +997,11 @@ BoolErr GlmAllocFillAndTestPhenoCovarsMnl(const uintptr_t* sample_include, const
 //   inverse_corr_buf: p * max(p, 3) doubles
 //   inv_1d_buf: p MatrixInvertBuf1 slots
 //   solver buffers (full model)
-uintptr_t GetMnlWorkspaceSize(uint32_t sample_ct, uint32_t covar_ct, uint32_t cat_ct) {
+// and, when Firth regression may be used:
+//   firth_null_coef: J * p doubles
+//   firth_null_lli: n doubles
+//   Firth solver buffers
+uintptr_t GetMnlWorkspaceSize(uint32_t sample_ct, uint32_t covar_ct, uint32_t cat_ct, uint32_t is_sometimes_firth) {
   const uintptr_t predictor_ct = covar_ct + 2;
   const uintptr_t nonref_cat_ct = cat_ct - 1;
   const uintptr_t param_ct = predictor_ct * nonref_cat_ct;
@@ -586,6 +1018,11 @@ uintptr_t GetMnlWorkspaceSize(uint32_t sample_ct, uint32_t covar_ct, uint32_t ca
   workspace_size += RoundUpPow2(predictor_ct * MAXV(predictor_ct, 3) * sizeof(double), kCacheline);
   workspace_size += RoundUpPow2(predictor_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline);
   workspace_size += GetMnlSolverBufsSize(sample_ct, predictor_ct, nonref_cat_ct);
+  if (is_sometimes_firth) {
+    workspace_size += RoundUpPow2(param_ct * sizeof(double), kCacheline);
+    workspace_size += RoundUpPow2(sample_ctav * sizeof(double), kCacheline);
+    workspace_size += GetMnlFirthBufsSize(sample_ct, predictor_ct, nonref_cat_ct);
+  }
   return workspace_size;
 }
 
@@ -614,6 +1051,8 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
   const GlmFlags glm_flags = common->glm_flags;
   const uint32_t hide_covar = (glm_flags / kfGlmHideCovar) & 1;
   const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
+  const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
+  const uint32_t is_always_firth = (glm_flags / kfGlmFirth) & 1;
   const double max_corr = common->max_corr;
   const double vif_thresh = common->vif_thresh;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
@@ -697,7 +1136,15 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
       MatrixInvertBuf1* inv_1d_buf = S_CAST(MatrixInvertBuf1*, arena_alloc_raw_rd(predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter));
       MnlSolverBufs bufs;
       CarveMnlSolverBufs(cur_sample_ct, predictor_ct, nonref_cat_ct, &workspace_iter, &bufs);
-      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetMnlWorkspaceSize(cur_sample_ct, cur_covar_ct, cat_ct));
+      double* firth_null_coef = nullptr;
+      double* firth_null_lli = nullptr;
+      MnlFirthBufs fbufs;
+      if (is_sometimes_firth) {
+        firth_null_coef = S_CAST(double*, arena_alloc_raw_rd(param_ct * sizeof(double), &workspace_iter));
+        firth_null_lli = S_CAST(double*, arena_alloc_raw_rd(sample_ctav * sizeof(double), &workspace_iter));
+        CarveMnlFirthBufs(cur_sample_ct, predictor_ct, nonref_cat_ct, &workspace_iter, &fbufs);
+      }
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetMnlWorkspaceSize(cur_sample_ct, cur_covar_ct, cat_ct, is_sometimes_firth));
       PgrSampleSubsetIndex pssi;
       PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, pgrp, &pssi);
       // prev_nm: the previous variant processed here had no missing calls, so
@@ -712,6 +1159,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
       for (; variant_bidx != cur_variant_bidx_end; ++variant_bidx) {
         const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
         GlmErr glm_err = 0;
+        block_aux_iter->firth_fallback = 0;
         if (allele_idx_offsets && (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2)) {
           glm_err = SetGlmErr0(kGlmErrcodeMultiallelicUnsupported);
           goto GlmMultinomialThread_skip_regression;
@@ -896,14 +1344,22 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           // A category whose samples all have zero dosage has an infinite
           // maximum-likelihood genotype coefficient.  (This is the multinomial
           // version of the check GlmLogisticThreadD() makes before fitting.)
-          ZeroDArr(cat_ct, cat_dosage_sums);
-          for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
-            cat_dosage_sums[nm_cats[sample_idx]] += genotype_vals[sample_idx];
-          }
-          for (uint32_t cat_idx = 0; cat_idx != cat_ct; ++cat_idx) {
-            if (cat_dosage_sums[cat_idx] == 0.0) {
-              glm_err = SetGlmErr1(kGlmErrcodeSeparation, 1 - omitted_allele_idx);
-              goto GlmMultinomialThread_skip_regression;
+          // In Firth-fallback mode, the penalized fit is used instead.
+          uint32_t use_firth = is_always_firth;
+          if (!is_always_firth) {
+            ZeroDArr(cat_ct, cat_dosage_sums);
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+              cat_dosage_sums[nm_cats[sample_idx]] += genotype_vals[sample_idx];
+            }
+            for (uint32_t cat_idx = 0; cat_idx != cat_ct; ++cat_idx) {
+              if (cat_dosage_sums[cat_idx] == 0.0) {
+                if (!is_sometimes_firth) {
+                  glm_err = SetGlmErr1(kGlmErrcodeSeparation, 1 - omitted_allele_idx);
+                  goto GlmMultinomialThread_skip_regression;
+                }
+                use_firth = 1;
+                break;
+              }
             }
           }
           // Same collinearity checks as the other --glm regressions, on
@@ -922,50 +1378,95 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
             goto GlmMultinomialThread_skip_regression;
           }
 
-          // Covariate-only fit on this variant's samples.
-          const double* null_coefs;
-          const double* null_lli;
-          if (!missing_ct) {
-            null_coefs = cur_set->null_coefs;
-            null_lli = cur_set->null_lli;
-          } else {
-            if ((!cached_null_valid) || (!wordsequal(sample_nm, cached_nm, sample_ctl))) {
-              // Always start from the full-sample fit, so the result depends
-              // only on the sample set, not on which variants this thread saw
-              // before.
-              memcpy(cached_null_coefs, cur_set->null_coefs, null_param_ct * sizeof(double));
-              const GlmErrcode errcode = MultinomialRegressionD(xx, nm_cats, nm_sample_ct, null_predictor_ct, nonref_cat_ct, cached_null_coefs, cached_null_lli, nullptr, &bufs);
-              if (errcode) {
-                cached_null_valid = 0;
-                glm_err = SetGlmErr0(kGlmErrcodeMnlConvergeFail);
-                goto GlmMultinomialThread_skip_regression;
+          double lrt_chisq = 0.0;
+          if (!use_firth) {
+            // Covariate-only fit on this variant's samples.
+            const double* null_coefs;
+            const double* null_lli;
+            if (!missing_ct) {
+              null_coefs = cur_set->null_coefs;
+              null_lli = cur_set->null_lli;
+            } else {
+              if ((!cached_null_valid) || (!wordsequal(sample_nm, cached_nm, sample_ctl))) {
+                // Always start from the full-sample fit, so the result
+                // depends only on the sample set, not on which variants this
+                // thread saw before.
+                memcpy(cached_null_coefs, cur_set->null_coefs, null_param_ct * sizeof(double));
+                const GlmErrcode errcode = MultinomialRegressionD(xx, nm_cats, nm_sample_ct, null_predictor_ct, nonref_cat_ct, cached_null_coefs, cached_null_lli, nullptr, &bufs);
+                if (errcode) {
+                  cached_null_valid = 0;
+                  if (!is_sometimes_firth) {
+                    glm_err = SetGlmErr0(kGlmErrcodeMnlConvergeFail);
+                    goto GlmMultinomialThread_skip_regression;
+                  }
+                  // e.g. a category has lost all its samples to missing calls
+                  use_firth = 1;
+                } else {
+                  memcpy(cached_nm, sample_nm, sample_ctl * sizeof(intptr_t));
+                  cached_null_valid = 1;
+                }
               }
-              memcpy(cached_nm, sample_nm, sample_ctl * sizeof(intptr_t));
-              cached_null_valid = 1;
+              null_coefs = cached_null_coefs;
+              null_lli = cached_null_lli;
             }
-            null_coefs = cached_null_coefs;
-            null_lli = cached_null_lli;
-          }
 
-          // Full fit, starting from the covariate-only estimates with zero
-          // genotype coefficients.
-          for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
-            memcpy(&(coef[cat_idx * predictor_ct]), &(null_coefs[cat_idx * null_predictor_ct]), null_predictor_ct * sizeof(double));
-            coef[cat_idx * predictor_ct + null_predictor_ct] = 0.0;
+            if (!use_firth) {
+              // Full fit, starting from the covariate-only estimates with zero
+              // genotype coefficients.
+              for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+                memcpy(&(coef[cat_idx * predictor_ct]), &(null_coefs[cat_idx * null_predictor_ct]), null_predictor_ct * sizeof(double));
+                coef[cat_idx * predictor_ct + null_predictor_ct] = 0.0;
+              }
+              const GlmErrcode errcode = MultinomialRegressionD(xx, nm_cats, nm_sample_ct, predictor_ct, nonref_cat_ct, coef, lli, se, &bufs);
+              if (errcode) {
+                if (!is_sometimes_firth) {
+                  glm_err = SetGlmErr0(errcode);
+                  goto GlmMultinomialThread_skip_regression;
+                }
+                use_firth = 1;
+              } else {
+                // Likelihood-ratio statistic.  Summing the per-sample
+                // differences keeps its accuracy relative to the statistic
+                // itself rather than to the (much larger) log-likelihoods.
+                double lrt_half = 0.0;
+                for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+                  lrt_half += lli[sample_idx] - null_lli[sample_idx];
+                }
+                lrt_chisq = 2 * lrt_half;
+              }
+            }
           }
-          const GlmErrcode errcode = MultinomialRegressionD(xx, nm_cats, nm_sample_ct, predictor_ct, nonref_cat_ct, coef, lli, se, &bufs);
-          if (errcode) {
-            glm_err = SetGlmErr0(errcode);
-            goto GlmMultinomialThread_skip_regression;
+          if (use_firth) {
+            if (!is_always_firth) {
+              block_aux_iter->firth_fallback = 1;
+            }
+            // Penalized likelihood-ratio test (logistf's PLR): the restricted
+            // fit maximizes the same penalized likelihood, whose penalty is
+            // that of the full model, with the genotype coefficients held at
+            // zero.  It starts from the unpenalized covariate-only fit on the
+            // whole sample set, and the full fit starts from its result.
+            for (uint32_t cat_idx = 0; cat_idx != nonref_cat_ct; ++cat_idx) {
+              memcpy(&(firth_null_coef[cat_idx * predictor_ct]), &(cur_set->null_coefs[cat_idx * null_predictor_ct]), null_predictor_ct * sizeof(double));
+              firth_null_coef[cat_idx * predictor_ct + null_predictor_ct] = 0.0;
+            }
+            double null_logdet;
+            if (MultinomialFirthRegressionD(xx, nm_cats, nm_sample_ct, predictor_ct, nonref_cat_ct, null_predictor_ct, firth_null_coef, firth_null_lli, &null_logdet, nullptr, &bufs, &fbufs)) {
+              glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+              goto GlmMultinomialThread_skip_regression;
+            }
+            memcpy(coef, firth_null_coef, param_ct * sizeof(double));
+            double full_logdet;
+            const GlmErrcode errcode = MultinomialFirthRegressionD(xx, nm_cats, nm_sample_ct, predictor_ct, nonref_cat_ct, UINT32_MAX, coef, lli, &full_logdet, se, &bufs, &fbufs);
+            if (errcode) {
+              glm_err = SetGlmErr0(errcode);
+              goto GlmMultinomialThread_skip_regression;
+            }
+            double lrt_half = 0.5 * (full_logdet - null_logdet);
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+              lrt_half += lli[sample_idx] - firth_null_lli[sample_idx];
+            }
+            lrt_chisq = 2 * lrt_half;
           }
-          // Likelihood-ratio statistic.  Summing the per-sample differences
-          // keeps its accuracy relative to the statistic itself rather than
-          // to the (much larger) log-likelihoods.
-          double lrt_half = 0.0;
-          for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
-            lrt_half += lli[sample_idx] - null_lli[sample_idx];
-          }
-          double lrt_chisq = 2 * lrt_half;
           if (lrt_chisq < 0.0) {
             lrt_chisq = 0.0;
           }
@@ -1044,6 +1545,8 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
     const uint32_t report_neglog10p = (glm_flags / kfGlmLog10) & 1;
     const uint32_t hide_covar = (glm_flags / kfGlmHideCovar) & 1;
     const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
+    const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
+    const uint32_t is_always_firth = (glm_flags / kfGlmFirth) & 1;
     const GlmColFlags glm_cols = glm_info_ptr->cols;
     // checked up front by GlmMain()
     assert(glm_cols & kfGlmColTest);
@@ -1075,7 +1578,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
       char* write_iter = strcpya_k(lrt_names[set_idx], "LRT_");
       write_iter = u32toa(cur_nonref_cat_ct, write_iter);
       strcpy_k(write_iter, "DF");
-      const uintptr_t cur_workspace_alloc = GetMnlWorkspaceSize(set_sample_cts[set_idx], set_covar_cts[set_idx], sets[set_idx]->cat_ct);
+      const uintptr_t cur_workspace_alloc = GetMnlWorkspaceSize(set_sample_cts[set_idx], set_covar_cts[set_idx], sets[set_idx]->cat_ct, is_sometimes_firth);
       if (cur_workspace_alloc > workspace_alloc) {
         workspace_alloc = cur_workspace_alloc;
       }
@@ -1148,6 +1651,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t a1_freq_col = glm_cols & kfGlmColA1freq;
     const uint32_t mach_r2_col = glm_cols & kfGlmColMachR2;
+    const uint32_t firth_yn_col = (glm_cols & kfGlmColFirthYn) && is_sometimes_firth && (!is_always_firth);
     const uint32_t nobs_col = glm_cols & kfGlmColNobs;
     const uint32_t orbeta_col = glm_cols & (kfGlmColBeta | kfGlmColOrbeta);
     const uint32_t report_beta_instead_of_odds_ratio = glm_cols & kfGlmColBeta;
@@ -1194,6 +1698,9 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
     }
     if (mach_r2_col) {
       cswritep = strcpya_k(cswritep, "\tMACH_R2");
+    }
+    if (firth_yn_col) {
+      cswritep = strcpya_k(cswritep, "\tFIRTH?");
     }
     cswritep = strcpya_k(cswritep, "\tTEST\tCATEGORY");
     if (nobs_col) {
@@ -1265,7 +1772,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
     uint32_t allele_ct = 2;
     uint32_t omitted_allele_idx = 0;
     uintptr_t valid_allele_ct = 0;
-    logprintfww5("--glm multinomial logistic regression on phenotype '%s': ", cur_pheno_name);
+    logprintfww5("--glm %s regression on phenotype '%s': ", is_always_firth? "Firth multinomial logistic" : (is_sometimes_firth? "multinomial logistic-Firth hybrid" : "multinomial logistic"), cur_pheno_name);
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t variant_idx = 0; ; ) {
@@ -1444,6 +1951,11 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* test_names,
               } else {
                 cswritep = strcpya_k(cswritep, "NA");
               }
+            }
+            if (firth_yn_col) {
+              *cswritep++ = '\t';
+              // 'Y' - 'N' = 11
+              *cswritep++ = 'N' + 11 * auxp->firth_fallback;
             }
             *cswritep++ = '\t';
             double ln_pval = kLnPvalError;

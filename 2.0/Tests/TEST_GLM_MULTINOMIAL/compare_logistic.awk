@@ -1,12 +1,13 @@
 # Compares a two-category --glm multinomial report (second file) against a
-# --glm no-firth logistic report (first file) on the same data, keyed on ID and
-# TEST.  Every per-category row of the multinomial report must have a logistic
+# --glm logistic report (first file) on the same data, keyed on ID and TEST.
+# Every per-category row of the multinomial report must have a logistic
 # counterpart with the same A1, OBS_CT, odds ratio, standard error, Z statistic,
 # p-value and error code; the LRT row has no counterpart and is only counted.
 #
-# The two fits stop on different convergence rules (the logistic one imitates
-# R's glm.fit, on the deviance), so beyond the half-unit rounding allowance on
-# each side, a relative slack of 1e-6 is allowed.
+# The two fits stop on different convergence rules (the no-firth logistic one
+# imitates R's glm.fit, on the deviance), so beyond the half-unit rounding
+# allowance on each side, a relative slack of 1e-6 is allowed; set rel_slack
+# (awk -v) to change it.
 function abs(x) { return (x < 0)? -x : x }
 function is_num(t) { return (t ~ /^-?[0-9]+(\.[0-9]*)?([eE][-+]?[0-9]+)?$/) }
 function last_place(t,   m, e, pt) {
@@ -24,7 +25,7 @@ function same(t1, t2,   a, b, tol) {
     return (abs(a - b) <= tol)
 }
 function fail(msg) { print msg; failed = 1; exit 1 }
-BEGIN { FS = "\t"; rel_slack = 1e-6; field_ct = split("A1 OBS_CT OR LOG(OR)_SE P ERRCODE", fields, " ") }
+BEGIN { FS = "\t"; if (rel_slack == "") { rel_slack = 1e-6 }; field_ct = split("A1 OBS_CT OR LOG(OR)_SE P ERRCODE", fields, " ") }
 FNR == 1 {
     split("", c)
     for (i = 1; i <= NF; ++i) { h = $i; sub(/^#/, "", h); c[h] = i }

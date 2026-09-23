@@ -2486,8 +2486,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         unsupported_str = "--glm 'hetonly' modifier";
       } else if (glm_flags & kfGlmInteraction) {
         unsupported_str = "--glm 'interaction' modifier";
-      } else if (glm_flags & kfGlmFirth) {
-        unsupported_str = "--glm 'firth' modifier";
       } else if (local_covar_fname) {
         unsupported_str = "--glm 'local-covar=' modifier";
       } else if (glm_info_ptr->parameters_range_list.name_ct) {
@@ -2526,6 +2524,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const uint32_t perms_total = perm_adapt? perm_config_ptr->aperm_max : glm_info_ptr->mperm_ct;
     // <output prefix>.<pheno name>.glm.logistic.hybrid{.perm,.mperm,.mperm.dump.best,.mperm.dump.all}[.zst]
     uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
+    if (glm_info_ptr->mnl_ref_flattened) {
+      // .glm.multinomial.hybrid is 3 characters longer than
+      // .glm.logistic.hybrid (and multinomial regression has no permutation
+      // test)
+      pheno_name_blen_capacity -= 3;
+    }
     if (perms_total) {
       if (perm_adapt) {
         pheno_name_blen_capacity -= 5;
@@ -4380,6 +4384,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       } else if (is_multinomial) {
         outname_end2 = strcpya_k(outname_end2, ".glm.multinomial");
+        if (is_always_firth) {
+          outname_end2 = strcpya_k(outname_end2, ".firth");
+        } else if (is_sometimes_firth) {
+          outname_end2 = strcpya_k(outname_end2, ".hybrid");
+        }
       } else {
         outname_end2 = strcpya_k(outname_end2, ".glm.linear");
       }
