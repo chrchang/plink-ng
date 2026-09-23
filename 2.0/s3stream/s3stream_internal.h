@@ -11,6 +11,10 @@
 #include <map>
 #include <string>
 
+#ifdef S3STREAM_ENABLE
+#  include <curl/curl.h>
+#endif
+
 namespace s3stream {
 
 /* Records a message retrievable via s3stream_last_error().  Thread-local, so
@@ -25,6 +29,27 @@ std::string GetEnv(const char* name);
 
 /* True for "1", "true", "yes", "on" (any case). */
 bool GetEnvBool(const char* name);
+
+/* ---------------------------------------------------------------------------
+ * Validation of server-supplied strings
+ * ------------------------------------------------------------------------- */
+
+/* True when `value` is safe to splice into an outgoing header.  Several
+ * server-controlled strings -- ETag, IMDS session token, STS session token --
+ * are echoed back in later requests, so a CR or LF in one of them would be
+ * request-splitting injection into our own traffic.  Rejects empty, control
+ * characters, and anything longer than max_len. */
+bool IsSafeHeaderValue(const std::string& value, size_t max_len);
+
+/* True for a syntactically plausible AWS region ([a-z0-9-], <= 32 chars).
+ * Regions arrive from redirect responses and are spliced into both the
+ * request URL and the SigV4 credential scope. */
+bool IsSafeRegion(const std::string& region);
+
+/* Best-effort overwrite of a secret before its buffer is released.  Earlier
+ * reallocations of the same std::string cannot be reached, so this narrows
+ * the window rather than closing it. */
+void SecureZero(std::string* secret);
 
 /* Looks a key up in the active profile of ~/.aws/config (AWS_CONFIG_FILE),
  * e.g. "region" or "endpoint_url".  Empty string if absent. */
@@ -43,6 +68,7 @@ struct Credentials {
   int64_t expires_at;
 
   Credentials() : expires_at(0) {}
+  ~Credentials();
 
   bool Empty() const { return access_key.empty() || secret_key.empty(); }
 
@@ -62,10 +88,15 @@ bool ResolveCredentials(Credentials* out);
 struct Response {
   long status;
   std::string body;
-  /* Response headers, keys lowercased. */
+  /* Response headers, keys lowercased.  Only the few headers s3stream acts on
+   * are retained, so a server cannot grow this map without bound. */
   std::map<std::string, std::string> headers;
+  /* Set when Request::max_body aborted the transfer, i.e. the server sent
+   * more than was asked for.  Distinct from a short read, and the two have
+   * opposite diagnoses. */
+  bool body_capped;
 
-  Response() : status(0) {}
+  Response() : status(0), body_capped(false) {}
 
   const std::string* Header(const char* name) const;
 };
@@ -82,9 +113,10 @@ struct Request {
   std::string if_match;
   bool sign;
   bool head;
-  /* Caps how much body is buffered; the transfer is aborted once exceeded.
-   * Guards the size probe against a server that ignores Range and starts
-   * streaming the whole object.  0 means no limit. */
+  /* Caps how much body is buffered; the transfer is aborted once exceeded and
+   * Response::body_capped is set.  Guards every read against a server that
+   * ignores Range and starts streaming the whole object.  0 means no limit,
+   * which no caller should use for a response it did not size first. */
   size_t max_body;
 
   Request() : creds(nullptr), sign(true), head(false), max_body(0) {}
@@ -95,6 +127,12 @@ struct Request {
  * could be obtained at all; an HTTP error status is reported through
  * out->status with false never returned for it. */
 bool Perform(const Request& req, Response* out);
+
+#ifdef S3STREAM_ENABLE
+/* Limits `curl` to http/https.  Returns false if libcurl refuses, which
+ * callers must treat as fatal. */
+bool RestrictToHttp(CURL* curl);
+#endif
 
 /* Retries `req` against the region named in a 301/400 redirect response, if
  * the response carries one.  `url` is rewritten in place on success.  Returns

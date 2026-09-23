@@ -33,9 +33,19 @@ const int64_t kExpirySkewSeconds = 300;
  * probe short enough that it does not stall an otherwise fine failure path. */
 const long kMetadataTimeoutSeconds = 2;
 
+/* Credential documents are a few hundred bytes.  Whatever answers
+ * 169.254.169.254 -- or AWS_CONTAINER_CREDENTIALS_FULL_URI, which the
+ * environment can point anywhere -- does not get to decide how much memory
+ * this process spends. */
+const size_t kMaxMetadataBytes = 64 * 1024;
+
 size_t CollectToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
   const size_t n = size * nmemb;
-  static_cast<std::string*>(userdata)->append(ptr, n);
+  std::string* body = static_cast<std::string*>(userdata);
+  if (body->size() + n > kMaxMetadataBytes) {
+    return 0;  /* short return aborts the transfer */
+  }
+  body->append(ptr, n);
   return n;
 }
 
@@ -44,6 +54,12 @@ bool FetchMetadata(const std::string& url, const char* method,
                    const std::string& header, std::string* body) {
   CURL* curl = curl_easy_init();
   if (!curl) {
+    return false;
+  }
+  /* AWS_CONTAINER_CREDENTIALS_FULL_URI is an arbitrary URL from the
+   * environment; it must not be able to name file:// or anything else. */
+  if (!RestrictToHttp(curl)) {
+    curl_easy_cleanup(curl);
     return false;
   }
   struct curl_slist* headers = nullptr;
@@ -316,6 +332,12 @@ bool CredentialsFromImds(Credentials* out) {
                      "X-aws-ec2-metadata-token-ttl-seconds: 21600", &token)) {
     return false;
   }
+  TrimInPlace(&token);
+  /* The token is sent back as a header on the next two requests; a CR or LF
+   * in it would splice extra requests into our own connection. */
+  if (!IsSafeHeaderValue(token, 4096)) {
+    return false;
+  }
   const std::string token_header = "X-aws-ec2-metadata-token: " + token;
 
   std::string role;
@@ -331,6 +353,22 @@ bool CredentialsFromImds(Credentials* out) {
     TrimInPlace(&role);
   }
   if (role.empty()) {
+    return false;
+  }
+  /* The role name is appended to a URL path, so restrict it to what an IAM
+   * role name can actually contain rather than letting the response steer the
+   * next request somewhere else. */
+  for (size_t i = 0; i < role.size(); ++i) {
+    const char c = role[i];
+    const bool ok = ((c >= 'A') && (c <= 'Z')) || ((c >= 'a') && (c <= 'z')) ||
+                    ((c >= '0') && (c <= '9')) || (c == '+') || (c == '=') ||
+                    (c == ',') || (c == '.') || (c == '@') || (c == '-') ||
+                    (c == '_');
+    if (!ok) {
+      return false;
+    }
+  }
+  if (role.size() > 64) {
     return false;
   }
 
