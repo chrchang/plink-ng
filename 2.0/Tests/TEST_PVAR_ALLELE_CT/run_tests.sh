@@ -38,15 +38,13 @@ for sep in '/' '|'; do
 1	20	v2	A	C	.	.	.	GT	0${sep}1	1${sep}1	0${sep}0	0${sep}1	0${sep}0	1${sep}1
 VCF
     $1/plink2 $2 $3 --vcf tmp_$p.vcf --make-pgen --out tmp_$p
+    # (sample subset for the subsetting code paths)
+    printf 's1\ns2\ns4\ns6\n' > tmp_keep.txt
     # The same records, with v1 declared as having 3 alleles.
     awk 'BEGIN { FS = OFS = "\t" } $3 == "v1" { $5 = "C,G" } { print }' tmp_$p.pvar > tmp_${p}3.pvar
-    cmds=("--make-pgen" "--export vcf")
-    if [ "$p" = "u" ]; then
-        # These don't parse the phase track, so for phased records the
-        # misread can't be seen from the end of the record.
-        cmds+=("--freq" "--geno-counts")
-    fi
-    for c in "${cmds[@]}"; do
+    # --freq and --geno-counts don't need the phase track, but skip it for
+    # phased multiallelic records so that the same check applies.
+    for c in "--make-pgen" "--export vcf" "--freq" "--geno-counts" "--keep tmp_keep.txt --freq" "--keep tmp_keep.txt --geno-counts"; do
         expect_fail "Failed to unpack" $1 $2 $3 --pgen tmp_$p.pgen --pvar tmp_${p}3.pvar --psam tmp_$p.psam $c --out plink2_${p}3
     done
 done

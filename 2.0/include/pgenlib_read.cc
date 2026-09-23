@@ -6615,6 +6615,10 @@ PglErr ExportAux1bProperSubset(const unsigned char* fread_end, const uintptr_t* 
 
 // Assumes sample_ct > 0, multiallelic-hc track is present, and patch_01_ct and
 // patch_10_ct are zero-initialized.
+// defined below; used to skip a phase track the caller won't read
+PglErr GetAux1bHetIncr(const unsigned char* fread_end, uint32_t aux1b_mode, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t raw_10_ct, const unsigned char** fread_pp, uint32_t* __restrict raw_het_ctp);
+PglErr SkipAux2(const unsigned char* fread_end, uint32_t het_ct, const unsigned char** fread_pp, uint32_t* __restrict phasepresent_ctp);
+
 PglErr GetMultiallelicCodes(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict all_hets, PgenVariant* pgvp) {
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   uint32_t subsetting_required = (sample_ct != raw_sample_ct);
@@ -6662,8 +6666,31 @@ PglErr GetMultiallelicCodes(const uintptr_t* __restrict sample_include, const ui
   // A multiallelic-hardcall record with no later tracks must end here.  When
   // the .pvar understates the allele count, the allele codes are read with
   // the wrong width, and this is usually where that shows up.
-  if (unlikely((!(GetPgfiVrtype(&(pgrp->fi), vidx) & 0xf0)) && (fread_ptr != fread_end))) {
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
     return kPglRetMalformedInput;
+  }
+  if ((!fread_pp) && ((vrtype & 0xf0) == 0x10)) {
+    // Phased, no dosage, and the caller won't read the phase track.  Skip it
+    // anyway so that the check above still applies; this only costs anything
+    // for phased multiallelic records.
+    // het count = ref/altx hets + altx/alty hets
+    uint32_t aux2_het_ct = aux1a_mode? CountNyp(raw_genovec, kMask5555, raw_sample_ct) : raw_01_ct;
+    if (aux1b_mode != 15) {
+      const unsigned char* aux1b_iter = aux1b_start;
+      reterr = GetAux1bHetIncr(fread_end, aux1b_mode, raw_sample_ct, allele_ct, raw_10_ct, &aux1b_iter, &aux2_het_ct);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+    }
+    const unsigned char* aux2_iter = fread_ptr;
+    reterr = SkipAux2(fread_end, aux2_het_ct, &aux2_iter, nullptr);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    if (unlikely(aux2_iter != fread_end)) {
+      return kPglRetMalformedInput;
+    }
   }
   if (fread_pp) {
     *fread_pp = fread_ptr;
@@ -9057,6 +9084,38 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
     if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
       // see GetMultiallelicCodes()
       return kPglRetMalformedInput;
+    }
+    if (((vrtype & 0xf0) == 0x10) && (!raw_het_ct_needed)) {
+      // Phased, no dosage, and the phase track isn't needed below.  Skip it
+      // anyway so that the same check applies.
+      uint32_t aux2_het_ct;
+      if (!sample_include) {
+        // same computation as the raw_het_ct_needed case below
+        aux2_het_ct = raw_het_ct + genocounts[2];
+        for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+          aux2_het_ct -= two_cts[aidx];
+        }
+      } else {
+        // raw_het_ct is the raw ref/altx het count here; add the raw
+        // altx/alty hets
+        aux2_het_ct = raw_het_ct;
+        if (aux1b_mode != 15) {
+          const unsigned char* aux1b_iter = aux1b_start;
+          reterr = GetAux1bHetIncr(fread_end, aux1b_mode, raw_sample_ct, allele_ct, raw_10_ct, &aux1b_iter, &aux2_het_ct);
+          if (unlikely(reterr)) {
+            return reterr;
+          }
+        }
+      }
+      const unsigned char* aux2_iter = fread_ptr;
+      reterr = SkipAux2(fread_end, aux2_het_ct, &aux2_iter, nullptr);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+      if (unlikely(aux2_iter != fread_end)) {
+        // see GetMultiallelicCodes()
+        return kPglRetMalformedInput;
+      }
     }
     if (raw_het_ct_needed) {
       if (!sample_include) {
