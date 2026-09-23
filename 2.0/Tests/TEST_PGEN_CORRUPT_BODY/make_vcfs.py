@@ -33,6 +33,9 @@ for i in range(N):
     else:
         calls.append("1|0" if i % 2 else "0|0")
 hc.append(row(400, "C,G,T,AA", "GT", calls))
+# mostly ref/ALT1 hets with a single ref/ALT2 het: the ALT2 track is stored as
+# a sample list
+hc.append(row(500, "C,G", "GT", ["0/2" if i == 6 else ("0/1" if i % 4 else "0/0") for i in range(N)]))
 ds = [row(500, "C", "GT:DS", ["0/1:%.3f" % (0.2 + (i % 5) * 0.3) if i % 2 else "0/0:%.3f" % (0.1 + (i % 3) * 0.1) for i in range(N)]),
       row(600, "C", "GT:DS:HDS", ["0|1:0.9:0.1,0.8" if i % 2 else "0|0:0.3:0.1,0.2" for i in range(N)])]
 open("tmp_hc.vcf", "w").write(HDR + "".join(hc))

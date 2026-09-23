@@ -20,7 +20,7 @@ python3 make_vcfs.py
 # changes, they need updating.
 python3 -c "
 import struct
-for name, want in (('hc', [(0x11, 8), (0x04, 4), (0x08, 11), (0x18, 16)]), ('ds', [(0x40, 54), (0xd1, 103)])):
+for name, want in (('hc', [(0x11, 8), (0x04, 4), (0x08, 11), (0x18, 16), (0x09, 8)]), ('ds', [(0x40, 54), (0xd1, 103)])):
     d = open('tmp_' + name + '.pgen', 'rb').read()
     vct = struct.unpack_from('<I', d, 3)[0]
     got = [(d[20 + i], d[20 + vct + i]) for i in range(vct)]
@@ -67,6 +67,11 @@ run_case aux1a_trailing hc 'byte:2:8=0x80' '--make-pgen' 'Failed to unpack'
 # consumers.
 run_case aux1a_code hc 'byte:3:9=0x1b' '--export vcf' 'Failed to unpack'
 run_case aux1b_code hc 'byte:3:11=0x00' '--export vcf' 'Failed to unpack'
+# Sample-list form of the ref/ALT2 track (v500): the one entry names sample
+# 4, which is homozygous ref.  Callers pair list lengths with genotype counts,
+# and a list longer than the matching genotype count made --hardy count
+# about 4 billion genotypes.
+run_case aux1a_list_sample hc 'byte:4:7=0x04' '--export vcf' 'Failed to unpack'
 # Hardcall phase: a set bit past the first het_ct + 1 bits.
 run_case aux2_trailing hc 'byte:3:13=0xff' '--make-pgen' 'Failed to unpack'
 # Dosage out of range (0x9000 > 32768), and a phased-dosage delta that puts a
@@ -74,3 +79,7 @@ run_case aux2_trailing hc 'byte:3:13=0xff' '--make-pgen' 'Failed to unpack'
 # these values.
 run_case dosage_value ds 'u16:0:6=0x9000' '--export vcf vcf-dosage=HDS-force' 'Failed to unpack'
 run_case dphase_value ds 'u16:1:61=0x7000' '--export vcf vcf-dosage=HDS-force' 'Failed to unpack'
+# The same bad dosage through --r2: the dosage readers now reject it, and
+# PgrGetInv1D() used to invert dosage_main before looking at the error code,
+# with dosage_ct never set.
+run_case dosage_value_r2 ds 'u16:0:6=0x9000' '--r2-unphased --ld-window-r2 0' 'Failed to unpack'

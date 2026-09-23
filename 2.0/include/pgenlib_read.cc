@@ -3987,7 +3987,10 @@ uint32_t CountNypSubset(const uintptr_t* __restrict nypvec, const uintptr_t* __r
 */
 
 // similar to ParseAndSaveDifflist()
-PglErr ParseAndSaveDeltalist(const unsigned char* fread_end, uint32_t raw_sample_ct, const unsigned char** fread_pp, uint32_t* __restrict deltalist, uint32_t* __restrict deltalist_len_ptr) {
+// Used for the multiallelic-hardcall tracks, whose entries must all be samples
+// with genotype code geno_code (1 for ref/altx, 2 for altx/alty) in raw_genoarr,
+// in increasing order.  Callers pair *deltalist_len_ptr with those counts.
+PglErr ParseAndSaveDeltalist(const unsigned char* fread_end, const uintptr_t* __restrict raw_genoarr, uintptr_t geno_code, uint32_t raw_sample_ct, const unsigned char** fread_pp, uint32_t* __restrict deltalist, uint32_t* __restrict deltalist_len_ptr) {
   const unsigned char* group_info_iter;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, deltalist_len_ptr);
   const uint32_t deltalist_len = *deltalist_len_ptr;
@@ -3998,6 +4001,7 @@ PglErr ParseAndSaveDeltalist(const unsigned char* fread_end, uint32_t raw_sample
   const uint32_t group_idx_last = (deltalist_len - 1) / kPglDifflistGroupSize;
   uint32_t* deltalist_iter = deltalist;
   uint32_t group_len_m1 = kPglDifflistGroupSize - 1;
+  uintptr_t min_sample_idx = 0;
   for (uint32_t group_idx = 0; ; ++group_idx) {
     if (group_idx >= group_idx_last) {
       if (group_idx > group_idx_last) {
@@ -4009,9 +4013,10 @@ PglErr ParseAndSaveDeltalist(const unsigned char* fread_end, uint32_t raw_sample
     group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     for (uint32_t raw_deltalist_idx_lowbits = 0; ; ++raw_deltalist_idx_lowbits) {
       // always check, otherwise we may scribble over arbitrary memory
-      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+      if (unlikely((raw_sample_idx >= raw_sample_ct) || (raw_sample_idx < min_sample_idx) || (GetNyparrEntry(raw_genoarr, raw_sample_idx) != geno_code))) {
         return kPglRetMalformedInput;
       }
+      min_sample_idx = raw_sample_idx + 1;
       deltalist_iter[raw_deltalist_idx_lowbits] = raw_sample_idx;
       if (raw_deltalist_idx_lowbits == group_len_m1) {
         break;
@@ -4022,7 +4027,9 @@ PglErr ParseAndSaveDeltalist(const unsigned char* fread_end, uint32_t raw_sample
   }
 }
 
-PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, const unsigned char** fread_pp, uint32_t* __restrict intersect_ctp, uint32_t* __restrict raw_deltalist_len_ptr) {
+// Only used for ref/altx multiallelic-hardcall tracks: every entry must be a
+// raw_genoarr het, in increasing order.
+PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genoarr, uint32_t raw_sample_ct, const unsigned char** fread_pp, uint32_t* __restrict intersect_ctp, uint32_t* __restrict raw_deltalist_len_ptr) {
   // Requires a PROPER subset.
   const unsigned char* group_info_iter;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, raw_deltalist_len_ptr);
@@ -4039,6 +4046,7 @@ PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* 
   uintptr_t raw_sample_idx = 0;
 
   uint32_t group_len_m1 = kPglDifflistGroupSize - 1;
+  uintptr_t min_sample_idx = 0;
   for (uint32_t group_idx = 0; ; ++group_idx) {
     if (group_idx >= group_idx_last) {
       if (group_idx > group_idx_last) {
@@ -4052,9 +4060,10 @@ PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* 
     raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
     group_info_iter = &(group_info_iter[sample_id_byte_ct]);
     for (uint32_t raw_deltalist_idx_lowbits = 0; ; ++raw_deltalist_idx_lowbits) {
-      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+      if (unlikely((raw_sample_idx >= raw_sample_ct) || (raw_sample_idx < min_sample_idx) || (GetNyparrEntry(raw_genoarr, raw_sample_idx) != 1))) {
         return kPglRetMalformedInput;
       }
+      min_sample_idx = raw_sample_idx + 1;
       intersect_ct += IsSet(sample_include, raw_sample_idx);
       if (raw_deltalist_idx_lowbits == group_len_m1) {
         break;
@@ -4165,6 +4174,10 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
     // 01-collapsed bitarray
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
     const uint32_t rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
+    if (unlikely(rare01_ct > raw_01_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_01_fset = *fread_pp;
     *fread_pp += fset_byte_ct;
     const unsigned char* patch_01_fvals = *fread_pp;
@@ -4266,6 +4279,10 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
     if (unlikely(reterr)) {
       return reterr;
     }
+    if (unlikely(rare01_ct > raw_01_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_01_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare01_ct) * allele_code_width, 8);
     if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
@@ -4279,7 +4296,7 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
     // Don't need to save deltalist contents in this case.
     uint32_t subsetted_hetx_ct;
     uint32_t rare01_ct;
-    PglErr reterr = CountDeltalistIntersect(fread_end, sample_include, raw_sample_ct, fread_pp, &subsetted_hetx_ct, &rare01_ct);
+    PglErr reterr = CountDeltalistIntersect(fread_end, sample_include, raw_genoarr, raw_sample_ct, fread_pp, &subsetted_hetx_ct, &rare01_ct);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -4296,7 +4313,7 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
   }
   // Save deltalist elements, iterate.
   uint32_t rare01_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 1, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -4433,6 +4450,10 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     // 10-collapsed bitarray
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     const uint32_t rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
+    if (unlikely(rare10_ct > raw_10_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fset = *fread_pp;
     *fread_pp += fset_byte_ct;
     const unsigned char* patch_10_fvals = *fread_pp;
@@ -4578,6 +4599,10 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     if (unlikely(reterr)) {
       return reterr;
     }
+    if (unlikely(rare10_ct > raw_10_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = DivUpU64(S_CAST(uint64_t, rare10_ct) << code10_logwidth, CHAR_BIT);
     if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp)) {
@@ -4588,7 +4613,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
   }
   // Save deltalist elements, iterate.
   uint32_t rare10_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -4904,7 +4929,7 @@ PglErr GenoarrAux1aUpdate(const unsigned char* fread_end, const uintptr_t* __res
   uint32_t rare01_ct;
   // Might hardcode the ParseAndSaveDeltalist logic later, but lets get
   // this working first.
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 1, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -5196,7 +5221,7 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
   }
   // aux1b_mode == 1
   uint32_t rare10_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -5408,7 +5433,7 @@ PglErr GetAux1bHets(const unsigned char* fread_end, const uintptr_t* __restrict 
   }
   // aux1b_mode == 1
   uint32_t rare10_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -5940,7 +5965,7 @@ PglErr GenoarrAux1bUpdate2(const unsigned char* fread_end, const uintptr_t* __re
   }
   // aux1b_mode == 1
   uint32_t rare10_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -6193,7 +6218,9 @@ void PreinitPgv(PgenVariant* pgvp) {
 }
 
 // similar to ParseAndSaveDifflist()
-PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t raw_sample_ct, const unsigned char** fread_pp, uintptr_t* deltalist_include, uint32_t* deltalist_len_ptr) {
+// If raw_genoarr isn't nullptr (multiallelic-hardcall tracks), every entry must
+// be a sample with genotype code geno_code there.
+PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, const uintptr_t* __restrict raw_genoarr, uintptr_t geno_code, uint32_t raw_sample_ct, const unsigned char** fread_pp, uintptr_t* deltalist_include, uint32_t* deltalist_len_ptr) {
   const unsigned char* group_info_iter;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, deltalist_len_ptr);
   const uint32_t deltalist_len = *deltalist_len_ptr;
@@ -6223,7 +6250,7 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
       // always check, otherwise we may scribble over arbitrary memory
       // Also reject repeated indexes: callers pair *deltalist_len_ptr with the
       // number of set bits.
-      if (unlikely((raw_sample_idx >= raw_sample_ct) || IsSet(deltalist_include, raw_sample_idx))) {
+      if (unlikely((raw_sample_idx >= raw_sample_ct) || IsSet(deltalist_include, raw_sample_idx) || (raw_genoarr && (GetNyparrEntry(raw_genoarr, raw_sample_idx) != geno_code)))) {
         return kPglRetMalformedInput;
       }
       SetBit(raw_sample_idx, deltalist_include);
@@ -6362,7 +6389,7 @@ PglErr ExportAux1a(const unsigned char* fread_end, const uintptr_t* __restrict r
     rare01_ct = PopcountBytes(patch_01_fset, fset_byte_ct);
     ExpandBytearrFromGenoarr(patch_01_fset, raw_genoarr, kMask5555, NypCtToWordCt(raw_sample_ct), raw_01_ct, 0, patch_01_set);
   } else {
-    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, fread_pp, patch_01_set, &rare01_ct))) {
+    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_genoarr, 1, raw_sample_ct, fread_pp, patch_01_set, &rare01_ct))) {
       return kPglRetMalformedInput;
     }
   }
@@ -6466,7 +6493,7 @@ PglErr ExportAux1aProperSubset(const unsigned char* fread_end, const uintptr_t* 
   }
   // aux1a_mode == 1
   uint32_t rare01_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 1, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -6583,7 +6610,7 @@ PglErr ExportAux1b(const unsigned char* fread_end, const uintptr_t* __restrict r
     rare10_ct = PopcountBytes(patch_10_fset, fset_byte_ct);
     ExpandBytearrFromGenoarr(patch_10_fset, raw_genoarr, kMaskAAAA, NypCtToWordCt(raw_sample_ct), raw_10_ct, 0, patch_10_set);
   } else {
-    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, fread_pp, patch_10_set, &rare10_ct))) {
+    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, patch_10_set, &rare10_ct))) {
       return kPglRetMalformedInput;
     }
   }
@@ -6706,7 +6733,7 @@ PglErr ExportAux1bProperSubset(const unsigned char* fread_end, const uintptr_t* 
   }
   // aux1b_mode == 1
   uint32_t rare10_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -7381,7 +7408,7 @@ PglErr PgrGetMP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
 
 // ok for sample_include to be nullptr if not subsetting, though this is not
 // required
-PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t vidx, uint32_t allele_ct, PgenReaderMain* pgrp, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main) {
+PglErr ParseDosage16Unchecked(const unsigned char* fread_ptr, const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t vidx, uint32_t allele_ct, PgenReaderMain* pgrp, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main) {
   // Side effect: may use pgrp->workspace_dosage_present and
   // pgrp->workspace_dphase_present
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -7393,7 +7420,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   uint32_t raw_dosage_ct;
   if ((vrtype & 0x60) == 0x20) {
     // case 1: dosage list
-    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
+    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, nullptr, 0, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
       return kPglRetMalformedInput;
     }
     if ((!raw_dosage_ct) && (!dosage_ct_ptr)) {
@@ -7669,6 +7696,28 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   return kPglRetSuccess;
 }
 
+// Dosage values above 32768 turn into dosages above 2 downstream, and negative
+// variances and counts from there; reject them when the caller receives the
+// values.  (dphase_delta ranges aren't checked here, since that requires
+// pairing them with dosages; see DosagesAreInvalid().)  The raw-load case
+// (dosage_ct_ptr == nullptr, --make-pgen) passes values through unchanged.
+PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t vidx, uint32_t allele_ct, PgenReaderMain* pgrp, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main) {
+  PglErr reterr = ParseDosage16Unchecked(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, dphase_present, dphase_delta, dphase_ct_ptr, dosage_present, dosage_main);
+  if (reterr || (!dosage_ct_ptr)) {
+    return reterr;
+  }
+  const uint32_t dosage_ct = *dosage_ct_ptr;
+  uint32_t max_dosage = 0;
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uint32_t cur_dosage = dosage_main[dosage_idx];
+    max_dosage = (cur_dosage > max_dosage)? cur_dosage : max_dosage;
+  }
+  if (unlikely(max_dosage > 32768)) {
+    return kPglRetMalformedInput;
+  }
+  return kPglRetSuccess;
+}
+
 PglErr IMPLPgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
@@ -7869,6 +7918,10 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   if ((allele_ct == 2) || (!allele_idx)) {
     uint32_t dosage_ct;
     PglErr reterr = IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_countvec, dosage_present, dosage_main, &dosage_ct);
+    if (unlikely(reterr)) {
+      // dosage_ct may not have been set
+      return reterr;
+    }
     if (!allele_idx) {
       GenovecInvertUnsafe(sample_ct, allele_countvec);
       if (dosage_ct) {
@@ -7897,6 +7950,10 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIn
   if ((allele_ct == 2) || (!allele_idx)) {
     uint32_t dosage_ct;
     PglErr reterr = IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_invcountvec, dosage_present, dosage_main, &dosage_ct);
+    if (unlikely(reterr)) {
+      // dosage_ct may not have been set
+      return reterr;
+    }
     if (allele_idx) {
       GenovecInvertUnsafe(sample_ct, allele_invcountvec);
       if (dosage_ct) {
@@ -7940,6 +7997,10 @@ PglErr GetAux1bHetIncr(const unsigned char* fread_end, uint32_t aux1b_mode, uint
     if (unlikely(reterr)) {
       return reterr;
     }
+  }
+  if (unlikely(rare10_ct > raw_10_ct)) {
+    // more rare entries than genotypes they can apply to
+    return kPglRetMalformedInput;
   }
   uintptr_t detect_hom_mask_lo;
   const uint32_t allele_code_logwidth = GetAux1bConsts(allele_ct, &detect_hom_mask_lo);
@@ -8193,7 +8254,8 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
         const uint32_t aux1_first_byte = *fread_ptr++;
         const uint32_t aux1a_mode = aux1_first_byte & 15;
         const uint32_t aux1b_mode = aux1_first_byte >> 4;
-        uint32_t raw_10_ct = 0;
+        // accurate unless subsetting, in which case it's recomputed below
+        uint32_t raw_10_ct = genocounts[2];
         if ((!aux1a_mode) || (!aux1b_mode) || subsetting_required) {
           GenovecCount12Unsafe(raw_genovec, raw_sample_ct, &raw_het_ct, &raw_10_ct);
         }
@@ -8302,7 +8364,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
       uint32_t raw_dosage_ct;
       if (!(vrtype & 0x40)) {
         // dosage list
-        if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
+        if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, nullptr, 0, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
           return kPglRetMalformedInput;
         }
       } else {
@@ -8410,7 +8472,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     raw_dosage_present = pgrp->workspace_dosage_present;
     if (!(vrtype & 0x40)) {
       // dosage list
-      if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
+      if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, nullptr, 0, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
         return kPglRetMalformedInput;
       }
     } else {
@@ -8768,6 +8830,10 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
         return reterr;
       }
     }
+    if (unlikely(rare01_ct > raw_01_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_01_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = GetAux1aAlleleEntryByteCt(allele_ct, rare01_ct);
     if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1aFvalsAreInvalid(patch_01_fvals, allele_ct, rare01_ct)) {
@@ -8785,6 +8851,10 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
     }
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
     const uint32_t rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
+    if (unlikely(rare01_ct > raw_01_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_01_fset = *fread_pp;
     *fread_pp += fset_byte_ct;
     const unsigned char* patch_01_fvals = *fread_pp;
@@ -8867,7 +8937,7 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
     // Use CountDeltalistIntersect shortcut here.
     uint32_t subsetted_02_ct;
     uint32_t rare01_ct;
-    PglErr reterr = CountDeltalistIntersect(fread_end, sample_include, raw_sample_ct, fread_pp, &subsetted_02_ct, &rare01_ct);
+    PglErr reterr = CountDeltalistIntersect(fread_end, sample_include, raw_genoarr, raw_sample_ct, fread_pp, &subsetted_02_ct, &rare01_ct);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -8877,7 +8947,7 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
   }
   // Save deltalist elements, iterate.
   uint32_t rare01_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 1, raw_sample_ct, fread_pp, deltalist_workspace, &rare01_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -8999,6 +9069,10 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
         return reterr;
       }
     }
+    if (unlikely(rare10_ct > raw_10_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fvals = *fread_pp;
     const uint32_t fvals_byte_ct = GetAux1bAlleleEntryByteCt(allele_ct, rare10_ct);
     if (PtrAddCk(fread_end, fvals_byte_ct, fread_pp) || Aux1bFvalsAreInvalid(patch_10_fvals, allele_ct, rare10_ct)) {
@@ -9021,6 +9095,10 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
     }
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     const uint32_t rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
+    if (unlikely(rare10_ct > raw_10_ct)) {
+      // more rare entries than genotypes they can apply to
+      return kPglRetMalformedInput;
+    }
     const unsigned char* patch_10_fset = *fread_pp;
     *fread_pp += fset_byte_ct;
     const unsigned char* patch_10_fvals = *fread_pp;
@@ -9124,7 +9202,7 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
   }
   // Save deltalist elements, iterate.
   uint32_t rare10_ct;
-  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -9234,7 +9312,8 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
     const uint32_t aux1_first_byte = *fread_ptr++;
     const uint32_t aux1a_mode = aux1_first_byte & 15;
     const uint32_t aux1b_mode = aux1_first_byte >> 4;
-    uint32_t raw_10_ct = 0;
+    // accurate unless subsetting, in which case it's recomputed below
+    uint32_t raw_10_ct = genocounts[2];
     if ((!aux1a_mode) || (!aux1b_mode) || sample_include) {
       GenovecCount12Unsafe(raw_genovec, raw_sample_ct, &raw_het_ct, &raw_10_ct);
     }
@@ -9409,6 +9488,10 @@ PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, PgrSampleSubsetI
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if ((allele_ct == 2) || (!allele_idx)) {
     PglErr reterr = IMPLPgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp);
+    if (unlikely(reterr)) {
+      // the counts in pgvp may not have been set
+      return reterr;
+    }
     if (allele_idx) {
       GenovecInvertUnsafe(sample_ct, pgvp->genovec);
       if (pgvp->phasepresent_ct) {
@@ -9889,7 +9972,7 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
   if ((vrtype & 0x60) == 0x20) {
     // dosage list
     uint32_t dummy;
-    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, &fread_ptr, dosage_present, &dummy))) {
+    if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, nullptr, 0, raw_sample_ct, &fread_ptr, dosage_present, &dummy))) {
       return kPglRetMalformedInput;
     }
   } else {
