@@ -142,6 +142,13 @@ extern "C" {
 #    ifdef USE_OPENBLAS
 #      define USE_MTBLAS
 #      define BLAS_SET_NUM_THREADS openblas_set_num_threads
+#    elif defined(USE_CBLAS_LAPACKE)
+// Non-PIE executables fix unresolved weak symbols to null at link time, which
+// would silently disable BlasSetNumThreads().
+#      if defined(__linux__) && !defined(__PIE__)
+#        error "USE_CBLAS_LAPACKE requires a PIE build (-fPIE -pie) on Linux."
+#      endif
+#      define BLAS_SET_NUM_THREADS BlasSetNumThreads
 #    else
 #      define BLAS_SET_NUM_THREADS(num)
 #    endif
@@ -185,6 +192,13 @@ namespace plink2 {
 #endif
 
 static const double kMatrixSingularRcond = 1e-14;
+
+#if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+// Calls openblas_set_num_threads(), MKL_Set_Num_Threads() or
+// bli_thread_set_num_threads(), whichever the loaded BLAS provides; no-op
+// otherwise.
+void BlasSetNumThreads(int32_t num_threads);
+#endif
 
 // Returns -1 if no inf/nan found.
 // May move this to a more central location if there are other users.

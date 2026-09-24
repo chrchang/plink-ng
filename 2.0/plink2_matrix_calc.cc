@@ -5536,7 +5536,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   PreinitThreads(&tg);
   {
     assert(variant_ct);
-#if defined(__APPLE__) || defined(USE_MTBLAS)
+#if defined(USE_ACCELERATE) || defined(USE_MTBLAS)
     uint32_t calc_thread_ct = 1;
 #else
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;

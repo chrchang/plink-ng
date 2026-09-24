@@ -22,6 +22,15 @@
 
 #include "include/plink2_float.h"
 
+#if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+// Weak, so each is null unless the BLAS loaded at run time defines it.
+extern "C" {
+void openblas_set_num_threads(int num_threads) __attribute__((weak));
+void MKL_Set_Num_Threads(int nth) __attribute__((weak));
+void bli_thread_set_num_threads(int64_t n_threads) __attribute__((weak));
+}
+#endif
+
 #ifndef NOLAPACK
 #  if defined(USE_ACCELERATE) || defined(USE_MKL)
 #    define LAPACK_dgecon dgecon_
@@ -40,6 +49,18 @@
 
 #ifdef __cplusplus
 namespace plink2 {
+#endif
+
+#if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+void BlasSetNumThreads(int32_t num_threads) {
+  if (openblas_set_num_threads) {
+    openblas_set_num_threads(num_threads);
+  } else if (MKL_Set_Num_Threads) {
+    MKL_Set_Num_Threads(num_threads);
+  } else if (bli_thread_set_num_threads) {
+    bli_thread_set_num_threads(num_threads);
+  }
+}
 #endif
 
 intptr_t FirstInfOrNan(const double* vec, uintptr_t size) {
