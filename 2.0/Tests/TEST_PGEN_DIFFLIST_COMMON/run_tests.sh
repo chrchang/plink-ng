@@ -1,18 +1,16 @@
 #!/bin/bash
 
-# A sparse (difflist) genotype record whose list contains a sample in the
-# record's common genotype category must be read like the same data stored
-# normally.
+# --validate must reject a sparse (difflist) genotype record whose list
+# contains a sample in the record's common genotype category.
 #
-# The .pgen spec describes these lists as covering samples outside the common
-# category, but --validate accepts such an entry, and a full decode just
-# writes the common value back.  PgrGetDifflistOrGenovec() handed it to its
-# sparse callers as-is, and SampleCountsThread() indexes its count arrays with
-# (entry ^ common) - 1: --sample-counts segfaulted.
+# The .pgen spec requires every difflist entry to change its sample's
+# category.  --validate used to accept this entry, and sparse readers such as
+# SampleCountsThread(), which index arrays with (entry ^ common) - 1, then
+# segfaulted on a file that had passed it.
 
 set -exo pipefail
 
-# 400 samples, so that the reader returns the rare variant in sparse form.
+# 400 samples, so that the rare variant is stored as a difflist.
 python3 -c "
 n = 400
 print('##fileformat=VCFv4.3')
@@ -23,6 +21,7 @@ print('1\t10\tv10\tA\tC\t.\t.\t.\tGT\t' + '\t'.join('0/1' if i in (5, 300) else 
 print('1\t20\tv20\tA\tC\t.\t.\t.\tGT\t' + '\t'.join(['0/1', '1/1', '0/0', '0/0'][i % 4] for i in range(n)))
 " > tmp_data.vcf
 $1/plink2 $2 $3 --vcf tmp_data.vcf --make-pgen --out tmp_data
+$1/plink2 $2 $3 --pfile tmp_data --validate --out plink2_val_ok
 
 # v10 is stored as a difflist (record type 4, common genotype hom-ref): a
 # 1-byte length (2), s5's 2-byte sample index, then one byte of 2-bit
@@ -39,14 +38,8 @@ open('tmp_common.pgen', 'wb').write(bytes(d))
 "
 cp tmp_data.pvar tmp_common.pvar
 cp tmp_data.psam tmp_common.psam
-$1/plink2 $2 $3 --pfile tmp_common --validate --out plink2_val
-
-# Reference: the same genotypes written normally.
-$1/plink2 $2 $3 --pfile tmp_common --make-pgen --out tmp_redo
-printf 's5\ns6\ns300\ns301\n' > tmp_keep.txt
-for x in common redo; do
-    $1/plink2 $2 $3 --pfile tmp_$x --sample-counts --out plink2_$x
-    $1/plink2 $2 $3 --pfile tmp_$x --keep tmp_keep.txt --sample-counts --out plink2_keep_$x
-done
-diff plink2_common.scount plink2_redo.scount
-diff plink2_keep_common.scount plink2_keep_redo.scount
+if $1/plink2 $2 $3 --pfile tmp_common --validate --out plink2_val_common; then
+    echo "--validate accepted a difflist entry equal to the common genotype"
+    exit 1
+fi
+grep -q "Invalid genotype difflist for (0-based) variant #0" plink2_val_common.log

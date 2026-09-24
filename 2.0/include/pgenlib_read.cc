@@ -3146,46 +3146,6 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
   return kPglRetSuccess;
 }
 
-// The .pgen spec describes these difflists as covering samples outside the
-// common genotype, but --validate accepts an entry equal to it, and a full
-// decode just writes the common value back.  Sparse callers such as
-// SampleCountsThread() index arrays with (entry ^ common) - 1, so drop such
-// entries before returning the difflist.  The scan is one pass over the
-// packed genotypes; the compaction only runs when there is something to drop.
-static void DropCommonGenoFromDifflist(uintptr_t common_geno, uintptr_t* __restrict raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
-  const uint32_t difflist_len = *difflist_len_ptr;
-  if (!difflist_len) {
-    return;
-  }
-  const uintptr_t common_word = common_geno * kMask5555;
-  const uint32_t word_ct_m1 = (difflist_len - 1) / kBitsPerWordD2;
-  for (uint32_t widx = 0; ; ++widx) {
-    const uintptr_t xor_word = raregeno[widx] ^ common_word;
-    uintptr_t match_nyps = (~(xor_word | (xor_word >> 1))) & kMask5555;
-    if (widx == word_ct_m1) {
-      // trailing entries of the last word aren't guaranteed to be zero
-      match_nyps = bzhi_max(match_nyps, 2 * ModNz(difflist_len, kBitsPerWordD2));
-      if (!match_nyps) {
-        return;
-      }
-      break;
-    }
-    if (match_nyps) {
-      break;
-    }
-  }
-  uint32_t write_idx = 0;
-  for (uint32_t read_idx = 0; read_idx != difflist_len; ++read_idx) {
-    const uintptr_t cur_geno = GetNyparrEntry(raregeno, read_idx);
-    if (cur_geno != common_geno) {
-      AssignNyparrEntry(write_idx, cur_geno, raregeno);
-      difflist_sample_ids[write_idx] = difflist_sample_ids[read_idx];
-      ++write_idx;
-    }
-  }
-  *difflist_len_ptr = write_idx;
-}
-
 PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   assert(sample_ct);
@@ -3308,7 +3268,6 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   if (unlikely(reterr)) {
     return kPglRetMalformedInput;
   }
-  DropCommonGenoFromDifflist(vrtype & 3, main_raregeno, difflist_sample_ids, difflist_len_ptr);
   if (is_ldbase) {
     const uint32_t difflist_len = *difflist_len_ptr;
     pgrp->ldbase_stypes = kfPgrLdcacheDifflist;
@@ -9798,6 +9757,10 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
   // Side effects: uses pgr.workspace_raregeno_tmp_loadbuf.
   // Similar to ParseAndApplyDifflist(), but with exhaustive input
   // validation.
+  // genoarr must be initialized to the values the difflist patches (common
+  // genotype, 1-bit decode, or LD base); an entry that doesn't change its
+  // sample's value is an error.  Sparse readers such as SampleCountsThread()
+  // assume no difflist entry equals the common genotype.
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   uintptr_t* cur_raregeno_iter = pgrp->workspace_raregeno_tmp_loadbuf;
   const unsigned char* group_info_iter;
@@ -9881,6 +9844,9 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
         return 1;
       }
       const uintptr_t cur_geno = cur_raregeno_word & 3;
+      if (unlikely(GetNyparrEntry(genoarr, sample_idx) == cur_geno)) {
+        return 1;
+      }
       AssignNyparrEntry(sample_idx, cur_geno, genoarr);
       if (!remaining_deltas_in_subgroup) {
         break;
