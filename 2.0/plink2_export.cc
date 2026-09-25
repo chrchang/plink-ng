@@ -5424,7 +5424,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     }
                   } else if (cur_geno == 1) {
                     const AlleleCode ac = *patch_01_vals_iter++;
-                    write_iter = AppendVcfMultiallelicDsForce01(allele_ct_m2, ds_only, ds_force, ac, 0, write_iter);
+                    write_iter = AppendVcfMultiallelicDsForce01(allele_ct_m2, ds_only, hds_force, ac, 0, write_iter);
                   } else {
                     const AlleleCode ac0 = *patch_10_vals_iter++;
                     const AlleleCode ac1 = *patch_10_vals_iter++;
