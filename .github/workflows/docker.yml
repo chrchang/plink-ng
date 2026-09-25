@@ -1,8 +1,9 @@
 name: Docker images
 
-# Publishes ghcr.io/<owner>/plink2 for v2.0.0-* releases and
-# ghcr.io/<owner>/plink1 for v1.9.0-* releases, for linux/amd64 and
-# linux/arm64 (each built on a native runner, then merged into one manifest).
+# Publishes ghcr.io/<owner>/plink2 for v2.* releases (v2.0.0-a.7.8, ...) and
+# ghcr.io/<owner>/plink1 for v1.9.* releases (v1.9.0-rc3, v1.9.0, v1.9.1, ...),
+# for linux/amd64 and linux/arm64 (each built on a native runner, then merged
+# into one manifest).
 #
 # Image tags: the release version (e.g. 2.0.0-a.7.8), plus "latest" when the
 # release is the newest of its line (for plink2, GitHub's "Latest" release, so
@@ -58,8 +59,8 @@ jobs:
             exit 0
           fi
           case "$TAG" in
-            v2.0.0-*) target=plink2 ;;
-            v1.9.0-*|v1.9.0) target=plink1 ;;
+            v2.*) target=plink2 ;;
+            v1.9.*) target=plink1 ;;
             *) echo "::error::Unrecognized release tag '$TAG'"; exit 1 ;;
           esac
           latest=false
