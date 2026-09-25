@@ -213,6 +213,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_BCF_MALFORMED
+./run_tests.sh $d $2 $3 > TEST_BCF_MALFORMED.log
+cd ..
+echo "TEST_BCF_MALFORMED passed."
+
 cd TEST_VCF_MULTIALLELIC_DS_FIELDS
 ./run_tests.sh $d $2 $3 > TEST_VCF_MULTIALLELIC_DS_FIELDS.log
 cd ..
