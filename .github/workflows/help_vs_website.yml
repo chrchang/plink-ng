@@ -1,0 +1,24 @@
+name: plink2 help vs website
+
+# Compares the flag names indexed by 2.0/plink2_help.cc with the flag search
+# on cog-genomics.org/plink/2.0/.  Manual trigger only: differences are
+# expected whenever the posted binaries lag the repository head, so this is a
+# report to read, not a gate.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Compare plink2_help.cc index with the website flag search
+        run: |
+          status=0
+          python3 .github/scripts/check_help_coverage.py --compare-website > report.txt || status=$?
+          cat report.txt
+          { echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
