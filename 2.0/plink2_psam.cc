@@ -524,7 +524,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
             dxx = missing_phenod;
           } else {
             if (unlikely(!IsSet(categorical_phenos, pheno_idx))) {
-              assert(psam_info_reverse_ll->next);
+              if (unlikely(!psam_info_reverse_ll->next)) {
+                // First line, so the entry was classified as numeric; it
+                // looks like a number but is out of range (e.g. 1e400).
+                *K_CAST(char*, &(cur_phenostr[slen])) = '\0';
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, psamname);
+                goto LoadPsam_ret_MALFORMED_INPUT_WW;
+              }
               const uint32_t is_second_relevant_line = !(psam_info_reverse_ll->next->next);
               logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &((*pheno_names_ptr)[pheno_idx * max_pheno_name_blen]), line_idx, psamname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
               goto LoadPsam_ret_INCOMPATIBLE_PHENOSTRS;
@@ -1317,7 +1323,14 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             dxx = missing_phenod;
           } else {
             if (unlikely(!IsSet(categorical_phenos, new_pheno_idx))) {
-              assert(pheno_info_reverse_ll);
+              if (unlikely(!pheno_info_reverse_ll)) {
+                // First relevant line, so the entry was classified as
+                // numeric; it looks like a number but is out of range (e.g.
+                // 1e400).
+                *K_CAST(char*, &(cur_phenostr[slen])) = '\0';
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
+                goto LoadPhenos_ret_MALFORMED_INPUT_WW;
+              }
               const uint32_t is_second_relevant_line = !(pheno_info_reverse_ll->next);
               logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &(pheno_names[(old_pheno_ct + new_pheno_idx) * max_pheno_name_blen]), line_idx, pheno_fname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
               goto LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS;
