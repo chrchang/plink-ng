@@ -1,3 +1,6 @@
+[![Homebrew plink1](https://img.shields.io/homebrew/v/plink1?label=brew%20plink1)](https://formulae.brew.sh/formula/plink1)
+[![Homebrew plink-ng](https://img.shields.io/homebrew/v/plink-ng?label=brew%20plink-ng)](https://formulae.brew.sh/formula/plink-ng)
+
 What this updates: https://zzz.bwh.harvard.edu/plink/
 
 Main methods paper: https://academic.oup.com/gigascience/article/4/1/s13742-015-0047-8/2707533
