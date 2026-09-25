@@ -6552,6 +6552,11 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
   return kPglRetSuccess;
 }
 
+#endif  // !NOLAPACK
+
+// --neighbour needs no LAPACK (it also runs on a --read-eigvec file), so it
+// lives outside the NOLAPACK block.
+//
 // --neighbour implements the outlier statistic from section 3.4 of Prive et
 // al. (2020), "Efficient toolkit implementing best practices for principal
 // component analysis of population genetic data": a simplified local outlier
@@ -7145,6 +7150,7 @@ PglErr NeighbourFromEigvecFile(const uintptr_t* sample_include, const SampleIdIn
   return reterr;
 }
 
+#ifndef NOLAPACK
 PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -8169,7 +8175,10 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   dosage_incr_lookup_table[2] = dosage_incr_lookup_table[1] + geno_incr;
                   dosage_incr_lookup_table[3] = 0.0;
                   if (!no_meanimpute) {
-                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope;
+                    // bugfix (22 Sep 2026): mean-imputed genotypes need
+                    // geno_intercept too, or 'center' and
+                    // 'variance-standardize' leave them uncentered.
+                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope + geno_intercept;
                   }
                   if (se_mode) {
                     for (uint32_t uii = 0; uii != 4; ++uii) {
@@ -8322,7 +8331,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (!domrec) {
               missing_effect *= 2;
             }
-            lookup_table[6] = missing_effect;
+            lookup_table[6] = missing_effect + geno_intercept;
           }
           if (se_mode) {
             lookup_table[0] *= lookup_table[0];
@@ -8350,7 +8359,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                   do {
                     const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonfemale_bits);
-                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                     cur_missing_nonfemale_bits &= cur_missing_nonfemale_bits - 1;
                   } while (cur_missing_nonfemale_bits);
                 }
@@ -8367,7 +8376,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_male_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                       cur_missing_male_bits &= cur_missing_male_bits - 1;
                     } while (cur_missing_male_bits);
                   }
@@ -8382,7 +8391,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonmale_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                       cur_missing_nonmale_bits &= cur_missing_nonmale_bits - 1;
                     } while (cur_missing_nonmale_bits);
                   }
@@ -8391,6 +8400,9 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             } else {
               const double ploidy_d = ploidy_m1s[vidx]? 2.0 : 1.0;
               missing_effect *= ploidy_d;
+              if (!no_meanimpute) {
+                missing_effect += geno_intercept;
+              }
               uintptr_t shard_sample_idx_base = 0;
               uintptr_t missing_bits = missing_bitvec_iter[0];
               for (uint32_t missing_idx = 0; missing_idx != shard_missing_ct; ++missing_idx) {
@@ -8567,8 +8579,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         const uint32_t name_slen = range_name_end - line_start;
-        if (name_slen > max_name_slen) {
+        if (unlikely(name_slen > max_name_slen)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Name too long on line %" PRIuPTR " of --q-score-range range file.\n", line_idx);
+          goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         unsigned char* tmp_alloc_base = R_CAST(unsigned char*, &(parsed_qscore_ranges[qsr_ct]));
         if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= name_slen + sizeof(ParsedQscoreRange)) {
