@@ -7018,6 +7018,32 @@ int main(int argc, char** argv) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export vcf-dosage= argument '%s'.\n", vcf_dosage_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
+            } else if (StrStartsWith(cur_modif, "vcf-info=", cur_modif_slen)) {
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf)))) {
+                logerrputs("Error: The 'vcf-info' modifier only applies to --export's vcf and bcf output\nformats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(pc.exportf_info.flags & kfExportfVcfInfoAcAn)) {
+                logerrputs("Error: Multiple --export vcf-info= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* vcf_info_iter = &(cur_modif[strlen("vcf-info=")]);
+              while (1) {
+                const char* key_end = Strchrnul(vcf_info_iter, ',');
+                const uint32_t key_slen = key_end - vcf_info_iter;
+                if (strequal_k(vcf_info_iter, "AC", key_slen)) {
+                  pc.exportf_info.flags |= kfExportfVcfInfoAc;
+                } else if (likely(strequal_k(vcf_info_iter, "AN", key_slen))) {
+                  pc.exportf_info.flags |= kfExportfVcfInfoAn;
+                } else {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export vcf-info= argument '%s'.  (Only AC and AN are currently supported.)\n", &(cur_modif[strlen("vcf-info=")]));
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
+                if (!(*key_end)) {
+                  break;
+                }
+                vcf_info_iter = &(key_end[1]);
+              }
             } else if (StrStartsWith(cur_modif, "bits=", cur_modif_slen)) {
               if (unlikely(!(pc.exportf_info.flags & (kfExportfBgen12 | kfExportfBgen13)))) {
                 logerrputs("Error: The 'bits' modifier only applies to --export's bgen-1.2 and bgen-1.3\noutput formats.\n");
@@ -7118,6 +7144,10 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export argument '%s'.%s\n", cur_modif, ((param_idx == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (unlikely((pc.exportf_info.flags & kfExportfVcfInfoAcAn) && (pc.exportf_info.vcf_mode == kVcfExportDsOnly))) {
+            logerrputs("Error: --export vcf-info= cannot be used with vcf-dosage=DS-only, since INFO/AC\nand INFO/AN describe the GT field.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (pc.exportf_info.idpaste_flags || pc.exportf_info.id_delim) {
             if (unlikely(!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2 | kfExportfPhylip | kfExportfPhylipPhased | kfExportfEig | kfExportfEigt)))) {
