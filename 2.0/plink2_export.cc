@@ -7950,6 +7950,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uintptr_t* prev_phased = nullptr;
     pgv.phasepresent = nullptr;
     pgv.phaseinfo = nullptr;
+    pgv.phasepresent_ct = 0;
     if (some_phased) {
       if (unlikely(bigstack_alloc_w(sample_ctl, &prev_phased) ||
                    bigstack_alloc_w(sample_ctl, &(pgv.phasepresent)) ||
@@ -7957,6 +7958,13 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         goto ExportBcf_ret_NOMEM;
       }
       SetAllBits(sample_ct, prev_phased);
+    } else if (hds_force && allele_idx_offsets) {
+      // FillBcfMultiallelicHdsForce() reads phasepresent and phaseinfo; leave
+      // them all-zero for the unphased multiallelic case.
+      if (unlikely(bigstack_calloc_w(sample_ctl, &(pgv.phasepresent)) ||
+                   bigstack_calloc_w(sample_ctl, &(pgv.phaseinfo)))) {
+        goto ExportBcf_ret_NOMEM;
+      }
     }
 
     pgv.dosage_present = nullptr;

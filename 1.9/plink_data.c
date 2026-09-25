@@ -12329,7 +12329,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   } else if (recode_modifier & (RECODE_LIST | RECODE_RLIST)) {
     // --list:
-    // 3 for chromosome and delim
+    // max chromosome name length, + 1 for delim
     // + max_marker_id_len
     // + 3, or (2 * max_marker_allele_len - 1)
     // + sample_ct * max_sample_id_len + 1
@@ -12346,6 +12346,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
     if (rlist) {
       ulii += 2;
+    } else {
+      ulii += get_max_chrom_slen(chrom_info_ptr) - 2;
     }
     if (bigstack_alloc_c(ulii * 4, &writebuf)) {
       goto recode_ret_NOMEM;
@@ -13251,6 +13253,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     fputs("0%", stdout);
     fflush(stdout);
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
+    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+      goto recode_ret_READ_FAIL;
+    }
     retval = recode_beagle_new_chrom(outname, &(outname_end[5]), marker_exclude, chrom_info_ptr, &marker_uidx, &chrom_fo_idx, &chrom_idx, &chrom_end, bedfile, bed_offset, unfiltered_sample_ct4, &outfile, beagle_nomap? nullptr : (&outfile2), writebuf2, header_len);
     if (retval) {
       goto recode_ret_1;
@@ -13676,7 +13681,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_OPEN_FAIL;
     }
     if (delimiter == ' ') {
-      sample_delim_convert(unfiltered_sample_ct, sample_exclude, sample_ct, max_sample_id_len, '\t', ' ', sample_ids);
+      // sample_ids_collapsed is a private copy when the delimiter isn't a tab
+      if (bigstack_calloc_ul(sample_ctv2 / 2, &ulptr)) {
+	goto recode_ret_NOMEM;
+      }
+      sample_delim_convert(sample_ct, ulptr, sample_ct, max_sample_id_len, '\t', ' ', sample_ids_collapsed);
     } else {
       if (!(recode_modifier & RECODE_DELIMX)) {
 	delim2 = ' ';
@@ -13717,7 +13726,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	wbufptr = &(marker_ids[marker_uidx * max_marker_id_len]);
 	cptr = strcpya(&(writebuf[1]), wbufptr);
-	cptr = memseta(cptr, delimiter, 2);
+	*cptr++ = delimiter;
 	ulii = (uintptr_t)(cptr - writebuf);
 	alen = 2 * max_marker_allele_len + ulii;
 	cur_mk_allelesx[0] = cptr;
@@ -13788,7 +13797,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	fflush(stdout);
       }
     }
-    sample_delim_convert(unfiltered_sample_ct, sample_exclude, sample_ct, max_sample_id_len, ' ', '\t', sample_ids);
   } else if (recode_modifier & (RECODE_A | RECODE_AD)) {
     memcpy(outname_end, ".raw", 5);
     if (bigstack_left() < ((uint64_t)unfiltered_sample_ct4) * marker_ct) {
