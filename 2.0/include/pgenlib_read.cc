@@ -3152,7 +3152,7 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   // Side effects:
   //   may use pgr.workspace_raregeno_tmp_loadbuf
   // Trailing bits of genovec/main_raregeno may not be zeroed out.
-  // Always sets difflist_common_geno; may not set difflist_len.
+  // Always sets difflist_common_geno; not guaranteed to set difflist_len.
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t maintrack_vrtype = vrtype & 7;
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
