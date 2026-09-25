@@ -174,7 +174,7 @@ PglErr PvarInfoReloadHeader(TextStream* pvar_reload_txsp, char** line_iterp, uin
     if (unlikely(reterr)) {
       return reterr;
     }
-  } while (!StrStartsWithUnsafe(line_iter, "#CHROM"));
+  } while (!tokequal_k(line_iter, "#CHROM"));
   uint32_t info_col_idx = 0;
   do {
     line_iter = NextToken(line_iter);
@@ -8157,6 +8157,13 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                   for (uint32_t aidx = cur_read_allele_ct - 1; aidx; --aidx) {
                     alt_invphase_one_sample_idx_starts[aidx] = alt_invphase_one_sample_idx_starts[aidx - 1];
                   }
+                  // bugfix: within each word, 0/x hets were appended before
+                  // y/x hets, so the alt2+ lists may be out of sample order;
+                  // the hphase-writing loop below requires sorted lists.
+                  for (uint32_t aidx = 2; aidx != cur_read_allele_ct; ++aidx) {
+                    uint32_t* regular_start = alt_regular_one_sample_idx_starts[aidx];
+                    STD_SORT(alt_regular_one_sample_idx_starts[aidx + 1] - regular_start, u32cmp, regular_start);
+                  }
                 }
                 // todo: multiallelic dosage
 
@@ -8276,8 +8283,10 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                     loadbuf_iter[0] = new_het_ct;
                     loadbuf_iter[1] = new_phasepresent_ct;
 #endif
-                    shifted_part1[0] = 1;
+                    // bugfix: the explicit-phasepresent flag was previously
+                    // set before this memset, so it was always cleared.
                     memset(shifted_part1, 0, (1 + het_ctdl) * sizeof(intptr_t));
+                    shifted_part1[0] = 1;
                     // shifted_part1 is phasepresent
                     // part1_end is start of phaseinfo
                     const uint32_t new_phasepresent_ctl = BitCtToWordCt(new_phasepresent_ct);
@@ -8302,6 +8311,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                       ++shifted_het_idx;
                     }
                     assert(phasepresent_idx == new_phasepresent_ct);
+                    // bugfix: skip past phasepresent and phaseinfo, so the
+                    // next variant doesn't overwrite them.
+                    loadbuf_iter = &(part1_end[new_phasepresent_ctl]);
                   }
                   assert(regular_idx == UINT32_MAX);
                   *regular_stop = orig_regular_end;

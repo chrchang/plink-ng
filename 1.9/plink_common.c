@@ -9699,6 +9699,7 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
       }
     }
     marker_idx = marker_idx_chrom_end;
+    marker_uidx = chrom_end;
     chrom_fo_idx++;
   }
 }
