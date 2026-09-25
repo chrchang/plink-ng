@@ -44,9 +44,12 @@ brew install plink1    # PLINK 1.9, installs `plink`
 brew install plink-ng  # PLINK 2.0, installs `plink2` and `pgen_compress`
 ```
 
-Homebrew tracks tagged releases. The documentation pages above have the latest
-builds for Linux, macOS and Windows. Bioconda also packages both (`plink`,
-`plink2`), but can lag further behind.
+Bioconda packages both as well (`conda install -c conda-forge -c bioconda plink plink2`), and
+BioContainers builds Docker/Singularity images from those packages
+(`quay.io/biocontainers/plink2`, `quay.io/biocontainers/plink`).
+
+Homebrew and Bioconda track tagged releases. The documentation pages above have
+the latest builds for Linux, macOS and Windows.
 
 ## Building from source
 
