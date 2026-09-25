@@ -466,6 +466,14 @@ used on the resulting packed array.
   for samples outside category 3.
 \end{itemize}
 
+In variant record types 1--4, 6, and 7, every difflist entry must change its
+sample's category: an entry for a sample in category 0 (resp. 2, 3) is not
+permitted in a type 4 (resp. 6, 7) record, an entry in a type 1 record must
+name one of the two less common categories, and an entry in an LD-compressed
+record must differ from the sample's category in the previous
+non-LD-compressed variant (before the final inversion, for type 3).  Readers
+may assume this without checking.
+
 \subsubsection{Multiallelic hard-calls}
 
 When bit 3 of the variant record type is set, multiallelic hard-call(s) are

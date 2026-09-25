@@ -218,4 +218,14 @@ cd TEST_BGEN_REF_FIRST_PHASE
 cd ..
 echo "TEST_BGEN_REF_FIRST_PHASE passed."
 
+cd TEST_SPLIT_PHASED
+./run_tests.sh $d $2 $3 > TEST_SPLIT_PHASED.log
+cd ..
+echo "TEST_SPLIT_PHASED passed."
+
+cd TEST_PGEN_DIFFLIST_COMMON
+./run_tests.sh $d $2 $3 > TEST_PGEN_DIFFLIST_COMMON.log
+cd ..
+echo "TEST_PGEN_DIFFLIST_COMMON passed."
+
 echo "All tests passed."
