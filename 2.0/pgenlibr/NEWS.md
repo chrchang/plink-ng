@@ -1,3 +1,9 @@
+# pgenlibr (development version)
+Basic .pgen writer added: NewPgenWriter(), AppendBiallelic(), AppendAlleles(),
+AppendDosages(), GetWrittenVariantCt(), and ClosePgenWriter().  Only the .pgen
+is written; the companion .pvar and .psam files must be written separately
+(https://github.com/chrchang/plink-ng/issues/194 ).
+
 # pgenlibr 0.6.2 (2026-06-05)
 Fixed .pvar loading bug that could occur when a variant had a single-character
 ID and a multi-character REF allele
