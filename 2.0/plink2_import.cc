@@ -12574,6 +12574,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         if (!prov_ref_allele_second) {
           GenovecInvertUnsafe(sample_ct, genovec);
           ZeroTrailingNyps(sample_ct, genovec);
+          if (cur_phasepresent_exists) {
+            // bugfix: 0|1 and 1|0 swap along with the allele codes
+            BitvecXor(phasepresent, sample_ctl, phaseinfo);
+          }
           if (dosage_ct) {
             BiallelicDosage16Invert(dosage_ct, dosage_main);
             // currently no code path here where dosage_ct < dphase_ct
