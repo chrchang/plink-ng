@@ -417,7 +417,7 @@ void fill_subset_weights(double* subset_weights, double* main_weights) {
 #endif
 }
 
-void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, double* main_weights, uint32_t var_std) {
+void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, double* main_weights, uint32_t* infinite_variance_present_ptr, uint32_t var_std) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -488,6 +488,7 @@ void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, dou
 	wtarr[uii * 8 + 6] = mean * mean * mult;
       }
     } else {
+      *infinite_variance_present_ptr = 1;
       if (set_allele_freqs[uii] == 0.0) {
         wtarr[uii * 8] = 0;
         wtarr[uii * 8 + 1] = 0;
@@ -3827,6 +3828,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  fflush(stdout);
 	} while (g_pct <= 100);
 	distance_print_done(1, outname, outname_end);
+	g_pct = 1;
       }
       if (write_1mibs_matrix) {
 	dist_ptr = dists;
@@ -3902,15 +3904,16 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
+	  // IBS of a sample with itself is 1, in square0 as in square
+	  if (fwrite_checked(&dyy, sizeof(double), *outfile2_ptr)) {
+	    goto distance_d_write_ret_WRITE_FAIL;
+	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(double), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii - 1) * sizeof(double), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
-	    if (fwrite_checked(&dyy, sizeof(double), *outfile2_ptr)) {
-	      goto distance_d_write_ret_WRITE_FAIL;
-	    }
 	    for (ulii = ii + 1; ulii < sample_ct; ulii++) {
 	      dxx = 1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip;
 	      if (fwrite_checked(&dxx, sizeof(double), *outfile2_ptr)) {
@@ -4017,15 +4020,15 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
+	  if (fwrite_checked(&fyy, sizeof(float), *outfile2_ptr)) {
+	    goto distance_d_write_ret_WRITE_FAIL;
+	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(float), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii - 1) * sizeof(float), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
-	    if (fwrite_checked(&fyy, sizeof(float), *outfile2_ptr)) {
-	      goto distance_d_write_ret_WRITE_FAIL;
-	    }
 	    for (ulii = ii + 1; ulii < sample_ct; ulii++) {
 	      fxx = (float)(1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip);
 	      fwrite(&fxx, 4, 1, *outfile2_ptr);
@@ -5372,7 +5375,7 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
 	}
 	sptr_cur = memcpya(sptr_cur, wbuf, wbuf_ct);
 	sptr_cur = uint32toa_x(++new_col, '\t', sptr_cur);
-	if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+	if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != 1) || (fread(&fyy, sizeof(float), 1, in_binfile) != 1)) {
 	  // can't use return code here
 	  putc_unlocked('\n', stdout);
 	  fflush(stdout);
@@ -5896,13 +5899,13 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 		    break;
 		  }
 		}
-		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
+		fseeko(in_binfile, (col - uii) * sizeof(float), SEEK_CUR);
 		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
 		if (col > row) {
 		  break;
 		}
 	      }
-	      if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+	      if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != 1) || (fread(&fyy, sizeof(float), 1, in_binfile) != 1)) {
 		goto rel_cutoff_batch_ret_READ_FAIL;
 	      }
 	      fwrite(&fxx, 4, 1, out_bin_nfile);
@@ -6390,6 +6393,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t dist_thread_ct = g_thread_ct;
   uint32_t rel_req = relationship_req(calculation_type);
   uint32_t all_missing_warning = 0;
+  uint32_t infinite_variance_warning = 0;
   int64_t llxx = 0;
   double rel_cutoff = relip->cutoff;
   double* dist_ptr = nullptr;
@@ -6583,7 +6587,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, ibc_type, sample_ct, ukk);
       }
       if (rel_req) {
-	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, (ibc_type != -1));
+	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, &infinite_variance_warning, (ibc_type != -1));
 	ulii = 0;
 	if (!main_weights_ptr) {
 	  if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
@@ -6608,6 +6612,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     dist_ptr = rel_dists;
   } else {
     putc_unlocked('\n', stdout);
+  }
+  if (infinite_variance_warning) {
+    logerrprint("Warning: Monomorphic variant(s) present; this implies GRM-destabilizing very\nrare variants are also present.  You should almost certainly apply a MAF filter\nand rerun this calculation, instead of using results from the current run.\n");
   }
   dptr2 = rel_ibc;
   if (calculation_type & CALC_IBC) {
@@ -7244,7 +7251,22 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  // matrix, and D is a diagonal eigenvalue matrix.
 	  fill_double_zero(pc_ct, cur_var_wts);
 	  dxx = set_allele_freqs[marker_uidx];
-	  dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
+	  if ((dxx != 0.0) && (dxx < (1.0 - EPSILON))) {
+	    dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
+	  } else {
+            // update (23 Sep 2026): GRM construction should never have
+            // tolerated monomorphic variants, since if they're present, it's
+            // practically certain that very-low-MAF variants which destabilize
+            // the GRM are also present.
+            // Unfortunately, changing regular GRM construction to error out
+            // would be out of line with compatibility expectations for 1.9.
+            // However, since the PCA-projection workflow supported by this
+            // variant-weight calculation was already broken by monomorphic
+            // variants, we are free to error out here.
+            logprint("\n");
+            logerrprint("Error: --pca: Monomorphic variant(s) present; this implies GRM-destabilizing\nvery rare variants are also present.  You should apply a MAF filter before\nretrying this calculation.\n");
+            goto calc_pca_ret_DEGENERATE_DATA;
+	  }
 	  ulptr = loadbuf;
 
 	  var_wt_incr[1] = dyy; // het
