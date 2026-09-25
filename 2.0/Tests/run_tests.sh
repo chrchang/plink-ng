@@ -213,6 +213,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_VCF_MULTIALLELIC_DS_X
+./run_tests.sh $d $2 $3 > TEST_VCF_MULTIALLELIC_DS_X.log
+cd ..
+echo "TEST_VCF_MULTIALLELIC_DS_X passed."
+
 cd TEST_BCF_HAPLOID_HDS
 ./run_tests.sh $d $2 $3 > TEST_BCF_HAPLOID_HDS.log
 cd ..
