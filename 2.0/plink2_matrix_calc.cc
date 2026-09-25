@@ -6525,9 +6525,18 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
           var_wts_iter -= pc_ct;
         }
       } else {
+        // bugfix (22 Sep 2026): these weights must be on the same scale, and
+        // have the same sign convention, as the biallelic ones above, or
+        // --score variance-standardize projections stop being a multiple
+        // of the PCs as soon as a multiallelic variant is present.
+        // LoadMultiallelicCenteredVarmaj() divides each allele's centered
+        // dosage by sqrt(2 * <variance>) while --score divides by
+        // sqrt(<variance>), hence the 1/sqrt(2); and the biallelic weights
+        // above are negated relative to their ALT-oriented rows (REF gets
+        // +0.5), hence the minus sign.
         for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
           *cswritep++ = '\t';
-          cswritep = dtoa_g((*var_wts_iter++) * eigval_inv_sqrts[pc_idx], cswritep);
+          cswritep = dtoa_g((*var_wts_iter++) * (-1.0 / kSqrt2) * eigval_inv_sqrts[pc_idx], cswritep);
         }
       }
       AppendBinaryEoln(&cswritep);

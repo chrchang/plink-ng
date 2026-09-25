@@ -218,6 +218,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_PCA_ALLELE_WTS_PROJECT
+./run_tests.sh $d $2 $3 > TEST_PCA_ALLELE_WTS_PROJECT.log
+cd ..
+echo "TEST_PCA_ALLELE_WTS_PROJECT passed."
+
 cd TEST_KING_TABLE_IBS1
 ./run_tests.sh $d $2 $3 > TEST_KING_TABLE_IBS1.log
 cd ..
