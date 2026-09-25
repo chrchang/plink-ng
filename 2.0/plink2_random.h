@@ -66,6 +66,18 @@ void PermuteU32(uint32_t entry_ct, sfmt_t* sfmtp, uint32_t* u32arr);
 // currently requires tot_bit_ct > 1, due to quotient operation.
 void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp);
 
+FLAGSET_DEF_START()
+  kfSimulate0,
+  kfSimulateQt = (1 << 0),
+  kfSimulateTags = (1 << 1),
+  kfSimulateHaps = (1 << 2),
+  kfSimulateAcgt = (1 << 3),
+  kfSimulate1234 = (1 << 4),
+  kfSimulate12 = (1 << 5)
+FLAGSET_DEF_END(SimulateFlags);
+
+PglErr SimulateDataset(const char* simulate_fname, const char* name_prefix, SimulateFlags flags, uint32_t case_ct, uint32_t ctrl_ct, uint32_t qt_sample_ct, double prevalence, double missing_freq, sfmt_t* sfmtp, char* outname, char* outname_end);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
