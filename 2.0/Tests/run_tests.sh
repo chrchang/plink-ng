@@ -218,4 +218,34 @@ cd TEST_VCF_MULTIALLELIC_DS_X
 cd ..
 echo "TEST_VCF_MULTIALLELIC_DS_X passed."
 
+cd TEST_BCF_HAPLOID_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_HAPLOID_HDS.log
+cd ..
+echo "TEST_BCF_HAPLOID_HDS passed."
+
+cd TEST_BCF_UNPHASED_DOSAGE_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_UNPHASED_DOSAGE_HDS.log
+cd ..
+echo "TEST_BCF_UNPHASED_DOSAGE_HDS passed."
+
+cd TEST_BCF_MULTIALLELIC_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_MULTIALLELIC_HDS.log
+cd ..
+echo "TEST_BCF_MULTIALLELIC_HDS passed."
+
+cd TEST_BGEN_REF_FIRST_PHASE
+./run_tests.sh $d $2 $3 > TEST_BGEN_REF_FIRST_PHASE.log
+cd ..
+echo "TEST_BGEN_REF_FIRST_PHASE passed."
+
+cd TEST_SPLIT_PHASED
+./run_tests.sh $d $2 $3 > TEST_SPLIT_PHASED.log
+cd ..
+echo "TEST_SPLIT_PHASED passed."
+
+cd TEST_PGEN_DIFFLIST_COMMON
+./run_tests.sh $d $2 $3 > TEST_PGEN_DIFFLIST_COMMON.log
+cd ..
+echo "TEST_PGEN_DIFFLIST_COMMON passed."
+
 echo "All tests passed."

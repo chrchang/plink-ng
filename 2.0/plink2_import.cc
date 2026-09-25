@@ -5296,8 +5296,13 @@ BoolErr ParseBcfBiallelicHds(const unsigned char* dosage_main, const unsigned ch
       // if hds_valid and (cur_dphase_delta == 0), caller should override
       // hardcall-phase
       *hds_valid_ptr = 1;
-      int32_t second_bits;
-      CopyFromUnalignedOffsetI32(&second_bits, cur_hds_start, 1);
+      // bugfix: when every sample in the record has ploidy 1 (chrY/MT
+      // without phase), HDS has only one value per sample, and the next
+      // sample's value must not be read as this sample's second haplotype.
+      int32_t second_bits = 0x7f800002;
+      if (hds_value_ct > 1) {
+        CopyFromUnalignedOffsetI32(&second_bits, cur_hds_start, 1);
+      }
       if (second_bits > 0x7f800000) {
         // haploid ok, half-call not ok
         // 0x7f800002 == END_OF_VECTOR
@@ -12574,6 +12579,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         if (!prov_ref_allele_second) {
           GenovecInvertUnsafe(sample_ct, genovec);
           ZeroTrailingNyps(sample_ct, genovec);
+          if (cur_phasepresent_exists) {
+            // bugfix: 0|1 and 1|0 swap along with the allele codes
+            BitvecXor(phasepresent, sample_ctl, phaseinfo);
+          }
           if (dosage_ct) {
             BiallelicDosage16Invert(dosage_ct, dosage_main);
             // currently no code path here where dosage_ct < dphase_ct
