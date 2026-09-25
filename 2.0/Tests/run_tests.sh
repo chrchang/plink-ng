@@ -138,6 +138,11 @@ cd TEST_MAKE_PERM_PHENO
 cd ..
 echo "TEST_MAKE_PERM_PHENO passed."
 
+cd TEST_Q_SCORE_RANGE
+./run_tests.sh $d $2 $3 > TEST_Q_SCORE_RANGE.log
+cd ..
+echo "TEST_Q_SCORE_RANGE passed."
+
 cd TEST_BLOCKS
 ./run_tests.sh $d $2 $3 > TEST_BLOCKS.log
 cd ..

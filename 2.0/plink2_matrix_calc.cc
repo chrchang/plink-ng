@@ -8573,8 +8573,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         const uint32_t name_slen = range_name_end - line_start;
-        if (name_slen > max_name_slen) {
+        if (unlikely(name_slen > max_name_slen)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Name too long on line %" PRIuPTR " of --q-score-range range file.\n", line_idx);
+          goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         unsigned char* tmp_alloc_base = R_CAST(unsigned char*, &(parsed_qscore_ranges[qsr_ct]));
         if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= name_slen + sizeof(ParsedQscoreRange)) {
