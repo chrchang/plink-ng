@@ -174,7 +174,7 @@ PglErr PvarInfoReloadHeader(TextStream* pvar_reload_txsp, char** line_iterp, uin
     if (unlikely(reterr)) {
       return reterr;
     }
-  } while (!StrStartsWithUnsafe(line_iter, "#CHROM"));
+  } while (!tokequal_k(line_iter, "#CHROM"));
   uint32_t info_col_idx = 0;
   do {
     line_iter = NextToken(line_iter);
