@@ -6,6 +6,15 @@ PLINK 1.9 and 2.0 user documentation: https://www.cog-genomics.org/plink/1.9/ , 
 
 Technical support forum: https://groups.google.com/g/plink2-users
 
+Both versions are available from Homebrew (macOS and Linux):
+
+```
+brew install plink1    # PLINK 1.9, installs `plink`
+brew install plink-ng  # PLINK 2.0, installs `plink2` and `pgen_compress`
+```
+
+Homebrew tracks tagged releases; the documentation pages above have the latest builds for all platforms.
+
 The 1.9/ implementation can typically be used as a drop-in replacement for PLINK 1.07 that scales to much larger datasets.  It's technically still a beta version because there are a few rarely-used but possibly-worthwhile PLINK 1.07 commands that are still absent, but active feature development for it ended in 2016.
 
 The 2.0/ implementation is designed to handle VCF files and dosage data, and is under active development.  Most basic features other than non-concatenating merge are now in place.  See its README.md for more details.
