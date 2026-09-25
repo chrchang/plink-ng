@@ -2744,8 +2744,9 @@ PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t ma
   const uint32_t blen = slen + 1;
   // Pad with kBytesPerVec zero bytes: consumers may scan the string with
   // Strchrnul()/strnul(), whose vectorized implementations read a whole
-  // vector at a time and can run up to kBytesPerVec-1 bytes past the
-  // terminator.
+  // aligned vector at a time and so touch up to kBytesPerVec-1 bytes past the
+  // terminator.  Those loads cannot fault, since an aligned vector never
+  // straddles a page boundary, but AddressSanitizer flags them.
   if (unlikely(pgl_malloc(blen + kBytesPerVec, sbuf_ptr))) {
     return kPglRetNomem;
   }
