@@ -6552,6 +6552,11 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
   return kPglRetSuccess;
 }
 
+#endif  // !NOLAPACK
+
+// --neighbour needs no LAPACK (it also runs on a --read-eigvec file), so it
+// lives outside the NOLAPACK block.
+//
 // --neighbour implements the outlier statistic from section 3.4 of Prive et
 // al. (2020), "Efficient toolkit implementing best practices for principal
 // component analysis of population genetic data": a simplified local outlier
@@ -7145,6 +7150,7 @@ PglErr NeighbourFromEigvecFile(const uintptr_t* sample_include, const SampleIdIn
   return reterr;
 }
 
+#ifndef NOLAPACK
 PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -8567,8 +8573,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         const uint32_t name_slen = range_name_end - line_start;
-        if (name_slen > max_name_slen) {
+        if (unlikely(name_slen > max_name_slen)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Name too long on line %" PRIuPTR " of --q-score-range range file.\n", line_idx);
+          goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         unsigned char* tmp_alloc_base = R_CAST(unsigned char*, &(parsed_qscore_ranges[qsr_ct]));
         if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= name_slen + sizeof(ParsedQscoreRange)) {

@@ -146,6 +146,10 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
       if (multiallelic_needed) {
         // todo
       }
+    } else {
+      // bugfix (21 Sep 2026): these were left uninitialized
+      pgvp->dphase_present = nullptr;
+      pgvp->dphase_delta = nullptr;
     }
   } else {
     pgvp->dosage_present = nullptr;
