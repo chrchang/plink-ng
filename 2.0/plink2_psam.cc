@@ -1461,7 +1461,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         new_pheno_data_iter = &(new_pheno_data_iter[nonmiss_vec_ct * kWordsPerVec]);
         if (is_categorical) {
           // allow nonmiss[] to be ignored in categorical case
-          ZeroWArr(data_vec_ct, new_pheno_data_iter);
+          ZeroWArr(data_vec_ct * kWordsPerVec, new_pheno_data_iter);
           pheno_cols_iter->data.cat = R_CAST(uint32_t*, new_pheno_data_iter);
           new_pheno_data_iter = &(new_pheno_data_iter[data_vec_ct * kWordsPerVec]);
           const char** cur_name_ptrs = R_CAST(const char**, new_pheno_data_iter);
