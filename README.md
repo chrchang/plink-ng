@@ -1,7 +1,17 @@
 # plink-ng
 
-[![Homebrew plink1](https://img.shields.io/homebrew/v/plink1?label=brew%20plink1)](https://formulae.brew.sh/formula/plink1)
-[![Homebrew plink-ng](https://img.shields.io/homebrew/v/plink-ng?label=brew%20plink-ng)](https://formulae.brew.sh/formula/plink-ng)
+[![Functional tests](https://img.shields.io/github/actions/workflow/status/chrchang/plink-ng/plink2_functional_tests.yml?branch=master&label=tests&logo=github)](https://github.com/chrchang/plink-ng/actions/workflows/plink2_functional_tests.yml)
+[![pgenlib tests](https://img.shields.io/github/actions/workflow/status/chrchang/plink-ng/ci.yaml?branch=master&label=pgenlib&logo=github)](https://github.com/chrchang/plink-ng/actions/workflows/ci.yaml)
+[![License](https://img.shields.io/badge/license-GPLv3%20%2F%20LGPLv3-blue)](2.0/COPYING)
+[![Paper](https://img.shields.io/badge/DOI-10.1186%2Fs13742--015--0047--8-blue)](https://doi.org/10.1186/s13742-015-0047-8)
+[![Forum](https://img.shields.io/badge/support-plink2--users-orange)](https://groups.google.com/g/plink2-users)
+
+[![Homebrew plink1](https://img.shields.io/homebrew/v/plink1?label=brew%20plink1&logo=homebrew)](https://formulae.brew.sh/formula/plink1)
+[![Homebrew plink-ng](https://img.shields.io/homebrew/v/plink-ng?label=brew%20plink-ng&logo=homebrew)](https://formulae.brew.sh/formula/plink-ng)
+[![Bioconda plink](https://img.shields.io/conda/vn/bioconda/plink?label=bioconda%20plink&logo=anaconda)](https://anaconda.org/bioconda/plink)
+[![Bioconda plink2](https://img.shields.io/conda/vn/bioconda/plink2?label=bioconda%20plink2&logo=anaconda)](https://anaconda.org/bioconda/plink2)
+[![PyPI pgenlib](https://img.shields.io/pypi/v/pgenlib?label=pypi%20pgenlib&logo=python&logoColor=white)](https://pypi.org/project/pgenlib/)
+[![CRAN pgenlibr](https://img.shields.io/cran/v/pgenlibr?label=CRAN%20pgenlibr&logo=r)](https://CRAN.R-project.org/package=pgenlibr)
 
 Source code for PLINK 1.9 and PLINK 2.0, the successors to Shaun Purcell's
 PLINK 1.07 (https://zzz.bwh.harvard.edu/plink/), a whole-genome association
