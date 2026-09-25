@@ -4237,7 +4237,13 @@ PglErr BcfHeaderLineIdxCheck(const char* line_iter, uint32_t header_line_idx) {
       logerrprintfww("Error: Line %u in BCF text header block has IDX= in the center instead of the end of the line; this is not currently supported by " PROG_NAME_STR ". Contact us if you need this to work.\n", header_line_idx);
       return kPglRetNotYetSupported;
     }
-    line_iter = AdvPastDelim(tag_start, '=');
+    // Don't let a key without '=' send the search past the end of the line
+    // (or of the header block).
+    line_iter = strchrnul_n(tag_start, '=');
+    if (unlikely(*line_iter != '=')) {
+      goto BcfHeaderLineIdxCheck_FAIL;
+    }
+    ++line_iter;
     if (*line_iter != '"') {
       line_iter = strchrnul_n(line_iter, ',');
       if (*line_iter == ',') {
@@ -5296,8 +5302,13 @@ BoolErr ParseBcfBiallelicHds(const unsigned char* dosage_main, const unsigned ch
       // if hds_valid and (cur_dphase_delta == 0), caller should override
       // hardcall-phase
       *hds_valid_ptr = 1;
-      int32_t second_bits;
-      CopyFromUnalignedOffsetI32(&second_bits, cur_hds_start, 1);
+      // bugfix: when every sample in the record has ploidy 1 (chrY/MT
+      // without phase), HDS has only one value per sample, and the next
+      // sample's value must not be read as this sample's second haplotype.
+      int32_t second_bits = 0x7f800002;
+      if (hds_value_ct > 1) {
+        CopyFromUnalignedOffsetI32(&second_bits, cur_hds_start, 1);
+      }
       if (second_bits > 0x7f800000) {
         // haploid ok, half-call not ok
         // 0x7f800002 == END_OF_VECTOR
@@ -12574,6 +12585,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         if (!prov_ref_allele_second) {
           GenovecInvertUnsafe(sample_ct, genovec);
           ZeroTrailingNyps(sample_ct, genovec);
+          if (cur_phasepresent_exists) {
+            // bugfix: 0|1 and 1|0 swap along with the allele codes
+            BitvecXor(phasepresent, sample_ctl, phaseinfo);
+          }
           if (dosage_ct) {
             BiallelicDosage16Invert(dosage_ct, dosage_main);
             // currently no code path here where dosage_ct < dphase_ct
@@ -13408,7 +13423,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 chr_name_slen = snpid_slen;
               }
               chr_name_start[chr_name_slen] = '\0';
-              cur_chr_code = GetChrCode(chr_name_start, cip, chr_name_slen);
+              // The first pass stops early once it has found a dosage, so it
+              // may not have seen (and registered) this chromosome name.
+              reterr = GetOrAddChrCode(chr_name_start, "--bgen file", 0, chr_name_slen, prohibit_extra_chr, cip, &cur_chr_code);
+              if (unlikely(reterr)) {
+                goto OxBgenToPgen_ret_1;
+              }
               skip |= !IsSet(cip->chr_mask, cur_chr_code);
             }
 

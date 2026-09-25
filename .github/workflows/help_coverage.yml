@@ -1,0 +1,36 @@
+name: plink2 help coverage
+
+# Checks that every flag the plink2 command-line parser accepts appears in a
+# HelpPrint() index in 2.0/plink2_help.cc, so that "plink2 --help <flag>"
+# never comes up empty for a real flag.  Source-only: no build needed.
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '2.0/plink2.cc'
+      - '2.0/plink2_cmdline.cc'
+      - '2.0/plink2_help.cc'
+      - '.github/scripts/check_help_coverage.py'
+      - '.github/workflows/help_coverage.yml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '2.0/plink2.cc'
+      - '2.0/plink2_cmdline.cc'
+      - '2.0/plink2_help.cc'
+      - '.github/scripts/check_help_coverage.py'
+      - '.github/workflows/help_coverage.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Check plink2_help.cc index coverage
+        run: python3 .github/scripts/check_help_coverage.py

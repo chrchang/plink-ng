@@ -1201,6 +1201,10 @@ int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_ht
       goto update_marker_alleles_ret_INVALID_FORMAT_2;
     }
     SET_BIT(marker_uidx, already_seen);
+    if (!next_token_mult(bufptr3, 4)) {
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of --update-alleles file has fewer tokens than expected.\n", line_idx);
+      goto update_marker_alleles_ret_INVALID_FORMAT_2;
+    }
     bufptr2 = skip_initial_spaces(bufptr2);
     len2 = strlen_se(bufptr2);
     bufptr = &(bufptr2[len2]);
@@ -2187,7 +2191,14 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	      snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid hap. A2 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
 	      goto read_external_freqs_ret_INVALID_FORMAT_2;
 	    }
-	    cur_nchrobs = 2 * (c_hom_a1 + c_het + c_hom_a2 + maf_succ) + c_hap_a1 + c_hap_a2;
+	    // each count is at most 2^31 - 1, so the total can overflow 32 bits;
+	    // apply the same limit as the .frq NCHROBS column to it
+	    const uint64_t nchrobs_u64 = 2 * (((uint64_t)c_hom_a1) + c_het + c_hom_a2 + maf_succ) + c_hap_a1 + c_hap_a2;
+	    if (nchrobs_u64 > 0x7fffffff) {
+	      snprintf(g_logbuf, LOGBUFLEN, "Error: Too many allele observations on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+	      goto read_external_freqs_ret_INVALID_FORMAT_2;
+	    }
+	    cur_nchrobs = nchrobs_u64;
 	    maf = ((double)(c_hom_a1 * 2 + c_het + c_hap_a1 + maf_succ)) / ((double)cur_nchrobs);
 	    if (nchrobs) {
 	      nchrobs[marker_uidx] = cur_nchrobs;
