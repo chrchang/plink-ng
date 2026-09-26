@@ -38,3 +38,20 @@ fails $1/plink2 $2 $3 --bfile tmp_data --tail-pheno --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --tail-pheno nonsense --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --tail-pheno 2 1 --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --must-have-sex --out plink2_bad
+
+# 5. An out-of-range number (it starts like a number, so the first line
+#    classifies the column as numeric, but it doesn't parse) in the first
+#    data line of a .psam or --pheno file is a clean error, not a crash.
+$1/plink2 $2 $3 --dummy 3 5 --make-pgen --out tmp_ovf
+printf '#IID\tSEX\tP1\nper0\t1\t1e400\nper1\t2\t2\nper2\t1\t1\n' > tmp_ovf_bad.psam
+cp tmp_ovf.pgen tmp_ovf_bad.pgen
+cp tmp_ovf.pvar tmp_ovf_bad.pvar
+if $1/plink2 $2 $3 --pfile tmp_ovf_bad --freq --out plink2_ovf 2> tmp_ovf_err.txt; then
+    exit 1
+fi
+grep -q "Invalid numeric token '1e400'" tmp_ovf_err.txt
+printf '#IID\tP2\nper0\t1e999\nper1\t2\nper2\t3\n' > tmp_ovf_pheno.txt
+if $1/plink2 $2 $3 --pfile tmp_ovf --pheno tmp_ovf_pheno.txt --freq --out plink2_ovf 2> tmp_ovf_err.txt; then
+    exit 1
+fi
+grep -q "Invalid numeric token '1e999'" tmp_ovf_err.txt

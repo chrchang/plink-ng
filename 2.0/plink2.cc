@@ -91,7 +91,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (21 Sep 2026)";
+  " (26 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1456,10 +1456,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logerrputsb();
         goto Plink2Core_ret_1;
       }
+      // update (26 Sep 2026): we can tolerate all-biallelic .pvar when .pgen
+      // has phased multiallelic variants, long enough to export a PLINK
+      // 1-style fileset from it.
+      /*
       if (unlikely((!allele_idx_offsets) && (pgfi.gflags & kfPgenGlobalMultiallelicHardcallFound))) {
-        logerrputs("Error: .pgen file contains multiallelic variants, while .pvar does not.\n");
+        logerrputs("Error: .pgen file contains multiallelic variants, .pvar does not.\n");
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
+      */
       if (pcp->misc_flags & kfMiscRealRefAlleles) {
         if (unlikely(nonref_flags && (!AllBitsAreOne(nonref_flags, raw_variant_ct)))) {
           // To reduce the ease of foot-shooting, we don't allow this to
@@ -14005,6 +14010,10 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1SampleCounts;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "trict-extra-chr")) {
+          // Already applied by CmdlineParsePhase2(), which needs it before
+          // the main parse; just check that no arguments were given.
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
           pc.misc_flags |= kfMiscStrictSid0;
           goto main_param_zero;

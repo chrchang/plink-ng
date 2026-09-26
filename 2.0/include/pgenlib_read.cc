@@ -957,6 +957,12 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s does not correspond to a format supported by this version of pgenlib.\n", header_fname);
       return kPglRetNotYetSupported;
     }
+    // modes 12 and 14 are single-sample encodings; PgfiInitPhase2Ex() relies
+    // on this.
+    if (unlikely((header_ctrl_low3 >= 4) && (raw_sample_ct != 1))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s specifies a single-sample storage mode, but the file contains %u samples.\n", header_fname, raw_sample_ct);
+      return kPglRetMalformedInput;
+    }
   }
   *pgfi_alloc_cacheline_ct_ptr = CountPgfiAllocCachelinesRequired(raw_variant_ct);
   return kPglRetSuccess;
@@ -3152,7 +3158,7 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   // Side effects:
   //   may use pgr.workspace_raregeno_tmp_loadbuf
   // Trailing bits of genovec/main_raregeno may not be zeroed out.
-  // Always sets difflist_common_geno; may not set difflist_len.
+  // Always sets difflist_common_geno; not guaranteed to set difflist_len.
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t maintrack_vrtype = vrtype & 7;
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -3258,7 +3264,8 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
     }
     return kPglRetSuccess;
   }
-  *difflist_common_geno_ptr = vrtype & 3;
+  const uint32_t difflist_common_geno = vrtype & 3;
+  *difflist_common_geno_ptr = difflist_common_geno;
   PglErr reterr;
   if (!subsetting_required) {
     reterr = ParseAndSaveDifflist(fread_end, raw_sample_ct, &fread_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
@@ -3268,8 +3275,27 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   if (unlikely(reterr)) {
     return kPglRetMalformedInput;
   }
+  // We want callers to be able to assume that main_raregeno contains no common
+  // entries (e.g. --sample-counts segfaults when this is untrue).
+  const uint32_t difflist_len = *difflist_len_ptr;
+  if (difflist_len) {
+    const uint32_t fullword_ct = difflist_len / kBitsPerWordD2;
+    const uintptr_t difflist_common_geno_word = difflist_common_geno * kMask5555;
+    for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
+      const uintptr_t cur_raregeno_xor = main_raregeno[widx] ^ difflist_common_geno_word;
+      if (unlikely(kMask5555 & (~(cur_raregeno_xor | (cur_raregeno_xor >> 1))))) {
+        return kPglRetMalformedInput;
+      }
+    }
+    const uint32_t remainder = difflist_len % kBitsPerWordD2;
+    if (remainder) {
+      const uintptr_t last_raregeno_xor = main_raregeno[fullword_ct] ^ difflist_common_geno_word;
+      if (unlikely((kMask5555 >> (kBitsPerWord - remainder * 2)) & (~(last_raregeno_xor | (last_raregeno_xor >> 1))))) {
+        return kPglRetMalformedInput;
+      }
+    }
+  }
   if (is_ldbase) {
-    const uint32_t difflist_len = *difflist_len_ptr;
     pgrp->ldbase_stypes = kfPgrLdcacheDifflist;
     pgrp->ldbase_difflist_len = difflist_len;
     CopyNyparr(main_raregeno, difflist_len, pgrp->ldbase_raregeno);
@@ -4679,14 +4705,24 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   PgrGetInv1Counts_biallelic:
     reterr = GetBasicGenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, genocounts);
     if (allele_idx) {
-      const uint32_t homref_ct = genocounts[0];
-      genocounts[0] = genocounts[2];
-      genocounts[2] = homref_ct;
+      if (allele_idx == 1) {
+        const uint32_t homref_ct = genocounts[0];
+        genocounts[0] = genocounts[2];
+        genocounts[2] = homref_ct;
+      } else {
+        genocounts[2] += genocounts[1] + genocounts[0];
+        genocounts[0] = 0;
+        genocounts[1] = 0;
+      }
     }
     return reterr;
   }
   const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
-  if (allele_ct == 2) {
+  // bugfix (26 Sep 2026): multiallelic-hardcall data track is not guaranteed
+  // to exist when .pvar allele_ct > 2: current dataset could have no instances
+  // of ALT2/ALT3/... .
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  if ((allele_ct == 2) || (!VrtypeMultiallelicHc(vrtype))) {
     goto PgrGetInv1Counts_biallelic;
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -4728,10 +4764,24 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   }
   uint32_t hom_ct;
   reterr = CountAux1b(fread_end, sample_include, tmp_genovec, aux1b_mode, raw_sample_ct, allele_ct, allele_idx, raw_10_ct, subsetted_10_ct, &fread_ptr, &het_ct, &hom_ct, pgrp->workspace_difflist_sample_ids);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  // Special case (26 Sep 2026): If .pvar allele_ct is greater than 2 but not
+  // the value used to encode the .pgen record, there is a risk of
+  // misinterpreting the multiallelic-hardcall data track without erroring out.
+  // We don't promise exhaustive validation, but when there are supposed to be
+  // no more data tracks, checking fread_ptr == fread_end is an easy win.
+  //
+  // ...well, this does block one formerly-open path for extending the file
+  // format, but that's an acceptable price to pay.
+  if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
+    return kPglRetInconsistentInput;
+  }
   genocounts[0] = hom_ct;
   genocounts[1] = het_ct;
   genocounts[2] = sample_ct - genocounts[3] - hom_ct - het_ct;
-  return reterr;
+  return kPglRetSuccess;
 }
 
 // sample_include assumed to be nullptr if no subsetting required
@@ -5454,6 +5504,11 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
       return kPglRetSuccess;
     }
   }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
+  if (unlikely(allele_ct == 2)) {
+    return kPglRetInconsistentInput;
+  }
   const uint32_t aux1_first_byte = *fread_ptr++;
   const uint32_t aux1a_mode = aux1_first_byte & 15;
   const uint32_t aux1b_mode = aux1_first_byte >> 4;
@@ -5464,8 +5519,6 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
     GenovecCount12Unsafe(raw_genovec, raw_sample_ct, &raw_01_ct, &raw_10_ct);
   }
 
-  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
   if (!subsetting_required) {
     sample_include = nullptr;
   }
@@ -5492,8 +5545,15 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
   }
   const unsigned char* aux1b_start = fread_ptr;
   reterr = GenoarrAux1bStandardUpdate(fread_end, sample_include, sample_include_cumulative_popcounts, raw_genovec, aux1b_mode, raw_sample_ct, allele_ct, allele_idx, raw_10_ct, &fread_ptr, allele_countvec, deltalist_workspace);
-  if ((!fread_pp) || reterr) {
+  if (unlikely(reterr)) {
     return reterr;
+  }
+  if (!fread_pp) {
+    // Try to catch inaccurate allele_ct.
+    if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
+      return kPglRetInconsistentInput;
+    }
+    return kPglRetSuccess;
   }
   *fread_pp = fread_ptr;
   if (all_hets) {
@@ -5532,9 +5592,8 @@ PglErr IMPLPgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* _
   if (!sample_ct) {
     return kPglRetSuccess;
   }
-  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
-  const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
-  if ((!allele_idx) || ((allele_idx == 1) && (!multiallelic_hc_present))) {
+  if (!allele_idx) {
+  IMPLPgrGet1_biallelic:
     PglErr reterr = ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, allele_countvec);
     if (unlikely(reterr)) {
       return reterr;
@@ -5544,6 +5603,12 @@ PglErr IMPLPgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* _
     }
     return kPglRetSuccess;
   }
+  if (allele_idx == 1) {
+    const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+    if ((!allele_idx_offsets) || (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] == 2) || (!VrtypeMultiallelicHc(GetPgfiVrtype(&(pgrp->fi), vidx)))) {
+      goto IMPLPgrGet1_biallelic;
+    }
+  }
   return Get1Multiallelic(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, nullptr, nullptr, nullptr, allele_countvec, nullptr);
 }
 
@@ -5551,9 +5616,8 @@ PglErr IMPLPgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t
   if (!sample_ct) {
     return kPglRetSuccess;
   }
-  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
-  const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
-  if ((!allele_idx) || ((allele_idx == 1) && (!multiallelic_hc_present))) {
+  if (!allele_idx) {
+  IMPLPgrGetInv1_biallelic:
     PglErr reterr = ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, allele_invcountvec);
     if (unlikely(reterr)) {
       return reterr;
@@ -5562,6 +5626,12 @@ PglErr IMPLPgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t
       GenovecInvertUnsafe(sample_ct, allele_invcountvec);
     }
     return kPglRetSuccess;
+  }
+  if (allele_idx == 1) {
+    const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+    if ((!allele_idx_offsets) || (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] == 2) || (!VrtypeMultiallelicHc(GetPgfiVrtype(&(pgrp->fi), vidx)))) {
+      goto IMPLPgrGetInv1_biallelic;
+    }
   }
   PglErr reterr = Get1Multiallelic(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, nullptr, nullptr, nullptr, allele_invcountvec, nullptr);
   GenovecInvertUnsafe(sample_ct, allele_invcountvec);
@@ -5573,9 +5643,8 @@ PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_includ
     *difflist_common_geno_ptr = UINT32_MAX;
     return kPglRetSuccess;
   }
-  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
-  const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
-  if ((!allele_idx) || ((allele_idx == 1) && (!multiallelic_hc_present))) {
+  if (!allele_idx) {
+  IMPLPgrGetInv1DifflistOrGenovec_biallelic:
     PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_difflist_len, vidx, pgrp, nullptr, nullptr, allele_invcountvec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
     if (unlikely(reterr)) {
       return reterr;
@@ -5592,6 +5661,12 @@ PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_includ
       }
     }
     return kPglRetSuccess;
+  }
+  if (allele_idx == 1) {
+    const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+    if ((!allele_idx_offsets) || (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] == 2) || (!VrtypeMultiallelicHc(GetPgfiVrtype(&(pgrp->fi), vidx)))) {
+      goto IMPLPgrGetInv1DifflistOrGenovec_biallelic;
+    }
   }
   *difflist_common_geno_ptr = UINT32_MAX;
   PglErr reterr = Get1Multiallelic(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, nullptr, nullptr, nullptr, allele_invcountvec, nullptr);
@@ -5613,6 +5688,9 @@ void Rotate2(uint32_t allele_idx0, uint32_t allele_idx1, uint32_t sample_ct, uin
 }
 
 PglErr SkipAux1a(const unsigned char* fread_end, uint32_t aux1a_mode, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t raw_01_ct, const unsigned char** fread_pp) {
+  if (unlikely(allele_ct == 2)) {
+    return kPglRetInconsistentInput;
+  }
   if (aux1a_mode == 15) {
     return kPglRetSuccess;
   }
@@ -6026,7 +6104,9 @@ PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* _
   const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
-  if (!multiallelic_hc_present) {
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  if ((!multiallelic_hc_present) || (allele_ct == 2)) {
     if ((allele_idx0 > 1) && (allele_idx1 > 1)) {
       // Trivial all-missing case.
       SetAllBits(2 * sample_ct, genovec);
@@ -6041,13 +6121,16 @@ PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* _
       return kPglRetSuccess;
     }
     if (allele_idx0 == 1) {
+      // alelle_idx1 == 0, allele_idx0 == 1
       GenovecInvertUnsafe(sample_ct, genovec);
       return kPglRetSuccess;
     }
     if (!allele_idx1) {
+      // allele_idx1 == 0, allele_idx0 > 1
       GenovecNonzeroToMissingThenInvertUnsafe(sample_ct, genovec);
       return kPglRetSuccess;
     }
+    // allele_idx1 == 1, allele_idx0 > 1
     GenovecNontwoToMissingUnsafe(sample_ct, genovec);
     return kPglRetSuccess;
   }
@@ -6082,8 +6165,6 @@ PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* _
   if (!subsetting_required) {
     sample_include = nullptr;
   }
-  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
   uint32_t* deltalist_workspace = pgrp->workspace_difflist_sample_ids;
   if (!allele_idx0) {
     // Two cases:
@@ -6099,6 +6180,10 @@ PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* _
   reterr = GenoarrAux1bUpdate2(fread_end, sample_include, sample_include_cumulative_popcounts, raw_genovec, aux1b_mode, raw_sample_ct, allele_ct, allele_idx0, allele_idx1, raw_10_ct, &fread_ptr, genovec, deltalist_workspace);
   if (unlikely(reterr)) {
     return reterr;
+  }
+  // Try to catch inaccurate allele_ct.
+  if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
+    return kPglRetInconsistentInput;
   }
   if (invert) {
     GenovecInvertUnsafe(sample_ct, genovec);
@@ -6603,7 +6688,16 @@ PglErr ExportAux1bProperSubset(const unsigned char* fread_end, const uintptr_t* 
 
 // Assumes sample_ct > 0, multiallelic-hc track is present, and patch_01_ct and
 // patch_10_ct are zero-initialized.
-PglErr GetMultiallelicCodes(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict all_hets, PgenVariant* pgvp) {
+PglErr GetMultiallelicCodes(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t vrtype, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict all_hets, PgenVariant* pgvp) {
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  if (unlikely(!allele_idx_offsets)) {
+    return kPglRetInconsistentInput;
+  }
+  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
+  if (unlikely(allele_ct == 2)) {
+    return kPglRetInconsistentInput;
+  }
+
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   uintptr_t* raw_genovec = pgrp->workspace_vec;
@@ -6623,8 +6717,6 @@ PglErr GetMultiallelicCodes(const uintptr_t* __restrict sample_include, const ui
   if ((!aux1a_mode) || (!aux1b_mode)) {
     GenovecCount12Unsafe(raw_genovec, raw_sample_ct, &raw_01_ct, &raw_10_ct);
   }
-  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
   uint32_t* deltalist_workspace = pgrp->workspace_difflist_sample_ids;
   if (aux1a_mode != 15) {
     if (!subsetting_required) {
@@ -6646,6 +6738,10 @@ PglErr GetMultiallelicCodes(const uintptr_t* __restrict sample_include, const ui
     if (unlikely(reterr)) {
       return reterr;
     }
+  }
+  // Try to catch inaccurate allele_ct.
+  if (unlikely((!(vrtype & 0xf0)) && (fread_ptr != fread_end))) {
+    return kPglRetInconsistentInput;
   }
   if (fread_pp) {
     *fread_pp = fread_ptr;
@@ -6682,7 +6778,7 @@ PglErr PgrGetM(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex 
   if (!multiallelic_hc_present) {
     return ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, pgvp->genovec);
   }
-  return GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, nullptr, pgvp);
+  return GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, vrtype, pgrp, nullptr, nullptr, nullptr, pgvp);
 }
 
 void PgrDetectGenoarrHetsMultiallelic(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
@@ -6946,6 +7042,11 @@ PglErr ReadGenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_include,
     }
   }
   reterr = ParseAux2Subset(fread_end, subsetting_required? sample_include : nullptr, all_hets, subsetted_suppressed_het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
+  // Try to catch inaccurate allele_ct.  (and may as well catch another minor
+  // class of .pgen corruption here since doing so is ~free)
+  if (unlikely((!(vrtype & 0xe0)) && (fread_ptr != fread_end))) {
+    return VrtypeMultiallelicHc(vrtype)? kPglRetInconsistentInput : kPglRetMalformedInput;
+  }
   if (fread_pp) {
     *fread_pp = fread_ptr;
     *fread_endp = fread_end;
@@ -6983,10 +7084,18 @@ PglErr Get1MP(const uintptr_t* __restrict sample_include, const uint32_t* __rest
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   reterr = ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, subsetted_suppressed_het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  // Might push this check into the callers after multiallelic-dosage logic
+  // implemented.
+  if (unlikely((!(vrtype & 0xe0)) && (fread_ptr != fread_end))) {
+    return kPglRetInconsistentInput;
+  }
   // bugfix (7 Sep 2018): Need to postprocess phasepresent when collapsing
   // multiple alleles.
-  if (reterr || (!(*phasepresent_ct_ptr))) {
-    return reterr;
+  if (!(*phasepresent_ct_ptr)) {
+    return kPglRetSuccess;
   }
 
   // Might want to make this its own function.
@@ -7122,6 +7231,11 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
     }
     uint32_t* deltalist_workspace = pgrp->workspace_difflist_sample_ids;
     if (!allele_idx0) {
+      if (unlikely(allele_ct == 2)) {
+        // Don't need this in the SkipAux1a() branch.
+        return kPglRetInconsistentInput;
+      }
+
       // Two cases:
       // - If allele_idx == 1, convert all aux1a entries from 01 to 11.
       // - Otherwise, for each matching aux1a entry, convert from 11 to 01.
@@ -7166,6 +7280,10 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   if (unlikely(reterr)) {
     return reterr;
   }
+  // Try to catch inaccurate allele_ct.
+  if (unlikely((!(vrtype & 0xe0)) && (fread_ptr != fread_end))) {
+    return VrtypeMultiallelicHc(vrtype)? kPglRetInconsistentInput : kPglRetMalformedInput;
+  }
   if (VrtypeMultiallelicHc(vrtype) && (*phasepresent_ct_ptr)) {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     MaskWordsToHalfwordsInvmatch(genovec, kMaskAAAA, sample_ctl2, phasepresent, phasepresent);
@@ -7197,14 +7315,22 @@ PglErr PgrGetMP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
   uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
-  PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
+  PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, vrtype, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
   if (reterr || (!all_hets)) {
     // bugfix (17 Apr 2023): need to zero out phasepresent_ct in this case
     pgvp->phasepresent_ct = 0;
     return reterr;
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
-  return ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, nullptr, raw_sample_ct, sample_ct, &fread_ptr, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct), pgrp->workspace_subset);
+  reterr = ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, nullptr, raw_sample_ct, sample_ct, &fread_ptr, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct), pgrp->workspace_subset);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  // Try to catch inaccurate allele_ct.
+  if (unlikely((!(vrtype & 0xe0)) && (fread_ptr != fread_end))) {
+    return kPglRetInconsistentInput;
+  }
+  return kPglRetSuccess;
 }
 
 // ok for sample_include to be nullptr if not subsetting, though this is not
@@ -9074,6 +9200,9 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
     }
   }
   if (!(vrtype & 0x60)) {
+    if (unlikely(fread_ptr != fread_end)) {
+      return VrtypeMultiallelicHc(vrtype)? kPglRetInconsistentInput : kPglRetMalformedInput;
+    }
     uint32_t hom_hc_ct = 0;
     for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
       const uint64_t cur_hom_ct = two_cts[allele_idx];
@@ -9145,7 +9274,7 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   const unsigned char* fread_end;
   uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
   if (VrtypeMultiallelicHc(vrtype)) {
-    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
+    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, vrtype, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
     if (!(vrtype & 0x60)) {
       return reterr;
     }
@@ -9237,7 +9366,7 @@ PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetInde
   const unsigned char* fread_end;
   uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
   if (VrtypeMultiallelicHc(vrtype)) {
-    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
+    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, vrtype, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
     if (reterr || (!all_hets)) {
       pgvp->phasepresent_ct = 0;
       return reterr;
@@ -9316,7 +9445,6 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
   uintptr_t* genovec = (*loadbuf_iter_ptr);
   uintptr_t* loadbuf_iter = &(genovec[NypCtToAlignedWordCt(raw_sample_ct)]);
   const uint32_t multiallelic_hc_present = (vrtype / 8) & 1;
-  const uint32_t save_multiallelic_hc = multiallelic_hc_present && (read_gflags & kfPgenGlobalMultiallelicHardcallFound);
   const uint32_t hphase_is_present = (vrtype / 0x10) & 1;
   const uint32_t save_hphase = hphase_is_present && (read_gflags & kfPgenGlobalHardcallPhasePresent);
   const uint32_t dosage_is_present = (vrtype & 0x60)? 1 : 0;
@@ -9325,21 +9453,33 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
   const uint32_t save_dphase = (vrtype & 0x80) && (read_gflags & kfPgenGlobalDosagePhasePresent);
   assert(save_dosage || (!save_dphase));
 
+  uint32_t save_multiallelic_hc = 0;
+  uint32_t allele_ct = 2;
+  if (multiallelic_hc_present) {
+    save_multiallelic_hc = 1;
+    const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+    allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+    if (allele_ct == 2) {
+      if (save_hphase || save_dosage) {
+        return kPglRetInconsistentInput;
+      }
+      save_multiallelic_hc = 0;
+    }
+  }
+
   if (loaded_vrtype_ptr) {
     *loaded_vrtype_ptr = save_multiallelic_hc * 8 + save_hphase * 0x10 + save_dosage * 0x60 + save_dphase * 0x80;
   }
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
   PglErr reterr = ReadRawGenovec(0, vidx, pgrp, &fread_ptr, &fread_end, genovec);
-  if ((!(multiallelic_hc_present || save_hphase || save_dosage)) || reterr) {
+  if ((!(save_multiallelic_hc || save_hphase || save_dosage)) || reterr) {
     *loadbuf_iter_ptr = loadbuf_iter;
     return reterr;
   }
 
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   ZeroTrailingNyps(raw_sample_ct, genovec);
-  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   uint32_t het_ct = 0;
   if (multiallelic_hc_present) {
     if (!save_multiallelic_hc) {
@@ -9474,6 +9614,10 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
 #endif
   }
   if (!save_dosage) {
+    // Try to catch inaccurate allele_ct.
+    if ((!(vrtype & 0xe0)) && (fread_ptr != fread_end)) {
+      return VrtypeMultiallelicHc(vrtype)? kPglRetInconsistentInput : kPglRetMalformedInput;
+    }
     *loadbuf_iter_ptr = loadbuf_iter;
     return kPglRetSuccess;
   }
@@ -9615,7 +9759,10 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
         }
       }
     } else {
-      SkipAux1(fread_end, genovec_buf, raw_sample_ct, allele_ct, &fread_ptr);
+      reterr = SkipAux1(fread_end, genovec_buf, raw_sample_ct, allele_ct, &fread_ptr);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
     }
   }
   // now perform bitwise andnot with dosage_present
@@ -9757,6 +9904,10 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
   // Side effects: uses pgr.workspace_raregeno_tmp_loadbuf.
   // Similar to ParseAndApplyDifflist(), but with exhaustive input
   // validation.
+  // genoarr must be initialized to the values the difflist patches (common
+  // genotype, 1-bit decode, or LD base); an entry that doesn't change its
+  // sample's value is an error.  Sparse readers such as SampleCountsThread()
+  // assume no difflist entry equals the common genotype.
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   uintptr_t* cur_raregeno_iter = pgrp->workspace_raregeno_tmp_loadbuf;
   const unsigned char* group_info_iter;
@@ -9771,8 +9922,7 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
   if (common2_code) {
     // 1-bit format + list of exceptions.  In this case,
     //   (i) the length of the exception list must be < (sample_ct / 16)
-    //   (ii) every raregeno entry must either be one of the two rare genotype
-    //        values, or involve a rare alt allele.
+    //   (ii) every raregeno entry must be one of the two rare genotype values.
     if (unlikely(difflist_len >= (sample_ct / (2 * kPglMaxDifflistLenDivisor)))) {
       return 1;
     }
@@ -9792,10 +9942,6 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
         break;
       }
       if (unlikely(match1 || match2)) {
-        // todo: if (multiallelic_hc_present && (!inv_common_word2)), record
-        // might be fine; but we need to verify these are actually rare alt
-        // alleles.
-        // (er, above comment is obsolete)
         return 1;
       }
     }
@@ -9840,6 +9986,9 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
         return 1;
       }
       const uintptr_t cur_geno = cur_raregeno_word & 3;
+      if (unlikely(GetNyparrEntry(genoarr, sample_idx) == cur_geno)) {
+        return 1;
+      }
       AssignNyparrEntry(sample_idx, cur_geno, genoarr);
       if (!remaining_deltas_in_subgroup) {
         break;
