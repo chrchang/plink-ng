@@ -138,6 +138,11 @@ cd TEST_MAKE_PERM_PHENO
 cd ..
 echo "TEST_MAKE_PERM_PHENO passed."
 
+cd TEST_Q_SCORE_RANGE
+./run_tests.sh $d $2 $3 > TEST_Q_SCORE_RANGE.log
+cd ..
+echo "TEST_Q_SCORE_RANGE passed."
+
 cd TEST_BLOCKS
 ./run_tests.sh $d $2 $3 > TEST_BLOCKS.log
 cd ..
@@ -217,5 +222,85 @@ cd TEST_PVAR_ALLELE_CT
 ./run_tests.sh $d $2 $3 > TEST_PVAR_ALLELE_CT.log
 cd ..
 echo "TEST_PVAR_ALLELE_CT passed."
+
+cd TEST_ADJUST_FILE_PROVREF
+./run_tests.sh $d $2 $3 > TEST_ADJUST_FILE_PROVREF.log
+cd ..
+echo "TEST_ADJUST_FILE_PROVREF passed."
+
+cd TEST_SCORE_VS_FIXED_ALLELE
+./run_tests.sh $d $2 $3 > TEST_SCORE_VS_FIXED_ALLELE.log
+cd ..
+echo "TEST_SCORE_VS_FIXED_ALLELE passed."
+
+cd TEST_PCA_ALLELE_WTS_PROJECT
+./run_tests.sh $d $2 $3 > TEST_PCA_ALLELE_WTS_PROJECT.log
+cd ..
+echo "TEST_PCA_ALLELE_WTS_PROJECT passed."
+
+cd TEST_KING_TABLE_IBS1
+./run_tests.sh $d $2 $3 > TEST_KING_TABLE_IBS1.log
+cd ..
+echo "TEST_KING_TABLE_IBS1 passed."
+
+cd TEST_CHRY_DOSAGE_FREQ
+./run_tests.sh $d $2 $3 > TEST_CHRY_DOSAGE_FREQ.log
+cd ..
+echo "TEST_CHRY_DOSAGE_FREQ passed."
+
+cd TEST_SCORE_CENTER_MISSING
+./run_tests.sh $d $2 $3 > TEST_SCORE_CENTER_MISSING.log
+cd ..
+echo "TEST_SCORE_CENTER_MISSING passed."
+
+cd TEST_GLM_LOGISTIC_MISSING
+./run_tests.sh $d $2 $3 > TEST_GLM_LOGISTIC_MISSING.log
+cd ..
+echo "TEST_GLM_LOGISTIC_MISSING passed."
+
+cd TEST_BCF_MALFORMED
+./run_tests.sh $d $2 $3 > TEST_BCF_MALFORMED.log
+cd ..
+echo "TEST_BCF_MALFORMED passed."
+
+cd TEST_VCF_MULTIALLELIC_DS_FIELDS
+./run_tests.sh $d $2 $3 > TEST_VCF_MULTIALLELIC_DS_FIELDS.log
+cd ..
+echo "TEST_VCF_MULTIALLELIC_DS_FIELDS passed."
+
+cd TEST_VCF_MULTIALLELIC_DS_X
+./run_tests.sh $d $2 $3 > TEST_VCF_MULTIALLELIC_DS_X.log
+cd ..
+echo "TEST_VCF_MULTIALLELIC_DS_X passed."
+
+cd TEST_BCF_HAPLOID_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_HAPLOID_HDS.log
+cd ..
+echo "TEST_BCF_HAPLOID_HDS passed."
+
+cd TEST_BCF_UNPHASED_DOSAGE_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_UNPHASED_DOSAGE_HDS.log
+cd ..
+echo "TEST_BCF_UNPHASED_DOSAGE_HDS passed."
+
+cd TEST_BCF_MULTIALLELIC_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_MULTIALLELIC_HDS.log
+cd ..
+echo "TEST_BCF_MULTIALLELIC_HDS passed."
+
+cd TEST_BGEN_REF_FIRST_PHASE
+./run_tests.sh $d $2 $3 > TEST_BGEN_REF_FIRST_PHASE.log
+cd ..
+echo "TEST_BGEN_REF_FIRST_PHASE passed."
+
+cd TEST_SPLIT_PHASED
+./run_tests.sh $d $2 $3 > TEST_SPLIT_PHASED.log
+cd ..
+echo "TEST_SPLIT_PHASED passed."
+
+cd TEST_PGEN_DIFFLIST_COMMON
+./run_tests.sh $d $2 $3 > TEST_PGEN_DIFFLIST_COMMON.log
+cd ..
+echo "TEST_PGEN_DIFFLIST_COMMON passed."
 
 echo "All tests passed."

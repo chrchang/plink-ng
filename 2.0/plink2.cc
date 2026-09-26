@@ -91,7 +91,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (21 Sep 2026)";
+  " (25 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -14013,6 +14013,10 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1SampleCounts;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "trict-extra-chr")) {
+          // Already applied by CmdlineParsePhase2(), which needs it before
+          // the main parse; just check that no arguments were given.
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
           pc.misc_flags |= kfMiscStrictSid0;
           goto main_param_zero;

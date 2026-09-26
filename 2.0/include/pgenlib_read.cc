@@ -957,6 +957,12 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s does not correspond to a format supported by this version of pgenlib.\n", header_fname);
       return kPglRetNotYetSupported;
     }
+    // modes 12 and 14 are single-sample encodings; PgfiInitPhase2Ex() relies
+    // on this.
+    if (unlikely((header_ctrl_low3 >= 4) && (raw_sample_ct != 1))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s specifies a single-sample storage mode, but the file contains %u samples.\n", header_fname, raw_sample_ct);
+      return kPglRetMalformedInput;
+    }
   }
   *pgfi_alloc_cacheline_ct_ptr = CountPgfiAllocCachelinesRequired(raw_variant_ct);
   return kPglRetSuccess;
@@ -3152,7 +3158,7 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   // Side effects:
   //   may use pgr.workspace_raregeno_tmp_loadbuf
   // Trailing bits of genovec/main_raregeno may not be zeroed out.
-  // Always sets difflist_common_geno; may not set difflist_len.
+  // Always sets difflist_common_geno; not guaranteed to set difflist_len.
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t maintrack_vrtype = vrtype & 7;
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -3258,7 +3264,8 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
     }
     return kPglRetSuccess;
   }
-  *difflist_common_geno_ptr = vrtype & 3;
+  const uint32_t difflist_common_geno = vrtype & 3;
+  *difflist_common_geno_ptr = difflist_common_geno;
   PglErr reterr;
   if (!subsetting_required) {
     reterr = ParseAndSaveDifflist(fread_end, raw_sample_ct, &fread_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
@@ -3268,8 +3275,27 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   if (unlikely(reterr)) {
     return kPglRetMalformedInput;
   }
+  // We want callers to be able to assume that main_raregeno contains no common
+  // entries (e.g. --sample-counts segfaults when this is untrue).
+  const uint32_t difflist_len = *difflist_len_ptr;
+  if (difflist_len) {
+    const uint32_t fullword_ct = difflist_len / kBitsPerWordD2;
+    const uintptr_t difflist_common_geno_word = difflist_common_geno * kMask5555;
+    for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
+      const uintptr_t cur_raregeno_xor = main_raregeno[widx] ^ difflist_common_geno_word;
+      if (unlikely(kMask5555 & (~(cur_raregeno_xor | (cur_raregeno_xor >> 1))))) {
+        return kPglRetMalformedInput;
+      }
+    }
+    const uint32_t remainder = difflist_len % kBitsPerWordD2;
+    if (remainder) {
+      const uintptr_t last_raregeno_xor = main_raregeno[fullword_ct] ^ difflist_common_geno_word;
+      if (unlikely((kMask5555 >> (kBitsPerWord - remainder * 2)) & (~(last_raregeno_xor | (last_raregeno_xor >> 1))))) {
+        return kPglRetMalformedInput;
+      }
+    }
+  }
   if (is_ldbase) {
-    const uint32_t difflist_len = *difflist_len_ptr;
     pgrp->ldbase_stypes = kfPgrLdcacheDifflist;
     pgrp->ldbase_difflist_len = difflist_len;
     CopyNyparr(main_raregeno, difflist_len, pgrp->ldbase_raregeno);
@@ -9851,6 +9877,10 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
   // Side effects: uses pgr.workspace_raregeno_tmp_loadbuf.
   // Similar to ParseAndApplyDifflist(), but with exhaustive input
   // validation.
+  // genoarr must be initialized to the values the difflist patches (common
+  // genotype, 1-bit decode, or LD base); an entry that doesn't change its
+  // sample's value is an error.  Sparse readers such as SampleCountsThread()
+  // assume no difflist entry equals the common genotype.
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   uintptr_t* cur_raregeno_iter = pgrp->workspace_raregeno_tmp_loadbuf;
   const unsigned char* group_info_iter;
@@ -9865,8 +9895,7 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
   if (common2_code) {
     // 1-bit format + list of exceptions.  In this case,
     //   (i) the length of the exception list must be < (sample_ct / 16)
-    //   (ii) every raregeno entry must either be one of the two rare genotype
-    //        values, or involve a rare alt allele.
+    //   (ii) every raregeno entry must be one of the two rare genotype values.
     if (unlikely(difflist_len >= (sample_ct / (2 * kPglMaxDifflistLenDivisor)))) {
       return 1;
     }
@@ -9886,10 +9915,6 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
         break;
       }
       if (unlikely(match1 || match2)) {
-        // todo: if (multiallelic_hc_present && (!inv_common_word2)), record
-        // might be fine; but we need to verify these are actually rare alt
-        // alleles.
-        // (er, above comment is obsolete)
         return 1;
       }
     }
@@ -9934,6 +9959,9 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
         return 1;
       }
       const uintptr_t cur_geno = cur_raregeno_word & 3;
+      if (unlikely(GetNyparrEntry(genoarr, sample_idx) == cur_geno)) {
+        return 1;
+      }
       AssignNyparrEntry(sample_idx, cur_geno, genoarr);
       if (!remaining_deltas_in_subgroup) {
         break;
