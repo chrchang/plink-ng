@@ -3377,7 +3377,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       if (unlikely(variant_ct++ == max_variant_ct)) {
 #ifdef __LP64__
-        if (variant_ct == kPglMaxVariantCt) {
+        if (variant_ct == kPglMaxVariantCt + 1) {
           putc_unlocked('\n', stdout);
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
@@ -8491,7 +8491,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
       if (unlikely(variant_ct++ == max_variant_ct)) {
 #ifdef __LP64__
-        if (variant_ct == kPglMaxVariantCt) {
+        if (variant_ct == kPglMaxVariantCt + 1) {
           putc_unlocked('\n', stdout);
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto BcfToPgen_ret_MALFORMED_INPUT;
