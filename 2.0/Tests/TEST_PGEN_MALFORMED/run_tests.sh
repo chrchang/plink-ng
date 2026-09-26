@@ -80,6 +80,7 @@ for sep in '/' '|'; do
             grep -q "Variant #1 has multiallelic hardcalls in the .pgen file, but only two" tmp_err.txt
         fi
     done
+done
 
 # Storage modes 12 and 14 (twelfth header byte) are single-sample encodings.
 # A multi-sample file claiming one of them must be rejected by the header
