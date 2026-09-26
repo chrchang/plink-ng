@@ -16947,6 +16947,13 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
       logerrputsb();
       goto FlipScanRefDataset_ret_1;
     }
+    {
+      const uint32_t bad_variant_uidx = FindMultiallelicHcVsBiallelicPvar(&ref_pgfi, header_ctrl, ref_raw_variant_ct);
+      if (unlikely(bad_variant_uidx != UINT32_MAX)) {
+        logerrprintfww("Error: Variant #%u in the --flip-scan reference fileset has multiallelic hardcalls in the .pgen file, but only two alleles in the .pvar file.\n", bad_variant_uidx + 1);
+        goto FlipScanRefDataset_ret_INCONSISTENT_INPUT;
+      }
+    }
     unsigned char* pgr_alloc;
     if (unlikely(bigstack_alloc_uc((pgr_alloc_cacheline_ct + DivUp(max_vrec_width, kCacheline)) * kCacheline, &pgr_alloc))) {
       goto FlipScanRefDataset_ret_NOMEM;

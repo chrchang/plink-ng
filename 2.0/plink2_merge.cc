@@ -5356,6 +5356,12 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       const uint32_t read_phase_present = !!(vrtype & 0x90);
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
       const uintptr_t* sample_include = cur_mrp->sample_include;
+      if (unlikely((read_allele_ct == 2) && (vrtype & 8))) {
+        // see FindMultiallelicHcVsBiallelicPvar()
+        logerrprintfww("Error: Variant #%u in a --pmerge[-list] fileset has multiallelic hardcalls in the .pgen file, but only two alleles in the .pvar file.\n", read_variant_uidx + 1);
+        reterr = kPglRetInconsistentInput;
+        goto MergePgenVariantNoTmpLocked_ret_1;
+      }
       if ((read_allele_ct == 2) && (!read_dosage_present)) {
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
@@ -5795,6 +5801,12 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       const uint32_t vrtype = PgrGetVrtype(pgrp, read_variant_uidx) & vrtype_mask;
       const uint32_t read_hphase_present = (vrtype / 0x10) & 1;
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
+      if (unlikely((read_allele_ct == 2) && (vrtype & 8))) {
+        // see FindMultiallelicHcVsBiallelicPvar()
+        logerrprintfww("Error: Variant #%u in a --pmerge[-list] fileset has multiallelic hardcalls in the .pgen file, but only two alleles in the .pvar file.\n", read_variant_uidx + 1);
+        reterr = kPglRetInconsistentInput;
+        goto MergePgenVariantNoTmpLocked_ret_1;
+      }
       if ((read_allele_ct == 2) && (!read_dosage_present)) {
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
@@ -8616,6 +8628,13 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     if (unlikely((!allele_idx_offsets2) && (pgfi2.gflags & kfPgenGlobalMultiallelicHardcallFound))) {
       logerrputs("Error: --pgen-diff .pgen file contains multiallelic variants, while .pvar does\nnot.\n");
       goto PgenDiff_ret_INCONSISTENT_INPUT;
+    }
+    {
+      const uint32_t bad_variant_uidx = FindMultiallelicHcVsBiallelicPvar(&pgfi2, header_ctrl, raw_variant_ct2);
+      if (unlikely(bad_variant_uidx != UINT32_MAX)) {
+        logerrprintfww("Error: Variant #%u in the --pgen-diff fileset has multiallelic hardcalls in the .pgen file, but only two alleles in the .pvar file.\n", bad_variant_uidx + 1);
+        goto PgenDiff_ret_INCONSISTENT_INPUT;
+      }
     }
     unsigned char* simple_pgr_alloc;
     if (unlikely(bigstack_alloc_uc((pgr_alloc_cacheline_ct + DivUp(max_vrec_width, kCacheline)) * kCacheline, &simple_pgr_alloc))) {

@@ -4355,6 +4355,24 @@ char* PrintMultiallelicHcAsHaploidDs(uint32_t hc1, uint32_t hc2, uint32_t allele
 
 const char g_vft_names[3][18] = {"extract", "extract-intersect", "exclude"};
 
+uint32_t FindMultiallelicHcVsBiallelicPvar(const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t raw_variant_ct) {
+  const unsigned char* vrtypes = pgfip->vrtypes;
+  if ((!vrtypes) || (header_ctrl & 0x30)) {
+    // no multiallelic hardcalls possible, or PgfiInitPhase2() already
+    // compared the allele counts
+    return UINT32_MAX;
+  }
+  const uintptr_t* allele_idx_offsets = pgfip->allele_idx_offsets;
+  for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+    if (vrtypes[variant_uidx] & 8) {
+      if ((!allele_idx_offsets) || (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] == 2)) {
+        return variant_uidx;
+      }
+    }
+  }
+  return UINT32_MAX;
+}
+
 void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr, uint32_t variant_uidx) {
   if (reterr == kPglRetReadFail) {
     if (prepend_lf) {

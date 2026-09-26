@@ -218,6 +218,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_PVAR_ALLELE_CT
+./run_tests.sh $d $2 $3 > TEST_PVAR_ALLELE_CT.log
+cd ..
+echo "TEST_PVAR_ALLELE_CT passed."
+
 cd TEST_ADJUST_FILE_PROVREF
 ./run_tests.sh $d $2 $3 > TEST_ADJUST_FILE_PROVREF.log
 cd ..
