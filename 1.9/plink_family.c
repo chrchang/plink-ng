@@ -2384,7 +2384,10 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  dxx = (double)((int32_t)tdt_a1_trans_ct);
 	  odds_ratio = dxx * untransmitted_recip;
 	  wptr = dtoa_g_wxp4x(odds_ratio, 12, ' ', wptr);
-	  if (display_ci) {
+	  if (display_ci && (!tdt_a1_trans_ct)) {
+	    // OR is 0, so the CI is undefined
+	    wptr = memcpya(wptr, "          NA           NA ", 26);
+	  } else if (display_ci) {
 	    odds_ratio = log(odds_ratio);
 	    dxx = ci_zt * sqrt(1.0 / dxx + untransmitted_recip);
 	    wptr = dtoa_g_wxp4x(exp(odds_ratio - dxx), 12, ' ', wptr);
