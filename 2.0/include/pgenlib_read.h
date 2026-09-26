@@ -729,6 +729,12 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
 
 PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf);
 
+// Returns 1 if a dosage returned by PgrGetD()/PgrGetDp() exceeds 32768,
+// or a dphase_delta would put a haplotype dosage outside [0, 1].  The read
+// functions don't check values, since PgrValidate() does; callers that turn
+// these values into table indexes (e.g. VCF text export) should check first.
+BoolErr DosagesAreInvalid(const uintptr_t* __restrict dosage_present, const uint16_t* __restrict dosage_main, uint32_t dosage_ct, const uintptr_t* __restrict dphase_present, const int16_t* __restrict dphase_delta, uint32_t dphase_ct);
+
 // missingness bit is set iff hardcall is not present (even if dosage info *is*
 // present)
 PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
