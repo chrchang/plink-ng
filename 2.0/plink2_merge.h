@@ -114,6 +114,10 @@ FLAGSET_DEF_START()
   kfPgenDiffColAll = ((kfPgenDiffColGeno * 2) - kfPgenDiffColPos)
 FLAGSET_DEF_END(PgenDiffFlags);
 
+// Non-concatenating --pmerge[-list] jobs with more filesets than this are
+// performed in multiple passes.
+CONSTI32(kPmergeMaxPassFilesetCt, 20);
+
 typedef struct PmergeStruct {
   NONCOPYABLE(PmergeStruct);
   PmergeFlags flags;
@@ -130,6 +134,10 @@ typedef struct PmergeStruct {
   SortMode merge_pheno_sort;
   SortMode merge_info_sort;
   uint32_t max_allele_ct;
+  // Maximum number of filesets merged at once by a non-concatenating
+  // --pmerge[-list]; 0 = kPmergeMaxPassFilesetCt.  Only overridden (by the
+  // undocumented --pmerge-pass-size flag) for testing.
+  uint32_t max_pass_fileset_ct;
   char* pgen_fname;
   char* pvar_fname;
   char* psam_fname;
