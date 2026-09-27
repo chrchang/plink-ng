@@ -457,7 +457,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                force at least one phenotype column to be written.)\n"
 "      The default is maybefid,maybesid,maybeparents,sex,phenos.\n\n"
               );
-    HelpPrint("make-just-pvar\0make-just-psam\0make-just-bim\0make-just-fam\0write-cluster\n\0", &help_ctrl, 1,
+    HelpPrint("make-just-pvar\0make-just-psam\0make-just-bim\0make-just-fam\0write-cluster\0", &help_ctrl, 1,
 "  --make-just-pvar ['zs'] ['cols='<column set descriptor>]\n"
 "  --make-just-psam ['cols='<column set descriptor>]\n"
 "  --make-just-bim ['zs']\n"
@@ -629,7 +629,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    only want these histogram(s), and not the main report, add 'bins-only'.)\n\n"
               );
     // this can't really handle dosages, so we specify "hardcall"
-    HelpPrint("geno-counts\0freq\0freqx\frqx\0", &help_ctrl, 1,
+    HelpPrint("geno-counts\0freq\0freqx\0frqx\0", &help_ctrl, 1,
 "  --geno-counts ['zs'] ['cols='<column set descriptor>]\n"
 "    Variant-based hardcall genotype count report (considering both alleles\n"
 "    simultaneously in the diploid case).  Nonfounders are now included; use\n"
@@ -1084,7 +1084,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n\n"
               );
     HelpPrint("flip-scan\0flipscan\0", &help_ctrl, 1,
-"  --flip-scan ['verbose'] ['zs'] ['ref-allele-based']\n"
+"  --flip-scan ['verbose'] ['zs'] ['ref-allele-based'] ['dprime']\n"
 "              [{'cols='<column set descriptor>}] [phenotype name]\n"
 "    (alias: --flipscan)\n"
 "    Scan for case/control strand inconsistency, in two steps.\n"
@@ -1107,6 +1107,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      anyway.\n"
 "    * 'ref-allele-based' reports REF frequencies rather than major-allele\n"
 "      frequencies, and names the columns accordingly.\n"
+"    * 'dprime' replaces the correlation in the LD scan with signed D', from\n"
+"      haplotype frequencies estimated the way --r2-phased estimates them\n"
+"      (maximum likelihood over the unphased double heterozygotes).  A\n"
+"      neighbor still counts as sign-flipped when its case and control values\n"
+"      have opposite signs, but --flip-scan-threshold then applies to |D'|,\n"
+"      and it has to be met in both groups rather than in either one.  (|D'|\n"
+"      is never smaller than |r|, and it reaches 1 whenever one haplotype is\n"
+"      unobserved, so the either-group rule lets pairs near linkage\n"
+"      equilibrium through on noise; a genuine strand flip changes only the\n"
+"      sign, leaving |D'| high in both groups.)  The R_POS/R_NEG columns\n"
+"      become DPRIME_POS/DPRIME_NEG, and the .flipscan.verbose R_CASE/R_CTRL\n"
+"      columns become D_PRIME_A/D_PRIME_U.  Phase information in the input is\n"
+"      not used, as in the correlation mode.  This cannot be combined with\n"
+"      the reference-based modes below, which have no LD scan.\n"
 "    * --flip-scan-ref-freq replaces the case/control split with a comparison\n"
 "      against a reference allele frequency file, in the formats --read-freq\n"
 "      accepts.  There is no LD scan in that mode, so only step 1 applies,\n"
@@ -1137,12 +1151,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        majfreq: Major-allele frequency in cases and in controls (or REF\n"
 "                 frequency, with 'ref-allele-based').\n"
 "        posct: Number of neighbors with a positive correlation in cases.\n"
-"        rpos: Mean correlation over those neighbors.\n"
+"        rpos: Mean correlation (|D'| with 'dprime') over those neighbors.\n"
 "        negct: Number of neighbors whose correlation changes sign.\n"
-"        rneg: Mean correlation over those neighbors.\n"
+"        rneg: Mean correlation (|D'| with 'dprime') over those neighbors.\n"
 "        problem: Y if either step flagged the variant.\n"
 "        negids: IDs of those neighbors, '|'-separated.\n"
-"      (R_CASE and R_CTRL are always present in .flipscan.verbose[.zst].)\n"
+"      (R_CASE and R_CTRL, or D_PRIME_A and D_PRIME_U with 'dprime', are\n"
+"      always present in .flipscan.verbose[.zst].)\n"
 "    The default is all of them except altfreq.\n\n"
                );
     HelpPrint("indep\0indep-pairwise\0indep-pairphase\0", &help_ctrl, 1,
@@ -1592,7 +1607,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      want when missingness is highly nonrandom.\n"
 "    * The computation can be subdivided with --parallel.\n\n"
                );
-    HelpPrint("distance-matrix\0ibs-matrix\0distance\0", &help_ctrl, 1,
+    HelpPrint("distance-matrix\0distance-matrix-nonstandard\0ibs-matrix\0distance\0", &help_ctrl, 1,
 "  --distance-matrix\n"
 "  --ibs-matrix\n"
 "    Shorthand for \"--distance 1-ibs flat-missing square\" and \"--distance ibs\n"
@@ -1771,7 +1786,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    membership lists to <output prefix>.set, while --set-table writes a\n"
 "    variant-by-set membership table to <output prefix>.set.table.\n\n"
               );
-    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0", &help_ctrl, 1,
+    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0pmerge-pass-size\0", &help_ctrl, 1,
 "  --pmerge <.pgen/.bed filename> <.pvar/.bim> <.psam/.fam>\n"
 "  --pmerge <.pgen + .pvar + .psam fileset prefix> ['vzs']\n"
 "    Merge the given fileset with the initially loaded fileset, writing the\n"
@@ -1856,6 +1871,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      out when duplicate variant ID(s) remain, like --write-snplist.  Add the\n"
 "      'allow-dups' modifier to suppress that.\n\n"
                );
+    HelpPrint("info-to-cols\0", &help_ctrl, 1,
+"  --info-to-cols {<key>[,<key>...] | 'all'} ['zs']\n"
+"    Write the named INFO keys as ordinary tab-delimited columns, one row per\n"
+"    variant, to <output prefix>.vinfo.  This is the direction that VCF-derived\n"
+"    data usually has to leave plink2 in: --extract-if-info can filter on a\n"
+"    key, but nothing else could get one out.\n"
+"    * The key list is comma-separated, since INFO keys cannot contain commas.\n"
+"      'all' takes every key declared in the ##INFO header lines.\n"
+"    * A key declared Number=0 is a Flag, and its column is 0 or 1.  Any other\n"
+"      key is reported as its value, or NA where the variant does not carry it.\n"
+"      A key present without a value, where the header did not declare it a\n"
+"      Flag, is reported as 1.\n\n"
+               );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
 "    List all variants which pass your filters/inclusion thresholds.  Unless the\n"
@@ -1892,7 +1920,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        ['local-pos-cols='<key col #s> | 'local-pvar='<file>] ['local-haps']\n"
 "        ['local-omit-last' | 'local-cats[0]='<category ct>]\n"
 "        ['aperm' | 'mperm='<value>] ['permute-qt-residuals']\n"
-"    Basic association analysis on quantitative and/or case/control phenotypes.\n"
+"        ['multinomial' | 'multinomial='<test>] ['multinomial-ref='<level>]\n"
+"    Basic association analysis on quantitative, case/control, and/or\n"
+"    categorical phenotypes.\n"
 "    For each variant, a linear (for quantitative traits) or logistic (for\n"
 "    case/control) regression is run with the phenotype as the dependent\n"
 "    variable, and nonmajor allele dosage(s) and a constant-1 column as\n"
@@ -1979,6 +2009,30 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      of frequencies.\n"
 "    * For quantitative phenotypes, 'permute-qt-residuals' causes permutation to\n"
 "      occur on phenotype residuals instead of the original phenotype.\n"
+"    * Categorical phenotypes are skipped unless 'multinomial' is specified.\n"
+"      Each is then analyzed by multinomial logistic regression, with one\n"
+"      omnibus test per variant of the additive A1 dosage against all K\n"
+"      phenotype levels, on K-1 degrees of freedom.  Results are written to\n"
+"      <output prefix>.<phenotype name>.glm.multinomial.\n"
+"      * The reference level is the first in natural-sort order; change it with\n"
+"        'multinomial-ref='<level>.\n"
+"      * 'multinomial=lrt' (the default) requests a likelihood ratio test,\n"
+"        'multinomial=wald' a Wald test, and 'multinomial=score' a faster score\n"
+"        test.  Treat the latter as a screen: for rare variants in small\n"
+"        levels, it can diverge from the likelihood ratio test.\n"
+"      * When the dosages in some level all lie at or below (or at or above)\n"
+"        those of every other level, e.g. when a level has no copy of one\n"
+"        allele, the maximum-likelihood estimate does not exist.  Likelihood\n"
+"        ratio and Wald statistics are then NA, with error code SEPARATION.\n"
+"        UNFINISHED marks a fit that did not converge; its statistics are NA as\n"
+"        well.\n"
+"      * The MIN_EXPECTED column, always present, is the smallest expected cell\n"
+"        of the (A1, other allele) x level allele count table under\n"
+"        independence.  Asymptotic p-values are unreliable when it is small\n"
+"        (Cochran's rule asks for at least 5).\n"
+"      * Only the additive model is supported for now, without --parameters,\n"
+"        --tests, local covariates, or permutation.  Multiallelic variants are\n"
+"        skipped.\n"
 // Original set-based test not worth keeping.  Probable todo: review current
 // rare-variant and gene-based testing methods.
 "    The main report supports the following column sets:\n"
@@ -2020,7 +2074,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      p: Asymptotic p-value (or -log10(p)) for T/Z-statistic.\n"
 "      err: Error code for NA results.\n"
 "    The default is chrom,pos,ref,alt,provref,omitted,a1freq,firth,test,nobs,\n"
-"    orbeta,se,ci,tz,p,err.\n\n"
+"    orbeta,se,ci,tz,p,err.\n"
+"    With 'multinomial', a1countcc, totallelecc, and a1freqcc report each\n"
+"    phenotype level instead of cases and controls; 'beta' adds a coefficient\n"
+"    column per non-reference level (with standard errors and confidence bounds\n"
+"    when se/ci are also requested), while 'orbeta' has no effect; and 'tz'\n"
+"    reports the chi-square statistic and its degrees of freedom.\n\n"
                );
     HelpPrint("gwas-ssf\0glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
 "  --gwas-ssf ['zs'] ['delete-orig-glm'] ['a1freq-lower-limit='<bound>]\n"
@@ -3029,7 +3088,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --remove-males     : Exclude male samples.\n"
 "  --remove-nosex     : Exclude unknown-sex samples.\n"
                );
-    HelpPrint("keep-founders\0keep-nonfounders\0filter-founders\0filter-nonfounders\0geno-counts\0", &help_ctrl, 0,
+    HelpPrint("keep-founders\0keep-nonfounders\0filter-founders\0filter-nonfounders\0remove-founders\0remove-nonfounders\0geno-counts\0", &help_ctrl, 0,
 "  --keep-founders    : Exclude nonfounder samples.\n"
 "  --keep-nonfounders : Exclude founder samples.\n"
                );
@@ -3085,6 +3144,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                           Options are '26', 'M', 'MT', '0M', 'chr26', 'chrM',\n"
 "                           and 'chrMT'; default is now 'MT' (note that this is\n"
 "                           a change from PLINK 1.x, which defaulted to '26').\n"
+"                           'infer' follows the style of the chromosome codes\n"
+"                           in the .pvar/.bim/VCF/BCF input instead: the 'chr'\n"
+"                           prefix is kept iff every standard code has it,\n"
+"                           X/Y/XY/MT codes are numeric iff the input's are,\n"
+"                           and 'M' replaces 'MT' iff the input spells it that\n"
+"                           way.  Inconsistent or absent evidence (e.g. no MT\n"
+"                           variants, or another input format) leaves the\n"
+"                           default in place.\n"
                );
     HelpPrint("output-missing-genotype\0output-missing-phenotype\0missing-genotype\0missing-phenotype\0", &help_ctrl, 0,
 "  --output-missing-genotype <ch> : Set the code used to represent missing\n"
@@ -3250,7 +3317,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      treated as a wildcard.  'strict-missing' causes it to only match missing\n"
 "      allele codes.\n"
               );
-    HelpPrint("allele1234\0alleleACGT\0alleleacgt\0", &help_ctrl, 0,
+    HelpPrint("allele1234\0allele-1234\0alleleACGT\0alleleacgt\0allele-ACGT\0allele-acgt\0", &help_ctrl, 0,
 "  --allele1234 ['multichar'] : Interpret/recode A/C/G/T alleles (lowercase\n"
 "                               permitted) as 1/2/3/4.  With 'multichar', longer\n"
 "                               allele codes are converted in the same manner.\n"
@@ -3417,10 +3484,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                              parents have missing genotypes, don't exclude the\n"
 "                              observation from error rate denominators.\n"
               );
-    HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan-ref-freq\0flip-scan-ref-pfile\0flip-scan-ref-bfile\0flip-scan\0", &help_ctrl, 0,
+    HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan-ref-freq\0flip-scan-ref-pfile\0flip-scan-ref-bfile\0flipscan-window\0flipscan-window-kb\0flipscan-threshold\0flipscan-freq-diff\0flipscan-max-maj-freq\0flipscan-min-neg\0flipscan-ref-freq\0flip-scan\0flipscan\0", &help_ctrl, 0,
 "  --flip-scan-window <ct+1> : Set --flip-scan max variant ct dist. (def. 10).\n"
 "  --flip-scan-window-kb <x> : Set --flip-scan max kb distance (default 1000).\n"
-"  --flip-scan-threshold <x> : Set --flip-scan min correlation (default 0.5).\n"
+"  --flip-scan-threshold <x> : Set --flip-scan min correlation, or min |D'|\n"
+"                              with 'dprime' (default 0.5).\n"
 "  --flip-scan-freq-diff <x> : Set the major-allele frequency difference which\n"
 "                              flags a variant on its own (default 0.5).\n"
 "  --flip-scan-max-maj-freq <x> : Set the major-allele frequency above which a\n"
@@ -3592,7 +3660,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("adjust\0adjust-file\0lambda\0", &help_ctrl, 0,
 "  --lambda           : Set genomic control lambda for --adjust[-file].\n"
                );
-    HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
+    HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-provref-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
 "  --adjust-chr-field <n...>     : Set --adjust-file input field names.  When\n"
 "  --adjust-pos-field <n...>       multiple arguments are given to these flags,\n"
 "  --adjust-id-field <n...>        earlier names take precedence over later\n"
@@ -3602,6 +3670,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --adjust-a1-field <n...>\n"
 "  --adjust-test-field <n...>\n"
 "  --adjust-p-field <n...>\n"
+               );
+    HelpPrint("meta-analysis-chr-field\0meta-analysis-snp-field\0meta-analysis-bp-field\0meta-analysis-a1-field\0meta-analysis-a2-field\0meta-analysis-se-field\0meta-analysis-p-field\0meta-analysis-ess-field\0meta-analysis\0", &help_ctrl, 0,
+"  --meta-analysis-chr-field <n...> : Set --meta-analysis chromosome (default\n"
+"  --meta-analysis-snp-field <n...>   'CHR CHROM'), variant ID (default 'SNP\n"
+"  --meta-analysis-bp-field <n...>    ID'), position (default 'BP POS'), A1\n"
+"  --meta-analysis-a1-field <n...>    allele (default 'A1'), A2 allele (default\n"
+"  --meta-analysis-a2-field <n...>    'A2'), standard error (default 'SE'),\n"
+"  --meta-analysis-se-field <n...>    p-value (default 'P'), and effective\n"
+"  --meta-analysis-p-field <n...>     sample size (default 'NMISS OBS_CT') field\n"
+"  --meta-analysis-ess-field <n...>   name search orders.\n"
+"                                     With multiple field names, earlier names\n"
+"                                     take precedence over later ones.\n"
+"                                     The p-value and sample size fields are\n"
+"                                     only read with 'weighted-z'.\n"
                );
     HelpPrint("ci\0linear\0logistic\0", &help_ctrl, 0,
 "  --ci <size>        : Report confidence ratios for odds ratios/betas.\n"
@@ -3655,7 +3737,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        (PERM_CT, EMP2, or EMP2_CT is always present, and positioned here.)\n"
 "      Default is chrom,ref,alt,maybeprovref,omitted.\n"
               );
-    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-range\0clump-range0\0clump-range-border\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
+    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-log10-p1\0clump-log10-p2\0clump-range\0clump-range0\0clump-range-border\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
 "  --clump-p1 <pval> : Set --clump index var. p-value ceiling (default 1e-4).\n"
 "  --clump-p2 <pval> : Set --clump secondary p-value threshold (default 0.01).\n"
 "  --clump-r2 <r^2>  : Set --clump r^2 threshold (default 0.5).\n"

@@ -91,7 +91,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (21 Sep 2026)";
+  " (27 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -255,6 +255,7 @@ ENUM_U31_DEF_START()
   kCmd1BitMakePermPheno,
   kCmd1BitList23Indels,
   kCmd1BitWriteVarRanges,
+  kCmd1BitInfoToCols,
   kCmd1BitAlleleFreq,
   kCmd1BitGenoCounts,
   kCmd1BitHardy,
@@ -312,6 +313,7 @@ FLAGSET64_DEF_START()
   kfCommand1MakePermPheno = (1LLU << kCmd1BitMakePermPheno),
   kfCommand1List23Indels = (1LLU << kCmd1BitList23Indels),
   kfCommand1WriteVarRanges = (1LLU << kCmd1BitWriteVarRanges),
+  kfCommand1InfoToCols = (1LLU << kCmd1BitInfoToCols),
   kfCommand1AlleleFreq = (1LLU << kCmd1BitAlleleFreq),
   kfCommand1GenoCounts = (1LLU << kCmd1BitGenoCounts),
   kfCommand1Hardy = (1LLU << kCmd1BitHardy),
@@ -731,6 +733,7 @@ typedef struct Plink2CmdlineStruct {
   char* perm_pheno_name;
   uint32_t perm_pheno_ct;
   uint32_t write_var_range_ct;
+  InfoColsInfo info_cols_info;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -895,6 +898,7 @@ uint32_t FounderRawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc
 uint32_t InfoReloadIsNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, RmDupMode rmdup_mode) {
   return ((command_flags1 & kfCommand1MakePlink2) && (pvar_psam_flags & kfPvarColXinfo)) ||
     ((command_flags1 & kfCommand1Exportf) && (exportf_flags & (kfExportfVcf | kfExportfBcf))) ||
+    (command_flags1 & kfCommand1InfoToCols) ||
     (rmdup_mode != kRmDup0);
 }
 
@@ -1230,7 +1234,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // LoadPvar() uses pvar_psam_flags to determine what's needed for .pvar
       // export.  These booleans are just for tracking requirements beyond
       // that.
-      const uint32_t xheader_needed = (pcp->exportf_info.flags & (kfExportfVcf | kfExportfBcf))? 1 : 0;
+      // --info-to-cols reads the ##INFO lines, to enumerate keys for 'all' and
+      // to tell Flag keys from the rest.
+      const uint32_t xheader_needed = ((pcp->exportf_info.flags & (kfExportfVcf | kfExportfBcf)) || (pcp->command_flags1 & kfCommand1InfoToCols))? 1 : 0;
       const uint32_t qualfilter_needed = xheader_needed || ((pcp->rmdup_mode != kRmDup0) && (pcp->rmdup_mode <= kRmDupExcludeMismatch));
 
       uint32_t neg_bp_seen = 0;
@@ -1456,10 +1462,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logerrputsb();
         goto Plink2Core_ret_1;
       }
+      // update (26 Sep 2026): we can tolerate all-biallelic .pvar when .pgen
+      // has phased multiallelic variants, long enough to export a PLINK
+      // 1-style fileset from it.
+      /*
       if (unlikely((!allele_idx_offsets) && (pgfi.gflags & kfPgenGlobalMultiallelicHardcallFound))) {
-        logerrputs("Error: .pgen file contains multiallelic variants, while .pvar does not.\n");
+        logerrputs("Error: .pgen file contains multiallelic variants, .pvar does not.\n");
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
+      */
       if (pcp->misc_flags & kfMiscRealRefAlleles) {
         if (unlikely(nonref_flags && (!AllBitsAreOne(nonref_flags, raw_variant_ct)))) {
           // To reduce the ease of foot-shooting, we don't allow this to
@@ -3181,6 +3192,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1InfoToCols) {
+        reterr = InfoToCols(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, info_reload_slen? pvarname : nullptr, xheader, &(pcp->info_cols_info), xheader_blen, variant_ct, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
         reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, (pcp->misc_flags / kfMiscWriteSnplistAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -4474,6 +4492,7 @@ int main(int argc, char** argv) {
   MetaInfo meta_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
   InitMeta(&meta_info);
+  InitInfoCols(&pc.info_cols_info);
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
     goto main_ret_NOMEM_NOLOG;
@@ -7687,7 +7706,7 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "lip-scan") || strequal_k_unsafe(flagname_p2, "lipscan")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -7699,6 +7718,8 @@ int main(int argc, char** argv) {
               pc.ld_info.flipscan_flags |= kfFlipScanZs;
             } else if (strequal_k(cur_modif, "ref-allele-based", cur_modif_slen)) {
               pc.ld_info.flipscan_flags |= kfFlipScanRefBased;
+            } else if (strequal_k(cur_modif, "dprime", cur_modif_slen)) {
+              pc.ld_info.flipscan_flags |= kfFlipScanDprime;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (unlikely(pc.ld_info.flipscan_flags & kfFlipScanColAll)) {
                 logerrputs("Error: Multiple --flip-scan cols= modifiers.\n");
@@ -8045,6 +8066,7 @@ int main(int argc, char** argv) {
           }
           uint32_t explicit_firth_fallback = 0;
           uint32_t explicit_glm_perm_count = 0;
+          uint32_t explicit_multinomial_test = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -8220,8 +8242,44 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --glm local-cats0= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-            } else if (likely(strequal_k(cur_modif, "allow-no-covars", cur_modif_slen))) {
+            } else if (strequal_k(cur_modif, "allow-no-covars", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmAllowNoCovars;
+            } else if (strequal_k(cur_modif, "multinomial", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmMultinomial;
+            } else if (StrStartsWith(cur_modif, "multinomial=", cur_modif_slen)) {
+              if (unlikely(explicit_multinomial_test)) {
+                logerrputs("Error: Multiple --glm multinomial= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_multinomial_test = 1;
+              const char* test_name = &(cur_modif[strlen("multinomial=")]);
+              const uint32_t test_name_slen = cur_modif_slen - strlen("multinomial=");
+              if (strequal_k(test_name, "lrt", test_name_slen)) {
+                pc.glm_info.multinomial_test = kGlmMultinomialTestLrt;
+              } else if (strequal_k(test_name, "score", test_name_slen)) {
+                pc.glm_info.multinomial_test = kGlmMultinomialTestScore;
+              } else if (likely(strequal_k(test_name, "wald", test_name_slen))) {
+                pc.glm_info.multinomial_test = kGlmMultinomialTestWald;
+              } else {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm multinomial= test '%s' (must be 'lrt', 'score', or 'wald').\n", test_name);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.glm_info.flags |= kfGlmMultinomial;
+            } else if (StrStartsWith(cur_modif, "multinomial-ref=", cur_modif_slen)) {
+              if (unlikely(pc.glm_info.multinomial_ref)) {
+                logerrputs("Error: Multiple --glm multinomial-ref= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* ref_name = &(cur_modif[strlen("multinomial-ref=")]);
+              const uint32_t ref_name_blen = cur_modif_slen + 1 - strlen("multinomial-ref=");
+              if (unlikely(ref_name_blen == 1)) {
+                logerrputs("Error: Empty --glm multinomial-ref= level name.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(pgl_malloc(ref_name_blen, &pc.glm_info.multinomial_ref))) {
+                goto main_ret_NOMEM;
+              }
+              memcpy(pc.glm_info.multinomial_ref, ref_name, ref_name_blen);
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -8236,6 +8294,19 @@ int main(int argc, char** argv) {
           }
           if (unlikely((pc.glm_info.flags & (kfGlmSex | kfGlmNoXSex)) == (kfGlmSex | kfGlmNoXSex))) {
             logerrputs("Error: Conflicting --glm arguments.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.glm_info.flags & kfGlmMultinomial) {
+            if (unlikely(pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmInteraction))) {
+              logerrputs("Error: --glm 'multinomial' currently only supports the additive model; it\ncannot be used with 'genotypic', 'hethom', 'dominant', 'recessive', 'hetonly',\nor 'interaction'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(pc.glm_local_covar_fname)) {
+              logerrputs("Error: --glm 'multinomial' cannot be used with local covariates yet.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          } else if (unlikely(pc.glm_info.multinomial_ref)) {
+            logerrputs("Error: --glm 'multinomial-ref=' must be used with 'multinomial'.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           {
@@ -8849,6 +8920,53 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Distance;
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "nfo-to-cols")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* keys_str = argvk[arg_idx + 1];
+          const uint32_t keys_slen = strlen(keys_str);
+          if (strequal_k(keys_str, "all", keys_slen)) {
+            pc.info_cols_info.flags |= kfInfoColsAll;
+          } else {
+            // Comma-separated, since INFO keys cannot contain commas and a
+            // space-separated list could not be told apart from a modifier.
+            if (unlikely(!keys_slen)) {
+              logerrputs("Error: Empty --info-to-cols key list.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            char* keys_flattened;
+            if (unlikely(pgl_malloc(keys_slen + 2, &keys_flattened))) {
+              goto main_ret_NOMEM;
+            }
+            memcpy(keys_flattened, keys_str, keys_slen);
+            keys_flattened[keys_slen] = '\0';
+            keys_flattened[keys_slen + 1] = '\0';
+            for (uint32_t uii = 0; uii != keys_slen; ++uii) {
+              if (keys_flattened[uii] == ',') {
+                keys_flattened[uii] = '\0';
+              }
+            }
+            for (const char* key_iter = keys_flattened; *key_iter; ) {
+              const uint32_t key_slen = strlen(key_iter);
+              if (unlikely(!key_slen)) {
+                free(keys_flattened);
+                logerrputs("Error: Empty key in --info-to-cols key list.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              key_iter = &(key_iter[key_slen + 1]);
+            }
+            pc.info_cols_info.keys_flattened = keys_flattened;
+          }
+          if (param_ct == 2) {
+            const char* cur_modif = argvk[arg_idx + 2];
+            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --info-to-cols argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.info_cols_info.flags |= kfInfoColsZs;
+          }
+          pc.command_flags1 |= kfCommand1InfoToCols;
         } else if (strequal_k_unsafe(flagname_p2, "d-delim")) {
           if (unlikely(const_fid || (import_flags & kfImportDoubleId))) {
             logerrputs("Error: --id-delim can no longer be used with --const-fid or --double-id.\n");
@@ -11940,8 +12058,12 @@ int main(int argc, char** argv) {
             chr_info.output_encoding = kfChrOutputPrefix | kfChrOutputM;
           } else if (strequal_k(mt_code, "chrMT", code_slen)) {
             chr_info.output_encoding = kfChrOutputPrefix | kfChrOutputMT;
-          } else if (likely(strequal_k(mt_code, "26", code_slen))) {
+          } else if (strequal_k(mt_code, "26", code_slen)) {
             chr_info.output_encoding = kfChrOutput0;
+          } else if (likely(strequal_k(mt_code, "infer", code_slen))) {
+            // output_encoding stays at the default until it's inferred from
+            // the input.
+            chr_info.output_infer = kfChrInferOn;
           } else {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-chr argument '%s'.\n", mt_code);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -12458,6 +12580,28 @@ int main(int argc, char** argv) {
           }
           pmerge_info.flags |= kfPmergeOutputVzs;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "merge-pass-size")) {
+          // Undocumented: overrides the number of filesets a
+          // non-concatenating merge processes at once, so that multipass
+          // merges can be tested without lots of input filesets, and compared
+          // against single-pass merges of more than 20 filesets.  The upper
+          // limit leaves room for three open files per temporary input
+          // fileset, plus the outputs and the log.
+          if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
+            logerrputs("Error: --pmerge-pass-size must be used with --pmerge or --pmerge-list.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t max_pass_fileset_ct_limit = (kMaxOpenFiles - 4) / 3;
+          uint32_t max_pass_fileset_ct;
+          if (unlikely(ScanPosintCappedx(cur_modif, max_pass_fileset_ct_limit, &max_pass_fileset_ct) || (max_pass_fileset_ct == 1))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pmerge-pass-size argument '%s' (must be in 2..%u).\n", cur_modif, max_pass_fileset_ct_limit);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pmerge_info.max_pass_fileset_ct = max_pass_fileset_ct;
         } else if (strequal_k_unsafe(flagname_p2, "gen-diff")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -14005,6 +14149,10 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1SampleCounts;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "trict-extra-chr")) {
+          // Already applied by CmdlineParsePhase2(), which needs it before
+          // the main parse; just check that no arguments were given.
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
           pc.misc_flags |= kfMiscStrictSid0;
           goto main_param_zero;
@@ -15187,6 +15335,14 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
+    if (pc.command_flags1 & kfCommand1InfoToCols) {
+      // When no other command, filter, or variant-modifying flag needs the
+      // variant file loaded, --info-to-cols just streams it once.
+      if ((pc.command_flags1 == kfCommand1InfoToCols) && (!pc.dependency_flags) && (!pc.load_filter_log_flags) && (pc.rmdup_mode == kRmDup0) && (!pc.splitpar_bound2) && (!pc.varid_template_str) && (!(pc.misc_flags & (kfMiscMergePar | kfMiscMergeX)))) {
+        pc.info_cols_info.flags |= kfInfoColsStream;
+      }
+      pc.dependency_flags |= kfFilterPvarReq;
+    }
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr) || (meta_info.fnames != nullptr);
     if (skip_main && (!batch_job)) {
@@ -15360,6 +15516,11 @@ int main(int argc, char** argv) {
     }
     if (unlikely(pc.ld_info.flipscan_ref_freq_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
       logerrputs("Error: --flip-scan-ref-freq must be used with --flip-scan.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((pc.ld_info.flipscan_flags & kfFlipScanDprime) && (pc.ld_info.flipscan_ref_freq_fname || pc.ld_info.flipscan_ref_pgen_fname))) {
+      // The reference-based modes have no LD scan for D' to replace.
+      logerrputs("Error: --flip-scan 'dprime' cannot be used with --flip-scan-ref-freq,\n--flip-scan-ref-pfile, or --flip-scan-ref-bfile.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {
@@ -15789,6 +15950,10 @@ int main(int argc, char** argv) {
         pc.dependency_flags |= kfFilterNoSplitChr;
       }
 
+      if (pc.info_cols_info.flags & kfInfoColsStream) {
+        reterr = InfoToColsStream(pvarname, &pc.info_cols_info, pc.misc_flags, pc.input_missing_geno_char, pc.max_thread_ct, &chr_info, outname, outname_end);
+        goto main_ret_1;
+      }
       BLAS_SET_NUM_THREADS(1);
       reterr = Plink2Core(&pc, make_plink2_flags, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info, &main_sfmt);
     }
@@ -15865,6 +16030,7 @@ int main(int argc, char** argv) {
   CleanupAdjust(&adjust_file_info);
   free_cond(pc.perm_pheno_name);
   CleanupMeta(&meta_info);
+  CleanupInfoCols(&pc.info_cols_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);
