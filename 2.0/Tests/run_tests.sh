@@ -218,6 +218,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_HDS_FORCE_INTEGRAL
+./run_tests.sh $d $2 $3 > TEST_HDS_FORCE_INTEGRAL.log
+cd ..
+echo "TEST_HDS_FORCE_INTEGRAL passed."
+
 cd TEST_PGEN_EMPTY_DOSAGE_LIST
 ./run_tests.sh $d $2 $3 > TEST_PGEN_EMPTY_DOSAGE_LIST.log
 cd ..

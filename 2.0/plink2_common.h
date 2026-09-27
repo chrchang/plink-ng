@@ -1390,14 +1390,20 @@ HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const Sampl
 // read_realpath must be a buffer of size >= kPglFnamesize bytes
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
-// assumes rawval is in [1, 32767]
+// rawval is usually in [1, 32767].  0 and 32768 are unusual, since a dosage
+// equal to its hardcall usually isn't stored, but the .pgen spec permits them.
 static_assert(kDosageMax == 32768, "PrintHaploidNonintDosage() needs to be updated.");
 HEADER_INLINE char* PrintHaploidNonintDosage(uint32_t rawval, char* start) {
   // Instead of constant 5-digit precision, we print fewer digits whenever that
   // doesn't interfere with proper round-tripping.  I.e. we search for the
   // shortest string in
   //   ((n - 0.5)/32768, (n + 0.5)/32768).
-  assert(rawval - 1 < 32767);
+  if (unlikely(rawval - 1 >= 32767)) {
+    // PrintDdosageDecimal(32768) would overflow u32toa_trunc4()'s table.
+    assert(rawval <= kDosageMax);
+    *start++ = '0' + (rawval / kDosageMax);
+    return start;
+  }
   *start++ = '0';
   return PrintDdosageDecimal(rawval, start);
 }
