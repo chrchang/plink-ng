@@ -228,6 +228,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_SCORE_DOMREC
+./run_tests.sh $d $2 $3 > TEST_SCORE_DOMREC.log
+cd ..
+echo "TEST_SCORE_DOMREC passed."
+
 cd TEST_GLM_MULTINOMIAL
 ./run_tests.sh $d $2 $3 > TEST_GLM_MULTINOMIAL.log
 cd ..
