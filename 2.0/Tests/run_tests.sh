@@ -228,6 +228,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_GLM_MULTINOMIAL
+./run_tests.sh $d $2 $3 > TEST_GLM_MULTINOMIAL.log
+cd ..
+echo "TEST_GLM_MULTINOMIAL passed."
+
 cd TEST_OUTPUT_CHR_INFER
 ./run_tests.sh $d $2 $3 > TEST_OUTPUT_CHR_INFER.log
 cd ..
