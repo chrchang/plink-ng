@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+**/*.o
+**/*.a
+1.9/plink
+2.0/build_*/plink2
+2.0/build_*/pgen_compress
+2.0/Tests
+2.0/Python
+2.0/pgenlibr
+pgen_spec

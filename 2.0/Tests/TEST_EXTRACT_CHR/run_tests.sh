@@ -50,3 +50,18 @@ $1/plink2 $2 $3 --bfile tmp_data --export tped --out plink2_roundtrip
 $1/plink2 $2 $3 --tfile plink2_roundtrip --make-bed --out plink2_test
 diff -q tmp_data.bed plink2_test.bed
 diff -q tmp_data.bim plink2_test.bim
+
+# BGEN v1.1 import: a contig that first appears after the dosage scan has
+# stopped must still be registered in the second pass (it used to be looked up
+# with GetChrCode() and indexed chr_mask with UINT32_MAX).
+python3 -c "
+with open('tmp_late.vcf', 'w') as f:
+    f.write('##fileformat=VCFv4.3\n##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n##FORMAT=<ID=DS,Number=A,Type=Float,Description=\"d\">\n')
+    f.write('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\ts3\n')
+    for i in range(1000):
+        f.write('1\t%d\tv%d\tA\tG\t.\t.\t.\tGT:DS\t0/1:0.9\t0/0:0\t1/1:2\n' % (100 + i, i))
+    f.write('contigA\t100\tvA\tA\tG\t.\t.\t.\tGT:DS\t0/1:1\t0/0:0\t1/1:2\n')
+"
+$1/plink2 $2 $3 --vcf tmp_late.vcf dosage=DS --allow-extra-chr --export bgen-1.1 --out tmp_late
+$1/plink2 $2 $3 --bgen tmp_late.bgen ref-last --sample tmp_late.sample --allow-extra-chr --make-pgen --out tmp_late
+test "$(grep -c '^contigA' tmp_late.pvar)" -eq 1

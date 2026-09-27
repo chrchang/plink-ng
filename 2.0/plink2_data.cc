@@ -174,7 +174,7 @@ PglErr PvarInfoReloadHeader(TextStream* pvar_reload_txsp, char** line_iterp, uin
     if (unlikely(reterr)) {
       return reterr;
     }
-  } while (!StrStartsWithUnsafe(line_iter, "#CHROM"));
+  } while (!tokequal_k(line_iter, "#CHROM"));
   uint32_t info_col_idx = 0;
   do {
     line_iter = NextToken(line_iter);
@@ -2598,12 +2598,15 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               uint64_t alt1_ddosage_sq_sum = 0;
               uint32_t additional_dosage_ct = 0;
               if (dosage_is_relevant) {
-                uintptr_t sample_widx = 0;
+                // bugfix (22 Sep 2026): this must skip females, since
+                // genocounts[] only covers nonfemales, and sample_uidx was
+                // never advanced, so every dosage was paired with sample 0's
+                // hardcall.
+                uintptr_t sample_uidx_base = 0;
                 uintptr_t dosage_present_bits = pgv.dosage_present[0];
-                uint32_t sample_uidx = 0;
                 for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ++dosage_idx) {
-                  const uintptr_t lowbit = BitIter1y(pgv.dosage_present, &sample_widx, &dosage_present_bits);
-                  if (sample_include[sample_widx] & lowbit) {
+                  const uintptr_t sample_uidx = BitIter1(pgv.dosage_present, &sample_uidx_base, &dosage_present_bits);
+                  if (IsSet(sex_nonfemale, sample_uidx)) {
                     const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                     alt1_ddosage += cur_dosage_val;
                     alt1_ddosage_sq_sum += cur_dosage_val * cur_dosage_val;
@@ -6886,7 +6889,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       uintptr_t* read_patch_10_set = nullptr;
       AlleleCode* read_patch_10_vals = nullptr;
       if (is_mhc) {
-        assert(read_allele_ct > 2);
         read_rare01_ct = cur_vrec_end[0];
         read_rare10_ct = cur_vrec_end[1];
         cur_vrec_end = &(cur_vrec_end[RoundUpPow2(2, kWordsPerVec)]);
@@ -8157,6 +8159,13 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                   for (uint32_t aidx = cur_read_allele_ct - 1; aidx; --aidx) {
                     alt_invphase_one_sample_idx_starts[aidx] = alt_invphase_one_sample_idx_starts[aidx - 1];
                   }
+                  // bugfix: within each word, 0/x hets were appended before
+                  // y/x hets, so the alt2+ lists may be out of sample order;
+                  // the hphase-writing loop below requires sorted lists.
+                  for (uint32_t aidx = 2; aidx != cur_read_allele_ct; ++aidx) {
+                    uint32_t* regular_start = alt_regular_one_sample_idx_starts[aidx];
+                    STD_SORT(alt_regular_one_sample_idx_starts[aidx + 1] - regular_start, u32cmp, regular_start);
+                  }
                 }
                 // todo: multiallelic dosage
 
@@ -8276,8 +8285,10 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                     loadbuf_iter[0] = new_het_ct;
                     loadbuf_iter[1] = new_phasepresent_ct;
 #endif
-                    shifted_part1[0] = 1;
+                    // bugfix: the explicit-phasepresent flag was previously
+                    // set before this memset, so it was always cleared.
                     memset(shifted_part1, 0, (1 + het_ctdl) * sizeof(intptr_t));
+                    shifted_part1[0] = 1;
                     // shifted_part1 is phasepresent
                     // part1_end is start of phaseinfo
                     const uint32_t new_phasepresent_ctl = BitCtToWordCt(new_phasepresent_ct);
@@ -8302,6 +8313,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                       ++shifted_het_idx;
                     }
                     assert(phasepresent_idx == new_phasepresent_ct);
+                    // bugfix: skip past phasepresent and phaseinfo, so the
+                    // next variant doesn't overwrite them.
+                    loadbuf_iter = &(part1_end[new_phasepresent_ctl]);
                   }
                   assert(regular_idx == UINT32_MAX);
                   *regular_stop = orig_regular_end;
