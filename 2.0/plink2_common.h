@@ -1398,7 +1398,7 @@ HEADER_INLINE char* PrintHaploidNonintDosage(uint32_t rawval, char* start) {
   // doesn't interfere with proper round-tripping.  I.e. we search for the
   // shortest string in
   //   ((n - 0.5)/32768, (n + 0.5)/32768).
-  if (unlikely(rawval - 1 >= 32767)) {
+  if (rawval - 1 >= 32767) {
     // PrintDdosageDecimal(32768) would overflow u32toa_trunc4()'s table.
     assert(rawval <= kDosageMax);
     *start++ = '0' + (rawval / kDosageMax);

@@ -5633,6 +5633,7 @@ PglErr IMPLPgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* _
   }
   if (!allele_idx) {
   IMPLPgrGet1_biallelic:
+    ;
     PglErr reterr = ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, allele_countvec);
     if (unlikely(reterr)) {
       return reterr;
@@ -5657,6 +5658,7 @@ PglErr IMPLPgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t
   }
   if (!allele_idx) {
   IMPLPgrGetInv1_biallelic:
+    ;
     PglErr reterr = ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, allele_invcountvec);
     if (unlikely(reterr)) {
       return reterr;
@@ -5684,6 +5686,7 @@ PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_includ
   }
   if (!allele_idx) {
   IMPLPgrGetInv1DifflistOrGenovec_biallelic:
+    ;
     PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_difflist_len, vidx, pgrp, nullptr, nullptr, allele_invcountvec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
     if (unlikely(reterr)) {
       return reterr;

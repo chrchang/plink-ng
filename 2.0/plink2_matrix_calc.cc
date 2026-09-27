@@ -8371,6 +8371,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (is_y) {
               ZeroDArr(sample_shard_size, dosages_vmaj_iter);
               if ((!no_meanimpute) && shard_nonfemale_ct) {
+                const double adj_missing_effect = missing_effect + geno_intercept;
                 for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                   uintptr_t cur_missing_nonfemale_bits = missing_nonfemale_bitvec_iter[shard_widx];
                   if (!cur_missing_nonfemale_bits) {
@@ -8379,7 +8380,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                   do {
                     const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonfemale_bits);
-                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                     cur_missing_nonfemale_bits &= cur_missing_nonfemale_bits - 1;
                   } while (cur_missing_nonfemale_bits);
                 }
@@ -8388,6 +8389,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
               ZeroDArr(sample_shard_size, dosages_vmaj_iter);
               if (!no_meanimpute) {
                 if (shard_male_ct) {
+                  const double adj_missing_effect = missing_effect + geno_intercept;
                   for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                     uintptr_t cur_missing_male_bits = missing_male_bitvec_iter[shard_widx];
                     if (!cur_missing_male_bits) {
@@ -8396,13 +8398,14 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_male_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                       cur_missing_male_bits &= cur_missing_male_bits - 1;
                     } while (cur_missing_male_bits);
                   }
                 }
                 if (shard_nonmale_ct) {
                   missing_effect *= 2;
+                  const double adj_missing_effect = missing_effect + geno_intercept;
                   for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                     uintptr_t cur_missing_nonmale_bits = missing_bitvec_iter[shard_widx] & shard_sex_nonmale_collapsed[shard_widx];
                     if (!cur_missing_nonmale_bits) {
@@ -8411,7 +8414,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonmale_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                       cur_missing_nonmale_bits &= cur_missing_nonmale_bits - 1;
                     } while (cur_missing_nonmale_bits);
                   }

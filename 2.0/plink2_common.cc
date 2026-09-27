@@ -130,6 +130,8 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     pgvp->phasepresent = nullptr;
     pgvp->phaseinfo = nullptr;
   }
+  pgvp->dphase_present = nullptr;
+  pgvp->dphase_delta = nullptr;
   if (gflags & kfPgenGlobalDosagePresent) {
     if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->dosage_present)) ||
                  bigstack_allocv_dosage(sample_ct, &(pgvp->dosage_main)))) {
@@ -146,16 +148,10 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
       if (multiallelic_needed) {
         // todo
       }
-    } else {
-      // bugfix (21 Sep 2026): these were left uninitialized
-      pgvp->dphase_present = nullptr;
-      pgvp->dphase_delta = nullptr;
     }
   } else {
     pgvp->dosage_present = nullptr;
     pgvp->dosage_main = nullptr;
-    pgvp->dphase_present = nullptr;
-    pgvp->dphase_delta = nullptr;
     // todo: multiallelic-dosage buffers
   }
   return BigstackBaseSetChecked(g_bigstack_base);
