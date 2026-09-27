@@ -1742,6 +1742,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
       }
+      if (cip->output_infer) {
+        NoteChrCodeStyle(line_iter, linebuf_iter - line_iter, cur_chr_code, cip);
+      }
       if (merge_par) {
         if (cur_chr_code == par2_code) {
           // don't permit PAR1 variants after PAR2
@@ -2189,6 +2192,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       goto LoadPvar_ret_TSTREAM_FAIL;
     }
     reterr = kPglRetSuccess;
+    InferChrOutputEncoding(cip);
     if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
       logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPvar_ret_MALFORMED_INPUT;

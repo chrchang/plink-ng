@@ -1426,7 +1426,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const uint32_t need_pos = (flags & kfAdjustColPos);
     const uint32_t need_ref = (flags & kfAdjustColRef);
     const uint32_t need_alt = (flags & (kfAdjustColAlt1 | kfAdjustColAlt));
-    const uint32_t need_provref = (flags & (kfAdjustColMaybeprovref | kfAdjustColProvref));
+    uint32_t need_provref = (flags & (kfAdjustColMaybeprovref | kfAdjustColProvref));
     uint32_t check_a1 = (flags & kfAdjustColA1);
     const uint32_t alt_comma_truncate = (need_alt == kfAdjustColAlt1);
     if (unlikely(need_alt == (kfAdjustColAlt1 | kfAdjustColAlt))) {
@@ -1494,9 +1494,14 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       snprintf(g_logbuf, kLogbufSize, "Error: No ALT column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (unlikely(need_provref && (!(found_type_bitset & 0x20)))) {
-      snprintf(g_logbuf, kLogbufSize, "Error: No PROVISIONAL_REF? column in %s.\n", in_fname);
-      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+    if (need_provref && (!(found_type_bitset & 0x20))) {
+      // bugfix (22 Sep 2026): 'maybeprovref', which is in the default column
+      // set, must not require the column.
+      if (unlikely(flags & kfAdjustColProvref)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: No PROVISIONAL_REF? column in %s.\n", in_fname);
+        goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+      }
+      need_provref = 0;
     }
     if (check_a1 && (!(found_type_bitset & 0x40))) {
       snprintf(g_logbuf, kLogbufSize, "Warning: No A1 column in %s. Omitting from output.\n", in_fname);
