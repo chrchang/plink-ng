@@ -3377,7 +3377,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       if (unlikely(variant_ct++ == max_variant_ct)) {
 #ifdef __LP64__
-        if (variant_ct == kPglMaxVariantCt) {
+        if (variant_ct == kPglMaxVariantCt + 1) {
           putc_unlocked('\n', stdout);
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
@@ -4237,7 +4237,13 @@ PglErr BcfHeaderLineIdxCheck(const char* line_iter, uint32_t header_line_idx) {
       logerrprintfww("Error: Line %u in BCF text header block has IDX= in the center instead of the end of the line; this is not currently supported by " PROG_NAME_STR ". Contact us if you need this to work.\n", header_line_idx);
       return kPglRetNotYetSupported;
     }
-    line_iter = AdvPastDelim(tag_start, '=');
+    // Don't let a key without '=' send the search past the end of the line
+    // (or of the header block).
+    line_iter = strchrnul_n(tag_start, '=');
+    if (unlikely(*line_iter != '=')) {
+      goto BcfHeaderLineIdxCheck_FAIL;
+    }
+    ++line_iter;
     if (*line_iter != '"') {
       line_iter = strchrnul_n(line_iter, ',');
       if (*line_iter == ',') {
@@ -5296,8 +5302,13 @@ BoolErr ParseBcfBiallelicHds(const unsigned char* dosage_main, const unsigned ch
       // if hds_valid and (cur_dphase_delta == 0), caller should override
       // hardcall-phase
       *hds_valid_ptr = 1;
-      int32_t second_bits;
-      CopyFromUnalignedOffsetI32(&second_bits, cur_hds_start, 1);
+      // bugfix: when every sample in the record has ploidy 1 (chrY/MT
+      // without phase), HDS has only one value per sample, and the next
+      // sample's value must not be read as this sample's second haplotype.
+      int32_t second_bits = 0x7f800002;
+      if (hds_value_ct > 1) {
+        CopyFromUnalignedOffsetI32(&second_bits, cur_hds_start, 1);
+      }
       if (second_bits > 0x7f800000) {
         // haploid ok, half-call not ok
         // 0x7f800002 == END_OF_VECTOR
@@ -8480,7 +8491,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
       if (unlikely(variant_ct++ == max_variant_ct)) {
 #ifdef __LP64__
-        if (variant_ct == kPglMaxVariantCt) {
+        if (variant_ct == kPglMaxVariantCt + 1) {
           putc_unlocked('\n', stdout);
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto BcfToPgen_ret_MALFORMED_INPUT;
@@ -10196,11 +10207,18 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
               // .sample files are relatively small, so let's go ahead and
               // (i) validate we have a positive integer < 2^31
               // (ii) convert e.g. 9000000, 9000000., 9.0e6 all to 9000000
-              int32_t ii = S_CAST(int32_t, dxx);
-              if (unlikely((num_end != token_end) || (ii <= 0) || (S_CAST(double, ii) != dxx))) {
+
+              // range-check before the cast: converting an out-of-range
+              // double to int32_t is undefined behavior
+              if (unlikely((num_end != token_end) || (dxx < 1.0) || (dxx > 2147483647.0))) {
+              OxSampleToPsam_invalid_category:
                 *token_end = '\0';
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid categorical phenotype value '%s' on line %" PRIuPTR ", column %u of .sample file (positive integer < 2^31 or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);
                 goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
+              }
+              const int32_t ii = S_CAST(int32_t, dxx);
+              if (unlikely(S_CAST(double, ii) != dxx)) {
+                goto OxSampleToPsam_invalid_category;
               }
               write_iter = u32toa(ii, write_iter);
             } else {
@@ -11646,7 +11664,12 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, compressed_geno_start, compressed_byte_ct);
             if (unlikely(extracted_byte_ct != uncompressed_byte_ct)) {
-              assert(ZSTD_isError(extracted_byte_ct));
+              if (!ZSTD_isError(extracted_byte_ct)) {
+                // valid zstd frame, but shorter than the declared
+                // uncompressed length
+                new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeUncompressedByteCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                goto Bgen13DosageOrPhaseScanThread_err;
+              }
               ctx->err_extra[tidx] = ZSTD_getErrorName(extracted_byte_ct);
               new_err_info = (S_CAST(uint64_t, bidx) << 32) | (tidx << 16) | (S_CAST(uint32_t, kBgenImportErrSubtypeZstdDecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
               goto Bgen13DosageOrPhaseScanThread_err;
@@ -12151,7 +12174,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, grp->record_start, compressed_byte_ct);
             if (unlikely(extracted_byte_ct != uncompressed_byte_ct)) {
-              assert(ZSTD_isError(extracted_byte_ct));
+              if (!ZSTD_isError(extracted_byte_ct)) {
+                new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeUncompressedByteCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                goto Bgen13GenoToPgenThread_err;
+              }
               ctx->err_extra[tidx] = ZSTD_getErrorName(extracted_byte_ct);
               new_err_info = (S_CAST(uint64_t, bidx) << 32) | (tidx << 16) | (S_CAST(uint32_t, kBgenImportErrSubtypeZstdDecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
               goto Bgen13GenoToPgenThread_err;
@@ -12574,6 +12600,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         if (!prov_ref_allele_second) {
           GenovecInvertUnsafe(sample_ct, genovec);
           ZeroTrailingNyps(sample_ct, genovec);
+          if (cur_phasepresent_exists) {
+            // bugfix: 0|1 and 1|0 swap along with the allele codes
+            BitvecXor(phasepresent, sample_ctl, phaseinfo);
+          }
           if (dosage_ct) {
             BiallelicDosage16Invert(dosage_ct, dosage_main);
             // currently no code path here where dosage_ct < dphase_ct
@@ -13408,7 +13438,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 chr_name_slen = snpid_slen;
               }
               chr_name_start[chr_name_slen] = '\0';
-              cur_chr_code = GetChrCode(chr_name_start, cip, chr_name_slen);
+              // The first pass stops early once it has found a dosage, so it
+              // may not have seen (and registered) this chromosome name.
+              reterr = GetOrAddChrCode(chr_name_start, "--bgen file", 0, chr_name_slen, prohibit_extra_chr, cip, &cur_chr_code);
+              if (unlikely(reterr)) {
+                goto OxBgenToPgen_ret_1;
+              }
               skip |= !IsSet(cip->chr_mask, cur_chr_code);
             }
 

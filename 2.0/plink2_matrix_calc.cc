@@ -788,6 +788,9 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingCutoffBatchTable_ret_MISSING_TOKENS;
+      }
       uint32_t sample_idx2;
       if (SortedXidboxReadFind(sorted_xidbox, xid_cmap, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_idx2, idbuf)) {
         if (unlikely(!linebuf_iter)) {
@@ -2580,9 +2583,12 @@ PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const
               const uint32_t singleton_hom2_ct = singleton_hom_cts[sample_idx2];
               const uint32_t ibs0_ct = results_iter[kKingOffsetIbs0] + singleton_hom2_ct + singleton_hom1_ct;
               const uint32_t hethet_ct = results_iter[kKingOffsetHethet];
-              // '2' here refers to the larger index, so this is swapped
-              const uint32_t het2hom1_ct = results_iter[kKingOffsetHet2Hom1] + singleton_het1_ct;
-              const uint32_t het1hom2_ct = results_iter[kKingOffsetHet1Hom2] + singleton_het2_ct;
+              // '2' in the kKingOffset constants refers to the larger index,
+              // i.e. sample_idx1 (IID1) here, so this is swapped.
+              // bugfix (22 Sep 2026): the swap was missing, so the
+              // HET1_HOM2 and HET2_HOM1 columns were exchanged.
+              const uint32_t het2hom1_ct = results_iter[kKingOffsetHet1Hom2] + singleton_het2_ct;
+              const uint32_t het1hom2_ct = results_iter[kKingOffsetHet2Hom1] + singleton_het1_ct;
               const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
               const double kinship_coeff = 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
               if (kinship_table && (kinship_coeff > king_cutoff)) {
@@ -3093,6 +3099,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingTableSubsetLoad_ret_MISSING_TOKENS;
+      }
       if (rel_or_concordance_check) {
         // linebuf_iter must point to the start of the second FID, while
         // line_iter points to the start of the first.
@@ -3190,7 +3199,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
     reterr = kPglRetMalformedInput;
     break;
   KingTableSubsetLoad_ret_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    logerrprintfww("Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
   KingTableSubsetLoad_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -6522,9 +6533,18 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
           var_wts_iter -= pc_ct;
         }
       } else {
+        // bugfix (22 Sep 2026): these weights must be on the same scale, and
+        // have the same sign convention, as the biallelic ones above, or
+        // --score variance-standardize projections stop being a multiple
+        // of the PCs as soon as a multiallelic variant is present.
+        // LoadMultiallelicCenteredVarmaj() divides each allele's centered
+        // dosage by sqrt(2 * <variance>) while --score divides by
+        // sqrt(<variance>), hence the 1/sqrt(2); and the biallelic weights
+        // above are negated relative to their ALT-oriented rows (REF gets
+        // +0.5), hence the minus sign.
         for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
           *cswritep++ = '\t';
-          cswritep = dtoa_g((*var_wts_iter++) * eigval_inv_sqrts[pc_idx], cswritep);
+          cswritep = dtoa_g((*var_wts_iter++) * (-1.0 / kSqrt2) * eigval_inv_sqrts[pc_idx], cswritep);
         }
       }
       AppendBinaryEoln(&cswritep);
@@ -8175,7 +8195,10 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   dosage_incr_lookup_table[2] = dosage_incr_lookup_table[1] + geno_incr;
                   dosage_incr_lookup_table[3] = 0.0;
                   if (!no_meanimpute) {
-                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope;
+                    // bugfix (22 Sep 2026): mean-imputed genotypes need
+                    // geno_intercept too, or 'center' and
+                    // 'variance-standardize' leave them uncentered.
+                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope + geno_intercept;
                   }
                   if (se_mode) {
                     for (uint32_t uii = 0; uii != 4; ++uii) {
@@ -8328,7 +8351,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (!domrec) {
               missing_effect *= 2;
             }
-            lookup_table[6] = missing_effect;
+            lookup_table[6] = missing_effect + geno_intercept;
           }
           if (se_mode) {
             lookup_table[0] *= lookup_table[0];
@@ -8356,7 +8379,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                   do {
                     const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonfemale_bits);
-                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                     cur_missing_nonfemale_bits &= cur_missing_nonfemale_bits - 1;
                   } while (cur_missing_nonfemale_bits);
                 }
@@ -8373,7 +8396,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_male_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                       cur_missing_male_bits &= cur_missing_male_bits - 1;
                     } while (cur_missing_male_bits);
                   }
@@ -8388,7 +8411,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonmale_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
                       cur_missing_nonmale_bits &= cur_missing_nonmale_bits - 1;
                     } while (cur_missing_nonmale_bits);
                   }
@@ -8397,6 +8420,9 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             } else {
               const double ploidy_d = ploidy_m1s[vidx]? 2.0 : 1.0;
               missing_effect *= ploidy_d;
+              if (!no_meanimpute) {
+                missing_effect += geno_intercept;
+              }
               uintptr_t shard_sample_idx_base = 0;
               uintptr_t missing_bits = missing_bitvec_iter[0];
               for (uint32_t missing_idx = 0; missing_idx != shard_missing_ct; ++missing_idx) {
@@ -8573,8 +8599,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         const uint32_t name_slen = range_name_end - line_start;
-        if (name_slen > max_name_slen) {
+        if (unlikely(name_slen > max_name_slen)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Name too long on line %" PRIuPTR " of --q-score-range range file.\n", line_idx);
+          goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         unsigned char* tmp_alloc_base = R_CAST(unsigned char*, &(parsed_qscore_ranges[qsr_ct]));
         if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= name_slen + sizeof(ParsedQscoreRange)) {
@@ -9585,8 +9612,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 } else {
                   GenoarrCountFreqsUnsafe(genovec_iter, sample_ct, genocounts);
                 }
-                if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: --score[-list] variance-standardize failure for variant '%s': estimated allele frequency is zero or NaN, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
+                // bugfix (22 Sep 2026): the scored allele may be fixed
+                // instead (e.g. the REF allele of a variant with no ALT
+                // call), in which case every genotype must carry two copies
+                // of it.
+                const uint32_t fixed_geno = (cur_allele_freq > 0.5)? 2 : 0;
+                if (unlikely(dosage_ct || genocounts[1] || genocounts[2 - fixed_geno])) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --score[-list] variance-standardize failure for variant '%s': estimated allele frequency is %s, but not all dosages are %s. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx], fixed_geno? "one" : "zero or NaN", fixed_geno? "two" : "zero");
                   goto ScoreReport_ret_DEGENERATE_DATA_WW;
                 }
                 geno_slope = 0.0;
