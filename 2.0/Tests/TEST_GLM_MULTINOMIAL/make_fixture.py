@@ -2,11 +2,15 @@
 # Generates the committed fixture for TEST_GLM_MULTINOMIAL (needs numpy; not
 # run by the test itself):
 #   mn.vcf.gz  37 variants: 31 on chr1, 6 on chrX (haploid male calls)
+#   mn_multi.vcf.gz  4 multiallelic chr1 variants (separate, since VCF import
+#              with dosage=DS does not accept multiallelic records)
 #   sex.txt    sample sexes
 #   pheno.txt  CAT: 4 levels (alpha, beta, delta, gamma)
 #              SINGLE: CAT with one sample moved to a level of its own (zeta)
 #              BIN: case/control, for the check that other phenotypes are
 #              unaffected by the 'multinomial' modifier
+#              CAT2: BIN as a 2-level categorical phenotype (lo, hi), for the
+#              cross-check against logistic regression
 #   covar.txt  3 quantitative covariates, 2 binary ones
 # Variant roles on chr1:
 #   v1-v21  ordinary; about a third have an effect on some levels
@@ -14,6 +18,11 @@
 #   v25-v27 missing calls
 #   v28-v30 dosages
 #   sep1    no ALT allele in level delta (quasi-complete separation)
+# and in mn_multi.vcf.gz:
+#   m1-m4   multiallelic: m1 has a level-dependent ALT2 frequency, m2 is
+#           null, m3 has four alleles (one rare), m4 has missing calls
+#           (drawn from a separate generator, so the other variants do not
+#           depend on them)
 import gzip
 import numpy as np
 
@@ -64,6 +73,25 @@ chroms.insert(30, "1")
 missing = {v: set(rng.choice(n, size=s, replace=False)) for v, s in (("v25", 5), ("v26", 20), ("v27", 40))}
 dosage_vars = {"v28", "v29", "v30"}
 
+# Multiallelic variants: per-sample allele-index pairs.
+rng_multi = np.random.default_rng(5180)
+multi_ids = ["m1", "m2", "m3", "m4"]
+multi_freqs = {"m1": [0.55, 0.3, 0.15], "m2": [0.5, 0.3, 0.2], "m3": [0.6, 0.25, 0.12, 0.03], "m4": [0.5, 0.35, 0.15]}
+multi_calls = {}
+for vid in multi_ids:
+    calls = []
+    for i in range(n):
+        freqs = np.array(multi_freqs[vid])
+        if (vid == "m1") and (y[i] == 3):
+            freqs = np.array([0.45, 0.25, 0.3])
+        pair = sorted(rng_multi.choice(len(freqs), size=2, p=freqs / freqs.sum()))
+        calls.append("%d/%d" % (pair[0], pair[1]))
+    if vid == "m4":
+        for i in rng_multi.choice(n, size=25, replace=False):
+            calls[i] = "./."
+    multi_calls[vid] = calls
+multi_alts = {"m1": "G,T", "m2": "G,T", "m3": "G,T,C", "m4": "G,T"}
+
 gt = {0.0: "0/0", 1.0: "0/1", 2.0: "1/1"}
 hap = {0.0: "0", 2.0: "1"}
 vcf_lines = []
@@ -89,17 +117,22 @@ for vidx, vid in enumerate(var_ids):
     # chrX positions lie past PAR1
     pos = 1000 * (vidx + 1) + (5000000 if chrom == "X" else 0)
     vcf_lines.append("%s\t%d\t%s\tA\tG\t.\t.\t.\t%s\t%s\n" % (chrom, pos, vid, "GT:DS" if is_ds else "GT", "\t".join(cells)))
-# mtime=0 keeps the committed file byte-identical across regenerations
-with gzip.GzipFile("mn.vcf.gz", "wb", compresslevel=9, mtime=0) as f:
-    f.write("".join(vcf_lines).encode())
+
+multi_lines = vcf_lines[:4]
+for midx, mid in enumerate(multi_ids):
+    multi_lines.append("1\t%d\t%s\tA\t%s\t.\t.\t.\tGT\t%s\n" % (40000 + 1000 * midx, mid, multi_alts[mid], "\t".join(multi_calls[mid])))
+# mtime=0 keeps the committed files byte-identical across regenerations
+for fname, lines in (("mn.vcf.gz", vcf_lines), ("mn_multi.vcf.gz", multi_lines)):
+    with gzip.GzipFile(fname, "wb", compresslevel=9, mtime=0) as f:
+        f.write("".join(lines).encode())
 
 single = [levels[k] for k in y]
 single[int(np.flatnonzero(y == 0)[0])] = "zeta"
 bin_pheno = 1 + (y >= 2)
 with open("pheno.txt", "w") as f:
-    f.write("#IID\tCAT\tSINGLE\tBIN\n")
+    f.write("#IID\tCAT\tSINGLE\tBIN\tCAT2\n")
     for i in range(n):
-        f.write("i%d\t%s\t%s\t%d\n" % (i, levels[y[i]], single[i], bin_pheno[i]))
+        f.write("i%d\t%s\t%s\t%d\t%s\n" % (i, levels[y[i]], single[i], bin_pheno[i], ("lo", "hi")[bin_pheno[i] - 1]))
 with open("covar.txt", "w") as f:
     f.write("#IID\tC1\tC2\tC3\tB1\tB2\n")
     for i in range(n):

@@ -28,10 +28,13 @@ namespace plink2 {
 #endif
 
 // Multinomial logistic regression of a categorical phenotype with K levels on
-// the covariates and an additive dosage, one omnibus test per variant on K-1
-// degrees of freedom:
-//   log(P(y = k) / P(y = ref)) = Z beta_k + g gamma_k,  k != ref
+// the covariates and m genotype columns G, one omnibus test per variant (or
+// per allele) on (K-1) m degrees of freedom:
+//   log(P(y = k) / P(y = ref)) = Z beta_k + G gamma_k,  k != ref
 //   H0: gamma_k = 0 for every k.
+// G is the additive dosage of each non-omitted allele (all tested jointly),
+// or one allele's dominant/recessive/hetonly column or genotypic/hethom pair,
+// with the other non-omitted alleles as additive nuisance columns in Z.
 //
 // "Level" indices are global to the phenotype, with 0 always the reference
 // level.  A given sample set may not contain every level (e.g. chrY), and a
@@ -57,14 +60,17 @@ typedef struct MultinomialSetStruct {
   uint32_t null_class_ct;
 } MultinomialSet;
 
+// One per output row.  In the additive model, a variant has one row, which
+// tests all its non-omitted alleles jointly; in the other models, it has one
+// row per non-omitted allele (A1), with the other non-omitted alleles as
+// additive nuisance predictors.
 typedef struct {
   uint32_t sample_obs_ct;
   uint32_t allele_obs_ct;
-  double a1_dosage;
   double mach_r2;
   double min_expected;
   double chisq;
-  // number of non-reference classes in the regression
+  // (non-reference classes) x (tested columns)
   uint32_t df;
   uint32_t is_unfinished;
   // nonzero if chisq is invalid
@@ -81,13 +87,26 @@ typedef struct GlmMultinomialCtxStruct {
   GlmMultinomialTest test_type;
   // fit the full model and save coefficients + standard errors?
   uint32_t save_coefs;
+  uint32_t is_additive;
+  // genotype columns per allele: 1, or 2 for 'genotypic' (ADD, DOMDEV) and
+  // 'hethom' (HOM, HET)
+  uint32_t model_col_ct;
+  // per-variant slot sizes: rows, A1 alleles per row, coefficient slots per
+  // row and non-reference level
+  uint32_t max_row_ct;
+  uint32_t max_a1_ct;
+  uint32_t max_tested_ct;
 
+  // max_row_ct entries per variant
   MultinomialAuxResult* block_aux;
-  // level_ct entries per variant
+  // max_row_ct * max_a1_ct entries per variant
+  double* block_a1_dosage;
+  // max_row_ct * level_ct * max_a1_ct entries per variant
   double* block_level_a1;
+  // level_ct entries per variant
   uint32_t* block_level_allele_obs;
-  // 2 * (level_ct - 1) entries per variant, (beta, se) pairs, -9.0 se if
-  // unavailable
+  // max_row_ct * (level_ct - 1) * max_tested_ct (beta, se) pairs per variant,
+  // se -9.0 if unavailable
   double* block_beta_se;
 } GlmMultinomialCtx;
 
@@ -107,8 +126,6 @@ uint32_t CountPhenoCats(const uintptr_t* sample_include, const PhenoCol* pheno_c
 // kGlmErrcodeLogisticConvergeFail.
 BoolErr GlmAllocFillAndTestPhenoCovarsMultinomial(const uintptr_t* sample_include, const PhenoCol* pheno_col, const uint32_t* cat_to_level, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t level_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, MultinomialSet* setp, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr);
 
-// Multiallelic variants must already be excluded from
-// ctx->common->variant_include.
 PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const char* outname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, PgenFileInfo* pgfip, GlmMultinomialCtx* ctx, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr);
 
 #ifdef __cplusplus
