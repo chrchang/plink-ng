@@ -427,7 +427,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                force at least one phenotype column to be written.)\n"
 "      The default is maybefid,maybesid,maybeparents,sex,phenos.\n\n"
               );
-    HelpPrint("make-just-pvar\0make-just-psam\0make-just-bim\0make-just-fam\0write-cluster\n\0", &help_ctrl, 1,
+    HelpPrint("make-just-pvar\0make-just-psam\0make-just-bim\0make-just-fam\0write-cluster\0", &help_ctrl, 1,
 "  --make-just-pvar ['zs'] ['cols='<column set descriptor>]\n"
 "  --make-just-psam ['cols='<column set descriptor>]\n"
 "  --make-just-bim ['zs']\n"
@@ -595,7 +595,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    only want these histogram(s), and not the main report, add 'bins-only'.)\n\n"
               );
     // this can't really handle dosages, so we specify "hardcall"
-    HelpPrint("geno-counts\0freq\0freqx\frqx\0", &help_ctrl, 1,
+    HelpPrint("geno-counts\0freq\0freqx\0frqx\0", &help_ctrl, 1,
 "  --geno-counts ['zs'] ['cols='<column set descriptor>]\n"
 "    Variant-based hardcall genotype count report (considering both alleles\n"
 "    simultaneously in the diploid case).  Nonfounders are now included; use\n"
@@ -2379,7 +2379,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --remove-males     : Exclude male samples.\n"
 "  --remove-nosex     : Exclude unknown-sex samples.\n"
                );
-    HelpPrint("keep-founders\0keep-nonfounders\0filter-founders\0filter-nonfounders\0geno-counts\0", &help_ctrl, 0,
+    HelpPrint("keep-founders\0keep-nonfounders\0filter-founders\0filter-nonfounders\0remove-founders\0remove-nonfounders\0geno-counts\0", &help_ctrl, 0,
 "  --keep-founders    : Exclude nonfounder samples.\n"
 "  --keep-nonfounders : Exclude founder samples.\n"
                );
@@ -2588,7 +2588,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      treated as a wildcard.  'strict-missing' causes it to only match missing\n"
 "      allele codes.\n"
               );
-    HelpPrint("allele1234\0alleleACGT\0alleleacgt\0", &help_ctrl, 0,
+    HelpPrint("allele1234\0allele-1234\0alleleACGT\0alleleacgt\0allele-ACGT\0allele-acgt\0", &help_ctrl, 0,
 "  --allele1234 ['multichar'] : Interpret/recode A/C/G/T alleles (lowercase\n"
 "                               permitted) as 1/2/3/4.  With 'multichar', longer\n"
 "                               allele codes are converted in the same manner.\n"
@@ -2849,7 +2849,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("adjust\0adjust-file\0lambda\0", &help_ctrl, 0,
 "  --lambda           : Set genomic control lambda for --adjust[-file].\n"
                );
-    HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
+    HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-provref-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
 "  --adjust-chr-field <n...>     : Set --adjust-file input field names.  When\n"
 "  --adjust-pos-field <n...>       multiple arguments are given to these flags,\n"
 "  --adjust-id-field <n...>        earlier names take precedence over later\n"
@@ -2912,7 +2912,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        (PERM_CT, EMP2, or EMP2_CT is always present, and positioned here.)\n"
 "      Default is chrom,ref,alt,maybeprovref,omitted.\n"
               );
-    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-range\0clump-range0\0clump-range-border\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
+    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-log10-p1\0clump-log10-p2\0clump-range\0clump-range0\0clump-range-border\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
 "  --clump-p1 <pval> : Set --clump index var. p-value ceiling (default 1e-4).\n"
 "  --clump-p2 <pval> : Set --clump secondary p-value threshold (default 0.01).\n"
 "  --clump-r2 <r^2>  : Set --clump r^2 threshold (default 0.5).\n"

@@ -1952,7 +1952,10 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genoarr, const uin
     uintptr_t cur_bits = patch_01_set[0];
     const AlleleCode remap0 = remap[0];
     const AlleleCode remap1 = remap[1];
-    if ((!remap0) || ((!flipped) && (remap0 == 1) && (!remap1))) {
+    // bugfix (21 Sep 2026): the remap0 == 1, remap1 == 0 case was also
+    // handled here, but wide_codes[2 * sample_idx] is remap1 rather than
+    // remap0 then; see the 4 Jul 2024 bugfix below.
+    if (!remap0) {
       // no flips possible
       AlleleCode* wide_codes1 = &(wide_codes[1]);
       for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {

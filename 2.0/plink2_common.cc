@@ -130,6 +130,8 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     pgvp->phasepresent = nullptr;
     pgvp->phaseinfo = nullptr;
   }
+  pgvp->dphase_present = nullptr;
+  pgvp->dphase_delta = nullptr;
   if (gflags & kfPgenGlobalDosagePresent) {
     if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->dosage_present)) ||
                  bigstack_allocv_dosage(sample_ct, &(pgvp->dosage_main)))) {
@@ -150,8 +152,6 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
   } else {
     pgvp->dosage_present = nullptr;
     pgvp->dosage_main = nullptr;
-    pgvp->dphase_present = nullptr;
-    pgvp->dphase_delta = nullptr;
     // todo: multiallelic-dosage buffers
   }
   return BigstackBaseSetChecked(g_bigstack_base);
@@ -4367,6 +4367,15 @@ void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr
       logerrprintfww("Error: Failed to unpack (0-based) variant #%u in %s.\n", variant_uidx, file_descrip);
     }
     logerrputs("You can use --validate to check whether it is malformed.\n* If it is malformed, you probably need to either re-download the file, or\n  address an error in the command that generated the input .pgen.\n* If it appears to be valid, you have probably encountered a plink2 bug.  If\n  you report the error on GitHub or the plink2-users Google group (make sure to\n  include the full .log file in your report), we'll try to address it.\n");
+  } else if (reterr == kPglRetInconsistentInput) {
+    if (prepend_lf) {
+      logputs("\n");
+    }
+    if (variant_uidx == UINT32_MAX) {
+      logerrprintfww("Error: .pvar entry has too few alleles to be consistent with corresponding record in %s .\n", file_descrip);
+    } else {
+      logerrprintfww("Error: .pvar entry for (0-based) variant #%u has too few alleles to be consistent with corresponding record in %s .\n", variant_uidx, file_descrip);
+    }
   }
 }
 
