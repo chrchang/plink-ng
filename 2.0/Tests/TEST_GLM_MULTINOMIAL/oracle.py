@@ -22,17 +22,28 @@
 #   genotypic/hethom basis leaves out.  A constant tested column
 #   (non-additive models), or no nonconstant
 #   ALT allele (additive), gives CONST (CONST_ALLELE).
+# * With 'firth', every fit maximizes Firth's penalized log-likelihood
+#   l*(b) = l(b) + 0.5 log det I(b) instead (--glm multinomial firth), so
+#   there is no separation check.  LRT is the penalized likelihood ratio
+#   statistic, whose restricted fit maximizes the same l* with the tested
+#   coefficients at zero; WALD and the standard errors use the inverse of the
+#   leverage-augmented information matrix, logistf's covariance.  This does
+#   not share plink2's algebra: I and each dI/db are built from explicit
+#   per-sample Kronecker products, and l* is maximized with scipy's BFGS
+#   followed by Newton steps on a finite-difference Hessian.
 #
-# Usage: oracle.py <phenotype column> <use covariates: 0/1> <model> <output>
+# Usage: oracle.py <phenotype column> <use covariates: 0/1> <model> <output> [firth]
 # where <model> is one of add, dominant, recessive, hetonly, genotypic, hethom.
 import gzip
 import sys
 import warnings
 import numpy as np
+import scipy.optimize
 import statsmodels.api as sm
 
 warnings.simplefilter("ignore")
 pheno_name, use_covar, model, out_fname = sys.argv[1], sys.argv[2] == "1", sys.argv[3], sys.argv[4]
+use_firth = (len(sys.argv) > 5) and (sys.argv[5] == "firth")
 
 phe_rows = [l.split() for l in open("pheno.txt")]
 col = phe_rows[0].index(pheno_name)
@@ -94,6 +105,87 @@ def fit(yv, X, start=None):
     return sm.MNLogit(yv, X).fit(method="newton", maxiter=200, disp=0, tol=1e-14, start_params=start)
 
 
+class FirthModel:
+    # yv: class indices (0 = reference); X: n x p (column 0 the intercept);
+    # parameters are class-major, J x p.
+    def __init__(self, yv, X):
+        self.X = X
+        self.n, self.p = X.shape
+        self.J = yv.max()
+        self.Y = np.zeros((self.n, self.J))
+        for c in range(1, self.J + 1):
+            self.Y[yv == c, c - 1] = 1.0
+
+    def probs(self, theta):
+        eta = np.hstack([np.zeros((self.n, 1)), self.X @ theta.reshape(self.J, self.p).T])
+        m = eta.max(1, keepdims=True)
+        lse = m[:, 0] + np.log(np.exp(eta - m).sum(1))
+        ll = (eta[:, 1:] * self.Y).sum() - lse.sum()
+        return ll, np.exp(eta[:, 1:] - lse[:, None])
+
+    def info(self, P, wts=None):
+        W = np.einsum("ia,ab->iab", P, np.eye(self.J)) - np.einsum("ia,ib->iab", P, P)
+        if wts is not None:
+            W = W * wts[:, None, None]
+        n, J, p = self.n, self.J, self.p
+        return np.einsum("iab,ik,il->akbl", W, self.X, self.X).reshape(J * p, J * p), W
+
+    def lstar(self, theta):
+        ll, P = self.probs(theta)
+        sign, logdet = np.linalg.slogdet(self.info(P)[0])
+        return ll + 0.5 * logdet if sign > 0 else -np.inf
+
+    def grad(self, theta):
+        ll, P = self.probs(theta)
+        I, W = self.info(P)
+        Iinv = np.linalg.inv(I)
+        J, p = self.J, self.p
+        g = ((self.Y - P).T @ self.X).ravel()
+        for c in range(J):
+            # dW_i/deta_ic, with dP_a/deta_c = P_a (1[a = c] - P_c)
+            dP = P * ((np.arange(J) == c)[None, :] - P[:, c:c + 1])
+            dW = np.einsum("ia,ab->iab", dP, np.eye(J)) - np.einsum("ia,ib->iab", dP, P) - np.einsum("ia,ib->iab", P, dP)
+            for j in range(p):
+                dI = np.einsum("i,iab,ik,il->akbl", self.X[:, j], dW, self.X, self.X).reshape(J * p, J * p)
+                g[c * p + j] += 0.5 * np.sum(Iinv * dI)
+        return g
+
+    def aug_cov(self, theta):
+        ll, P = self.probs(theta)
+        I, W = self.info(P)
+        Iinv = np.linalg.inv(I)
+        J, p = self.J, self.p
+        # h_i^(ab) = x_i' (I^-1)_(ab) x_i; leverage tr(W_i h_i)
+        H = np.einsum("ik,akbl,il->iab", self.X, Iinv.reshape(J, p, J, p), self.X)
+        lev = np.einsum("iab,iba->i", W, H)
+        return np.linalg.inv(self.info(P, 1.0 + lev)[0])
+
+    def fit(self, start, free):
+        # maximizes l* over the parameters flagged in free, the others held
+        # at their starting values
+        theta = start.copy()
+
+        def full(t):
+            v = theta.copy()
+            v[free] = t
+            return v
+        res = scipy.optimize.minimize(lambda t: -self.lstar(full(t)), theta[free], jac=lambda t: -self.grad(full(t))[free], method="BFGS", options={"gtol": 1e-9, "maxiter": 2000})
+        t = res.x
+        for _ in range(20):
+            g = self.grad(full(t))[free]
+            if np.max(np.abs(g)) < 1e-11:
+                break
+            h = 1e-5
+            k = len(t)
+            hess = np.zeros((k, k))
+            for idx in range(k):
+                e = np.zeros(k)
+                e[idx] = h
+                hess[:, idx] = (self.grad(full(t + e))[free] - self.grad(full(t - e))[free]) / (2 * h)
+            t = t - np.linalg.solve(0.5 * (hess + hess.T), g)
+        return full(t), self.lstar(full(t))
+
+
 def fmt_list(vals):
     return ",".join("NA" if v is None else ("%.10g" % v) for v in vals)
 
@@ -150,7 +242,7 @@ with open(out_fname, "w") as fo:
             if corr.shape[0] > 1 and (np.linalg.cond(corr) > 1e14 or np.max(np.diag(np.linalg.inv(corr))) > 50):
                 emit("NA", "VIF", "VIF", "VIF", na_cells)
                 continue
-            if any(separated(c, yv, present) for c in nuisance):
+            if (not use_firth) and any(separated(c, yv, present) for c in nuisance):
                 emit("NA", "SEP", "SEP", "SEP", na_cells)
                 continue
             separation_cols = [c for _, c in tested]
@@ -166,6 +258,37 @@ with open(out_fname, "w") as fo:
             tested_sep = any(separated(c, yv, present) for c in separation_cols)
             X0 = np.column_stack([X0base] + [c - c.mean() for c in nuisance]) if nuisance else X0base
             X1 = np.column_stack([X0] + [c - c.mean() for _, c in tested])
+            if use_firth:
+                fm = FirthModel(yc, X1)
+                k0 = X0.shape[1]
+                k1 = X1.shape[1]
+                nt = len(tested)
+                ncls = len(present) - 1
+                df = ncls * nt
+                start = np.zeros((ncls, k1))
+                for c in range(1, ncls + 1):
+                    start[c - 1, 0] = np.log(np.mean(yc == c) / np.mean(yc == 0))
+                start = start.ravel()
+                free0 = np.array([(i % k1) < k0 for i in range(ncls * k1)])
+                theta0, lstar0 = fm.fit(start, free0)
+                theta1, lstar1 = fm.fit(theta0, np.ones(ncls * k1, dtype=bool))
+                lr = 2 * (lstar1 - lstar0)
+                covm = fm.aug_cov(theta1)
+                idx = [c * k1 + k0 + j for c in range(ncls) for j in range(nt)]
+                g = theta1[idx]
+                wald = g @ np.linalg.solve(covm[np.ix_(idx, idx)], g)
+                cells = []
+                for lidx in range(1, len(level_names)):
+                    betas = [None] * df_slots
+                    ses = [None] * df_slots
+                    if present[0] == 0 and lidx in present:
+                        c = list(present).index(lidx) - 1
+                        for j, (slot, _) in enumerate(tested):
+                            betas[slot] = theta1[c * k1 + k0 + j]
+                            ses[slot] = np.sqrt(covm[c * k1 + k0 + j, c * k1 + k0 + j])
+                    cells.append(fmt_list(betas) + "\t" + fmt_list(ses))
+                emit(df, "%.10g" % lr, "NA", "%.10g" % wald, "\t".join(cells))
+                continue
             r0 = fit(yc, X0)
             m1 = sm.MNLogit(yc, X1)
             k0 = X0.shape[1]

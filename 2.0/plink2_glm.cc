@@ -2189,13 +2189,17 @@ uint32_t CollapseParamOrTestSubset(const uintptr_t* covar_include, const uintptr
 }
 
 void PrintMultinomialNullErrmsg(const char* domain_str, const char* pheno_name, uint32_t skip_invalid_pheno) {
-  snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since the covariate-only multinomial logistic regression failed to converge. (A covariate may separate the phenotype categories; consider removing it, or merging rare categories.)\n", skip_invalid_pheno? "Note: Skipping " : "Error: Cannot proceed with ", domain_str, pheno_name);
+  snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since the covariate-only multinomial logistic regression failed to converge, and Firth regression was disabled ('no-firth' or 'multinomial=score'). (A covariate may separate the phenotype categories; consider removing it, or merging rare categories.)\n", skip_invalid_pheno? "Note: Skipping " : "Error: Cannot proceed with ", domain_str, pheno_name);
   WordWrapB(0);
   if (skip_invalid_pheno) {
     logputsb();
   } else {
     logerrputsb();
   }
+}
+
+void PrintMultinomialFirthNullWarning(const char* domain_str, const char* pheno_name) {
+  logerrprintfww("Warning: %sthe covariate-only multinomial logistic regression on phenotype '%s' failed to converge (a covariate may separate the phenotype categories), so Firth regression will be used for every variant.  The separated categories' coefficients are then determined mostly by the penalty.\n", domain_str, pheno_name);
 }
 
 void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const char** covar_names, GlmErr glm_err, uint32_t local_covar_ct, uint32_t skip_invalid_pheno, uint32_t is_batch) {
@@ -2485,7 +2489,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
     // <output prefix>.<pheno name>.glm.logistic.hybrid{.perm,.mperm,.mperm.dump.best,.mperm.dump.all}[.zst]
-    uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
+    // (or .glm.multinomial.hybrid[.zst], which has no permutation extension)
+    uint32_t pheno_name_blen_capacity = kPglFnamesize - ((glm_flags & kfGlmMultinomial)? 24 : 21) - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
     if (perms_total) {
       if (perm_adapt) {
         pheno_name_blen_capacity -= 5;
@@ -4074,6 +4079,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         cat_to_level = cat_to_level_w;
         multinomial_ctx.level_ct = level_ct;
         multinomial_ctx.test_type = glm_info_ptr->multinomial_test;
+        // Firth regression isn't used with the score test, which needs no
+        // fit of the full model.
+        multinomial_ctx.firth_mode = 0;
+        if (glm_info_ptr->multinomial_test != kGlmMultinomialTestScore) {
+          multinomial_ctx.firth_mode = is_always_firth? 2 : (is_sometimes_firth? 1 : 0);
+        }
         multinomial_ctx.save_coefs = (glm_info_ptr->cols / kfGlmColBeta) & 1;
         linear_ctx.pheno_d = nullptr;
         linear_ctx.covars_cmaj_d = nullptr;
@@ -4082,7 +4093,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         logistic_ctx.pheno_d = nullptr;
         logistic_ctx.covars_cmaj_d = nullptr;
         common.nm_precomp = nullptr;
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include, cur_pheno_col, cat_to_level, covar_include, covar_cols, covar_names, sample_ct, level_ct, covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, &(multinomial_ctx.sets[0]), &cur_covar_names, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include, cur_pheno_col, cat_to_level, covar_include, covar_cols, covar_names, sample_ct, level_ct, covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[0]), &cur_covar_names, &glm_err))) {
           goto GlmMain_ret_NOMEM;
         }
       } else if (is_logistic) {
@@ -4123,6 +4134,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         continue;
       }
+      if (is_multinomial && multinomial_ctx.sets[0].firth_null) {
+        PrintMultinomialFirthNullWarning("", cur_pheno_name);
+      }
       const char** cur_covar_names_x = nullptr;
       common.nm_precomp_x = nullptr;
       logistic_ctx.pheno_x_cc = nullptr;
@@ -4137,7 +4151,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (sample_ct_x) {
         if (is_multinomial) {
           common.nm_precomp_x = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_x, cur_pheno_col, cat_to_level, covar_include_x, covar_cols, covar_names, sample_ct_x, level_ct, covar_ct_x, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, &(multinomial_ctx.sets[1]), &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_x, cur_pheno_col, cat_to_level, covar_include_x, covar_cols, covar_names, sample_ct_x, level_ct, covar_ct_x, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[1]), &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
         } else if (is_logistic) {
@@ -4171,6 +4185,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
           sample_ct_x = 0;
+        } else if (is_multinomial && multinomial_ctx.sets[1].firth_null) {
+          PrintMultinomialFirthNullWarning("on chrX, ", cur_pheno_name);
         }
       }
       const char** cur_covar_names_y = nullptr;
@@ -4187,7 +4203,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (sample_ct_y) {
         if (is_multinomial) {
           common.nm_precomp_y = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_y, cur_pheno_col, cat_to_level, covar_include_y, covar_cols, covar_names, sample_ct_y, level_ct, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, &(multinomial_ctx.sets[2]), &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_y, cur_pheno_col, cat_to_level, covar_include_y, covar_cols, covar_names, sample_ct_y, level_ct, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[2]), &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
         } else if (is_logistic) {
@@ -4221,6 +4237,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
           sample_ct_y = 0;
+        } else if (is_multinomial && multinomial_ctx.sets[2].firth_null) {
+          PrintMultinomialFirthNullWarning("on chrY, ", cur_pheno_name);
         }
       }
       const char** cur_test_names = nullptr;
@@ -4366,6 +4384,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       } else if (is_multinomial) {
         outname_end2 = strcpya_k(outname_end2, ".glm.multinomial");
+        if (multinomial_ctx.firth_mode == 2) {
+          outname_end2 = strcpya_k(outname_end2, ".firth");
+        } else if (multinomial_ctx.firth_mode) {
+          outname_end2 = strcpya_k(outname_end2, ".hybrid");
+        }
       } else {
         outname_end2 = strcpya_k(outname_end2, ".glm.linear");
       }
