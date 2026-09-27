@@ -1109,6 +1109,12 @@ typedef struct PgenExtensionLlStruct {
   uint8_t type_idx;
 } PgenExtensionLl;
 
+// Returns 1 if a dosage returned by PgrGetD()/PgrGetDp() exceeds 32768,
+// or a dphase_delta would put a haplotype dosage outside [0, 1].  The read
+// functions don't check values, since PgrValidate() does; callers that turn
+// these values into table indexes (e.g. VCF text export) should check first.
+BoolErr PglDosagesAreInvalid(const uintptr_t* __restrict dosage_present, const uint16_t* __restrict dosage_main, uint32_t dosage_ct, const uintptr_t* __restrict dphase_present, const int16_t* __restrict dphase_delta, uint32_t dphase_ct);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

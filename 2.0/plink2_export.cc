@@ -4722,7 +4722,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           } else {
             reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
             // the dosage printers below index digit tables with these values
-            if ((!reterr) && unlikely(DosagesAreInvalid(pgv.dosage_present, pgv.dosage_main, pgv.dosage_ct, nullptr, nullptr, 0))) {
+            if ((!reterr) && PglDosagesAreInvalid(pgv.dosage_present, pgv.dosage_main, pgv.dosage_ct, nullptr, nullptr, 0)) {
               reterr = kPglRetMalformedInput;
             }
           }
@@ -4916,7 +4916,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             reterr = PgrGetP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &(pgv.phasepresent_ct));
           } else {
             reterr = PgrGetDp(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
-            if ((!reterr) && unlikely(DosagesAreInvalid(pgv.dosage_present, pgv.dosage_main, pgv.dosage_ct, pgv.dphase_present, pgv.dphase_delta, pgv.dphase_ct))) {
+            if ((!reterr) && PglDosagesAreInvalid(pgv.dosage_present, pgv.dosage_main, pgv.dosage_ct, pgv.dphase_present, pgv.dphase_delta, pgv.dphase_ct)) {
               reterr = kPglRetMalformedInput;
             }
           }

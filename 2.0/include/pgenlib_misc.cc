@@ -3677,6 +3677,49 @@ uint64_t PglHeaderBaseEndOffset(uint32_t variant_ct, uintptr_t vrec_len_byte_ct,
   return offset;
 }
 
+BoolErr PglDosagesAreInvalid(const uintptr_t* __restrict dosage_present, const uint16_t* __restrict dosage_main, uint32_t dosage_ct, const uintptr_t* __restrict dphase_present, const int16_t* __restrict dphase_delta, uint32_t dphase_ct) {
+  uint32_t max_dosage = 0;
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uint32_t cur_dosage = dosage_main[dosage_idx];
+    if (cur_dosage > max_dosage) {
+      max_dosage = cur_dosage;
+    }
+  }
+  if (max_dosage > 32768) {
+    return 1;
+  }
+  if (!dphase_ct) {
+    return 0;
+  }
+  // dphase_present is a subset of dosage_present; pair each delta with its
+  // sample's dosage.
+  uint32_t dosage_idx = 0;
+  uint32_t dphase_idx = 0;
+  for (uint32_t widx = 0; dphase_idx != dphase_ct; ++widx) {
+    uintptr_t dosage_word = dosage_present[widx];
+    const uintptr_t dphase_word = dphase_present[widx];
+    if (unlikely(dphase_word & (~dosage_word))) {
+      return 1;
+    }
+    while (dosage_word) {
+      const uintptr_t lowbit = dosage_word & (-dosage_word);
+      if (dphase_word & lowbit) {
+        // same test as ValidateDosage16()
+        const int16_t cur_delta = dphase_delta[dphase_idx++];
+        const uint16_t cur_dosage = dosage_main[dosage_idx];
+        const uint16_t dpiece0_x2 = cur_dosage + cur_delta;
+        const uint16_t dpiece1_x2 = cur_dosage - cur_delta;
+        if ((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+          return 1;
+        }
+      }
+      ++dosage_idx;
+      dosage_word ^= lowbit;
+    }
+  }
+  return 0;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

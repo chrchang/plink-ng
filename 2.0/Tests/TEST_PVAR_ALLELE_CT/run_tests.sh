@@ -46,7 +46,7 @@ VCF
     printf 's1\ns2\ns4\ns6\n' > tmp_keep.txt
     # The same records, with v1 declared as having 3 alleles.
     awk 'BEGIN { FS = OFS = "\t" } $3 == "v1" { $5 = "C,G" } { print }' tmp_$p.pvar > tmp_${p}3.pvar
-    if [ "$sep" = "/"]; then
+    if [ "$sep" = "/" ]; then
         for c in "--make-pgen" "--export vcf" "--freq" "--geno-counts" "--keep tmp_keep.txt --freq" "--keep tmp_keep.txt --geno-counts"; do
             expect_fail ".pvar entry for (0-based) variant" $1 $2 $3 --pgen tmp_$p.pgen --pvar tmp_${p}3.pvar --psam tmp_$p.psam $c --out plink2_${p}3
         done
@@ -54,8 +54,11 @@ VCF
         # Check is opportunistic, not exhaustive.  --geno-counts does not try
         # to scan to the end of the multiallelic .pgen record, so it doesn't
         # trigger the error.
-        for c in "--make-pgen" "--export vcf" "--freq" "--keep tmp_keep.txt --freq"; do
+        for c in "--export vcf" "--freq" "--keep tmp_keep.txt --freq"; do
             expect_fail ".pvar entry for (0-based) variant" $1 $2 $3 --pgen tmp_$p.pgen --pvar tmp_${p}3.pvar --psam tmp_$p.psam $c --out plink2_${p}3
+        done
+        for c in "--make-pgen"; do
+            expect_fail "Failed to unpack" $1 $2 $3 --pgen tmp_$p.pgen --pvar tmp_${p}3.pvar --psam tmp_$p.psam $c --out plink2_${p}3
         done
     fi
 done
@@ -107,4 +110,4 @@ VCF
 $1/plink2 $2 $3 --vcf tmp_other.vcf --make-pgen --out tmp_other
 # Sanity check: with the correct .pvar this merge runs.
 $1/plink2 $2 $3 --pfile tmp_other --pmerge tmp_dup --merge-mode nm-match --make-pgen --out plink2_merge_ok
-expect_fail ".pvar entry for (0-based) variant" $1 $2 $3 --pfile tmp_other --pmerge tmp_dup.pgen tmp_duptri.pvar tmp_dup.psam --merge-mode nm-match --make-pgen --out plink2_merge_bad
+expect_fail "Failed to unpack" $1 $2 $3 --pfile tmp_other --pmerge tmp_dup.pgen tmp_duptri.pvar tmp_dup.psam --merge-mode nm-match --make-pgen --out plink2_merge_bad
