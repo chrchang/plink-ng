@@ -228,6 +228,11 @@ cd TEST_GLM_MISSING
 cd ..
 echo "TEST_GLM_MISSING passed."
 
+cd TEST_OUTPUT_CHR_INFER
+./run_tests.sh $d $2 $3 > TEST_OUTPUT_CHR_INFER.log
+cd ..
+echo "TEST_OUTPUT_CHR_INFER passed."
+
 cd TEST_HDS_FORCE_INTEGRAL
 ./run_tests.sh $d $2 $3 > TEST_HDS_FORCE_INTEGRAL.log
 cd ..
