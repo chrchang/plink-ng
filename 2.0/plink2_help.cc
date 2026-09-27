@@ -1771,7 +1771,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    membership lists to <output prefix>.set, while --set-table writes a\n"
 "    variant-by-set membership table to <output prefix>.set.table.\n\n"
               );
-    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0", &help_ctrl, 1,
+    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0pmerge-pass-size\0", &help_ctrl, 1,
 "  --pmerge <.pgen/.bed filename> <.pvar/.bim> <.psam/.fam>\n"
 "  --pmerge <.pgen + .pvar + .psam fileset prefix> ['vzs']\n"
 "    Merge the given fileset with the initially loaded fileset, writing the\n"
