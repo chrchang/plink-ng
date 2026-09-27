@@ -2741,11 +2741,16 @@ PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t ma
     logerrprintf("Error: %s argument too long.\n", flag_name);
     return kPglRetInvalidCmdline;
   }
-  const uint32_t blen = slen + 1;
-  if (unlikely(pgl_malloc(blen, sbuf_ptr))) {
+  // Pad with kBytesPerVec-1 extra zero bytes: consumers may scan the string
+  // with Strchrnul()/strnul(), whose vectorized implementations read a whole
+  // aligned vector at a time and so touch up to kBytesPerVec-1 bytes past the
+  // terminator.  Those loads cannot fault, since an aligned vector never
+  // straddles a page boundary, but AddressSanitizer flags them.
+  if (unlikely(pgl_malloc(slen + kBytesPerVec, sbuf_ptr))) {
     return kPglRetNomem;
   }
-  memcpy(*sbuf_ptr, source, blen);
+  memcpy(*sbuf_ptr, source, slen);
+  memset(&((*sbuf_ptr)[slen]), 0, kBytesPerVec);
   return kPglRetSuccess;
 }
 
@@ -2846,7 +2851,7 @@ PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uin
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
   }
-  memset(buf_iter, 0, alloc_blen - (tot_blen - 1));
+  memset(buf_iter, 0, kBytesPerVec);
   return kPglRetSuccess;
 }
 

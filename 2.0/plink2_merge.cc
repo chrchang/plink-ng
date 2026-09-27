@@ -3725,13 +3725,11 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
     } else {
       BigstackReset(ar_info_fields);
     }
-    // bugfix (21 Sep 2026): RenderTmpInfoFromSingleUnsorted() uses this for
-    // Number=A/R keys too.
-    if (unlikely(bigstack_calloc_cp(info_key_ct, &pmcp->basic_info_fields))) {
-      return kPglRetNomem;
-    }
-    if (unlikely(bigstack_alloc_c(2 * max_num, &pmcp->info_missing_str) ||
-                 bigstack_alloc_c(strlen("PR;==;=.;=,.,PR=;"), &pmcp->pr_str))) {
+    // bugfix (21 Sep 2026): RenderTmpInfoFromSingleUnsorted() uses
+    // basic_info_fields for Number=A/R keys too.
+    if (unlikely(bigstack_calloc_cp(info_key_ct, &pmcp->basic_info_fields) ||
+                 bigstack_alloc_c(2 * max_num, &pmcp->info_missing_str) ||
+                 bigstack_alloc_c(strlen("PR;==;=.;=,.,"), &pmcp->pr_str))) {
       return kPglRetNomem;
     }
     u16setsa(pmcp->info_missing_str, 0x2e2c, max_num);

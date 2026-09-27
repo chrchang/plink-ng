@@ -548,7 +548,17 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
 
 // these don't read past the end of bitarr
 uintptr_t PopcountBytes(const void* bitarr, uintptr_t byte_ct);
+
 uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
+
+// Errors out if any trailing bits are set, or result is 0; this lines up with
+// multiallelic-data-track validation.
+HEADER_INLINE BoolErr PopcountBytesCheckedNz32(const void* bitarr, uint32_t byte_ct, uint32_t bit_ct, uint32_t* result_ptr) {
+  const uint32_t remainder = bit_ct % CHAR_BIT;
+  const uint32_t result = PopcountBytes(bitarr, byte_ct);
+  *result_ptr = result;
+  return (!result) || (remainder && (S_CAST(uint32_t, S_CAST(const unsigned char*, bitarr)[byte_ct - 1]) >> remainder));
+}
 
 
 // TransposeNypblock(), which is more plink-specific, is in pgenlib_misc
