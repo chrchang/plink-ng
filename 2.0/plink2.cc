@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.9"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (26 Sep 2026)";
+  " (27 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3291,9 +3291,13 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (strequal_k(cur_modif2, "cf-4.2", cur_modif2_slen)) {
           cur_format = kfExportfBcf42;
         } else if (strequal_k(cur_modif2, "eagle", cur_modif2_slen)) {
-          cur_format = kfExportfBeagle;
-        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen)) {
-          cur_format = kfExportfBeagleNomap;
+          cur_format = kfExportfBeagleRetired;
+        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen) ||
+                   strequal_k(cur_modif2, "eagle-unphased", cur_modif2_slen)) {
+          // 'beagle-nomap' is the old spelling of the unphased single-file form.
+          cur_format = kfExportfBeagleUnphased;
+        } else if (strequal_k(cur_modif2, "eagle-phased", cur_modif2_slen)) {
+          cur_format = kfExportfBeaglePhased;
         } else if (strequal_k(cur_modif2, "gen-1.1", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.1", cur_modif2_slen)) {
           cur_format = kfExportfBgen11;
@@ -3303,10 +3307,8 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (strequal_k(cur_modif2, "gen-1.3", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.3", cur_modif2_slen)) {
           cur_format = kfExportfBgen13;
-        } else if (strequal_k(cur_modif2, "imbam", cur_modif2_slen)) {
-          cur_format = kfExportfBimbam;
-        } else if (strequal_k(cur_modif2, "imbam-1chr", cur_modif2_slen)) {
-          cur_format = kfExportfBimbam1chr;
+        } else if ((!strcmp(cur_modif2, "imbam")) || (!strcmp(cur_modif2, "imbam-1chr"))) {
+          cur_format = kfExportfBimbamRetired;
         }
         break;
       }
@@ -3364,6 +3366,11 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         }
         break;
       }
+    case 'm':
+      if (!strcmp(cur_modif2, "gf")) {
+        cur_format = kfExportfMgf;
+      }
+      break;
     case 'o':
       if (!strcmp(cur_modif2, "xford")) {
         cur_format = kfExportfOxGenV1;
