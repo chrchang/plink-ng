@@ -15085,7 +15085,8 @@ PglErr ScanInfoHeaderKeys(const char* xheader, uintptr_t xheader_blen, const cha
       }
       // Number=0 marks a VCF Flag.
       uint32_t is_flag = 0;
-      const char* num_start = S_CAST(const char*, memmem(id_end, line_end - id_end, ",Number=", strlen(",Number=")));
+      // little-endian ",Number="
+      const char* num_start = S_CAST(const char*, Memmem8(id_end, line_end - id_end, 0x3d7265626d754e2cLLU));
       if (num_start) {
         num_start = &(num_start[strlen(",Number=")]);
         if ((&(num_start[1]) < line_end) && (num_start[0] == '0') && ((num_start[1] == ',') || (num_start[1] == '>'))) {
@@ -15208,23 +15209,25 @@ const char* InfoColsScan(const char* info_token, const InfoColsLookup* iclp, con
   if ((info_token[0] == '.') && (ctou32(info_token[1]) <= 32)) {
     return &(info_token[1]);
   }
+#ifdef __LP64__
+  // todo: measure performance difference from generic !__LP64__ code
   const uintptr_t starting_addr = R_CAST(uintptr_t, info_token);
   const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecUc vvec_all_semicolon = vecuc_set1(';');
   const VecUc vvec_all_eq = vecuc_set1('=');
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   // One bit per byte, at position (byte offset) * kBitsPerByteMatch.
-#ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
   const VecUc vvec_all95 = vecuc_set1(95);
   const uint32_t kBitsPerByteMatch = 1;
   typedef uint32_t ByteMatches;
   ByteMatches valid_bits = UINT32_MAX << leading_byte_ct;
-#else
+#  else
   const VecUc vvec_all32 = vecuc_set1(32);
   const uint32_t kBitsPerByteMatch = 4;
   typedef uint64_t ByteMatches;
   ByteMatches valid_bits = kMask1111 << (4 * leading_byte_ct);
-#endif
+#  endif
   const char* key_start = info_token;
   const char* eq_ptr = nullptr;
   const uint32_t distinct_key_ct = iclp->distinct_key_ct;
@@ -15233,16 +15236,16 @@ const char* InfoColsScan(const char* info_token, const InfoColsLookup* iclp, con
     const VecUc cur_vvec = *str_viter;
     const VecUc semicolon_vvec = (cur_vvec == vvec_all_semicolon);
     const VecUc eq_vvec = (cur_vvec == vvec_all_eq);
-#ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     // bytes <= 32 end the token
     const ByteMatches terminating_bits = valid_bits & S_CAST(Vec8thUint, ~vecuc_movemask(vecuc_adds(cur_vvec, vvec_all95)));
     ByteMatches semicolon_bits = valid_bits & vecuc_movemask(semicolon_vvec);
     ByteMatches eq_bits = valid_bits & vecuc_movemask(eq_vvec);
-#else
+#  else
     const ByteMatches terminating_bits = valid_bits & arm_shrn4_uc(cur_vvec <= vvec_all32);
     ByteMatches semicolon_bits = valid_bits & arm_shrn4_uc(semicolon_vvec);
     ByteMatches eq_bits = valid_bits & arm_shrn4_uc(eq_vvec);
-#endif
+#  endif
     if (terminating_bits) {
       const ByteMatches before_end = terminating_bits ^ (terminating_bits - 1);
       semicolon_bits &= before_end;
@@ -15278,13 +15281,60 @@ const char* InfoColsScan(const char* info_token, const InfoColsLookup* iclp, con
       }
       return token_end;
     }
-#ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     valid_bits = S_CAST(Vec8thUint, UINT32_MAX);
-#else
+#  else
     valid_bits = kMask1111;
-#endif
+#  endif
     ++str_viter;
   }
+#else  // !__LP64__
+  const char* ss_iter = info_token;
+  const uint32_t distinct_key_ct = iclp->distinct_key_ct;
+  uint32_t found_key_ct = 0;
+  while (1) {
+    // Beginning of <key>['='<value>]';' string.
+    const char* key_start = ss_iter;
+    const char* eq_ptr = nullptr;
+    unsigned char ucc;
+    for (; ; ++ss_iter) {
+      ucc = *ss_iter;
+      if (ucc <= 32) {
+      InfoColsScan_end:
+        const char* token_end = ss_iter;
+        if (key_start != token_end) {
+          InfoColsVisit(iclp, key_start, eq_ptr, token_end, val_ptrs, val_slens);
+        }
+        return token_end;
+      }
+      if (ucc == '=') {
+        break;
+      }
+      if (ucc == ';') {
+        goto InfoColsScan_semicolon;
+      }
+    }
+    eq_ptr = ss_iter;
+    while (++ss_iter) {
+      ucc = *ss_iter;
+      if (ucc <= 32) {
+        goto InfoColsScan_end;
+      }
+      if (ucc == ';') {
+        break;
+      }
+    }
+  InfoColsScan_semicolon:
+    ;
+    const char* semicolon_ptr = ss_iter;
+    if (semicolon_ptr != key_start) {
+      if (InfoColsVisit(iclp, key_start, eq_ptr, semicolon_ptr, val_ptrs, val_slens) && (++found_key_ct == distinct_key_ct)) {
+        return semicolon_ptr;
+      }
+    }
+    ++ss_iter;
+  }
+#endif
 }
 
 PglErr InfoColsLookupInit(const char* const* key_ptrs, const uint32_t* key_slens, uintptr_t key_ct, InfoColsLookup* iclp) {

@@ -1672,6 +1672,39 @@ HEADER_INLINE char* LastSpaceOrEoln(char* str_start, uintptr_t slen) {
 }
 #endif
 
+// memmem() is not available on our Windows build setup (mingw-w64).
+// - When searching for a unknown-at-compile-time string, strstr() is a generic
+//   solution.  Yes, this usually requires mutating the string we're scanning
+//   (copy byte at end of that string, set it to '\0', revert after scan).
+//   If that's clearly subpar, it may be worth vendoring a more efficient
+//   solution.
+// - But for our immediate use cases involving length-4 and length-8 search
+//   targets, we can roll our own word-based loops.
+HEADER_INLINE CXXCONST_VOIDP Memmem8(const void* ss, uintptr_t slen, uint64_t needle_u64) {
+  if (slen < 8) {
+    return nullptr;
+  }
+  const unsigned char* ss_iter = S_CAST(const unsigned char*, ss);
+  const unsigned char* ss_stop = &(ss_iter[slen - 7]);
+  const uint64_t kMask64_0101 = (~0LLU) / 255;
+  const uint64_t kMask64_8080 = kMask64_0101 * 0x80;
+  const uint64_t needle_first_byte_repeated = (needle_u64 & 255) * kMask64_0101;
+  do {
+    uint64_t cur_bytes;
+    memcpy(&cur_bytes, ss_iter, 8);
+    if (cur_bytes == needle_u64) {
+      return DowncastToXC(ss_iter);
+    }
+    // Advance 1-8 bytes, depending on whether/where we find a copy of
+    // needle_first_byte in cur_bytes.
+    const uint64_t v = (cur_bytes ^ needle_first_byte_repeated) >> 8;
+    const uint64_t zero_bits = (v - kMask64_0101) & (~v) & kMask64_8080;
+    const uint32_t index = ctzu64(zero_bits) / 8;
+    ss_iter = &(ss_iter[index + 1]);
+  } while (ss_iter < ss_stop);
+  return nullptr;
+}
+
 // void ReplaceAllInstances(char old_char, char new_char, uint32_t slen, char* dst);
 
 void TabsToSpaces(char* ss_iter);
