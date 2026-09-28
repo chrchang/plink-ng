@@ -15168,6 +15168,34 @@ HEADER_INLINE BoolErr InfoColsPut(const char* readp, uint32_t byte_ct, uint32_t 
   return InfoColsPutStd(readp, byte_ct, css_ptr, writep_ptr);
 }
 
+// ID is always present, so the first column name is never empty.
+BoolErr InfoColsWriteHeader(InfoColsFlags flags, const char* const* key_ptrs, const uint32_t* key_slens, uintptr_t key_ct, CompressStreamState* css_ptr, char** cswritepp) {
+  char* cswritep = *cswritepp;
+  *cswritep++ = '#';
+  if (flags & kfInfoColsColChrom) {
+    cswritep = strcpya_k(cswritep, "CHROM\t");
+  }
+  if (flags & kfInfoColsColPos) {
+    cswritep = strcpya_k(cswritep, "POS\t");
+  }
+  cswritep = strcpya_k(cswritep, "ID");
+  if (flags & kfInfoColsColRef) {
+    cswritep = strcpya_k(cswritep, "\tREF");
+  }
+  if (flags & kfInfoColsColAlt) {
+    cswritep = strcpya_k(cswritep, "\tALT");
+  }
+  for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {
+    *cswritep++ = '\t';
+    if (unlikely(InfoColsPutStd(key_ptrs[key_idx], key_slens[key_idx], css_ptr, &cswritep))) {
+      return 1;
+    }
+  }
+  AppendBinaryEoln(&cswritep);
+  *cswritepp = cswritep;
+  return 0;
+}
+
 typedef struct InfoColsLookupStruct {
   const char* const* key_ptrs;
   const uint32_t* key_htable;
@@ -15568,19 +15596,19 @@ PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlag
     if (unlikely(reterr)) {
       goto InfoToColsStream_ret_1;
     }
-    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
-    for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {
-      *cswritep++ = '\t';
-      if (unlikely(InfoColsPutStd(key_ptrs[key_idx], key_slens[key_idx], &css, &cswritep))) {
-        goto InfoToColsStream_ret_WRITE_FAIL;
-      }
+    if (unlikely(InfoColsWriteHeader(icip->flags, key_ptrs, key_slens, key_ct, &css, &cswritep))) {
+      goto InfoToColsStream_ret_WRITE_FAIL;
     }
-    AppendBinaryEoln(&cswritep);
     if (unlikely(Cswrite(&css, &cswritep))) {
       goto InfoToColsStream_ret_WRITE_FAIL;
     }
 
     const uint32_t prohibit_extra_chrs = (misc_flags / kfMiscProhibitExtraChr) & 1;
+    const InfoColsFlags flags = icip->flags;
+    const uint32_t col_chrom = (flags / kfInfoColsColChrom) & 1;
+    const uint32_t col_pos = (flags / kfInfoColsColPos) & 1;
+    const uint32_t col_ref = (flags / kfInfoColsColRef) & 1;
+    const uint32_t col_alt = (flags / kfInfoColsColAlt) & 1;
     const char missing_allele_char = input_missing_geno_char;
     uint32_t prev_chr_slen = UINT32_MAX;
     uint32_t prev_chr_code = UINT32_MAX;
@@ -15686,12 +15714,20 @@ PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlag
       }
       line_iter = K_CAST(char*, AdvToDelim(fields_end, '\n'));
       const uint32_t long_line = (S_CAST(uintptr_t, fields_end - line_start_cur) + line_bound_extra > kCompressStreamBlock);
-      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-      cswritep = u32toa_x(cur_bp, '\t', cswritep);
+      if (col_chrom) {
+        cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      }
+      if (col_pos) {
+        cswritep = u32toa_x(cur_bp, '\t', cswritep);
+      }
       if (unlikely(InfoColsPut(token_ptrs[1], id_slen, long_line, &css, &cswritep))) {
         goto InfoToColsStream_ret_WRITE_FAIL;
       }
-      *cswritep++ = '\t';
+      // REF and ALT are validated even when they aren't written, so that
+      // cols= doesn't change which .pvar files are accepted.
+      if (col_ref) {
+        *cswritep++ = '\t';
+      }
       const char* ref_allele = token_ptrs[2];
       const uint32_t ref_slen = token_slens[2];
       uint32_t missing_allele_ct = 0;
@@ -15701,17 +15737,21 @@ PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlag
           ref_char = '.';
         }
         missing_allele_ct = (ref_char == '.');
-        *cswritep++ = ref_char;
+        if (col_ref) {
+          *cswritep++ = ref_char;
+        }
       } else {
         if (unlikely(memchr(ref_allele, ',', ref_slen) != nullptr)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid REF allele on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
           goto InfoToColsStream_ret_MALFORMED_INPUT_WW;
         }
-        if (unlikely(InfoColsPut(ref_allele, ref_slen, long_line, &css, &cswritep))) {
+        if (col_ref && unlikely(InfoColsPut(ref_allele, ref_slen, long_line, &css, &cswritep))) {
           goto InfoToColsStream_ret_WRITE_FAIL;
         }
       }
-      *cswritep++ = '\t';
+      if (col_alt) {
+        *cswritep++ = '\t';
+      }
       if (extra_alt_ct) {
         const char* alt_token_end = &(alt_iter[alt_slen]);
         for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
@@ -15722,16 +15762,20 @@ PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlag
             if (unlikely((geno_char == '.') || (geno_char == missing_allele_char))) {
               goto InfoToColsStream_ret_MULTIALLELIC_MISSING_ALLELE_CODE;
             }
-            *cswritep++ = geno_char;
+            if (col_alt) {
+              *cswritep++ = geno_char;
+            }
           } else {
             if (unlikely(!cur_allele_slen)) {
               goto InfoToColsStream_ret_EMPTY_ALLELE_CODE;
             }
-            if (unlikely(InfoColsPut(alt_iter, cur_allele_slen, long_line, &css, &cswritep))) {
+            if (col_alt && unlikely(InfoColsPut(alt_iter, cur_allele_slen, long_line, &css, &cswritep))) {
               goto InfoToColsStream_ret_WRITE_FAIL;
             }
           }
-          *cswritep++ = ',';
+          if (col_alt) {
+            *cswritep++ = ',';
+          }
           alt_iter = &(cur_alt_end[1]);
         }
         alt_slen = alt_token_end - alt_iter;
@@ -15747,8 +15791,10 @@ PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlag
         if (geno_char == '.') {
           ++missing_allele_ct;
         }
-        *cswritep++ = geno_char;
-      } else if (unlikely(InfoColsPut(alt_iter, alt_slen, long_line, &css, &cswritep))) {
+        if (col_alt) {
+          *cswritep++ = geno_char;
+        }
+      } else if (col_alt && unlikely(InfoColsPut(alt_iter, alt_slen, long_line, &css, &cswritep))) {
         goto InfoToColsStream_ret_WRITE_FAIL;
       }
       if (unlikely(missing_allele_ct && extra_alt_ct)) {
@@ -15879,15 +15925,15 @@ PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const ui
     if (unlikely(reterr)) {
       goto InfoToCols_ret_TSTREAM_FAIL;
     }
-    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
-    for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {
-      *cswritep++ = '\t';
-      if (unlikely(InfoColsPutStd(key_ptrs[key_idx], key_slens[key_idx], &css, &cswritep))) {
-        goto InfoToCols_ret_WRITE_FAIL;
-      }
+    if (unlikely(InfoColsWriteHeader(icip->flags, key_ptrs, key_slens, key_ct, &css, &cswritep))) {
+      goto InfoToCols_ret_WRITE_FAIL;
     }
-    AppendBinaryEoln(&cswritep);
 
+    const InfoColsFlags flags = icip->flags;
+    const uint32_t col_chrom = (flags / kfInfoColsColChrom) & 1;
+    const uint32_t col_pos = (flags / kfInfoColsColPos) & 1;
+    const uint32_t col_ref = (flags / kfInfoColsColRef) & 1;
+    const uint32_t col_alt = (flags / kfInfoColsColAlt) & 1;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -15912,13 +15958,16 @@ PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const ui
       }
       ZeroPtrArr(key_ct, val_ptrs);
       InfoColsScan(pvar_info_line_iter, &icl, val_ptrs, val_slens);
-      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      if (col_chrom) {
+        cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      }
+      if (col_pos) {
+        cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      }
       const char* variant_id = variant_ids[variant_uidx];
       if (unlikely(InfoColsPutStd(variant_id, strlen(variant_id), &css, &cswritep))) {
         goto InfoToCols_ret_WRITE_FAIL;
       }
-      *cswritep++ = '\t';
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       uintptr_t allele_ct = 2;
       if (allele_idx_offsets) {
@@ -15926,16 +15975,21 @@ PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const ui
         allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-      if (unlikely(InfoColsPutStd(cur_alleles[0], strlen(cur_alleles[0]), &css, &cswritep))) {
-        goto InfoToCols_ret_WRITE_FAIL;
-      }
-      *cswritep++ = '\t';
-      for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
-        if (allele_idx != 1) {
-          *cswritep++ = ',';
-        }
-        if (unlikely(InfoColsPutStd(cur_alleles[allele_idx], strlen(cur_alleles[allele_idx]), &css, &cswritep))) {
+      if (col_ref) {
+        *cswritep++ = '\t';
+        if (unlikely(InfoColsPutStd(cur_alleles[0], strlen(cur_alleles[0]), &css, &cswritep))) {
           goto InfoToCols_ret_WRITE_FAIL;
+        }
+      }
+      if (col_alt) {
+        *cswritep++ = '\t';
+        for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+          if (allele_idx != 1) {
+            *cswritep++ = ',';
+          }
+          if (unlikely(InfoColsPutStd(cur_alleles[allele_idx], strlen(cur_alleles[allele_idx]), &css, &cswritep))) {
+            goto InfoToCols_ret_WRITE_FAIL;
+          }
         }
       }
       for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {

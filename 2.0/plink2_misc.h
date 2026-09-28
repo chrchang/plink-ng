@@ -36,7 +36,14 @@ FLAGSET_DEF_START()
   kfInfoColsAll = (1 << 1),
   // set when nothing else needs the variant file loaded, so it can be scanned
   // directly
-  kfInfoColsStream = (1 << 2)
+  kfInfoColsStream = (1 << 2),
+
+  kfInfoColsColChrom = (1 << 3),
+  kfInfoColsColPos = (1 << 4),
+  kfInfoColsColRef = (1 << 5),
+  kfInfoColsColAlt = (1 << 6),
+  kfInfoColsColDefault = (kfInfoColsColChrom | kfInfoColsColPos | kfInfoColsColRef | kfInfoColsColAlt),
+  kfInfoColsColAll = ((kfInfoColsColAlt * 2) - kfInfoColsColChrom)
 FLAGSET_DEF_END(InfoColsFlags);
 
 typedef struct InfoColsInfoStruct {

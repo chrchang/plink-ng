@@ -1873,6 +1873,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("info-to-cols\0", &help_ctrl, 1,
 "  --info-to-cols {<key>[,<key>...] | 'all'} ['zs']\n"
+"                 ['cols='<column set descriptor>]\n"
 "    Write the named INFO keys as ordinary tab-delimited columns, one row per\n"
 "    variant, to <output prefix>.vinfo.  This is the direction that VCF-derived\n"
 "    data usually has to leave plink2 in: --extract-if-info can filter on a\n"
@@ -1882,7 +1883,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * A key declared Number=0 is a Flag, and its column is 0 or 1.  Any other\n"
 "      key is reported as its value, or NA where the variant does not carry it.\n"
 "      A key present without a value, where the header did not declare it a\n"
-"      Flag, is reported as 1.\n\n"
+"      Flag, is reported as 1.\n"
+"    Supported column sets are:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate.\n"
+"      (ID is always present, and positioned here.)\n"
+"      ref: Reference allele.\n"
+"      alt: All alternate alleles, comma-separated.\n"
+"    The default is chrom,pos,ref,alt.  The INFO key columns always follow.\n\n"
                );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
