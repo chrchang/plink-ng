@@ -82,11 +82,12 @@ test "$(grep -c '^X' tmp_single_x.SINGLE.glm.multinomial || true)" -eq 0
 
 # 5. With two levels, the model is ordinary logistic regression: coefficients,
 #    standard errors, and Wald statistics must match --glm's, for every model.
-#    (Multiallelic variants only in the additive model: in the others,
-#    logistic regression's standard errors for them differ from statsmodels'
-#    by up to 5e-4, while this code's match statsmodels.  And no variant
-#    with a missing call: until #526 is merged, logistic regression's results
-#    for those depend on how the threads split the variants.)
+#    (No variant with a missing call: until #526 is merged, logistic
+#    regression's results for those depend on how the threads split the
+#    variants.  Logistic regression takes its standard errors from the
+#    penultimate iterate, like R glm.fit; on the multiallelic variants of the
+#    non-additive models that is up to 5e-4 off from the converged value,
+#    which this code reports, hence se_tol there.)
 for spec in add:ADD dominant:DOM recessive:REC hetonly:HET genotypic:ADD,DOMDEV hethom:HOM,HET; do
     model=${spec%%:*}
     modifier=$model
@@ -97,9 +98,16 @@ for spec in add:ADD dominant:DOM recessive:REC hetonly:HET genotypic:ADD,DOMDEV 
     $plink2 --pfile tmp_data --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald no-firth multinomial-ref=lo omit-ref $modifier cols=+beta --out tmp_two_levels > /dev/null
     awk -v terms=${spec#*:} -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
 done
-$plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar cols=+beta --out tmp_logistic > /dev/null
-$plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald no-firth multinomial-ref=lo omit-ref cols=+beta --out tmp_two_levels > /dev/null
-awk -v terms=ADD -v min_ct=3 -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
+for spec in add:ADD dominant:DOM recessive:REC hetonly:HET genotypic:ADD,DOMDEV hethom:HOM,HET; do
+    model=${spec%%:*}
+    modifier=$model
+    if [ $model = add ]; then
+        modifier=""
+    fi
+    $plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar $modifier cols=+beta --out tmp_logistic > /dev/null
+    $plink2 --pfile tmp_multi --geno 0 --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald no-firth multinomial-ref=lo omit-ref $modifier cols=+beta --out tmp_two_levels > /dev/null
+    awk -v terms=${spec#*:} -v min_ct=3 -v se_tol=1e-3 -f logistic_crosscheck.awk tmp_logistic.BIN.glm.logistic tmp_two_levels.CAT2.glm.multinomial
+done
 
 # 6. Invariance to the counted allele: swap REF and ALT, keep A1 = ALT.  The
 #    statistics stay, the coefficients change sign.

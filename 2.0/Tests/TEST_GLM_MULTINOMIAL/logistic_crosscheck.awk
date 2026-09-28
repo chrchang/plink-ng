@@ -3,7 +3,7 @@
 # (non-reference level 'hi') against a --glm no-firth hide-covar run on the
 # same split as a case/control phenotype, both with cols=+beta (and
 # multinomial-ref=lo, so that hi plays the role of the cases).
-# Usage: awk -v terms=<comma-separated TEST names> [-v tol=1e-4] -f logistic_crosscheck.awk <.glm.logistic> <.glm.multinomial>
+# Usage: awk -v terms=<comma-separated TEST names> [-v tol=1e-4] [-v se_tol=<tol>] -f logistic_crosscheck.awk <.glm.logistic> <.glm.multinomial>
 # terms is the logistic TEST name of each tested column: ADD, DOM, REC, or
 # HET, or ADD,DOMDEV for 'genotypic' and HOM,HET for 'hethom'.
 # * BETA_hi and SE_hi must match the logistic BETA and SE of each tested
@@ -13,14 +13,20 @@
 #   joint test's statistic times 2 (it is reported as chi-square / df) for
 #   two.
 # tol is looser than elsewhere because logistic regression stops earlier.
+# se_tol (default tol) applies to standard errors, and twice it to the Wald
+# statistics: logistic regression takes its standard errors from the
+# information matrix of the penultimate iterate (the R glm.fit convention),
+# while this code evaluates it at the final one.  When the penultimate
+# iterate is still far from the optimum (a large effect), the two differ by
+# more than tol.
 # Rows that either side does not report are skipped; at least min_ct rows
 # (default 20) must be compared.
 
-function close_enough(a, b) {
+function close_enough(a, b, t) {
   d = a - b
   if (d < 0) { d = -d }
   if (b < 0) { b = -b }
-  return d <= tol * b + 1e-6
+  return d <= t * b + 1e-6
 }
 
 function fail(msg) {
@@ -33,6 +39,7 @@ function fail(msg) {
 BEGIN {
   FS = "\t"
   if (tol == "") { tol = 1e-4 }
+  if (se_tol == "") { se_tol = tol }
   if (min_ct == "") { min_ct = 20 }
   term_ct = split(terms, term_list, ",")
 }
@@ -67,17 +74,17 @@ $col[2, "ERRCODE"] == "." {
     }
   }
   for (e = 1; e <= entry_ct; ++e) {
-    if (!close_enough(mbeta[e], beta[keys[e]])) { fail("BETA " mbeta[e] " vs logistic " beta[keys[e]]) }
-    if (!close_enough(mse[e], se[keys[e]])) { fail("SE " mse[e] " vs logistic " se[keys[e]]) }
+    if (!close_enough(mbeta[e], beta[keys[e]], tol)) { fail("BETA " mbeta[e] " vs logistic " beta[keys[e]]) }
+    if (!close_enough(mse[e], se[keys[e]], se_tol)) { fail("SE " mse[e] " vs logistic " se[keys[e]]) }
   }
   chisq = $col[2, "CHISQ"]
   if (entry_ct == 1) {
     z = stat[keys[1]]
-    if (!close_enough(chisq, z * z)) { fail("CHISQ vs logistic Z^2 " z * z) }
+    if (!close_enough(chisq, z * z, 2 * se_tol)) { fail("CHISQ vs logistic Z^2 " z * z) }
   } else if (term_ct == 2) {
     joint_key = id "\t" a1_list[1] "\tGENO_2DF"
     if (!(joint_key in stat)) { next }
-    if (!close_enough(chisq, 2 * stat[joint_key])) { fail("CHISQ vs logistic joint statistic " 2 * stat[joint_key]) }
+    if (!close_enough(chisq, 2 * stat[joint_key], 2 * se_tol)) { fail("CHISQ vs logistic joint statistic " 2 * stat[joint_key]) }
   }
   ++compared_ct
 }
