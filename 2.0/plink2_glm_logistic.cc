@@ -2778,6 +2778,10 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   //     maxit = 25
   //     |dev - dev_{old}| / (|dev| + 0.1) < 1e-8, where dev := -2 *
   //       log-likelihood.
+  // One deliberate difference from glm.fit: hh and ll are recomputed at the
+  // final coefficients before returning.  glm.fit's standard errors come
+  // from the weights of the penultimate iterate, which can still be ~1e-3
+  // (relative) off when a large effect converges slowly.
   // Support for sample_offsets was added in Mar 2024.  I had thought that
   // cc-residualize without single-prec didn't make sense since single-prec
   // should offer more of a speed boost for less accuracy cost on the initial
@@ -2800,6 +2804,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   // coef  = main result.
   // ll    = cholesky decomposition matrix, predictor_ct^2, rows vector-aligned
   // hh    = hessian matrix buffer, predictor_ct^2, rows vector-aligned
+  //         (both evaluated at the final coef)
   // pp    = final likelihoods minus Y[] (not currently used by callers).
   //
   // Returns 1 on convergence failure, 0 otherwise.
@@ -2855,7 +2860,8 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   // This index is 1 less than 'iter' in glm.R.
-  for (uint32_t iteration = 1; iteration != maxit; ++iteration) {
+  uint32_t iteration = 1;
+  for (; iteration != maxit; ++iteration) {
     // V[i] = P[i] * (1 - P[i]);
     // P[i] -= Y[i];
     ComputeVAndPMinusYD(yy, sample_ctav, pp, vv);
@@ -2890,11 +2896,18 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
 
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
-      return 0;
+      break;
     }
     loglik_old = loglik;
   }
-  *is_unfinished_ptr = 1;
+  if (iteration == maxit) {
+    *is_unfinished_ptr = 1;
+  }
+  // pp holds the probabilities at the final coef; evaluate the information
+  // matrix there.
+  ComputeVAndPMinusYD(yy, sample_ctav, pp, vv);
+  ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh);
+  CholeskyDecompositionD(hh, predictor_ct, ll);
   return 0;
 }
 
