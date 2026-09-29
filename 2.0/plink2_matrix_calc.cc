@@ -5537,8 +5537,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   {
     assert(variant_ct);
     uint32_t calc_thread_ct = 1;
-#ifndef USE_MTBLAS
-    if (!BlasIsAccelerate()) {
+    if ((!BlasIsMultithreaded()) && (!BlasIsAccelerate())) {
       calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
       if (calc_thread_ct * parallel_tot > sample_ct / 32) {
         calc_thread_ct = sample_ct / (32 * parallel_tot);
@@ -5547,7 +5546,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
     }
-#endif
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: GRM construction requires at least two samples.\n");
       goto CalcGrm_ret_DEGENERATE_DATA;
@@ -5651,10 +5649,9 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       ctx.normed_dosage_smaj_bufs[1] = nullptr;
       SetThreadFuncAndData(CalcGrmThread, &ctx, &tg);
     }
-#ifdef USE_MTBLAS
-    const uint32_t blas_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    BLAS_SET_NUM_THREADS(blas_thread_ct);
-#endif
+    if (BlasIsMultithreaded()) {
+      BLAS_SET_NUM_THREADS((max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct);
+    }
     // Main workflow:
     // 1. Set n=0, load batch 0
     //

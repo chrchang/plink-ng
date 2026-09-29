@@ -215,6 +215,19 @@ HEADER_INLINE uint32_t BlasIsAccelerate() {
 }
 #endif
 
+// Nonzero iff BLAS_SET_NUM_THREADS() can give BLAS more than one thread.
+#ifdef USE_MTBLAS
+HEADER_INLINE uint32_t BlasIsMultithreaded() {
+  return 1;
+}
+#elif !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+uint32_t BlasIsMultithreaded();
+#else
+HEADER_INLINE uint32_t BlasIsMultithreaded() {
+  return 0;
+}
+#endif
+
 // Returns -1 if no inf/nan found.
 // May move this to a more central location if there are other users.
 intptr_t FirstInfOrNan(const double* vec, uintptr_t size);

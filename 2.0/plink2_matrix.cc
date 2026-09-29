@@ -88,6 +88,17 @@ uint32_t BlasIsAccelerate() {
   return cached;
 }
 #  endif
+
+uint32_t BlasIsMultithreaded() {
+  if (openblas_set_num_threads || MKL_Set_Num_Threads || bli_thread_set_num_threads) {
+    return 1;
+  }
+#  ifdef __APPLE__
+  return BLASSetThreading && BlasIsAccelerate();
+#  else
+  return 0;
+#  endif
+}
 #endif
 
 intptr_t FirstInfOrNan(const double* vec, uintptr_t size) {
