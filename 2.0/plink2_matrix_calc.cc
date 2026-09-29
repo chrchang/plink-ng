@@ -5536,14 +5536,15 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   PreinitThreads(&tg);
   {
     assert(variant_ct);
-#if defined(USE_ACCELERATE) || defined(USE_MTBLAS)
     uint32_t calc_thread_ct = 1;
-#else
-    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    if (calc_thread_ct * parallel_tot > sample_ct / 32) {
-      calc_thread_ct = sample_ct / (32 * parallel_tot);
-      if (!calc_thread_ct) {
-        calc_thread_ct = 1;
+#ifndef USE_MTBLAS
+    if (!BlasIsAccelerate()) {
+      calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+      if (calc_thread_ct * parallel_tot > sample_ct / 32) {
+        calc_thread_ct = sample_ct / (32 * parallel_tot);
+        if (!calc_thread_ct) {
+          calc_thread_ct = 1;
+        }
       }
     }
 #endif
@@ -7192,21 +7193,20 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (unlikely(reterr)) {
       goto CalcPca_ret_1;
     }
-#ifdef __APPLE__
-    // min OS X version is 10.7, so we can take Grand Central Dispatch dgemm
-    // for granted
+    const uint32_t blas_is_accelerate = BlasIsAccelerate();
+    // With Accelerate, we can take Grand Central Dispatch dgemm for granted.
     // (tried this with Linux MKL + OpenMP as well, but results were inferior)
     uint32_t calc_thread_ct = 1;
-#else
-    // I/O thread generally has <1/8 of workload
-    // TODO: recheck this, now that I/O thread is also responsible for fully
-    // expanding dosages.  Still shouldn't be a big deal, but we probably want
-    // sample_ct to affect the decision boundary now.
-    uint32_t calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
-    if ((calc_thread_ct - 1) * kPcaVariantBlockSize >= variant_ct) {
-      calc_thread_ct = 1 + (variant_ct - 1) / kPcaVariantBlockSize;
+    if (!blas_is_accelerate) {
+      // I/O thread generally has <1/8 of workload
+      // TODO: recheck this, now that I/O thread is also responsible for fully
+      // expanding dosages.  Still shouldn't be a big deal, but we probably
+      // want sample_ct to affect the decision boundary now.
+      calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
+      if ((calc_thread_ct - 1) * kPcaVariantBlockSize >= variant_ct) {
+        calc_thread_ct = 1 + (variant_ct - 1) / kPcaVariantBlockSize;
+      }
     }
-#endif
     if (unlikely(pc_ct > pca_sample_ct)) {
       // minor update (alpha 3): just error out here instead of trying to
       // auto-adjust PC count, number of .eigenvec output columns should be
@@ -7354,11 +7354,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       FillGaussianDArr(gg_size / 2, max_thread_ct, sfmtp, g1);
       ctx.g1 = g1;
-#ifdef __APPLE__
-      fputs("Projecting random vectors... ", stdout);
-#else
-      printf("Projecting random vectors (%u compute thread%s)... ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
-#endif
+      if (blas_is_accelerate) {
+        fputs("Projecting random vectors... ", stdout);
+      } else {
+        printf("Projecting random vectors (%u compute thread%s)... ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+      }
       fflush(stdout);
       for (uint32_t iter_idx = 0; iter_idx <= pc_ct; ++iter_idx) {
         // kjg_fpca_XTXA(), kjg_fpca_XA()
@@ -7426,11 +7426,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             g1[ulii] *= variant_ct_recip;
           }
         }
-#ifdef __APPLE__
-        printf("\rProjecting random vectors... %u/%u", iter_idx + 1, pc_ct + 1);
-#else
-        printf("\rProjecting random vectors (%u compute thread%s)... %u/%u", calc_thread_ct, (calc_thread_ct == 1)? "" : "s", iter_idx + 1, pc_ct + 1);
-#endif
+        if (blas_is_accelerate) {
+          printf("\rProjecting random vectors... %u/%u", iter_idx + 1, pc_ct + 1);
+        } else {
+          printf("\rProjecting random vectors (%u compute thread%s)... %u/%u", calc_thread_ct, (calc_thread_ct == 1)? "" : "s", iter_idx + 1, pc_ct + 1);
+        }
         fflush(stdout);
       }
       fputs(".\n", stdout);
@@ -7696,12 +7696,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // 7. Goto step 2 unless eof
       //
       // 8. Write results and update projection for last block
-#ifndef __APPLE__
       if (output_zst) {
         // compression is relatively expensive?
         calc_thread_ct = 1;
       }
-#endif
       uintptr_t var_wts_part_size;
       double* var_wts = qq;
       if (var_wts) {

@@ -194,7 +194,7 @@ ifdef CBLAS_LAPACKE
   BLASFLAGS = -lcblas -llapacke -llapack -lblas
   # The BLAS thread-count setters are weak references resolved at load time.
   ifeq ($(UNAME), Darwin)
-    LINKFLAGS += -Wl,-U,_openblas_set_num_threads -Wl,-U,_MKL_Set_Num_Threads -Wl,-U,_bli_thread_set_num_threads
+    LINKFLAGS += -Wl,-U,_openblas_set_num_threads -Wl,-U,_MKL_Set_Num_Threads -Wl,-U,_bli_thread_set_num_threads -Wl,-U,_BLASSetThreading
   else
     BASEFLAGS += -fPIE
     CPUCHECK_FLAGS += -fPIE

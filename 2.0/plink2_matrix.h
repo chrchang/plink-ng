@@ -194,10 +194,25 @@ namespace plink2 {
 static const double kMatrixSingularRcond = 1e-14;
 
 #if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
-// Calls openblas_set_num_threads(), MKL_Set_Num_Threads() or
-// bli_thread_set_num_threads(), whichever the loaded BLAS provides; no-op
-// otherwise.
+// Calls openblas_set_num_threads(), MKL_Set_Num_Threads(),
+// bli_thread_set_num_threads() or BLASSetThreading(), whichever the loaded
+// BLAS provides; no-op otherwise.
 void BlasSetNumThreads(int32_t num_threads);
+#endif
+
+// Nonzero iff BLAS calls go to Apple Accelerate, which multithreads them
+// itself.
+#ifdef USE_ACCELERATE
+HEADER_INLINE uint32_t BlasIsAccelerate() {
+  return 1;
+}
+#elif !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE) && defined(__APPLE__)
+// Checks which image cblas_dgemm() was resolved from.
+uint32_t BlasIsAccelerate();
+#else
+HEADER_INLINE uint32_t BlasIsAccelerate() {
+  return 0;
+}
 #endif
 
 // Returns -1 if no inf/nan found.
