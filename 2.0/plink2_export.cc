@@ -1728,7 +1728,8 @@ uint32_t NoFemaleMissing(const uintptr_t* genovec, const uintptr_t* dosage_prese
 }
 
 // These may belong in plink2_base or plink2_common.
-// cur_write_bit_idx stays in [0, kBitsPerWord - 1]
+// bit_ct must be < kBitsPerWord.  cur_write_bit_idx stays in
+// [0, kBitsPerWord - 1].
 static inline void AppendBits(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, unsigned char** probs_write_iter_ptr) {
   uint32_t cur_write_bit_idx = *cur_write_bit_idx_ptr;
   *cur_write_bits_ptr |= payload << cur_write_bit_idx;
@@ -1740,6 +1741,38 @@ static inline void AppendBits(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur
   }
   *cur_write_bit_idx_ptr = cur_write_bit_idx;
 }
+
+#ifdef __LP64__
+// bugfix (28 Sep 2026): need to support bit_ct in [32, 48] on 32-bit
+// platforms.  payload can still be a uintptr_t for our current use case.
+static inline void AppendBits64(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, unsigned char** probs_write_iter_ptr) {
+  return AppendBits(bit_ct, payload, cur_write_bits_ptr, cur_write_bit_idx_ptr, probs_write_iter_ptr);
+}
+#else
+static inline void AppendBits64(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, unsigned char** probs_write_iter_ptr) {
+  uint32_t cur_write_bit_idx = *cur_write_bit_idx_ptr;
+  *cur_write_bits_ptr |= payload << cur_write_bit_idx;
+  cur_write_bit_idx += bit_ct;
+  if (cur_write_bit_idx >= kBitsPerWord) {
+    AppendW(*cur_write_bits_ptr, probs_write_iter_ptr);
+    cur_write_bit_idx -= kBitsPerWord;
+    const uint32_t remaining_bit_ct = bit_ct - cur_write_bit_idx;
+    if (remaining_bit_ct >= 32) {
+      // avoid undefined behavior
+      payload = 0;
+    } else {
+      payload >>= remaining_bit_ct;
+    }
+    *cur_write_bits_ptr = payload;
+    if (cur_write_bit_idx >= kBitsPerWord) {
+      AppendW(*cur_write_bits_ptr, probs_write_iter_ptr);
+      cur_write_bit_idx -= kBitsPerWord;
+      *cur_write_bits_ptr = 0;
+    }
+  }
+  *cur_write_bit_idx_ptr = cur_write_bit_idx;
+}
+#endif
 
 static inline void Append0Bits(uint32_t bit_ct, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, unsigned char** probs_write_iter_ptr) {
   uint32_t cur_write_bit_idx = *cur_write_bit_idx_ptr;
@@ -2181,7 +2214,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
             for (uint32_t uii = 0; uii != 4; ++uii) {
               const uint32_t cur_index = (cur_geno4 & 3) | ((cur_phasepresent4 & 1) * 4) | ((cur_phaseinfo4 & 1) * 8);
               const uintptr_t payload = bgen_diploid_phased_hardcall_table[cur_index];
-              AppendBits(bit_precision_x2, payload, &cur_write_bits, &cur_write_bit_idx, &probs_write_citer);
+              AppendBits64(bit_precision_x2, payload, &cur_write_bits, &cur_write_bit_idx, &probs_write_citer);
               cur_geno4 >>= 2;
               cur_phasepresent4 >>= 1;
               cur_phaseinfo4 >>= 1;
@@ -2340,7 +2373,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                   if (cur_male) {
                     AppendBits(bit_precision, bgen_haploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
                   } else {
-                    AppendBits(2 * bit_precision, bgen_diploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
+                    AppendBits64(2 * bit_precision, bgen_diploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
                   }
                   geno_word >>= 2;
                   male_hw >>= 1;
@@ -2418,7 +2451,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                   if (cur_phasepresent | cur_nonmale) {
                     *ploidy_and_missingness_iter++ = 2;
                     const uint32_t cur_index = cur_geno | (cur_phasepresent * 4) | ((phaseinfo_hw & 1) * 8);
-                    AppendBits(bit_precision * 2, bgen_diploid_phased_hardcall_table[cur_index], &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
+                    AppendBits64(bit_precision * 2, bgen_diploid_phased_hardcall_table[cur_index], &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
                     continue;
                   }
                   *ploidy_and_missingness_iter++ = 1;
@@ -2462,7 +2495,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                   if (cur_phasepresent) {
                     *ploidy_and_missingness_iter++ = 2;
                     const uint32_t cur_index = cur_geno | (cur_phasepresent * 4) | ((phaseinfo_hw & 1) * 8);
-                    AppendBits(bit_precision * 2, bgen_diploid_phased_hardcall_table[cur_index], &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
+                    AppendBits64(bit_precision * 2, bgen_diploid_phased_hardcall_table[cur_index], &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
                     continue;
                   }
                   *ploidy_and_missingness_iter++ = 1;
@@ -2523,7 +2556,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                   } else {
                     output_prob1 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
                   }
-                  AppendBits(bit_precision * 2, output_prob2 | (output_prob1 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
+                  AppendBits64(bit_precision * 2, output_prob2 | (output_prob1 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
                 }
               }
             } else {
@@ -2637,7 +2670,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                     output_prob2 = output_prob1;
                   }
                   *ploidy_and_missingness_iter++ = 2;
-                  AppendBits(bit_precision * 2, output_prob1 | (output_prob2 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
+                  AppendBits64(bit_precision * 2, output_prob1 | (output_prob2 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
                 }
               }
             } else {
@@ -2705,7 +2738,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                         output_prob2 = tmpval;
                       }
                     }
-                    AppendBits(bit_precision * 2, output_prob1 | (output_prob2 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
+                    AppendBits64(bit_precision * 2, output_prob1 | (output_prob2 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &bgen_geno_buf_iter);
                     continue;
                   }
                   *ploidy_and_missingness_iter++ = 1;
