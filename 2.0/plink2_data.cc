@@ -25,6 +25,7 @@
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
 
+#include "include/pgenlib_mtwrite.h"
 #include "include/pgenlib_write.h"
 #include "include/plink2_bgzf.h"
 #include "include/plink2_bits.h"

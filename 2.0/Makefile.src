@@ -51,6 +51,7 @@ PGENLIB_CCSRC = include/plink2_base.cc \
                 include/plink2_bits.cc \
                 include/plink2_simd.cc \
                 include/pgenlib_misc.cc \
+                include/pgenlib_mtwrite.cc \
                 include/pgenlib_read.cc \
                 include/pgenlib_write.cc
 
