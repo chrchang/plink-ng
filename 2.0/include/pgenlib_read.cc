@@ -5497,12 +5497,13 @@ PglErr GetAux1bLowcodeHets(const unsigned char* fread_end, const uintptr_t* __re
     }
     patch_10_fset = *fread_pp;
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, 8);
+    ;;;
     if (unlikely(PopcountBytesCheckedNz32(*fread_pp, fset_byte_ct, raw_10_ct, &rare10_ct))) {
       return kPglRetMalformedInput;
     }
     *fread_pp += fset_byte_ct;
   } else {
-    PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_genoarr, 2, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
+    PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rare10_ct);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -5660,6 +5661,7 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
     // significant bottleneck
     uintptr_t* aux1b_hets = pgrp->workspace_aux1x_present;
     uint32_t aux1b_het_present;
+    const unsigned char* aux1b_lowcode_start = aux1b_start;
     reterr = GetAux1bHets(fread_end, raw_genovec, aux1b_mode, raw_sample_ct, allele_ct, raw_10_ct, &aux1b_start, aux1b_hets, &aux1b_het_present, deltalist_workspace);
     if (unlikely(reterr)) {
       return reterr;
