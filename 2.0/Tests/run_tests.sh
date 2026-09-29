@@ -363,4 +363,9 @@ cd TEST_PGEN_DIFFLIST_COMMON
 cd ..
 echo "TEST_PGEN_DIFFLIST_COMMON passed."
 
+cd TEST_MULTIALLELIC_PHASED_R
+./run_tests.sh $d $2 $3 > TEST_MULTIALLELIC_PHASED_R.log
+cd ..
+echo "TEST_MULTIALLELIC_PHASED_R passed."
+
 echo "All tests passed."
