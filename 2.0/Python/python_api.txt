@@ -1,4 +1,4 @@
-Pgenlib Python API specification, v0.94
+Pgenlib Python API specification, v0.95
 ("import numpy as np" assumed)
 
 class PvarReader:

@@ -1,4 +1,4 @@
-# pgenlibr (development version)
+# pgenlibr 0.7.0 (2026-09-29)
 Basic .pgen writer added: NewPgenWriter(), AppendBiallelic(), AppendAlleles(),
 AppendDosages(), GetWrittenVariantCt(), and ClosePgenWriter().  Only the .pgen
 is written; the companion .pvar and .psam files must be written separately
