@@ -9372,17 +9372,19 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
   ZeroU64Arr(allele_ct - 2, &(two_cts[2]));
   // Cases:
   // - No hardcall-phase present.  Then we don't need to know raw_het_ct.
-  // - No multiallelic dosages present, not computing minimac3-r2.  Then we
-  //   still don't need to know raw_het_ct.
   // - Otherwise, we need to know raw_het_ct, either for the minimac3-r2
-  //   computation or to locate the beginning of aux3/aux4.
+  //   computation, to locate the beginning of aux3/aux4, or to skip aux2 so
+  //   that the end-of-record check below can catch an inaccurate allele_ct.
+  //   (bugfix (29 Sep 2026): that check previously fired on every phased
+  //   multiallelic-hardcall record without dosages, since aux2 wasn't
+  //   skipped.)
   //   If we're computing minimac3-r2, AND
   //     (i) we're subsetting, or
   //     (ii) multiallelic dosages are present,
   //   it's also necessary to compute all_hets, either to compute correct
   //   subsetted minimac3-r2 or to know how many phased-hardcalls are
   //   overridden by phased dosages.
-  const uint32_t raw_het_ct_needed = VrtypeHphase(vrtype) && (is_minimac3_r2 || (vrtype & 0x60));
+  const uint32_t raw_het_ct_needed = VrtypeHphase(vrtype);
   uintptr_t* all_hets = nullptr;
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   uint32_t raw_het_ct = genocounts[1]; // inaccurate, corrected later if needed
