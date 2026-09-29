@@ -7295,7 +7295,8 @@ PglErr PgrGet1P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
   if ((!allele_idx) || ((allele_idx == 1) && (!multiallelic_hc_present))) {
     PglErr reterr = ReadGenovecHphaseSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, allele_countvec, phasepresent, phaseinfo, phasepresent_ct_ptr);
-    if (allele_idx) {
+    // bugfix (28 Sep 2026): this inversion condition was backwards
+    if (!allele_idx) {
       GenovecInvertUnsafe(sample_ct, allele_countvec);
       if (*phasepresent_ct_ptr) {
         BitvecInvert(BitCtToWordCt(sample_ct), phaseinfo);
@@ -7315,7 +7316,7 @@ PglErr IMPLPgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_
   const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
   if ((!allele_idx) || ((allele_idx == 1) && (!multiallelic_hc_present))) {
     PglErr reterr = ReadGenovecHphaseSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, allele_invcountvec, phasepresent, phaseinfo, phasepresent_ct_ptr);
-    if (!allele_idx) {
+    if (allele_idx) {
       GenovecInvertUnsafe(sample_ct, allele_invcountvec);
       if (*phasepresent_ct_ptr) {
         BitvecInvert(BitCtToWordCt(sample_ct), phaseinfo);
