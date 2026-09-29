@@ -1728,7 +1728,8 @@ uint32_t NoFemaleMissing(const uintptr_t* genovec, const uintptr_t* dosage_prese
 }
 
 // These may belong in plink2_base or plink2_common.
-// cur_write_bit_idx stays in [0, kBitsPerWord - 1]
+// bit_ct must be < kBitsPerWord.  cur_write_bit_idx stays in [0, kBitsPerWord
+// - 1].
 static inline void AppendBits(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, unsigned char** probs_write_iter_ptr) {
   uint32_t cur_write_bit_idx = *cur_write_bit_idx_ptr;
   *cur_write_bits_ptr |= payload << cur_write_bit_idx;
@@ -1742,8 +1743,8 @@ static inline void AppendBits(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur
 }
 
 #ifdef __LP64__
-// bugfix (28 Sep 2026): need to support bit_ct in [32, 48],  permitted even though high payload bits
-// guaranteed to be unset.
+// bugfix (28 Sep 2026): need to support bit_ct in [32, 48] on 32-bit
+// platforms.  payload can still be a uintptr_t for our current use case.
 static inline void AppendBits64(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, unsigned char** probs_write_iter_ptr) {
   return AppendBits(bit_ct, payload, cur_write_bits_ptr, cur_write_bit_idx_ptr, probs_write_iter_ptr);
 }
