@@ -115,6 +115,29 @@ class PgenReader:
   are encoded as -9, everything else is a dosage in [0, 2] (more precisely,
   they'll be a multiple of 2^{-14}).
 
+* read_phased_dosages(uint32_t variant_idx,
+                      np.ndarray[np.float{32,64}_t] floatarr_out,
+                      uint32_t allele_idx = 1)
+  Takes a (0-based) variant index; fills floatarr_out, which must be a
+  C-contiguous numpy float32 or float64 array with at least (2 * sample_ct)
+  entries, with per-haplotype (phased) dosages.  Elements 2n and (2n+1)
+  correspond to the first and second haplotypes of sample n, in the same order
+  as read_alleles().  Each value is in [0, 1], or -9 (both haplotypes) when the
+  genotype is missing; the two values for a sample always sum to the
+  read_dosages() value.  These are the numbers plink2 --export vcf
+  vcf-dosage=HDS writes:
+  - Explicit dosage with dosage-phase (e.g. imported by plink2 --vcf/--bcf
+    dosage=HDS): the stored haplotype dosages (their sum and difference are
+    multiples of 2^{-14}).
+  - Explicit dosage, phased het hardcall, no dosage-phase: the dosage is
+    assigned so that the two haplotypes differ as much as possible, in the
+    hardcall's phase direction.
+  - Explicit dosage without phase information: split evenly between the two
+    haplotypes.
+  - No explicit dosage: 0 or 1 per haplotype for homozygous and phased het
+    hardcalls, 0.5 on each haplotype for unphased hets.
+  Multiallelic variants are supported when they have no dosage data.
+
 * read_alleles(uint32_t variant_idx, np.ndarray[np.int32_t] allele_int32_out)
 * read_alleles_and_phasepresent(uint32_t variant_idx,
                                 np.ndarray[np.int32_t] allele_int32_out,
@@ -160,6 +183,12 @@ class PgenReader:
   read_dosages_list(np.ndarray[np.uint32_t] variant_idxs,
                     np.ndarray[np.float{32,64}_t,mode="c",ndim=2] floatarr_out,
 	            uint32_t allele_idx = 1, bint sample_maj = 0)
+  read_phased_dosages_range(uint32_t variant_idx_start, uint32_t variant_idx_end,
+                            np.ndarray[np.float{32,64}_t,mode="c",ndim=2] floatarr_out,
+                            uint32_t allele_idx = 1, bint hap_maj = 0)
+  read_phased_dosages_list(np.ndarray[np.uint32_t] variant_idxs,
+                           np.ndarray[np.float{32,64}_t,mode="c",ndim=2] floatarr_out,
+                           uint32_t allele_idx = 1, bint hap_maj = 0)
   Read functions which handle multiple variants at once, saving data to 2D
   arrays.  By default, the return arrays are variant-major (# of columns is
   based on sample_ct, # of rows is equal to the block size); set
@@ -170,8 +199,9 @@ class PgenReader:
   the _list() functions, it's currently okay for the variant indexes to be
   unsorted, or for duplicates to be present, but that may not remain true.
 
-  The sample/haplotype-major modes of read_dosages_{range,list} and
-  read_alleles_and_phasepresent_{range,list} are not implemented yet.  The
+  The sample/haplotype-major modes of read_dosages_{range,list},
+  read_phased_dosages_{range,list}, and read_alleles_and_phasepresent_{range,list}
+  are not implemented yet.  The
   haplotype-major modes of read_alleles_{range,list} don't yet support
   multiallelic variants.
 

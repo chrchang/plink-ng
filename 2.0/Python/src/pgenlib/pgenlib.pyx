@@ -1,6 +1,6 @@
 # cython: language_level=3
 # from libc.stdlib cimport malloc, free
-from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint16_t, uint8_t, int8_t
+from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint16_t, int16_t, uint8_t, int8_t
 from libc.string cimport memcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from cpython.view cimport array as cvarray
@@ -99,8 +99,11 @@ cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) nogil
 
     void GenoarrCountFreqsUnsafe(const uintptr_t* genoarr, uint32_t sample_ct, uint32_t* genocounts)
-    void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec)
-    void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main)
+    void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec) nogil
+    void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main) nogil
+    void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta) nogil
+    uintptr_t BitCtToWordCt(uintptr_t val) nogil
+    void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec) nogil
 
     ctypedef unsigned char AlleleCode
 
@@ -114,9 +117,13 @@ cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
         uintptr_t* phaseinfo
         uintptr_t* dosage_present
         uint16_t* dosage_main
+        uintptr_t* dphase_present
+        int16_t* dphase_delta
         uint32_t patch_01_ct
         uint32_t patch_10_ct
         uint32_t phasepresent_ct
+        uint32_t dosage_ct
+        uint32_t dphase_ct
     cdef enum:
         kPglMaxAlleleCt
     cdef enum:
@@ -163,6 +170,10 @@ cdef extern from "../plink2/include/pgenlib_ffi_support.h" namespace "plink2":
     void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter) nogil
     void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float) nogil
     void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) nogil
+    void PhasedDosage16ToFloatsMinus9(const PgenVariantStruct* pgvp, uint32_t sample_ct, float* hap_dosages) nogil
+    void PhasedDosage16ToDoublesMinus9(const PgenVariantStruct* pgvp, uint32_t sample_ct, double* hap_dosages) nogil
+    void AlleleCodesToHapDosageFloatsMinus9(const int32_t* allele_codes, const unsigned char* phasebytes, uint32_t sample_ct, int32_t allele_idx, float* hap_dosages) nogil
+    void AlleleCodesToHapDosageDoublesMinus9(const int32_t* allele_codes, const unsigned char* phasebytes, uint32_t sample_ct, int32_t allele_idx, double* hap_dosages) nogil
     void DenseDosage16ToFloatsMinus9(const uint16_t* dosage_main, uint32_t dosage_ct, float* geno_float)
     void DenseDosage16ToDoubles(const uint16_t* dosage_main, uint32_t dosage_ct, double missing_val, double* geno_double)
     void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr)
@@ -196,7 +207,7 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     unsigned char* PgrGetFreadBuf(PgenReaderStruct* pgr_ptr)
 
-    uint32_t PgrGetVrtype(const PgenReaderStruct* pgr_ptr, uint32_t vidx)
+    uint32_t PgrGetVrtype(const PgenReaderStruct* pgr_ptr, uint32_t vidx) nogil
 
     void PgrSetFreadBuf(unsigned char* fread_buf, PgenReaderStruct* pgr_ptr)
 
@@ -220,6 +231,8 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
     PglErr PgrGetMP(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, PgenVariantStruct* pgvp) nogil
 
     PglErr PgrGetDMaybeSparse(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, uint32_t max_sparse_dosage_ct, PgenReaderStruct* pgr_ptr, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uint16_t* difflist_common_dosage_ptr, uint32_t* difflist_sample_ids) nogil
+
+    PglErr PgrGetDp(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, PgenVariantStruct* pgvp) nogil
 
     PglErr PgrGet1D(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReaderStruct* pgr_ptr, uintptr_t* allele_countvec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) nogil
 
@@ -400,6 +413,9 @@ cdef class PgenReader:
     cdef uintptr_t* _multivar_smaj_geno_batch_buf
     cdef uintptr_t* _multivar_smaj_phaseinfo_batch_buf
     cdef uintptr_t* _multivar_smaj_phasepresent_batch_buf
+    # for read_phased_dosages*() on multiallelic variants
+    cdef int32_t* _allele_codes_buf
+    cdef unsigned char* _phasebytes_buf
 
     cdef set_allele_idx_offsets_internal(self, cnp.ndarray[cnp.uintp_t,mode="c",ndim=1] allele_idx_offsets):
         # Make a copy instead of trying to share this with the caller.
@@ -529,8 +545,12 @@ cdef class PgenReader:
         cdef uintptr_t patch_01_vals_byte_ct = RoundUpPow2(file_sample_ct * sizeof(AlleleCode), kBytesPerVec)
         cdef uintptr_t patch_10_vals_byte_ct = RoundUpPow2(file_sample_ct * 2 * sizeof(AlleleCode), kBytesPerVec)
         cdef uintptr_t dosage_main_byte_ct = DivUp(file_sample_ct, (2 * kInt32PerVec)) * kBytesPerVec
+        cdef uintptr_t allele_codes_byte_ct = RoundUpPow2(file_sample_ct * 2 * sizeof(int32_t), kBytesPerVec)
+        cdef uintptr_t phasebytes_byte_ct = RoundUpPow2(file_sample_ct, kBytesPerVec)
         cdef unsigned char* pgr_alloc
-        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglNypTransposeBatch + 7) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglNypTransposeBatch) * genovec_byte_ct + raregeno_byte_ct + difflist_sample_ids_byte_ct + patch_01_vals_byte_ct + patch_10_vals_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglNypTransposeBatch * kPglNypTransposeBatch // 8), &pgr_alloc):
+        # dosage_main_byte_ct is counted twice since dphase_delta has the same
+        # size
+        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglNypTransposeBatch + 8) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglNypTransposeBatch) * genovec_byte_ct + raregeno_byte_ct + difflist_sample_ids_byte_ct + patch_01_vals_byte_ct + patch_10_vals_byte_ct + 2 * dosage_main_byte_ct + allele_codes_byte_ct + phasebytes_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglNypTransposeBatch * kPglNypTransposeBatch // 8), &pgr_alloc):
             raise MemoryError()
         cdef PglErr reterr = PgrInit(fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
         if reterr != kPglRetSuccess:
@@ -566,6 +586,14 @@ cdef class PgenReader:
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
         self._pgv.dosage_main = <uint16_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[dosage_main_byte_ct])
+        self._pgv.dphase_present = <uintptr_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
+        self._pgv.dphase_delta = <int16_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[dosage_main_byte_ct])
+        self._allele_codes_buf = <int32_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[allele_codes_byte_ct])
+        self._phasebytes_buf = <unsigned char*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[phasebytes_byte_ct])
         if sample_subset is not None:
             self.set_sample_subset_internal(sample_subset)
         else:
@@ -1623,6 +1651,169 @@ cdef class PgenReader:
             self.read_dosages_list_internal64(variant_idxs, floatarr_out, allele_idx, sample_maj)
         else:
             raise RuntimeError("Invalid read_dosages_list() floatarr_out array element type (float32 or float64 expected).")
+        return
+
+
+    cdef PglErr read_phased_dosages_internal(self, uint32_t variant_idx, uint32_t allele_idx, float* data32_ptr, double* data64_ptr) noexcept nogil:
+        # Fills 2 * subset_size entries of whichever of data32_ptr/data64_ptr
+        # is non-null.  Returns kPglRetInvalidCmdline if allele_idx is out of
+        # range, and kPglRetNotYetSupported for a multiallelic variant with
+        # dosage data.
+        cdef uint32_t subset_size = self._subset_size
+        cdef const uintptr_t* allele_idx_offsets = self._info_ptr[0].allele_idx_offsets
+        cdef uint32_t allele_ct = 2
+        if allele_idx_offsets != NULL:
+            allele_ct = allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx]
+        if allele_idx >= allele_ct:
+            return kPglRetInvalidCmdline
+        cdef PglErr reterr
+        if allele_ct == 2:
+            reterr = PgrGetDp(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
+            if reterr != kPglRetSuccess:
+                return reterr
+            if allele_idx == 0:
+                GenovecInvertUnsafe(subset_size, self._pgv.genovec)
+                if self._pgv.phasepresent_ct != 0:
+                    BitvecInvert(BitCtToWordCt(subset_size), self._pgv.phaseinfo)
+                if self._pgv.dosage_ct != 0:
+                    BiallelicDosage16Invert(self._pgv.dosage_ct, self._pgv.dosage_main)
+                    if self._pgv.dphase_ct != 0:
+                        BiallelicDphase16Invert(self._pgv.dphase_ct, self._pgv.dphase_delta)
+            if data32_ptr != NULL:
+                PhasedDosage16ToFloatsMinus9(&self._pgv, subset_size, data32_ptr)
+            else:
+                PhasedDosage16ToDoublesMinus9(&self._pgv, subset_size, data64_ptr)
+            return kPglRetSuccess
+        if (PgrGetVrtype(self._state_ptr, variant_idx) & 0x60) != 0:
+            return kPglRetNotYetSupported
+        reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
+        if reterr != kPglRetSuccess:
+            return reterr
+        GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, self._phasebytes_buf, self._allele_codes_buf)
+        if data32_ptr != NULL:
+            AlleleCodesToHapDosageFloatsMinus9(self._allele_codes_buf, self._phasebytes_buf, subset_size, allele_idx, data32_ptr)
+        else:
+            AlleleCodesToHapDosageDoublesMinus9(self._allele_codes_buf, self._phasebytes_buf, subset_size, allele_idx, data64_ptr)
+        return kPglRetSuccess
+
+
+    cdef raise_phased_dosages_error(self, str func_name, uint32_t variant_idx, uint32_t allele_idx, PglErr reterr):
+        if reterr == kPglRetInvalidCmdline:
+            raise RuntimeError(func_name + "() allele_idx too large (" + str(allele_idx) + "; variant_idx " + str(variant_idx) + " has fewer alleles).")
+        if reterr == kPglRetNotYetSupported:
+            raise RuntimeError(func_name + "() does not support multiallelic dosages yet (variant_idx " + str(variant_idx) + ").")
+        raise RuntimeError("variant_idx " + str(variant_idx) + " " + func_name + "() error " + str(reterr))
+
+
+    cpdef read_phased_dosages(self, uint32_t variant_idx, cnp.ndarray floatarr_out, uint32_t allele_idx = 1):
+        # Per-haplotype (phased) dosages of allele allele_idx, on a [0, 1]
+        # scale.  floatarr_out must be a C-contiguous float32 or float64 array
+        # with at least 2 * sample_ct entries; entries 2k and 2k+1 are set to
+        # the first and second haplotype dosages of sample k (same order as
+        # read_alleles()).  These are the values plink2 --export vcf
+        # vcf-dosage=HDS writes:
+        # - explicit dosage + dosage-phase (e.g. imported from HDS): stored
+        #   values.
+        # - explicit dosage, hardcall-phased het: the dosage is assigned so
+        #   the two haplotypes differ as much as possible, in the hardcall
+        #   phase direction.
+        # - explicit dosage, unphased: split evenly between the haplotypes.
+        # - hardcall only: 0/1 per haplotype when phased (homozygous calls are
+        #   trivially phased), 0.5/0.5 for an unphased het.
+        # - missing: -9 for both haplotypes.
+        # The two entries for a sample always sum to the read_dosages() value
+        # (or both are -9).
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_phased_dosages() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if floatarr_out.ndim != 1:
+            raise RuntimeError("read_phased_dosages() requires floatarr_out to be one-dimensional.")
+        if not floatarr_out.flags.c_contiguous:
+            raise RuntimeError("read_phased_dosages() requires floatarr_out to be C-contiguous.")
+        cdef uint32_t subset_size = self._subset_size
+        if floatarr_out.shape[0] < 2 * subset_size:
+            raise RuntimeError("read_phased_dosages() floatarr_out is too small (" + str(floatarr_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ", and length should be twice that).")
+        cdef float* data32_ptr = NULL
+        cdef double* data64_ptr = NULL
+        if floatarr_out.dtype == np.float32:
+            data32_ptr = <float*>floatarr_out.data
+        elif floatarr_out.dtype == np.float64:
+            data64_ptr = <double*>floatarr_out.data
+        else:
+            raise RuntimeError("Invalid read_phased_dosages() floatarr_out array element type (float32 or float64 expected).")
+        cdef PglErr reterr
+        with nogil:
+            reterr = self.read_phased_dosages_internal(variant_idx, allele_idx, data32_ptr, data64_ptr)
+        if reterr != kPglRetSuccess:
+            self.raise_phased_dosages_error("read_phased_dosages", variant_idx, allele_idx, reterr)
+        return
+
+
+    cdef read_phased_dosages_multi(self, str func_name, const uint32_t[::1] variant_idxs, cnp.ndarray floatarr_out, uint32_t allele_idx, bint hap_maj):
+        # floatarr_out must have at least variant_idx_ct rows and
+        # 2 * sample_ct columns.
+        if hap_maj:
+            raise RuntimeError(func_name + "() does not support hap_maj == 1 yet.")
+        cdef uint32_t variant_idx_ct = variant_idxs.shape[0]
+        cdef uint32_t subset_size = self._subset_size
+        if floatarr_out.ndim != 2:
+            raise RuntimeError(func_name + "() requires floatarr_out to be two-dimensional.")
+        if not floatarr_out.flags.c_contiguous:
+            raise RuntimeError(func_name + "() requires floatarr_out to be C-contiguous.")
+        if floatarr_out.shape[0] < variant_idx_ct:
+            raise RuntimeError("Variant-major " + func_name + "() floatarr_out buffer has too few rows (" + str(floatarr_out.shape[0]) + "; variant count is " + str(variant_idx_ct) + ")")
+        if floatarr_out.shape[1] < 2 * subset_size:
+            raise RuntimeError("Variant-major " + func_name + "() floatarr_out buffer has too few columns (" + str(floatarr_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
+        cdef uintptr_t row_stride = floatarr_out.shape[1]
+        cdef float* data32_ptr = NULL
+        cdef double* data64_ptr = NULL
+        if floatarr_out.dtype == np.float32:
+            data32_ptr = <float*>floatarr_out.data
+        elif floatarr_out.dtype == np.float64:
+            data64_ptr = <double*>floatarr_out.data
+        else:
+            raise RuntimeError("Invalid " + func_name + "() floatarr_out array element type (float32 or float64 expected).")
+        cdef PglErr reterr = kPglRetSuccess
+        cdef uint32_t variant_list_idx
+        cdef uint32_t variant_idx = 0
+        cdef float* row32_ptr = NULL
+        cdef double* row64_ptr = NULL
+        with nogil:
+            for variant_list_idx in range(variant_idx_ct):
+                variant_idx = variant_idxs[variant_list_idx]
+                if data32_ptr != NULL:
+                    row32_ptr = &(data32_ptr[variant_list_idx * row_stride])
+                else:
+                    row64_ptr = &(data64_ptr[variant_list_idx * row_stride])
+                reterr = self.read_phased_dosages_internal(variant_idx, allele_idx, row32_ptr, row64_ptr)
+                if reterr != kPglRetSuccess:
+                    break
+        if reterr != kPglRetSuccess:
+            self.raise_phased_dosages_error(func_name, variant_idx, allele_idx, reterr)
+        return
+
+
+    cpdef read_phased_dosages_range(self, uint32_t variant_idx_start, uint32_t variant_idx_end, cnp.ndarray floatarr_out, uint32_t allele_idx = 1, bint hap_maj = 0):
+        # Variant-major: floatarr_out must have at least
+        # (variant_idx_end - variant_idx_start) rows and 2 * sample_ct columns.
+        # See read_phased_dosages() for semantics.
+        if variant_idx_end > self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_phased_dosages_range() variant_idx_end too large (" + str(variant_idx_end) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if variant_idx_start > variant_idx_end:
+            raise RuntimeError("read_phased_dosages_range() variant_idx_start > variant_idx_end (" + str(variant_idx_start) + ", " + str(variant_idx_end) + ")")
+        cdef cnp.ndarray[cnp.uint32_t,mode="c",ndim=1] variant_idxs = np.arange(variant_idx_start, variant_idx_end, dtype=np.uint32)
+        self.read_phased_dosages_multi("read_phased_dosages_range", variant_idxs, floatarr_out, allele_idx, hap_maj)
+        return
+
+
+    cpdef read_phased_dosages_list(self, cnp.ndarray[cnp.uint32_t] variant_idxs, cnp.ndarray floatarr_out, uint32_t allele_idx = 1, bint hap_maj = 0):
+        # Variant-major: floatarr_out must have at least len(variant_idxs) rows
+        # and 2 * sample_ct columns.  See read_phased_dosages() for semantics.
+        cdef uint32_t raw_variant_ct = self._info_ptr[0].raw_variant_ct
+        cdef cnp.ndarray[cnp.uint32_t,mode="c",ndim=1] variant_idxs_c = np.ascontiguousarray(variant_idxs)
+        if variant_idxs_c.shape[0] != 0:
+            if variant_idxs_c.max() >= raw_variant_ct:
+                raise RuntimeError("read_phased_dosages_list() variant index too large (" + str(variant_idxs_c.max()) + "; only " + str(raw_variant_ct) + " in file)")
+        self.read_phased_dosages_multi("read_phased_dosages_list", variant_idxs_c, floatarr_out, allele_idx, hap_maj)
         return
 
     cpdef count(self, uint32_t variant_idx, cnp.ndarray[cnp.uint32_t,mode="c"] genocount_uint32_out, object allele_idx = 1):
