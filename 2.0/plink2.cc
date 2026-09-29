@@ -8925,7 +8925,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "nfo-to-cols")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* keys_str = argvk[arg_idx + 1];
@@ -8962,13 +8962,30 @@ int main(int argc, char** argv) {
             }
             pc.info_cols_info.keys_flattened = keys_flattened;
           }
-          if (param_ct == 2) {
-            const char* cur_modif = argvk[arg_idx + 2];
-            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+          // ID is always present, so cols= may exclude every column set.
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.info_cols_info.flags |= kfInfoColsZs;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(explicit_cols)) {
+                logerrputs("Error: Multiple --info-to-cols cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_cols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt\0", "info-to-cols", kfInfoColsColChrom, kfInfoColsColDefault, 0, &pc.info_cols_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --info-to-cols argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            pc.info_cols_info.flags |= kfInfoColsZs;
+          }
+          if (!explicit_cols) {
+            pc.info_cols_info.flags |= kfInfoColsColDefault;
           }
           pc.command_flags1 |= kfCommand1InfoToCols;
         } else if (strequal_k_unsafe(flagname_p2, "d-delim")) {

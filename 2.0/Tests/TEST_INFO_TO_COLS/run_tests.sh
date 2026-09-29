@@ -98,3 +98,43 @@ if $1/plink2 $2 $3 --bfile tmp_noinfo --info-to-cols DP --out plink2_noinfo 2> t
     exit 1
 fi
 grep -q "requires an INFO column" tmp_err.txt
+
+# 10. cols= drops fixed columns but never ID (dropping all four leaves ID),
+#     in both the direct-scan and the regular path (a no-op --chr filter).
+#     The result must be plink2_all.vinfo with those columns cut.  Each spec
+#     is <descriptor>:<columns kept>.
+for spec in chrom,pos,ref,alt:1,2,3,4,5,6,7,8,9,10 -chrom,-pos:3,4,5,6,7,8,9,10 +chrom:1,2,3,4,5,6,7,8,9,10 pos,alt:2,3,5,6,7,8,9,10 -ref:1,2,3,5,6,7,8,9,10 -chrom,-pos,-ref,-alt:3,6,7,8,9,10; do
+    awk -v fields=${spec#*:} 'BEGIN { FS = OFS = "\t"; n = split(fields, f, ",") }
+    {
+      line = ""
+      for (i = 1; i <= n; ++i) {
+        v = $(f[i])
+        if ((NR == 1) && (i == 1)) { sub(/^#/, "", v); v = "#" v }
+        line = (i == 1)? v : (line OFS v)
+      }
+      print line
+    }' plink2_all.vinfo > tmp_expected.vinfo
+    $1/plink2 $2 $3 --vcf tmp_in.vcf --info-to-cols all cols=${spec%%:*} --out plink2_cols
+    diff -q plink2_cols.vinfo tmp_expected.vinfo
+    $1/plink2 $2 $3 --vcf tmp_in.vcf --chr 1 --info-to-cols all cols=${spec%%:*} --out plink2_cols
+    diff -q plink2_cols.vinfo tmp_expected.vinfo
+done
+head -n 1 plink2_cols.vinfo | grep -qx '#ID	DP	AF	DB	VT	UNUSED'
+# ID cannot be dropped, and cols= may only be given once.
+if $1/plink2 $2 $3 --vcf tmp_in.vcf --info-to-cols all cols=-id --out plink2_cols 2> tmp_err.txt; then
+    echo "expected cols=-id to fail"
+    exit 1
+fi
+grep -q "Unrecognized ID 'id'" tmp_err.txt
+if $1/plink2 $2 $3 --vcf tmp_in.vcf --info-to-cols all cols=pos cols=ref --out plink2_cols 2> tmp_err.txt; then
+    echo "expected a second cols= to fail"
+    exit 1
+fi
+grep -q "Multiple --info-to-cols cols= modifiers" tmp_err.txt
+# REF and ALT are still validated when they aren't written.
+printf '#CHROM\tPOS\tID\tREF\tALT\tINFO\n1\t100\trs1\tA\tG,\tDP=1\n' > tmp_badalt.pvar
+if $1/plink2 $2 $3 --pvar tmp_badalt.pvar --info-to-cols DP cols=-alt --out plink2_cols 2> tmp_err.txt; then
+    echo "expected an empty ALT allele code to fail"
+    exit 1
+fi
+grep -q "Empty allele code" tmp_err.txt
