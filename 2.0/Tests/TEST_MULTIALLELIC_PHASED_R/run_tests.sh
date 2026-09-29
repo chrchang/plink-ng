@@ -54,3 +54,36 @@ for keep in "" "--keep tmp_keep.txt"; do
     # 10 pairs on chr1 and 3 on chr2, all with |r| = 1
     awk 'NR > 1 { ++ct; r = $9 + 0; if (r < 0) { r = -r; } if (r < 0.99999) { print "bad r: " $0; exit 1; } } END { if (ct != 13) { print "pair count " ct; exit 1; } }' plink2_r.vcor
 done
+
+# ALT2 as the major allele of a record whose ALTx/ALTy hets are stored as a
+# sparse list.  ALT2 can't be the major allele of such a record on its own
+# frequencies, so they come from --read-freq instead.  Haplotype types A, B, C
+# and D map to r5's ALT1, ALT2, ALT3 and REF, and B also maps to b3's ALT1.
+# Most ALTx/ALTy genotypes are ALT1/ALT1, which aux1b doesn't store, so the
+# few others (including the B/C hets, whose phase has to be flipped) end up in
+# a sparse list.
+python3 -c "
+counts = [('AA', 300), ('AD', 20), ('DA', 20), ('DD', 30), ('BC', 3), ('CB', 3),
+          ('BA', 3), ('AB', 3), ('BD', 2), ('DB', 2), ('CD', 7), ('DC', 7)]
+samples = [h for h, ct in counts for _ in range(ct)]
+seed = 54321
+for i in range(len(samples) - 1, 0, -1):
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    j = seed % (i + 1)
+    samples[i], samples[j] = samples[j], samples[i]
+n = len(samples)
+print('##fileformat=VCFv4.3')
+print('##contig=<ID=3,length=1000>')
+print('##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">')
+print('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t' + '\t'.join('s%d' % i for i in range(n)))
+for pos, (vid, alts, amap) in enumerate([('b3', 'A', {'A': 0, 'B': 1, 'C': 0, 'D': 0}),
+                                         ('r5', 'AC,AAC,AAAC,AAAAC', {'A': 1, 'B': 2, 'C': 3, 'D': 0})]):
+    gts = ['%d|%d' % (amap[h[0]], amap[h[1]]) for h in samples]
+    print('3\t%d\t%s\tG\t%s\t.\t.\t.\tGT\t' % (10 * (pos + 1), vid, alts) + '\t'.join(gts))
+" > tmp_rf.vcf
+printf '#ID\tREF\tALT\tALT_FREQS\nb3\tG\tA\t0.1\nr5\tG\tAC,AAC,AAAC,AAAAC\t0.01,0.9,0.05,0.01\n' > tmp_rf.afreq
+$1/plink2 $2 $3 --vcf tmp_rf.vcf --make-pgen --out tmp_rf
+for keep in "" "--keep tmp_keep.txt"; do
+    $1/plink2 $2 $3 --pfile tmp_rf $keep --read-freq tmp_rf.afreq --r-phased --ld-window-r2 0 --out plink2_rf
+    awk 'NR > 1 { ++ct; r = $9 + 0; if (r < 0) { r = -r; } if (r < 0.99999) { print "bad r: " $0; exit 1; } } END { if (ct != 1) { print "pair count " ct; exit 1; } }' plink2_rf.vcor
+done
