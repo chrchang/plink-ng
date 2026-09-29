@@ -7,7 +7,8 @@
 }
 \description{
     A thin wrapper over PLINK 2's core libraries which provides an R interface
-    for reading .pgen files.  A minimal .pvar loader is also included.
+    for reading .pgen files.  A minimal .pvar loader and a basic .pgen writer
+    are also included.
 }
 \details{
     \code{NewPvar} and \code{NewPgen} initialize the respective readers.  Then,
@@ -15,6 +16,11 @@
     \code{ReadAlleles}) or perform a multi-variant matrix load
     (\code{ReadIntList}, \code{ReadList}).  When you're done, \code{ClosePgen}
     and \code{ClosePvar} free resources.
+
+    To write a .pgen, call \code{NewPgenWriter}, append one variant at a time
+    (\code{AppendBiallelic}, \code{AppendAlleles}, \code{AppendDosages}), and
+    then call \code{ClosePgenWriter}.  Only the .pgen is written; the
+    companion .pvar and .psam files must be written separately.
 }
 \author{
     Christopher Chang \email{chrchang@alumni.caltech.edu}

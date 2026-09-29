@@ -1,5 +1,6 @@
 #include "include/pgenlib_ffi_support.h"
 #include "include/pgenlib_read.h"
+#include "include/pgenlib_write.h"
 #include "pvar.h"  // includes Rcpp
 
 class RPgenReader {
@@ -1491,4 +1492,551 @@ void ClosePgen(List pgen) {
   }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   rp->Close();
+}
+
+class RPgenWriter {
+public:
+  // similar to PgenWriter in Python/pgenlib.pyx
+  RPgenWriter();
+
+#if __cplusplus >= 201103L
+  RPgenWriter(const RPgenWriter&) = delete;
+  RPgenWriter& operator=(const RPgenWriter&) = delete;
+#endif
+
+  void Open(String filename, int sample_ct, int variant_ct,
+            SEXP nonref_flags, int allele_ct_limit,
+            bool hardcall_phase_present, bool dosage_present);
+
+  uint32_t GetWrittenVariantCt() const;
+
+  void AppendBiallelic(SEXP geno);
+
+  void AppendAlleles(SEXP acbuf, Nullable<LogicalVector> phasepresent,
+                     bool all_phased, Nullable<int> allele_ct);
+
+  void AppendDosages(NumericVector dosages);
+
+  void Close();
+
+  ~RPgenWriter();
+
+private:
+  plink2::STPgenWriter* _state_ptr;
+  unsigned char* _spgw_alloc;
+  uintptr_t* _nonref_flags;
+  plink2::PgenGlobalFlags _phase_dosage_gflags;
+  uint32_t _allele_ct_limit;
+  uintptr_t* _genovec;
+  uintptr_t* _patch_01_set;
+  plink2::AlleleCode* _patch_01_vals;
+  uintptr_t* _patch_10_set;
+  plink2::AlleleCode* _patch_10_vals;
+  uintptr_t* _phasepresent;
+  uintptr_t* _phaseinfo;
+  uintptr_t* _dosage_present;
+  uint16_t* _dosage_main;
+  int32_t* _allele_codes;
+  unsigned char* _phasepresent_bytes;
+
+  void CheckAppendOk() const;
+
+  // Returns SpgwFinish() error code if finish is true, otherwise
+  // kPglRetSuccess.  Never throws.
+  plink2::PglErr Release(bool finish);
+};
+
+RPgenWriter::RPgenWriter() : _state_ptr(nullptr), _spgw_alloc(nullptr),
+                             _nonref_flags(nullptr) {
+}
+
+void RPgenWriter::Open(String filename, int sample_ct, int variant_ct,
+                       SEXP nonref_flags, int allele_ct_limit,
+                       bool hardcall_phase_present, bool dosage_present) {
+  if ((sample_ct <= 0) || (static_cast<uint32_t>(sample_ct) > plink2::kPglMaxSampleCt)) {
+    stop("sample_ct must be positive, and less than ~2^31");
+  }
+  if ((variant_ct <= 0) || (static_cast<uint32_t>(variant_ct) > plink2::kPglMaxVariantCt)) {
+    stop("variant_ct must be positive, and less than ~2^31");
+  }
+  if ((allele_ct_limit < 2) || (static_cast<uint32_t>(allele_ct_limit) > plink2::kPglMaxAlleleCt)) {
+    stop("allele_ct_limit must be in [2, 255]");
+  }
+  const uint32_t sample_ct_u = sample_ct;
+  const uint32_t variant_ct_u = variant_ct;
+  // Same choice as the Python PgenWriter: the multiallelic case uses
+  // write-and-copy mode, since the variant record width isn't known upfront.
+  const plink2::PgenWriteMode write_mode = (allele_ct_limit == 2)? plink2::kPgenWriteBackwardSeek : plink2::kPgenWriteAndCopy;
+  uint32_t nonref_flags_storage = 0;
+  if (!Rf_isNull(nonref_flags)) {
+    if (TYPEOF(nonref_flags) != LGLSXP) {
+      stop("nonref_flags must be NULL, TRUE, FALSE, or a logical vector of length variant_ct");
+    }
+    LogicalVector nonref_lgl(nonref_flags);
+    if ((nonref_lgl.size() == 1) && (variant_ct != 1)) {
+      if (nonref_lgl[0] == NA_LOGICAL) {
+        stop("nonref_flags cannot be NA");
+      }
+      nonref_flags_storage = nonref_lgl[0]? 2 : 1;
+    } else if (nonref_lgl.size() == variant_ct) {
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct_u; ++variant_idx) {
+        if (nonref_lgl[variant_idx] == NA_LOGICAL) {
+          stop("nonref_flags cannot contain NA values");
+        }
+      }
+      nonref_flags_storage = 3;
+      const uintptr_t nonref_flags_cacheline_ct = plink2::DivUp(variant_ct_u, plink2::kBitsPerCacheline);
+      if (plink2::cachealigned_malloc(nonref_flags_cacheline_ct * plink2::kCacheline, &_nonref_flags)) {
+        stop("Out of memory");
+      }
+      plink2::ZeroWArr(nonref_flags_cacheline_ct * plink2::kWordsPerCacheline, _nonref_flags);
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct_u; ++variant_idx) {
+        if (nonref_lgl[variant_idx]) {
+          plink2::SetBit(variant_idx, _nonref_flags);
+        }
+      }
+    } else {
+      stop("nonref_flags must be NULL, TRUE, FALSE, or a logical vector of length variant_ct");
+    }
+  }
+  plink2::PgenGlobalFlags phase_dosage_gflags = plink2::kfPgenGlobal0;
+  if (hardcall_phase_present) {
+    phase_dosage_gflags |= plink2::kfPgenGlobalHardcallPhasePresent;
+  }
+  if (dosage_present) {
+    phase_dosage_gflags |= plink2::kfPgenGlobalDosagePresent;
+  }
+  _state_ptr = static_cast<plink2::STPgenWriter*>(malloc(sizeof(plink2::STPgenWriter)));
+  if (!_state_ptr) {
+    Release(false);
+    stop("Out of memory");
+  }
+  plink2::PreinitSpgw(_state_ptr);
+  const char* fname = filename.get_cstring();
+  uintptr_t alloc_cacheline_ct;
+  uint32_t max_vrec_len;
+  plink2::PglErr reterr = plink2::SpgwInitPhase1(fname, nullptr, _nonref_flags, variant_ct_u, sample_ct_u, allele_ct_limit, write_mode, phase_dosage_gflags, nonref_flags_storage, _state_ptr, &alloc_cacheline_ct, &max_vrec_len);
+  if (reterr != plink2::kPglRetSuccess) {
+    Release(false);
+    char errstr_buf[256];
+    if (reterr == plink2::kPglRetOpenFail) {
+      snprintf(errstr_buf, 256, "Failed to open %s for writing", fname);
+    } else {
+      snprintf(errstr_buf, 256, "SpgwInitPhase1() error %d", static_cast<int>(reterr));
+    }
+    stop(errstr_buf);
+  }
+  const uintptr_t bitvec_cacheline_ct = plink2::DivUp(sample_ct_u, plink2::kBitsPerCacheline);
+  const uintptr_t genovec_cacheline_ct = plink2::DivUp(sample_ct_u, plink2::kNypsPerCacheline);
+  const uintptr_t patch_01_vals_cacheline_ct = plink2::DivUp(sample_ct_u * sizeof(plink2::AlleleCode), plink2::kCacheline);
+  const uintptr_t patch_10_vals_cacheline_ct = plink2::DivUp(sample_ct_u * 2 * sizeof(plink2::AlleleCode), plink2::kCacheline);
+  const uintptr_t dosage_main_cacheline_ct = plink2::DivUp(sample_ct_u, 2 * plink2::kInt32PerCacheline);
+  const uintptr_t allele_codes_cacheline_ct = plink2::DivUp(sample_ct_u * 2 * sizeof(int32_t), plink2::kCacheline);
+  const uintptr_t phasepresent_bytes_cacheline_ct = plink2::DivUp(sample_ct_u, plink2::kCacheline);
+  const uintptr_t buf_cacheline_ct = genovec_cacheline_ct + 5 * bitvec_cacheline_ct + patch_01_vals_cacheline_ct + patch_10_vals_cacheline_ct + dosage_main_cacheline_ct + allele_codes_cacheline_ct + phasepresent_bytes_cacheline_ct;
+  if (plink2::cachealigned_malloc((alloc_cacheline_ct + buf_cacheline_ct) * plink2::kCacheline, &_spgw_alloc)) {
+    Release(false);
+    stop("Out of memory");
+  }
+  plink2::SpgwInitPhase2(max_vrec_len, _state_ptr, _spgw_alloc);
+  unsigned char* spgw_alloc_iter = &(_spgw_alloc[alloc_cacheline_ct * plink2::kCacheline]);
+  // Trailing bits of the genotype and phasepresent buffers must be clear.
+  memset(spgw_alloc_iter, 0, buf_cacheline_ct * plink2::kCacheline);
+  _genovec = reinterpret_cast<uintptr_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[genovec_cacheline_ct * plink2::kCacheline]);
+  _patch_01_set = reinterpret_cast<uintptr_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * plink2::kCacheline]);
+  _patch_01_vals = reinterpret_cast<plink2::AlleleCode*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[patch_01_vals_cacheline_ct * plink2::kCacheline]);
+  _patch_10_set = reinterpret_cast<uintptr_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * plink2::kCacheline]);
+  _patch_10_vals = reinterpret_cast<plink2::AlleleCode*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[patch_10_vals_cacheline_ct * plink2::kCacheline]);
+  _phasepresent = reinterpret_cast<uintptr_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * plink2::kCacheline]);
+  _phaseinfo = reinterpret_cast<uintptr_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * plink2::kCacheline]);
+  _dosage_present = reinterpret_cast<uintptr_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * plink2::kCacheline]);
+  _dosage_main = reinterpret_cast<uint16_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[dosage_main_cacheline_ct * plink2::kCacheline]);
+  _allele_codes = reinterpret_cast<int32_t*>(spgw_alloc_iter);
+  spgw_alloc_iter = &(spgw_alloc_iter[allele_codes_cacheline_ct * plink2::kCacheline]);
+  _phasepresent_bytes = spgw_alloc_iter;
+  _phase_dosage_gflags = phase_dosage_gflags;
+  _allele_ct_limit = allele_ct_limit;
+}
+
+void RPgenWriter::CheckAppendOk() const {
+  if (!_state_ptr) {
+    stop("pgen_writer is closed");
+  }
+  if (plink2::SpgwGetVidx(_state_ptr) == plink2::SpgwGetVariantCt(_state_ptr)) {
+    stop("all variant_ct variants have already been written");
+  }
+}
+
+uint32_t RPgenWriter::GetWrittenVariantCt() const {
+  if (!_state_ptr) {
+    stop("pgen_writer is closed");
+  }
+  return plink2::SpgwGetVidx(_state_ptr);
+}
+
+template <class T> static void CheckWriterBufLen(const T& vec, uint32_t expected_len, const char* vec_name) {
+  if (static_cast<uintptr_t>(vec.size()) != expected_len) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "%s has wrong length (%lld; %u expected)", vec_name, static_cast<long long>(vec.size()), expected_len);
+    stop(errstr_buf);
+  }
+}
+
+void RPgenWriter::AppendBiallelic(SEXP geno) {
+  CheckAppendOk();
+  const uint32_t sample_ct = plink2::SpgwGetSampleCt(_state_ptr);
+  uintptr_t* genovec = _genovec;
+  const uint32_t word_ct = plink2::NypCtToWordCt(sample_ct);
+  plink2::ZeroWArr(word_ct, genovec);
+  if (TYPEOF(geno) == INTSXP) {
+    IntegerVector geno_int(geno);
+    CheckWriterBufLen(geno_int, sample_ct, "geno");
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const int cur_val = geno_int[sample_idx];
+      uintptr_t cur_geno;
+      if ((cur_val >= 0) && (cur_val <= 2)) {
+        cur_geno = cur_val;
+      } else if ((cur_val == NA_INTEGER) || (cur_val == -9)) {
+        cur_geno = 3;
+      } else {
+        stop("geno values must be in {0, 1, 2, NA, -9}");
+      }
+      genovec[sample_idx / plink2::kBitsPerWordD2] |= cur_geno << (2 * (sample_idx % plink2::kBitsPerWordD2));
+    }
+  } else if (TYPEOF(geno) == REALSXP) {
+    NumericVector geno_dbl(geno);
+    CheckWriterBufLen(geno_dbl, sample_ct, "geno");
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const double cur_val = geno_dbl[sample_idx];
+      uintptr_t cur_geno;
+      if ((cur_val == 0.0) || (cur_val == 1.0) || (cur_val == 2.0)) {
+        cur_geno = static_cast<uintptr_t>(cur_val);
+      } else if (ISNAN(cur_val) || (cur_val == -9.0)) {
+        cur_geno = 3;
+      } else {
+        stop("geno values must be in {0, 1, 2, NA, -9}");
+      }
+      genovec[sample_idx / plink2::kBitsPerWordD2] |= cur_geno << (2 * (sample_idx % plink2::kBitsPerWordD2));
+    }
+  } else {
+    stop("Unsupported geno type (integer or numeric vector expected)");
+  }
+  const plink2::PglErr reterr = plink2::SpgwAppendBiallelicGenovec(genovec, _state_ptr);
+  if (reterr != plink2::kPglRetSuccess) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "SpgwAppendBiallelicGenovec() error %d", static_cast<int>(reterr));
+    stop(errstr_buf);
+  }
+}
+
+void RPgenWriter::AppendAlleles(SEXP acbuf, Nullable<LogicalVector> phasepresent,
+                                bool all_phased, Nullable<int> allele_ct) {
+  CheckAppendOk();
+  const uint32_t sample_ct = plink2::SpgwGetSampleCt(_state_ptr);
+  if (phasepresent.isNotNull() && all_phased) {
+    stop("phasepresent and all_phased cannot both be specified");
+  }
+  if ((phasepresent.isNotNull() || all_phased) && (!(_phase_dosage_gflags & plink2::kfPgenGlobalHardcallPhasePresent))) {
+    stop("phased calls cannot be appended when pgen_writer was created with hardcall_phase_present = FALSE");
+  }
+  // Translate to the -9-for-missing int32 representation expected by
+  // ConvertMultiAlleleCodesUnsafe().
+  int32_t* allele_codes = _allele_codes;
+  const uint32_t allele_code_ct = 2 * sample_ct;
+  if (TYPEOF(acbuf) == INTSXP) {
+    IntegerVector acbuf_int(acbuf);
+    CheckWriterBufLen(acbuf_int, allele_code_ct, "acbuf");
+    for (uint32_t uii = 0; uii != allele_code_ct; ++uii) {
+      const int cur_val = acbuf_int[uii];
+      if ((cur_val == NA_INTEGER) || (cur_val == -9)) {
+        allele_codes[uii] = -9;
+      } else if ((cur_val < 0) || (static_cast<uint32_t>(cur_val) >= _allele_ct_limit)) {
+        stop("acbuf allele codes must be in [0, allele_ct_limit - 1], NA, or -9");
+      } else {
+        allele_codes[uii] = cur_val;
+      }
+    }
+  } else if (TYPEOF(acbuf) == REALSXP) {
+    NumericVector acbuf_dbl(acbuf);
+    CheckWriterBufLen(acbuf_dbl, allele_code_ct, "acbuf");
+    for (uint32_t uii = 0; uii != allele_code_ct; ++uii) {
+      const double cur_val = acbuf_dbl[uii];
+      if (ISNAN(cur_val) || (cur_val == -9.0)) {
+        allele_codes[uii] = -9;
+      } else if ((cur_val < 0.0) || (cur_val >= static_cast<double>(_allele_ct_limit)) || (cur_val != static_cast<double>(static_cast<int32_t>(cur_val)))) {
+        stop("acbuf allele codes must be in [0, allele_ct_limit - 1], NA, or -9");
+      } else {
+        allele_codes[uii] = static_cast<int32_t>(cur_val);
+      }
+    }
+  } else {
+    stop("Unsupported acbuf type (integer or numeric matrix expected)");
+  }
+  unsigned char* phasepresent_bytes = nullptr;
+  uintptr_t* phasepresent_buf = nullptr;
+  uintptr_t* phaseinfo = nullptr;
+  if (phasepresent.isNotNull()) {
+    LogicalVector phasepresent_lgl(phasepresent.get());
+    CheckWriterBufLen(phasepresent_lgl, sample_ct, "phasepresent");
+    phasepresent_bytes = _phasepresent_bytes;
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const int cur_val = phasepresent_lgl[sample_idx];
+      phasepresent_bytes[sample_idx] = (cur_val != NA_LOGICAL) && cur_val;
+    }
+    phasepresent_buf = _phasepresent;
+    phaseinfo = _phaseinfo;
+  } else if (all_phased) {
+    phaseinfo = _phaseinfo;
+  }
+  uint32_t patch_01_ct;
+  uint32_t patch_10_ct;
+  const int32_t observed_allele_ct = plink2::ConvertMultiAlleleCodesUnsafe(allele_codes, phasepresent_bytes, sample_ct, _genovec, _patch_01_set, _patch_01_vals, _patch_10_set, _patch_10_vals, &patch_01_ct, &patch_10_ct, phasepresent_buf, phaseinfo);
+  if (observed_allele_ct == -1) {
+    stop("invalid allele codes (missing codes must occur in pairs)");
+  }
+  uint32_t write_allele_ct = observed_allele_ct;
+  if (allele_ct.isNotNull()) {
+    const int allele_ct_int = as<int>(allele_ct.get());
+    if ((allele_ct_int < 2) || (static_cast<uint32_t>(allele_ct_int) > _allele_ct_limit)) {
+      stop("allele_ct must be in [2, allele_ct_limit]");
+    }
+    if (static_cast<uint32_t>(allele_ct_int) < write_allele_ct) {
+      stop("acbuf contains allele codes >= allele_ct");
+    }
+    write_allele_ct = allele_ct_int;
+  }
+  plink2::PglErr reterr;
+  const bool is_biallelic = (patch_01_ct == 0) && (patch_10_ct == 0);
+  if (!phaseinfo) {
+    if (is_biallelic) {
+      reterr = plink2::SpgwAppendBiallelicGenovec(_genovec, _state_ptr);
+    } else {
+      reterr = plink2::SpgwAppendMultiallelicSparse(_genovec, _patch_01_set, _patch_01_vals, _patch_10_set, _patch_10_vals, write_allele_ct, patch_01_ct, patch_10_ct, _state_ptr);
+    }
+  } else {
+    if (is_biallelic) {
+      reterr = plink2::SpgwAppendBiallelicGenovecHphase(_genovec, phasepresent_buf, phaseinfo, _state_ptr);
+    } else {
+      reterr = plink2::SpgwAppendMultiallelicGenovecHphase(_genovec, _patch_01_set, _patch_01_vals, _patch_10_set, _patch_10_vals, phasepresent_buf, phaseinfo, write_allele_ct, patch_01_ct, patch_10_ct, _state_ptr);
+    }
+  }
+  if (reterr != plink2::kPglRetSuccess) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "AppendAlleles() write error %d", static_cast<int>(reterr));
+    stop(errstr_buf);
+  }
+}
+
+void RPgenWriter::AppendDosages(NumericVector dosages) {
+  CheckAppendOk();
+  if (!(_phase_dosage_gflags & plink2::kfPgenGlobalDosagePresent)) {
+    stop("dosages cannot be appended when pgen_writer was created with dosage_present = FALSE");
+  }
+  const uint32_t sample_ct = plink2::SpgwGetSampleCt(_state_ptr);
+  CheckWriterBufLen(dosages, sample_ct, "dosages");
+  const double* dosages_ptr = &dosages[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const double cur_val = dosages_ptr[sample_idx];
+    if ((!ISNAN(cur_val)) && (!((cur_val >= 0.0) && (cur_val <= 2.0)))) {
+      stop("dosages must be in [0, 2], or NA");
+    }
+  }
+  uint32_t dosage_ct;
+  // hard_call_halfdist = 6554 corresponds to plink2's default hard-call
+  // threshold of 0.1; same as the Python PgenWriter.
+  plink2::DoublesToDosage16(dosages_ptr, sample_ct, 6554, _genovec, _dosage_present, _dosage_main, &dosage_ct);
+  const plink2::PglErr reterr = plink2::SpgwAppendBiallelicGenovecDosage16(_genovec, _dosage_present, _dosage_main, dosage_ct, _state_ptr);
+  if (reterr != plink2::kPglRetSuccess) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "SpgwAppendBiallelicGenovecDosage16() error %d", static_cast<int>(reterr));
+    stop(errstr_buf);
+  }
+}
+
+plink2::PglErr RPgenWriter::Release(bool finish) {
+  plink2::PglErr reterr = plink2::kPglRetSuccess;
+  if (_state_ptr) {
+    if (finish) {
+      reterr = plink2::SpgwFinish(_state_ptr);
+    }
+    // SpgwFinish() closes the file(s) on success; CleanupSpgw() handles the
+    // incomplete and error cases.
+    plink2::CleanupSpgw(_state_ptr, &reterr);
+    free(_state_ptr);
+    _state_ptr = nullptr;
+  }
+  if (_spgw_alloc) {
+    plink2::aligned_free(_spgw_alloc);
+    _spgw_alloc = nullptr;
+  }
+  if (_nonref_flags) {
+    plink2::aligned_free(_nonref_flags);
+    _nonref_flags = nullptr;
+  }
+  return reterr;
+}
+
+void RPgenWriter::Close() {
+  if (!_state_ptr) {
+    return;
+  }
+  const uint32_t vidx = plink2::SpgwGetVidx(_state_ptr);
+  const uint32_t variant_ct = plink2::SpgwGetVariantCt(_state_ptr);
+  if (vidx != variant_ct) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "ClosePgenWriter() called when number of written variants (%u) is unequal to declared variant_ct (%u)", vidx, variant_ct);
+    stop(errstr_buf);
+  }
+  const plink2::PglErr reterr = Release(true);
+  if (reterr != plink2::kPglRetSuccess) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "SpgwFinish() error %d", static_cast<int>(reterr));
+    stop(errstr_buf);
+  }
+}
+
+RPgenWriter::~RPgenWriter() {
+  // Runs when the pgen_writer object is garbage-collected.  As with the Python
+  // PgenWriter, a complete file is finalized, while an incomplete one is
+  // closed without its header being filled in.
+  const bool finish = _state_ptr && (plink2::SpgwGetVidx(_state_ptr) == plink2::SpgwGetVariantCt(_state_ptr));
+  Release(finish);
+}
+
+static XPtr<class RPgenWriter> GetPgenWriterXPtr(List pgen_writer) {
+  if (strcmp_r_c(pgen_writer[0], "pgen_writer")) {
+    stop("pgen_writer is not a pgen_writer object");
+  }
+  return as<XPtr<class RPgenWriter> >(pgen_writer[1]);
+}
+
+//' Creates a new .pgen file for writing.
+//'
+//' Only the .pgen is written; you are responsible for writing the companion
+//' .pvar (or .bim) and .psam (or .fam) files yourself, with samples in the
+//' same order as in the vectors passed to the append functions, and variants
+//' in append order.  After all variant_ct variants have been appended (with
+//' AppendBiallelic(), AppendAlleles(), or AppendDosages()), ClosePgenWriter()
+//' must be called to finalize the file.
+//'
+//' @param filename .pgen file path.
+//' @param sample_ct Number of samples.
+//' @param variant_ct Number of variants that will be written.
+//' @param nonref_flags TRUE when the data is from an ordinary PLINK 1 .bed
+//' file (where the A2 allele is major rather than consistently reference),
+//' FALSE when the REF allele is consistently reference, or a logical vector of
+//' length variant_ct when this is mixed.  NULL is also permitted (this
+//' delegates tracking of nonref information to the .pvar file), but it's
+//' discouraged since .pgen+.bim+.fam is a useful data representation with
+//' direct plink2 support.  Defaults to TRUE, as in the Python PgenWriter.
+//' @param allele_ct_limit Maximum number of alleles (REF + ALTs) that any
+//' variant can have; defaults to 2.  Values larger than 2 are only useful with
+//' AppendAlleles().
+//' @param hardcall_phase_present Whether phased hardcalls may be written (with
+//' AppendAlleles()).  Defaults to FALSE.
+//' @param dosage_present Whether dosages may be written (with
+//' AppendDosages()).  Defaults to FALSE.
+//' @return A pgen_writer object.
+//' @export
+// [[Rcpp::export]]
+SEXP NewPgenWriter(String filename, int sample_ct, int variant_ct,
+                   SEXP nonref_flags = LogicalVector::create(TRUE), int allele_ct_limit = 2,
+                   bool hardcall_phase_present = false,
+                   bool dosage_present = false) {
+  XPtr<class RPgenWriter> pgen_writer(new RPgenWriter(), true);
+  pgen_writer->Open(filename, sample_ct, variant_ct, nonref_flags, allele_ct_limit, hardcall_phase_present, dosage_present);
+  return List::create(_["class"] = "pgen_writer", _["pgen_writer"] = pgen_writer);
+}
+
+//' Appends an unphased biallelic hardcall variant to a .pgen being written.
+//'
+//' @param pgen_writer Object returned by NewPgenWriter().
+//' @param geno Integer or numeric vector of length sample_ct, with values in
+//' \{0, 1, 2, NA\} indicating the number of ALT allele copies; -9 is also
+//' accepted as a missing-value code.  (A buffer filled by ReadHardcalls() is
+//' in this format.)
+//' @return No return value, called for side-effect.
+//' @export
+// [[Rcpp::export]]
+void AppendBiallelic(List pgen_writer, SEXP geno) {
+  GetPgenWriterXPtr(pgen_writer)->AppendBiallelic(geno);
+}
+
+//' Appends a hardcall variant, specified as allele codes, to a .pgen being
+//' written.  Unlike AppendBiallelic(), this supports phased and multiallelic
+//' hardcalls.
+//'
+//' @param pgen_writer Object returned by NewPgenWriter().
+//' @param acbuf Integer or numeric matrix with 2 rows and sample_ct columns,
+//' in the format filled by ReadAlleles(): 0 corresponds to the REF allele, 1
+//' to the first ALT, 2 to the second ALT, etc., and a missing hardcall is
+//' represented by a pair of NA (or -9) codes.  For a phased heterozygous call,
+//' the first row holds the allele on the first haplotype; unphased
+//' heterozygous calls can be stored in either order.
+//' @param phasepresent Logical vector of length sample_ct indicating which
+//' calls are phased; entries for non-heterozygous calls are ignored.
+//' Optional.  (A buffer filled by ReadAlleles() is in this format.)  Requires
+//' hardcall_phase_present = TRUE in the NewPgenWriter() call.
+//' @param all_phased Whether to treat all calls as phased; defaults to FALSE.
+//' Cannot be combined with phasepresent, and requires
+//' hardcall_phase_present = TRUE in the NewPgenWriter() call.  If neither
+//' phasepresent nor all_phased is specified, all calls are unphased.
+//' @param allele_ct Number of alleles (REF + ALTs) for this variant.
+//' Optional; by default, this is inferred to be max(2, 1 + <max observed
+//' allele code>).  It must be specified when the last ALT allele in the .pvar
+//' is unobserved.
+//' @return No return value, called for side-effect.
+//' @export
+// [[Rcpp::export]]
+void AppendAlleles(List pgen_writer, SEXP acbuf, Nullable<LogicalVector> phasepresent = R_NilValue, bool all_phased = false, Nullable<int> allele_ct = R_NilValue) {
+  GetPgenWriterXPtr(pgen_writer)->AppendAlleles(acbuf, phasepresent, all_phased, allele_ct);
+}
+
+//' Appends a biallelic dosage variant to a .pgen being written.
+//'
+//' Dosages are stored with 1/16384 precision.  Hardcalls are saved as well:
+//' each is the nearest integer when the dosage is within 0.1 of it, and
+//' missing otherwise.
+//'
+//' @param pgen_writer Object returned by NewPgenWriter(), with
+//' dosage_present = TRUE.
+//' @param dosages Numeric vector of length sample_ct, with ALT allele dosages
+//' in [0, 2], or NA for missing.  (A buffer filled by Read() is in this
+//' format.)
+//' @return No return value, called for side-effect.
+//' @export
+// [[Rcpp::export]]
+void AppendDosages(List pgen_writer, NumericVector dosages) {
+  GetPgenWriterXPtr(pgen_writer)->AppendDosages(dosages);
+}
+
+//' Returns the number of variants appended so far to a .pgen being written.
+//'
+//' @param pgen_writer Object returned by NewPgenWriter().
+//' @return Number of variants appended so far.
+//' @export
+// [[Rcpp::export]]
+int GetWrittenVariantCt(List pgen_writer) {
+  return GetPgenWriterXPtr(pgen_writer)->GetWrittenVariantCt();
+}
+
+//' Finalizes a .pgen being written, and releases resources.  This must be
+//' called after all variant_ct variants have been appended; the .pgen is not
+//' valid before then.
+//'
+//' @param pgen_writer Object returned by NewPgenWriter().
+//' @return No return value, called for side-effect.
+//' @export
+// [[Rcpp::export]]
+void ClosePgenWriter(List pgen_writer) {
+  GetPgenWriterXPtr(pgen_writer)->Close();
 }

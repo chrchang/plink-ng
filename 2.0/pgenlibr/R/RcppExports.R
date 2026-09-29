@@ -307,6 +307,117 @@ ClosePgen <- function(pgen) {
     invisible(.Call(`_pgenlibr_ClosePgen`, pgen))
 }
 
+#' Creates a new .pgen file for writing.
+#'
+#' Only the .pgen is written; you are responsible for writing the companion
+#' .pvar (or .bim) and .psam (or .fam) files yourself, with samples in the
+#' same order as in the vectors passed to the append functions, and variants
+#' in append order.  After all variant_ct variants have been appended (with
+#' AppendBiallelic(), AppendAlleles(), or AppendDosages()), ClosePgenWriter()
+#' must be called to finalize the file.
+#'
+#' @param filename .pgen file path.
+#' @param sample_ct Number of samples.
+#' @param variant_ct Number of variants that will be written.
+#' @param nonref_flags TRUE when the data is from an ordinary PLINK 1 .bed
+#' file (where the A2 allele is major rather than consistently reference),
+#' FALSE when the REF allele is consistently reference, or a logical vector of
+#' length variant_ct when this is mixed.  NULL is also permitted (this
+#' delegates tracking of nonref information to the .pvar file), but it's
+#' discouraged since .pgen+.bim+.fam is a useful data representation with
+#' direct plink2 support.  Defaults to TRUE, as in the Python PgenWriter.
+#' @param allele_ct_limit Maximum number of alleles (REF + ALTs) that any
+#' variant can have; defaults to 2.  Values larger than 2 are only useful with
+#' AppendAlleles().
+#' @param hardcall_phase_present Whether phased hardcalls may be written (with
+#' AppendAlleles()).  Defaults to FALSE.
+#' @param dosage_present Whether dosages may be written (with
+#' AppendDosages()).  Defaults to FALSE.
+#' @return A pgen_writer object.
+#' @export
+NewPgenWriter <- function(filename, sample_ct, variant_ct, nonref_flags = as.logical( c(TRUE)), allele_ct_limit = 2L, hardcall_phase_present = FALSE, dosage_present = FALSE) {
+    .Call(`_pgenlibr_NewPgenWriter`, filename, sample_ct, variant_ct, nonref_flags, allele_ct_limit, hardcall_phase_present, dosage_present)
+}
+
+#' Appends an unphased biallelic hardcall variant to a .pgen being written.
+#'
+#' @param pgen_writer Object returned by NewPgenWriter().
+#' @param geno Integer or numeric vector of length sample_ct, with values in
+#' \{0, 1, 2, NA\} indicating the number of ALT allele copies; -9 is also
+#' accepted as a missing-value code.  (A buffer filled by ReadHardcalls() is
+#' in this format.)
+#' @return No return value, called for side-effect.
+#' @export
+AppendBiallelic <- function(pgen_writer, geno) {
+    invisible(.Call(`_pgenlibr_AppendBiallelic`, pgen_writer, geno))
+}
+
+#' Appends a hardcall variant, specified as allele codes, to a .pgen being
+#' written.  Unlike AppendBiallelic(), this supports phased and multiallelic
+#' hardcalls.
+#'
+#' @param pgen_writer Object returned by NewPgenWriter().
+#' @param acbuf Integer or numeric matrix with 2 rows and sample_ct columns,
+#' in the format filled by ReadAlleles(): 0 corresponds to the REF allele, 1
+#' to the first ALT, 2 to the second ALT, etc., and a missing hardcall is
+#' represented by a pair of NA (or -9) codes.  For a phased heterozygous call,
+#' the first row holds the allele on the first haplotype; unphased
+#' heterozygous calls can be stored in either order.
+#' @param phasepresent Logical vector of length sample_ct indicating which
+#' calls are phased; entries for non-heterozygous calls are ignored.
+#' Optional.  (A buffer filled by ReadAlleles() is in this format.)  Requires
+#' hardcall_phase_present = TRUE in the NewPgenWriter() call.
+#' @param all_phased Whether to treat all calls as phased; defaults to FALSE.
+#' Cannot be combined with phasepresent, and requires
+#' hardcall_phase_present = TRUE in the NewPgenWriter() call.  If neither
+#' phasepresent nor all_phased is specified, all calls are unphased.
+#' @param allele_ct Number of alleles (REF + ALTs) for this variant.
+#' Optional; by default, this is inferred to be max(2, 1 + <max observed
+#' allele code>).  It must be specified when the last ALT allele in the .pvar
+#' is unobserved.
+#' @return No return value, called for side-effect.
+#' @export
+AppendAlleles <- function(pgen_writer, acbuf, phasepresent = NULL, all_phased = FALSE, allele_ct = NULL) {
+    invisible(.Call(`_pgenlibr_AppendAlleles`, pgen_writer, acbuf, phasepresent, all_phased, allele_ct))
+}
+
+#' Appends a biallelic dosage variant to a .pgen being written.
+#'
+#' Dosages are stored with 1/16384 precision.  Hardcalls are saved as well:
+#' each is the nearest integer when the dosage is within 0.1 of it, and
+#' missing otherwise.
+#'
+#' @param pgen_writer Object returned by NewPgenWriter(), with
+#' dosage_present = TRUE.
+#' @param dosages Numeric vector of length sample_ct, with ALT allele dosages
+#' in [0, 2], or NA for missing.  (A buffer filled by Read() is in this
+#' format.)
+#' @return No return value, called for side-effect.
+#' @export
+AppendDosages <- function(pgen_writer, dosages) {
+    invisible(.Call(`_pgenlibr_AppendDosages`, pgen_writer, dosages))
+}
+
+#' Returns the number of variants appended so far to a .pgen being written.
+#'
+#' @param pgen_writer Object returned by NewPgenWriter().
+#' @return Number of variants appended so far.
+#' @export
+GetWrittenVariantCt <- function(pgen_writer) {
+    .Call(`_pgenlibr_GetWrittenVariantCt`, pgen_writer)
+}
+
+#' Finalizes a .pgen being written, and releases resources.  This must be
+#' called after all variant_ct variants have been appended; the .pgen is not
+#' valid before then.
+#'
+#' @param pgen_writer Object returned by NewPgenWriter().
+#' @return No return value, called for side-effect.
+#' @export
+ClosePgenWriter <- function(pgen_writer) {
+    invisible(.Call(`_pgenlibr_ClosePgenWriter`, pgen_writer))
+}
+
 #' Loads variant positions, IDs, and allele codes from a .pvar or .bim file
 #' (which can be compressed with gzip or Zstd).
 #'
