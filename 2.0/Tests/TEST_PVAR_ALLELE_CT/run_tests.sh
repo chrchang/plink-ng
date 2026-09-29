@@ -44,6 +44,15 @@ VCF
     $1/plink2 $2 $3 --vcf tmp_$p.vcf --make-pgen --out tmp_$p
     # (sample subset for the subsetting code paths)
     printf 's1\ns2\ns4\ns6\n' > tmp_keep.txt
+    # With the correct .pvar, phase must not change the counts.  (The
+    # end-of-record check used to fire on phased hardcall-only multiallelic
+    # records, since the phase track isn't read here.)
+    $1/plink2 $2 $3 --pfile tmp_$p --freq --out plink2_${p}_ok
+    $1/plink2 $2 $3 --pfile tmp_$p --keep tmp_keep.txt --freq --out plink2_${p}_keep_ok
+    if [ "$p" = "ph" ]; then
+        diff -q plink2_u_ok.afreq plink2_ph_ok.afreq
+        diff -q plink2_u_keep_ok.afreq plink2_ph_keep_ok.afreq
+    fi
     # The same records, with v1 declared as having 3 alleles.
     awk 'BEGIN { FS = OFS = "\t" } $3 == "v1" { $5 = "C,G" } { print }' tmp_$p.pvar > tmp_${p}3.pvar
     if [ "$sep" = "/" ]; then
@@ -54,10 +63,12 @@ VCF
         # Check is opportunistic, not exhaustive.  --geno-counts does not try
         # to scan to the end of the multiallelic .pgen record, so it doesn't
         # trigger the error.
-        for c in "--export vcf" "--freq" "--keep tmp_keep.txt --freq"; do
+        for c in "--export vcf"; do
             expect_fail ".pvar entry for (0-based) variant" $1 $2 $3 --pgen tmp_$p.pgen --pvar tmp_${p}3.pvar --psam tmp_$p.psam $c --out plink2_${p}3
         done
-        for c in "--make-pgen"; do
+        # --freq now skips the phase track before its end-of-record check,
+        # and the misread allele codes make that skip fail first.
+        for c in "--make-pgen" "--freq" "--keep tmp_keep.txt --freq"; do
             expect_fail "Failed to unpack" $1 $2 $3 --pgen tmp_$p.pgen --pvar tmp_${p}3.pvar --psam tmp_$p.psam $c --out plink2_${p}3
         done
     fi
