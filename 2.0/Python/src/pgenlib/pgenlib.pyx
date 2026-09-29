@@ -2141,6 +2141,7 @@ cdef class PgenWriter:
     cdef PgenGlobalFlags _phase_dosage_gflags
     cdef uint32_t _allele_ct_limit
     # preallocate buffers we'll use repeatedly
+    cdef unsigned char* _spgw_alloc
     cdef uintptr_t* _genovec
     cdef uintptr_t* _patch_01_set
     cdef AlleleCode* _patch_01_vals
@@ -2182,6 +2183,7 @@ cdef class PgenWriter:
         if not self._state_ptr:
             raise MemoryError()
         self._nonref_flags = NULL
+        self._spgw_alloc = NULL
         cdef uint32_t nonref_flags_storage = 0
         cdef uint32_t bitvec_cacheline_ct = DivUp(sample_ct, kBitsPerCacheline)
         if nonref_flags is not None:
@@ -2194,7 +2196,7 @@ cdef class PgenWriter:
                 nonref_flags_storage = 3
                 if cachealigned_malloc(bitvec_cacheline_ct * kCacheline, &(self._nonref_flags)):
                     raise MemoryError()
-                bytes_to_bits_internal(nonref_flags, sample_ct, self._nonref_flags)
+                bytes_to_bits_internal(nonref_flags, variant_ct, self._nonref_flags)
         cdef const char* fname = <const char*>filename
         cdef PgenGlobalFlags phase_dosage_gflags = kfPgenGlobal0
         if hardcall_phase_present:
@@ -2216,6 +2218,7 @@ cdef class PgenWriter:
         cdef unsigned char* spgw_alloc
         if cachealigned_malloc((alloc_cacheline_ct + genovec_cacheline_ct + 5 * bitvec_cacheline_ct + patch_01_vals_cacheline_ct + patch_10_vals_cacheline_ct + dosage_main_cacheline_ct) * kCacheline, &spgw_alloc):
             raise MemoryError()
+        self._spgw_alloc = spgw_alloc
         SpgwInitPhase2(max_vrec_len, self._state_ptr, spgw_alloc)
         cdef unsigned char* spgw_alloc_iter = &(spgw_alloc[alloc_cacheline_ct * kCacheline])
         self._allele_ct_limit = allele_ct_limit
@@ -2554,6 +2557,8 @@ cdef class PgenWriter:
             reterr = SpgwFinish(self._state_ptr)
             if reterr != kPglRetSuccess:
                 raise RuntimeError("PgenWriter.close(): SpgwFinish() error " + str(reterr))
+            if self._spgw_alloc:
+                aligned_free(self._spgw_alloc)
             if self._nonref_flags:
                 aligned_free(self._nonref_flags)
             PyMem_Free(self._state_ptr)
