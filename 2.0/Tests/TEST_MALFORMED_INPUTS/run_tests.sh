@@ -89,3 +89,39 @@ test -n "$next_ref"
 awk -v id=$bad_id -v a=$next_ref 'BEGIN {OFS = "\t"} $2 == id {$4 = a} {print}' tmp_fr.afreq > tmp_fr_bad.afreq
 $plink2 --pfile tmp_fr --flip-scan --flip-scan-ref-freq tmp_fr_bad.afreq --out tmp_fs > /dev/null
 grep -q '1 entry skipped' tmp_fs.log
+
+# 10. --adjust-file with p > 1: the row was silently left out of the test
+#     count, so Bonferroni/FDR were computed over fewer tests.
+printf '#CHROM\tID\tP\n1\ta\t0.5\n1\tb\t1.5\n1\tc\t0.01\n' > tmp_pbig.txt
+fails_cleanly $plink2 --adjust-file tmp_pbig.txt --out tmp_bad
+grep -q 'Invalid p-value on line 3' tmp_bad.log
+
+# 11. Long alleles in --adjust-file and --meta-analysis overflowed the output
+#     buffer, which was sized for short alleles only.  Silent corruption:
+#     --adjust-file printed an UNADJ like 2.44169e+982215 and lost rows.
+long_allele=$(head -c 200000 /dev/zero | tr '\0' 'A')
+{
+    printf '#CHROM\tID\tREF\tALT\tA1\tP\n'
+    printf '1\tv1\t%s\tC\tC\t0.001\n' $long_allele
+    printf '1\tv2\tA\tC\tC\t0.5\n1\tv3\tA\tC\tC\t0.2\n'
+} > tmp_long.txt
+$plink2 --adjust-file tmp_long.txt cols=+ref --out tmp_long > /dev/null
+test "$(grep -vc '^#' tmp_long.adjusted)" -eq 3
+awk -F '\t' 'NR == 1 {for (i = 1; i <= NF; ++i) {if ($i == "UNADJ") {c = i}}} $2 == "v1" { if ($c != 0.001) { print "v1 UNADJ is " $c; exit 1 } }' tmp_long.adjusted
+{
+    printf 'CHR SNP BP A1 A2 OR SE\n'
+    printf '1 rs1 100 %s G 1.2 0.1\n' $long_allele
+    printf '1 rs2 200 A G 1.1 0.1\n'
+} > tmp_ml1.txt
+sed 's/ 1.2 / 1.3 /; s/ 1.1 / 1.0 /' tmp_ml1.txt > tmp_ml2.txt
+$plink2 --meta-analysis tmp_ml1.txt tmp_ml2.txt + study --out tmp_ml > /dev/null
+test "$(grep -vc '^#' tmp_ml.meta)" -eq 2
+
+# 12. --ld-score-annot values must parse as a whole token and fit in a float:
+#     '1abc' used to read as 1 and 1e300 as inf.
+$plink2 --dummy 20 10 0.1 --seed 1 --make-pgen --out tmp_ld > /dev/null
+for v in 1abc 0x10 1e300
+do
+awk -v v=$v 'BEGIN {print "SNP\tA"} !/^#/ {print $3 "\t" v}' tmp_ld.pvar > tmp_annot.txt
+fails_cleanly $plink2 --pfile tmp_ld --ld-score --ld-score-window-kb 100 --ld-score-annot tmp_annot.txt --out tmp_bad
+done
