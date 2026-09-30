@@ -7291,7 +7291,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // Simplest solution is to force the user to request fewer PCs, since the
       // final PCs wouldn't be accurate anyway.
       if (qq_col_ct > variant_ct) {
-        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%u required).\n", pc_ct, qq_col_ct);
+        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%" PRIuPTR " required).\n", pc_ct, qq_col_ct);
         goto CalcPca_ret_DEGENERATE_DATA;
       }
 #ifndef LAPACK_ILP64

@@ -1577,7 +1577,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     if (duplicate_ct) {
       // "At least" since this does not count duplicate IDs absent from the
       // .fam.
-      logerrprintf("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
+      logerrprintf("Warning: At least %u duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
     }
   }
  KeepOrRemove_ret_1:
