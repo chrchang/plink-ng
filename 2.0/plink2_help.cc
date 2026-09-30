@@ -3027,7 +3027,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      blows up as p approaches zero, so a single very rare variant can\n"
 "      dominate the result.  Without this flag, GRM construction now errors out\n"
 "      instead of producing a silently unstable answer if there is a variant\n"
-"      with MAF < 0.25 * sqrt(sample size).\n"
+"      with MAF < 0.25 / sqrt(sample size).\n"
 "      * With --read-freq, sample size is replaced with max(2500, sample size)\n"
 "        in that formula.\n"
 "    * To intentionally set an even lower --grm-maf threshold, you must specify\n"
