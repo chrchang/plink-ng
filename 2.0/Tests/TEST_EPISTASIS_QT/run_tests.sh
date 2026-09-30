@@ -101,3 +101,18 @@ fails $1/plink2 $2 $3 --bfile tmp_data --epistasis set-by-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --epistasis-boost --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --fast-epistasis boost --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --gap 100 --out plink2_bad
+
+# 10. Every row has as many tab-separated fields as the header, with and
+#     without the A1 columns.  (The comparisons above split on runs of
+#     whitespace, so they cannot see an empty field.)
+for c in "" "cols=+a1" "cols=+pos" "cols=-chrom"
+do
+$1/plink2 $2 $3 --bfile tmp_data --epistasis $c --epi1 1 --out plink2_fields
+awk -F'\t' 'NR == 1 {n = NF} NF != n {exit 1}' plink2_fields.PHENO1.epi.qt
+done
+head -n 2 plink2.PHENO1.epi.qt | tail -n 1 | awk -F'\t' '{exit ($5 == "")}'
+
+# 11. 'log10' reports -log10(p) under a NEG_LOG10_P header.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis log10 --epi1 1 --out plink2_log10
+head -n 1 plink2_log10.PHENO1.epi.qt | grep -qx '#CHROM1	ID1	CHROM2	ID2	BETA_INT	SE	T_STAT	NEG_LOG10_P'
+paste <(cut -f 8 plink2.PHENO1.epi.qt) <(cut -f 8 plink2_log10.PHENO1.epi.qt) | awk 'NR > 1 {d = -log($1) / log(10) - $2; if (d < 0) {d = -d} if (d > 1e-4 * (1 + $2)) {exit 1}}'

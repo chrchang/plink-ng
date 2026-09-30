@@ -919,6 +919,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t stat_col = flags & kfEpiColStat;
     const uint32_t df_col = flags & kfEpiColDf;
     const uint32_t p_col = flags & kfEpiColP;
+    const uint32_t report_neglog10p = (flags / kfEpiLog10) & 1;
     uint32_t max_chr_slen = 0;
     if (chrom_col) {
       max_chr_slen = GetMaxChrSlen(cip);
@@ -957,7 +958,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
         cswritep = strcpya_k(cswritep, "\tDF");
       }
       if (p_col) {
-        cswritep = strcpya_k(cswritep, "\tP");
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
+        } else {
+          cswritep = strcpya_k(cswritep, "\tP");
+        }
       }
       AppendBinaryEoln(&cswritep);
     }
@@ -1145,7 +1150,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
               }
               if (p_col) {
                 *cswritep++ = '\t';
-                cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                if (report_neglog10p) {
+                  cswritep = dtoa_g((-kRecipLn10) * ln_pval, cswritep);
+                } else {
+                  cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                }
               }
               AppendBinaryEoln(&cswritep);
               if (unlikely(Cswrite(&css, &cswritep))) {
@@ -2176,6 +2185,7 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
     const uint32_t se_col = flags & kfEpiColSe;
     const uint32_t stat_col = flags & kfEpiColStat;
     const uint32_t p_col = flags & kfEpiColP;
+    const uint32_t report_neglog10p = (flags / kfEpiLog10) & 1;
     uint32_t max_chr_slen = 0;
     if (chrom_col) {
       max_chr_slen = GetMaxChrSlen(cip);
@@ -2217,7 +2227,11 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
         cswritep = strcpya_k(cswritep, "\tT_STAT");
       }
       if (p_col) {
-        cswritep = strcpya_k(cswritep, "\tP");
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
+        } else {
+          cswritep = strcpya_k(cswritep, "\tP");
+        }
       }
       AppendBinaryEoln(&cswritep);
     }
@@ -2347,8 +2361,9 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
                 if (pos_col) {
                   cswritep = u32toa_x(variant_bps[col_variant_uidx], '\t', cswritep);
                 }
-                cswritep = strcpyax(cswritep, variant_ids[col_variant_uidx], '\t');
+                cswritep = strcpya(cswritep, variant_ids[col_variant_uidx]);
                 if (a1_col) {
+                  *cswritep++ = '\t';
                   uintptr_t allele_idx_offset_base = col_variant_uidx * 2;
                   if (allele_idx_offsets) {
                     allele_idx_offset_base = allele_idx_offsets[col_variant_uidx];
@@ -2373,7 +2388,11 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
                 }
                 if (p_col) {
                   *cswritep++ = '\t';
-                  cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                  if (report_neglog10p) {
+                    cswritep = dtoa_g((-kRecipLn10) * ln_pval, cswritep);
+                  } else {
+                    cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                  }
                 }
                 AppendBinaryEoln(&cswritep);
                 if (unlikely(Cswrite(&css, &cswritep))) {

@@ -178,3 +178,8 @@ diff <(cut -f2,4 plink2_oc_miss.PHENO1.epi.cc.summary) <(cut -f2,4 plink2_oc_rm.
 awk 'BEGIN{OFS=" "} {print $1, $2, (NR%2)? "left" : "right"}' tmp_oc.fam > tmp_oc_cat_body.txt
 (echo "#FID IID SIDE"; cat tmp_oc_cat_body.txt) > tmp_oc_cat.txt
 fails $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_cat.txt --out plink2_bad
+
+# 18. 'log10' reports -log10(p) under a NEG_LOG10_P header.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis-boost log10 --epi1 1 --out plink2_log10
+head -n 1 plink2_log10.PHENO1.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF	NEG_LOG10_P'
+paste <(cut -f 7 plink2.PHENO1.epi.cc) <(cut -f 7 plink2_log10.PHENO1.epi.cc) | awk 'NR > 1 {d = -log($1) / log(10) - $2; if (d < 0) {d = -d} if (d > 1e-4 * (1 + $2)) {exit 1}}'
