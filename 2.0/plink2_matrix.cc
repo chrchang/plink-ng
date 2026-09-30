@@ -22,8 +22,25 @@
 
 #include "include/plink2_float.h"
 
+#if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+#  ifdef __APPLE__
+#    include <dlfcn.h>  // dladdr()
+#  endif
+// Weak, so each is null unless the BLAS loaded at run time defines it.
+extern "C" {
+void openblas_set_num_threads(int num_threads) __attribute__((weak));
+void MKL_Set_Num_Threads(int nth) __attribute__((weak));
+void bli_thread_set_num_threads(int64_t n_threads) __attribute__((weak));
+#  ifdef __APPLE__
+// Accelerate, macOS 15+.  Argument is enum BLAS_THREADING (unsigned int):
+// 0 = multi-threaded, 1 = single-threaded.
+int BLASSetThreading(unsigned int threading) __attribute__((weak));
+#  endif
+}
+#endif
+
 #ifndef NOLAPACK
-#  if defined(__APPLE__) || defined(USE_MKL)
+#  if defined(USE_ACCELERATE) || defined(USE_MKL)
 #    define LAPACK_dgecon dgecon_
 #    define LAPACK_dgesvd dgesvd_
 #    define LAPACK_dgetrf dgetrf_
@@ -40,6 +57,48 @@
 
 #ifdef __cplusplus
 namespace plink2 {
+#endif
+
+#if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+void BlasSetNumThreads(int32_t num_threads) {
+  if (openblas_set_num_threads) {
+    openblas_set_num_threads(num_threads);
+  } else if (MKL_Set_Num_Threads) {
+    MKL_Set_Num_Threads(num_threads);
+  } else if (bli_thread_set_num_threads) {
+    bli_thread_set_num_threads(num_threads);
+  }
+#  ifdef __APPLE__
+  // Checked explicitly: this binds whenever Accelerate is mapped, even if
+  // cblas_*() calls go elsewhere.
+  else if (BLASSetThreading && BlasIsAccelerate()) {
+    BLASSetThreading((num_threads > 1)? 0 : 1);
+  }
+#  endif
+}
+
+#  ifdef __APPLE__
+uint32_t BlasIsAccelerate() {
+  static int32_t cached = -1;
+  if (cached == -1) {
+    static const char kAcceleratePrefix[] = "/System/Library/Frameworks/Accelerate.framework/";
+    Dl_info info;
+    cached = dladdr(R_CAST(const void*, &cblas_dgemm), &info) && info.dli_fname && (!strncmp(info.dli_fname, kAcceleratePrefix, sizeof(kAcceleratePrefix) - 1));
+  }
+  return cached;
+}
+#  endif
+
+uint32_t BlasIsMultithreaded() {
+  if (openblas_set_num_threads || MKL_Set_Num_Threads || bli_thread_set_num_threads) {
+    return 1;
+  }
+#  ifdef __APPLE__
+  return BLASSetThreading && BlasIsAccelerate();
+#  else
+  return 0;
+#  endif
+}
 #endif
 
 intptr_t FirstInfOrNan(const double* vec, uintptr_t size) {
