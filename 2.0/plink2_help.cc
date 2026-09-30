@@ -1605,7 +1605,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      the average pairwise distance gets a proportionally larger correction.\n"
 "      'flat-missing' weights all variants equally instead, which is what you\n"
 "      want when missingness is highly nonrandom.\n"
-"    * The computation can be subdivided with --parallel.\n\n"
+"    * As with --make-rel, variants on chrX, chrY, chrM, and other\n"
+"      non-autosomes are excluded.\n"
+"    * The computation can be subdivided with --parallel, except with a square\n"
+"      shape (use square0 or triangle there).\n\n"
                );
     HelpPrint("distance-matrix\0distance-matrix-nonstandard\0ibs-matrix\0distance\0", &help_ctrl, 1,
 "  --distance-matrix\n"

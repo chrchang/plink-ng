@@ -180,3 +180,28 @@ cmp plink19_mono2.dist plink2_mono2.dist
 plink --bfile tmp_data --distance flat-missing bin4 --out plink19_b4
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance flat-missing bin4 --out plink2_b4
 cmp plink19_b4.dist.bin plink2_b4.dist.bin
+
+# Non-autosomal variants are excluded, as in PLINK 1.9 and plink2's GRM code.
+# Relabel the last quarter of the variants as chrX/chrY/chrMT: the matrices
+# must match 1.9 exactly, and match an --autosome run.
+n=$(wc -l < tmp_data.bim)
+awk -v n=$n 'BEGIN {OFS = "\t"} {q = NR / n; if (q > 0.9375) {$1 = "MT"} else if (q > 0.875) {$1 = "Y"} else if (q > 0.75) {$1 = "X"} print}' tmp_data.bim > tmp_sexchr.bim
+cp tmp_data.bed tmp_sexchr.bed
+cp tmp_data.fam tmp_sexchr.fam
+plink --bfile tmp_sexchr --distance flat-missing square --out plink19_sexchr
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_sexchr --distance flat-missing square --out plink2_sexchr
+grep -q 'Excluding .* on non-autosomes from --distance' plink2_sexchr.log
+diff -q plink19_sexchr.dist plink2_sexchr.dist
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_sexchr --autosome --distance flat-missing square --out plink2_sexchr_auto
+diff -q plink2_sexchr.dist plink2_sexchr_auto.dist
+
+# --parallel is rejected with a square shape: a square piece needs cells that
+# belong to later pieces.
+for shape in "square" "bin" "1-ibs square"
+do
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance $shape --parallel 1 3 --out plink2_bad > /dev/null 2>&1; then
+    echo "--parallel with a square --distance shape ($shape) should fail"
+    exit 1
+fi
+done
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance square0 --parallel 1 3 --out plink2_par0 > /dev/null
