@@ -183,3 +183,8 @@ fails $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost log10 --epi1 1 --out plink2_log10
 head -n 1 plink2_log10.PHENO1.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF	NEG_LOG10_P'
 paste <(cut -f 7 plink2.PHENO1.epi.cc) <(cut -f 7 plink2_log10.PHENO1.epi.cc) | awk 'NR > 1 {d = -log($1) / log(10) - $2; if (d < 0) {d = -d} if (d > 1e-4 * (1 + $2)) {exit 1}}'
+
+# 19. Case/control counts whose bit arrays take an odd number (7 or more) of
+#     words: the per-group bitvectors were packed at that unaligned stride, and
+#     PopcountWordsIntersect() crashed on them.
+$1/plink2 $2 $3 --dummy 800 20 0.5 --seed 1 --epistasis-boost --epi1 1 --out plink2_n800

@@ -116,3 +116,21 @@ head -n 2 plink2.PHENO1.epi.qt | tail -n 1 | awk -F'\t' '{exit ($5 == "")}'
 $1/plink2 $2 $3 --bfile tmp_data --epistasis log10 --epi1 1 --out plink2_log10
 head -n 1 plink2_log10.PHENO1.epi.qt | grep -qx '#CHROM1	ID1	CHROM2	ID2	BETA_INT	SE	T_STAT	NEG_LOG10_P'
 paste <(cut -f 8 plink2.PHENO1.epi.qt) <(cut -f 8 plink2_log10.PHENO1.epi.qt) | awk 'NR > 1 {d = -log($1) / log(10) - $2; if (d < 0) {d = -d} if (d > 1e-4 * (1 + $2)) {exit 1}}'
+
+# 12. Sample counts whose bit arrays take an odd number (7 or more) of words:
+#     the three per-variant bitvectors were packed at that unaligned stride,
+#     and PopcountWords() tripped its alignment assertion.
+for n in 400 448
+do
+$1/plink2 $2 $3 --dummy $n 20 0.1 scalar-pheno --seed 1 --epistasis --epi1 1 --out plink2_n$n
+done
+
+# 13. 'ref-based' is accepted, as documented.  With REF as the major allele of
+#     every variant, it must not change the report.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis ref-based --epi1 1 --out plink2_rb
+$1/plink2 $2 $3 --bfile tmp_data --freq --out plink2_rb_freq
+if awk 'NR > 1 && $6 > 0.5 {found = 1} END {exit !found}' plink2_rb_freq.afreq; then
+    echo "some ALT allele is the major one; skipping the comparison"
+else
+    diff -q plink2.PHENO1.epi.qt plink2_rb.PHENO1.epi.qt
+fi
