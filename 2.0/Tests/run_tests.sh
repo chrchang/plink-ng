@@ -288,6 +288,11 @@ cd TEST_ADJUST_FILE_PROVREF
 cd ..
 echo "TEST_ADJUST_FILE_PROVREF passed."
 
+cd TEST_ADJUST_EXTREME_P
+./run_tests.sh $d $2 $3 > TEST_ADJUST_EXTREME_P.log
+cd ..
+echo "TEST_ADJUST_EXTREME_P passed."
+
 cd TEST_SCORE_VS_FIXED_ALLELE
 ./run_tests.sh $d $2 $3 > TEST_SCORE_VS_FIXED_ALLELE.log
 cd ..
