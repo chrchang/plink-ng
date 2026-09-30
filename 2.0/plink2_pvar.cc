@@ -1737,6 +1737,12 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       if (unlikely(*linebuf_iter == '\n')) {
         goto LoadPvar_ret_MISSING_TOKENS;
       }
+      if (unlikely((*linebuf_iter != '\t') && (*linebuf_iter != ' '))) {
+        // e.g. a NUL byte; the INFO reload paths would not find the line's
+        // later columns
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid character after the chromosome code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+        goto LoadPvar_ret_MALFORMED_INPUT_WW;
+      }
       uint32_t cur_chr_code;
       reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, prohibit_extra_chrs, line_iter, linebuf_iter, cip, &cur_chr_code);
       if (unlikely(reterr)) {
@@ -2503,7 +2509,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MALFORMED_HEADER_LINE:
-    logerrprintf("Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx);
+    logerrprintf("Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, pvarname);
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE:

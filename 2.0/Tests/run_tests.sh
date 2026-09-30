@@ -368,4 +368,9 @@ cd TEST_MULTIALLELIC_PHASED_R
 cd ..
 echo "TEST_MULTIALLELIC_PHASED_R passed."
 
+cd TEST_MALFORMED_INPUTS
+./run_tests.sh $d $2 $3 > TEST_MALFORMED_INPUTS.log
+cd ..
+echo "TEST_MALFORMED_INPUTS passed."
+
 echo "All tests passed."

@@ -293,6 +293,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
       }
       ++hit_ct;
     }
+    *variant_ct_ptr = variant_ct;
     if (miss_ct) {
       snprintf(g_logbuf, kLogbufSize, "--update-map: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
     } else {

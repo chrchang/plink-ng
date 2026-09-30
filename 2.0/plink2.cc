@@ -6380,7 +6380,7 @@ int main(int argc, char** argv) {
               pc.check_sex_info.max_female_xf = dxx * (1.0 + kSmallEpsilon);
             } else if (StrStartsWith(cur_modif, "min-male-xf=", cur_modif_slen)) {
               if (pc.check_sex_info.min_male_xf != -1.0) {
-                logerrprintf("Error: Multiple --%s min-male-xf= modifiers.\n");
+                logerrprintf("Error: Multiple --%s min-male-xf= modifiers.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* arg_start = &(cur_modif[strlen("min-male-xf=")]);
@@ -6415,7 +6415,7 @@ int main(int argc, char** argv) {
               }
             } else if (StrStartsWith(cur_modif, "max-female-yrate=", cur_modif_slen)) {
               if (pc.check_sex_info.max_female_yrate != -1.0) {
-                logerrprintf("Error: Multiple --%s max-female-yrate= modifiers.\n");
+                logerrprintf("Error: Multiple --%s max-female-yrate= modifiers.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* arg_start = &(cur_modif[strlen("max-female-yrate=")]);
@@ -6428,7 +6428,7 @@ int main(int argc, char** argv) {
               pc.check_sex_info.flags |= kfCheckSexUseY;
             } else if (StrStartsWith(cur_modif, "min-male-yrate=", cur_modif_slen)) {
               if (pc.check_sex_info.min_male_yrate != -1.0) {
-                logerrprintf("Error: Multiple --%s min-male-yrate= modifiers.\n");
+                logerrprintf("Error: Multiple --%s min-male-yrate= modifiers.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* arg_start = &(cur_modif[strlen("min-male-yrate=")]);

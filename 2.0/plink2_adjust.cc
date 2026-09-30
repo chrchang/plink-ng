@@ -958,6 +958,14 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
           if ((!ScantokDouble(token_ptrs[6], &se)) || (se <= 0.0)) {
             continue;
           }
+          {
+            // The inverse-variance weight 1/se^2, and its square, must be
+            // finite; otherwise the fixed-effect estimate is NaN.
+            const double cur_w = 1.0 / (se * se);
+            if (!(cur_w * cur_w <= DBL_MAX)) {
+              continue;
+            }
+          }
           double cur_ln_pval = 0.0;
           double cur_ess = 0.0;
           if (weighted_z) {
@@ -978,6 +986,9 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
               continue;
             }
             effect = log(effect);
+          }
+          if (!(fabs(effect) <= DBL_MAX)) {
+            continue;
           }
           uint32_t bp = 0;
           if (!no_map) {
@@ -1465,6 +1476,10 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t test_name_slen = 0;
     uint32_t test_col_idx = 0;
     if (test_name) {
+      if (unlikely(!(found_type_bitset & 0x80))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --adjust-file test= parameter provided, but %s has no TEST column.\n", in_fname);
+        goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+      }
       test_name_slen = strlen(test_name);
       // this duplicates a bit of work done in SearchHeaderLine(), but not a
       // big deal
