@@ -15756,7 +15756,8 @@ void GenoarrMatchToBitvec(const uintptr_t* __restrict genoarr, uint32_t sample_c
 }
 
 // PLINK 1.x zero-fills the absent flank, which in its encoding makes every
-// sample homozygous for A1.  A1 is plink2's ALT, so nyp 2 is the equivalent.
+// sample homozygous for A1.  A1 is the nonmajor allele, so nyp 2 is the
+// equivalent.
 static void FillAllHomAlt(uint32_t sample_ct, uintptr_t* genoarr) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
@@ -15828,15 +15829,17 @@ static char* TestMishapWriteLine(const char* variant_id, const char* prev_aptr, 
 }
 
 // PgrGetInv1() counts maj_alleles[], so a multiallelic variant is handled as
-// major vs. rest, like PLINK 2's other LD commands.  HAPLOTYPE concatenates
+// major vs. rest, like PLINK 2's other LD commands.  Its nyp value counts
+// nonmajor alleles, so PLINK 1.x's A1 is the nonmajor allele (see the counts[]
+// comment in TestMishap()), and A2 the major one.  HAPLOTYPE concatenates
 // two allele names with no separator, as PLINK 1.x does, so the pooled side is
 // written as "." rather than as a comma-separated list.
 void TestMishapAlleleNames(const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, uint32_t variant_uidx, const char** a1_ptr, const char** a2_ptr) {
   const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * S_CAST(uintptr_t, variant_uidx));
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
   const AlleleCode maj_aidx = maj_alleles[variant_uidx];
-  *a1_ptr = allele_storage[allele_idx_offset_base + maj_aidx];
-  *a2_ptr = (allele_ct == 2)? allele_storage[allele_idx_offset_base + 1 - maj_aidx] : ".";
+  *a1_ptr = (allele_ct == 2)? allele_storage[allele_idx_offset_base + 1 - maj_aidx] : ".";
+  *a2_ptr = allele_storage[allele_idx_offset_base + maj_aidx];
 }
 
 PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* sample_include, TestMishapFlags flags, double min_maf, double output_min_ln, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
@@ -15967,8 +15970,9 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         if (missing_ct_cur >= 5) {
           // counts[9 * m + 3 * p + n]: m is 0 when the central call is
           // missing, p and n index the flanking genotypes in PLINK 1.x's
-          // (hom A1, het, hom A2) order.  A1 is plink2's ALT, so PLINK 1.x's
-          // genotype index is 2 minus the nyp value.
+          // (hom A1, het, hom A2) order.  A1 is the nonmajor allele, since
+          // PgrGetInv1() counts maj_alleles[], so PLINK 1.x's genotype index is
+          // 2 minus the nyp value.
           for (uint32_t class_idx = 0; class_idx != 2; ++class_idx) {
             if (!class_idx) {
               GenoarrMatchToBitvec(cur_genovec, sample_ct, 3, cur_class_mask);
