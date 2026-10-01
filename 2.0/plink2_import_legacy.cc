@@ -1954,10 +1954,6 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
 // 1 MiB of records.
 CONSTI32(kLgenSpillBufRecordCt, 131072);
 
-// --debug caps the block size at this many variants, so that the spill path
-// can be exercised by a test fileset far smaller than --memory's minimum.
-CONSTI32(kLgenDebugBlockVariantCt, 7);
-
 // Every variant in [variant_start, variant_end) starts out all-missing, except
 // that with --reference a variant named in the reference file starts out
 // homozygous-reference: calls absent from the .lgen mean exactly that.
@@ -2007,7 +2003,7 @@ static BoolErr LgenWriteBlock(const uintptr_t* ref_seen, uint32_t sample_ct, uin
   return 0;
 }
 
-PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname, const char* refname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t lgen_allele_count, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname, const char* refname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t lgen_allele_count, uint32_t debug_block_variant_ct, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -2217,8 +2213,8 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     const uintptr_t genovec_byte_ct = sample_ctaw2 * sizeof(intptr_t);
     // Half of what is left stays free for allele strings.
     uintptr_t block_variant_ct = (bigstack_left() / 2) / genovec_byte_ct;
-    if (g_debug_on) {
-      block_variant_ct = MINV(block_variant_ct, kLgenDebugBlockVariantCt);
+    if (debug_block_variant_ct) {
+      block_variant_ct = MINV(block_variant_ct, debug_block_variant_ct);
     }
     uint64_t* spill_buf = nullptr;
     if (block_variant_ct < variant_ct) {
@@ -2226,8 +2222,8 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
         goto LgenToPgen_ret_NOMEM;
       }
       block_variant_ct = (bigstack_left() / 2) / genovec_byte_ct;
-      if (g_debug_on) {
-        block_variant_ct = MINV(block_variant_ct, kLgenDebugBlockVariantCt);
+      if (debug_block_variant_ct) {
+        block_variant_ct = MINV(block_variant_ct, debug_block_variant_ct);
       }
       if (unlikely(!block_variant_ct)) {
         goto LgenToPgen_ret_NOMEM;
@@ -2447,8 +2443,8 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
         goto LgenToPgen_ret_NOMEM;
       }
       block_variant_ct = bigstack_left() / genovec_byte_ct;
-      if (g_debug_on) {
-        block_variant_ct = MINV(block_variant_ct, kLgenDebugBlockVariantCt);
+      if (debug_block_variant_ct) {
+        block_variant_ct = MINV(block_variant_ct, debug_block_variant_ct);
       }
       const uint32_t remaining_variant_ct = variant_ct - first_block_end;
       if (block_variant_ct > remaining_variant_ct) {

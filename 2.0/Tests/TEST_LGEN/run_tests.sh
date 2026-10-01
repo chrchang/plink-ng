@@ -66,15 +66,22 @@ grep -q 'duplicate variant IDs' tmp_dup_err.txt
 # 8. When the genotype matrix does not fit in memory, the first block of
 #    variants is filled in directly and the rest of the calls are spilled to a
 #    temporary file that is reread once per block.  --memory cannot go low
-#    enough to force that on a fixture this small, so --debug caps the block
-#    at 7 variants instead.  The result has to match the in-memory import,
-#    and the temporary file has to be gone afterwards.
-$BUILD/plink2 $EXTRA1 $EXTRA2 --debug --lfile tmp_lg --make-bed --out plink2_spill > plink2_spill.stdout
+#    enough to force that on a fixture this small, so
+#    '--debug lgen-block-size=7' caps the block at 7 variants instead.  The
+#    result has to match the in-memory import, and the temporary file has to
+#    be gone afterwards.  Plain --debug must not cap it.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --debug lgen-block-size=7 --lfile tmp_lg --make-bed --out plink2_spill > plink2_spill.stdout
 grep -q 'spilled to' plink2_spill.log
 cmp plink2_rt.bed plink2_spill.bed
 diff -q plink2_rt.bim plink2_spill.bim
 test ! -e plink2_spill-temporary.lgen.tmp
-$BUILD/plink2 $EXTRA1 $EXTRA2 --debug --lfile tmp_lgref --reference tmp_lgref.ref --make-bed --out plink2_spill_ref > /dev/null
+$BUILD/plink2 $EXTRA1 $EXTRA2 --debug --lfile tmp_lg --make-bed --out plink2_nospill > /dev/null
+if grep -q 'spilled to' plink2_nospill.log; then
+    echo "plain --debug should not cap the --lgen block size"
+    exit 1
+fi
+cmp plink2_rt.bed plink2_nospill.bed
+$BUILD/plink2 $EXTRA1 $EXTRA2 --debug lgen-block-size=7 --lfile tmp_lgref --reference tmp_lgref.ref --make-bed --out plink2_spill_ref > /dev/null
 cmp plink2_ref.bed plink2_spill_ref.bed
 
 # 9. A later line for the same (sample, variant) pair overrides an earlier
@@ -87,7 +94,7 @@ cmp plink2_ref.bed plink2_spill_ref.bed
 cp tmp_lg.map tmp_ovr.map
 cp tmp_lg.fam tmp_ovr.fam
 $BUILD/plink2 $EXTRA1 $EXTRA2 --lfile tmp_ovr --make-bed --out plink2_ovr
-$BUILD/plink2 $EXTRA1 $EXTRA2 --debug --lfile tmp_ovr --make-bed --out plink2_ovr_spill > /dev/null
+$BUILD/plink2 $EXTRA1 $EXTRA2 --debug lgen-block-size=7 --lfile tmp_ovr --make-bed --out plink2_ovr_spill > /dev/null
 cmp plink2_ovr.bed plink2_ovr_spill.bed
 if cmp -s plink2_rt.bed plink2_ovr.bed; then
     echo "the overriding missing calls had no effect"

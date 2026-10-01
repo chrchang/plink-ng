@@ -4907,6 +4907,7 @@ int main(int argc, char** argv) {
     Xload xload = kfXload0;
     char* lgen_reference_fname = nullptr;
     uint32_t lgen_allele_count = 0;
+    uint32_t lgen_debug_block_variant_ct = 0;
     uint32_t rseed_ct = 0;
     MakePlink2Flags make_plink2_flags = kfMake0;
     OxfordImportFlags oxford_import_flags = kfOxfordImport0;
@@ -6523,8 +6524,43 @@ int main(int argc, char** argv) {
           import_flags |= kfImportDoubleId;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ebug")) {
+          // The modifiers are test configurations: they shrink a block or
+          // pass size so that a small fileset exercises a code path normally
+          // reached only with far more data.  --debug on its own leaves them
+          // alone.
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            if (StrStartsWithUnsafe(cur_modif, "lgen-block-size=")) {
+              if (unlikely(lgen_debug_block_variant_ct)) {
+                logerrputs("Error: Multiple --debug lgen-block-size= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* size_str = &(cur_modif[strlen("lgen-block-size=")]);
+              if (unlikely(ScanPosintDefcapx(size_str, &lgen_debug_block_variant_ct))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --debug lgen-block-size= argument '%s'.\n", size_str);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (likely(StrStartsWithUnsafe(cur_modif, "pmerge-pass-size="))) {
+              if (unlikely(pmerge_info.max_pass_fileset_ct)) {
+                logerrputs("Error: Multiple --debug pmerge-pass-size= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              // The upper limit leaves room for three open files per
+              // temporary input fileset, plus the outputs and the log.
+              const char* size_str = &(cur_modif[strlen("pmerge-pass-size=")]);
+              const uint32_t max_pass_fileset_ct_limit = (kMaxOpenFiles - 4) / 3;
+              uint32_t max_pass_fileset_ct;
+              if (unlikely(ScanPosintCappedx(size_str, max_pass_fileset_ct_limit, &max_pass_fileset_ct) || (max_pass_fileset_ct == 1))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --debug pmerge-pass-size= argument '%s' (must be in 2..%u).\n", size_str, max_pass_fileset_ct_limit);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pmerge_info.max_pass_fileset_ct = max_pass_fileset_ct;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --debug argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
           g_debug_on = 1;
-          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ata")) {
           if (unlikely(load_params || (xload & (~kfXloadOxBgen)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -12658,28 +12694,6 @@ int main(int argc, char** argv) {
           }
           pmerge_info.flags |= kfPmergeOutputVzs;
           goto main_param_zero;
-        } else if (strequal_k_unsafe(flagname_p2, "merge-pass-size")) {
-          // Undocumented: overrides the number of filesets a
-          // non-concatenating merge processes at once, so that multipass
-          // merges can be tested without lots of input filesets, and compared
-          // against single-pass merges of more than 20 filesets.  The upper
-          // limit leaves room for three open files per temporary input
-          // fileset, plus the outputs and the log.
-          if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
-            logerrputs("Error: --pmerge-pass-size must be used with --pmerge or --pmerge-list.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
-          const char* cur_modif = argvk[arg_idx + 1];
-          const uint32_t max_pass_fileset_ct_limit = (kMaxOpenFiles - 4) / 3;
-          uint32_t max_pass_fileset_ct;
-          if (unlikely(ScanPosintCappedx(cur_modif, max_pass_fileset_ct_limit, &max_pass_fileset_ct) || (max_pass_fileset_ct == 1))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pmerge-pass-size argument '%s' (must be in 2..%u).\n", cur_modif, max_pass_fileset_ct_limit);
-            goto main_ret_INVALID_CMDLINE_WWA;
-          }
-          pmerge_info.max_pass_fileset_ct = max_pass_fileset_ct;
         } else if (strequal_k_unsafe(flagname_p2, "gen-diff")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -15895,7 +15909,7 @@ int main(int argc, char** argv) {
           if (xload & kfXloadPed) {
             reterr = PedmapToPgen(pgenname, pvarname, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadLgen) {
-            reterr = LgenToPgen(pgenname, pvarname, psamname, lgen_reference_fname, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, lgen_allele_count, pc.fam_cols, pc.missing_pheno, psam_01, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = LgenToPgen(pgenname, pvarname, psamname, lgen_reference_fname, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, lgen_allele_count, lgen_debug_block_variant_ct, pc.fam_cols, pc.missing_pheno, psam_01, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
             free_cond(lgen_reference_fname);
             lgen_reference_fname = nullptr;
           } else if (xload & kfXloadTped) {
