@@ -1802,7 +1802,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    membership lists to <output prefix>.set, while --set-table writes a\n"
 "    variant-by-set membership table to <output prefix>.set.table.\n\n"
               );
-    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0pmerge-pass-size\0", &help_ctrl, 1,
+    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0", &help_ctrl, 1,
 "  --pmerge <.pgen/.bed filename> <.pvar/.bim> <.psam/.fam>\n"
 "  --pmerge <.pgen + .pvar + .psam fileset prefix> ['vzs']\n"
 "    Merge the given fileset with the initially loaded fileset, writing the\n"
@@ -3888,7 +3888,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       in some programs.)\n"
                );
     HelpPrint("debug\0randmem\0", &help_ctrl, 0,
-"  --debug            : Use slower, more crash-resistant logging method.\n"
+"  --debug <lgen-block-size=[n]> <pmerge-pass-size=[n]>\n"
+"    Use slower, more crash-resistant logging method.  The optional modifiers\n"
+"    are test configurations which force code paths normally reached only with\n"
+"    much larger inputs:\n"
+"    * 'lgen-block-size=' caps the number of variants --lgen/--lfile holds in\n"
+"      memory at once.\n"
+"    * 'pmerge-pass-size=' caps the number of filesets a non-concatenating\n"
+"      --pmerge[-list] merges per pass (must be at least 2).\n"
 "  --randmem          : Randomize initial workspace memory (helps catch\n"
 "                       uninitialized-memory bugs).\n"
                );

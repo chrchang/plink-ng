@@ -136,7 +136,7 @@ typedef struct PmergeStruct {
   uint32_t max_allele_ct;
   // Maximum number of filesets merged at once by a non-concatenating
   // --pmerge[-list]; 0 = kPmergeMaxPassFilesetCt.  Only overridden (by the
-  // undocumented --pmerge-pass-size flag) for testing.
+  // pmerge-pass-size= modifier of --debug) for testing.
   uint32_t max_pass_fileset_ct;
   char* pgen_fname;
   char* pvar_fname;
