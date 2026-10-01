@@ -3119,7 +3119,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Distance) {
-        reterr = CalcDistance(sample_include, &pii.sii, variant_include, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = CalcDistance(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -12368,6 +12368,12 @@ int main(int argc, char** argv) {
           }
           if (unlikely(pc.grm_flags & kfGrmMatrixSq)) {
             logerrputs("Error: --parallel cannot be used with \"--make-rel square\".  Use \"--make-rel\nsquare0\" or plain --make-rel instead.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.distance_flags & kfDistanceMatrixSq)) {
+            // a square piece needs cells (c, r) for c > r, which belong to
+            // later pieces
+            logerrputs("Error: --parallel cannot be used with a square --distance matrix (including\n--distance-matrix, --ibs-matrix, and bin/bin4 without a shape modifier).  Use\n'square0' or 'triangle' instead.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {

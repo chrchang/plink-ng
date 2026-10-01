@@ -5228,7 +5228,7 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
 // Hardy-Weinberg (which is what makes a missing call at a common variant cost
 // more than one at a rare variant).  'flat-missing' replaces that with a
 // plain nonmissing count.
-PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadGroup tg;
   PglErr reterr = kPglRetSuccess;
@@ -5237,6 +5237,13 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: --distance requires at least 2 samples.\n");
       goto CalcDistance_ret_DEGENERATE_DATA;
+    }
+    // Every genotype is scored as diploid, so haploid chromosomes would
+    // double-count their differences; exclude them as PLINK 1.9 and the GRM
+    // code do.
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--distance", raw_variant_ct, &variant_include, &variant_ct);
+    if (unlikely(reterr)) {
+      goto CalcDistance_ret_1;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
