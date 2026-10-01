@@ -270,6 +270,13 @@ CURLcode PerformOnce(const Request& req, Response* out, char* error_buffer) {
     const std::string header = "If-Match: " + req.if_match;
     headers = curl_slist_append(headers, header.c_str());
   }
+  for (size_t i = 0; i < req.extra_headers.size(); ++i) {
+    if (!IsSafeHeaderValue(req.extra_headers[i], kMaxHeaderLineBytes)) {
+      return AbortRequest(curl, headers, error_buffer,
+                          "configured request header contains control characters");
+    }
+    headers = curl_slist_append(headers, req.extra_headers[i].c_str());
+  }
   std::string userpwd;
   if (req.sign && req.creds && !req.creds->Empty()) {
     if (!req.creds->session_token.empty()) {

@@ -74,6 +74,15 @@ extern "C" int s3stream_init(void) { return 0; }
 
 extern "C" void s3stream_set_no_sign_request(int no_sign) { (void)no_sign; }
 
+extern "C" void s3stream_set_requester_pays(int requester_pays) {
+  (void)requester_pays;
+}
+
+extern "C" int s3stream_set_expected_bucket_owner(const char* account_id) {
+  (void)account_id;
+  return 0;
+}
+
 extern "C" FILE* s3stream_open(const char* path) {
   if (s3stream_is_remote(path)) {
     s3stream::SetError(
@@ -105,6 +114,22 @@ std::once_flag g_init_once;
 CURLcode g_init_result = CURLE_OK;
 const char* g_too_old_version = nullptr;
 bool g_no_sign_request = false;
+bool g_requester_pays = false;
+std::string g_expected_bucket_owner;
+
+/* S3 account IDs are exactly 12 digits; anything else would only fail later
+ * with a less helpful 400. */
+bool IsValidAccountId(const std::string& id) {
+  if (id.size() != 12) {
+    return false;
+  }
+  for (size_t i = 0; i < id.size(); ++i) {
+    if ((id[i] < '0') || (id[i] > '9')) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /* 7.75.0 introduced CURLOPT_AWS_SIGV4.  Checked at run time as well as
  * build time, since the shared library can be older than the headers. */
@@ -216,6 +241,8 @@ struct StreamState {
   std::string etag;
   /* Human-readable form of the source, for error messages. */
   std::string display;
+  /* Sent on every request: requester-pays and expected-bucket-owner. */
+  std::vector<std::string> extra_headers;
 
   int64_t file_size;
   int64_t pos;
@@ -238,6 +265,7 @@ Request MakeRequest(const StreamState* state) {
   req.url = state->url;
   req.region = state->region;
   req.sign = state->sign;
+  req.extra_headers = state->extra_headers;
   if (state->sign && !state->creds.Empty()) {
     req.creds = &state->creds;
   }
@@ -277,6 +305,36 @@ void DescribeHttpFailure(const StreamState* state, const Response& response) {
   SetError("%s: HTTP %ld%s", state->display.c_str(), response.status, hint);
 }
 
+/* Performs `req`.  If S3 reports the credentials as expired, re-reads the
+ * ambient chain -- which picks up a ~/.aws/credentials refreshed out of band,
+ * or a fresh container/IMDS token -- and retries once.  Environment-variable
+ * credentials cannot change inside a running process, so for those this only
+ * turns a bare HTTP 403 into an actionable message. */
+bool PerformWithRefresh(StreamState* state, const Request& req,
+                        Response* response) {
+  if (!Perform(req, response)) {
+    return false;
+  }
+  const bool expired =
+      ((response->status == 400) || (response->status == 403)) &&
+      (response->body.find("ExpiredToken") != std::string::npos);
+  if (!expired || state->explicit_creds || !state->sign) {
+    return true;
+  }
+  Credentials fresh;
+  if (!ResolveCredentials(&fresh) ||
+      ((fresh.access_key == state->creds.access_key) &&
+       (fresh.session_token == state->creds.session_token))) {
+    SetError(
+        "%s: credentials have expired (ExpiredToken) and no newer ones were "
+        "found; refresh them and rerun",
+        state->display.c_str());
+    return false;
+  }
+  state->creds = fresh;
+  return Perform(req, response);
+}
+
 /* Fetches the chunk containing `offset` into the read-ahead buffer. */
 bool FetchChunk(StreamState* state, int64_t offset) {
   if ((state->file_size >= 0) && (offset >= state->file_size)) {
@@ -306,7 +364,7 @@ bool FetchChunk(StreamState* state, int64_t offset) {
   req.max_body = static_cast<size_t>(want);
 
   Response response;
-  if (!Perform(req, &response)) {
+  if (!PerformWithRefresh(state, req, &response)) {
     return false;
   }
   /* 200 means the server served the whole entity instead of the range.  That
@@ -666,7 +724,7 @@ bool ProbeObject(StreamState* state) {
   probe.range = "0-0";
   probe.max_body = 64 * 1024;
   Response probe_response;
-  if (!Perform(probe, &probe_response)) {
+  if (!PerformWithRefresh(state, probe, &probe_response)) {
     return false;
   }
   if (RetryInRedirectedRegion(&probe, &probe_response)) {
@@ -750,6 +808,23 @@ FILE* OpenRemote(const char* path, const s3stream_credentials* creds) {
   state->url = BuildObjectUrl(endpoint, state->region, bucket, key,
                               creds && creds->force_path_style);
 
+  if (g_requester_pays || (creds && creds->requester_pays)) {
+    state->extra_headers.push_back("x-amz-request-payer: requester");
+  }
+  std::string owner = g_expected_bucket_owner;
+  if (creds && creds->expected_bucket_owner && *creds->expected_bucket_owner) {
+    owner = creds->expected_bucket_owner;
+  }
+  if (!owner.empty()) {
+    if (!IsValidAccountId(owner)) {
+      SetError("%s: expected bucket owner must be a 12-digit AWS account ID",
+               path);
+      delete state;
+      return nullptr;
+    }
+    state->extra_headers.push_back("x-amz-expected-bucket-owner: " + owner);
+  }
+
   if (no_sign) {
     state->sign = false;
     return OpenStream(state);
@@ -793,6 +868,24 @@ extern "C" int s3stream_init(void) {
 
 extern "C" void s3stream_set_no_sign_request(int no_sign) {
   s3stream::g_no_sign_request = (no_sign != 0);
+}
+
+extern "C" void s3stream_set_requester_pays(int requester_pays) {
+  s3stream::g_requester_pays = (requester_pays != 0);
+}
+
+extern "C" int s3stream_set_expected_bucket_owner(const char* account_id) {
+  if (!account_id || !*account_id) {
+    s3stream::g_expected_bucket_owner.clear();
+    return 0;
+  }
+  if (!s3stream::IsValidAccountId(account_id)) {
+    s3stream::SetError(
+        "expected bucket owner must be a 12-digit AWS account ID");
+    return -1;
+  }
+  s3stream::g_expected_bucket_owner = account_id;
+  return 0;
 }
 
 extern "C" FILE* s3stream_open(const char* path) {

@@ -3399,6 +3399,11 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
             fputs("Error: --out argument too long.\n", stderr);
             goto CmdlineParsePhase2_ret_OPEN_FAIL;
           }
+          if (unlikely(IsS3Uri(argvk[arg_idx + 1]))) {
+            fflush(stdout);
+            fputs("Error: Writing output to S3 or HTTP(S) is not yet implemented; --out must be a\nlocal path prefix.\n", stderr);
+            goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
+          }
           const uint32_t slen = strlen(argvk[arg_idx + 1]);
           memcpy(outname, argvk[arg_idx + 1], slen + 1);
           *outname_end_ptr = &(outname[slen]);

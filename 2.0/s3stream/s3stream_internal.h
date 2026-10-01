@@ -10,6 +10,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #ifdef S3STREAM_ENABLE
 #  include <curl/curl.h>
@@ -106,6 +107,8 @@ struct Request {
   /* Signing inputs; ignored when sign is false. */
   std::string region;
   const Credentials* creds;
+  /* Complete "Name: value" lines.  Sent as-is, and signed when the request is. */
+  std::vector<std::string> extra_headers;
   /* Inclusive byte range, e.g. "0-1023".  Empty requests the whole object. */
   std::string range;
   /* When set, the object must still have this ETag or the request fails with

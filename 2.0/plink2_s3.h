@@ -52,6 +52,13 @@ void EnsureS3Ready();
 // was compiled in (a no-op in that case).
 void S3SetNoSignRequest(uint32_t no_sign);
 
+// Process-wide defaults for requester-pays buckets and bucket-owner pinning.
+// Always callable regardless of whether USE_S3 was compiled in.
+// S3SetExpectedBucketOwner() returns nonzero if `account_id` is not a
+// 12-digit AWS account ID; null or "" clears it.
+void S3SetRequesterPays(uint32_t requester_pays);
+BoolErr S3SetExpectedBucketOwner(const char* account_id);
+
 // Explicit, per-open S3 credentials, letting different files in the same
 // process use completely different accounts/buckets/endpoints -- unlike
 // OpenMaybeS3(), which resolves credentials from the ambient environment and
@@ -66,6 +73,8 @@ struct S3Credentials {
   const char* region;
   uint32_t no_sign_request;
   uint32_t force_path_style;
+  uint32_t requester_pays;
+  const char* expected_bucket_owner;
 };
 
 // Opens a remote object using explicit credentials rather than the ambient

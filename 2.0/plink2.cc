@@ -4388,6 +4388,8 @@ int main(int argc, char** argv) {
   LlStr* file_delete_list = nullptr;
   uint32_t s3_initialized = 0;
   uint32_t s3_no_sign_request = 0;
+  uint32_t s3_requester_pays = 0;
+  const char* s3_expected_bucket_owner = nullptr;
   uint32_t arg_idx = 0;
   uint32_t print_end_time = 0;
   uint32_t warning_errcode = 0;
@@ -13587,6 +13589,14 @@ int main(int argc, char** argv) {
         if (strequal_k_unsafe(flagname_p2, "3-no-sign-request")) {
           s3_no_sign_request = 1;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "3-requester-pays")) {
+          s3_requester_pays = 1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "3-expected-bucket-owner")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          s3_expected_bucket_owner = argvk[arg_idx + 1];
         } else if (strequal_k_unsafe(flagname_p2, "et")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -15899,6 +15909,11 @@ int main(int argc, char** argv) {
       if (any_s3) {
 #ifdef USE_S3
         S3SetNoSignRequest(s3_no_sign_request);
+        S3SetRequesterPays(s3_requester_pays);
+        if (unlikely(S3SetExpectedBucketOwner(s3_expected_bucket_owner))) {
+          logerrputs("Error: --s3-expected-bucket-owner requires a 12-digit AWS account ID.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
         S3Init();
         s3_initialized = 1;
 #else

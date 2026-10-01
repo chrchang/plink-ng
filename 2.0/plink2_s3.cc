@@ -36,6 +36,14 @@ void S3SetNoSignRequest(uint32_t no_sign) {
   s3stream_set_no_sign_request(no_sign? 1 : 0);
 }
 
+void S3SetRequesterPays(uint32_t requester_pays) {
+  s3stream_set_requester_pays(requester_pays? 1 : 0);
+}
+
+BoolErr S3SetExpectedBucketOwner(const char* account_id) {
+  return s3stream_set_expected_bucket_owner(account_id) != 0;
+}
+
 namespace {
 
 FILE* ReportFailure(const char* path) {
@@ -75,6 +83,8 @@ FILE* OpenS3WithCredentials(const char* path, const S3Credentials* creds) {
   converted.region = creds->region;
   converted.no_sign_request = creds->no_sign_request;
   converted.force_path_style = creds->force_path_style;
+  converted.requester_pays = creds->requester_pays;
+  converted.expected_bucket_owner = creds->expected_bucket_owner;
 
   FILE* result = s3stream_open_with_credentials(path, &converted);
   if (!result) {

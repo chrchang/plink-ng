@@ -25,6 +25,8 @@ cdef extern from "../plink2/plink2_s3.h" namespace "plink2":
         const char* region
         uint32_t no_sign_request
         uint32_t force_path_style
+        uint32_t requester_pays
+        const char* expected_bucket_owner
 
 # Accepts a plain path (bytes/str/os.PathLike), or a cloud-storage path object
 # such as fsspec/universal_pathlib's UPath, which is not os.PathLike since it
@@ -57,6 +59,8 @@ cdef bint _populate_s3_credentials(object opts, S3Credentials* creds, list keepa
     creds.region = NULL
     creds.no_sign_request = 0
     creds.force_path_style = 0
+    creds.requester_pays = 0
+    creds.expected_bucket_owner = NULL
     cdef bytes b
     found = False
     if opts.get('key'):
@@ -87,6 +91,14 @@ cdef bint _populate_s3_credentials(object opts, S3Credentials* creds, list keepa
         found = True
     if opts.get('anon'):
         creds.no_sign_request = 1
+        found = True
+    if opts.get('requester_pays'):
+        creds.requester_pays = 1
+        found = True
+    if opts.get('expected_bucket_owner'):
+        b = str(opts['expected_bucket_owner']).encode('utf-8')
+        keepalive.append(b)
+        creds.expected_bucket_owner = <const char*>b
         found = True
     return found
 

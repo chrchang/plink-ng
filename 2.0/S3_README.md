@@ -94,6 +94,26 @@ key pair:
 carry an expiry and are re-read automatically before they lapse, so runs
 longer than the token lifetime are fine.
 
+If S3 answers `ExpiredToken` anyway, the credential chain is re-read once and
+the request retried. That picks up a `~/.aws/credentials` refreshed out of
+band (for example by a cron job running `aws configure export-credentials`).
+Credentials taken from environment variables cannot change inside a running
+process, so for those the run stops with an explicit "credentials have
+expired" error rather than a bare HTTP 403.
+
+### Requester-pays buckets and bucket-owner pinning
+
+```sh
+plink2 --pfile s3://their-bucket/chr1 --s3-requester-pays --freq
+plink2 --pfile s3://my-bucket/chr1 --s3-expected-bucket-owner 123456789012 --freq
+```
+
+`--s3-requester-pays` sends `x-amz-request-payer: requester`, which a
+requester-pays bucket requires. `--s3-expected-bucket-owner` sends
+`x-amz-expected-bucket-owner`, so a request fails if the bucket belongs to any
+other account; the value must be a 12-digit account ID. Both are signed and
+are sent on every request, and neither applies to presigned URLs.
+
 ### Environment variables
 
 | Variable | Effect |
@@ -142,7 +162,8 @@ b = pgenlib.PgenReader(UPath("s3://bucket-b/chr1.pgen",
 ```
 
 Recognized `storage_options` keys: `key`, `secret`, `token`, `endpoint_url`,
-`anon`, and `client_kwargs={'region_name': ...}`. Plain `str`/`bytes` paths
+`anon`, `requester_pays`, `expected_bucket_owner`, and
+`client_kwargs={'region_name': ...}`. Plain `str`/`bytes` paths
 still use the ambient credential chain.
 
 ## Behavior worth knowing
@@ -270,17 +291,23 @@ workaround costs, so they are out of scope:
 - **S3 Access Points, Multi-Region Access Points, Outposts, S3 Express One
   Zone, dualstack and FIPS endpoints.**
 
+- **SSE-C.** Server-side encryption with S3- or KMS-managed keys is
+  transparent and works normally; only customer-supplied keys are
+  unsupported. They need the key sent (with a base64 and MD5 of it) on every
+  request, and would put key material on the command line and in the `.log`.
+
+- **End-to-end checksum validation.** S3 only returns `x-amz-checksum-*` for
+  a whole object, never for a byte range, and many objects have none, so
+  verifying one means reading the entire file and defeats range reads.
+  Integrity is covered by TLS, the exact-length check on every range and the
+  ETag pin.
+
 ## Not yet implemented
 
 No architectural blocker; these are just missing plumbing:
 
-- **Writing to S3.** Output is always local. May be added in the future.
-- **Requester-pays buckets.** Needs an `x-amz-request-payer: requester`
-  header on every request.
-- **SSE-C.** Server-side encryption with S3- or KMS-managed keys is
-  transparent and works normally; only customer-supplied keys, which require
-  sending the key material on each request, are unsupported.
-- **`ExpectedBucketOwner`.**
+- **Writing to S3.** Output is always local, and `--out s3://...` is
+  rejected with a "NOT YET implemented" error. May be added in the future.
 
 ## Implementation
 

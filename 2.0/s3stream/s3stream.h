@@ -36,6 +36,13 @@ typedef struct s3stream_credentials {
   const char* region;
   unsigned int no_sign_request;
   unsigned int force_path_style;
+  /* Send `x-amz-request-payer: requester`, for requester-pays buckets.  OR-ed
+   * with the process-wide s3stream_set_requester_pays() default. */
+  unsigned int requester_pays;
+  /* 12-digit AWS account ID sent as `x-amz-expected-bucket-owner`, so a
+   * request fails if the bucket belongs to anyone else.  NULL falls back to
+   * the process-wide s3stream_set_expected_bucket_owner() default. */
+  const char* expected_bucket_owner;
 } s3stream_credentials;
 
 /* Path classification.  Always available, including in builds without
@@ -55,6 +62,17 @@ int s3stream_init(void);
  * the equivalent of `aws s3 --no-sign-request`.  Per-open credentials
  * override it via s3stream_credentials::no_sign_request. */
 void s3stream_set_no_sign_request(int no_sign);
+
+/* Process-wide default: acknowledge that the requester pays transfer costs
+ * (`x-amz-request-payer: requester`).  Required to read a requester-pays
+ * bucket; harmless elsewhere.  Not sent for presigned URLs. */
+void s3stream_set_requester_pays(int requester_pays);
+
+/* Process-wide default: fail requests unless the bucket is owned by this
+ * 12-digit AWS account ID (`x-amz-expected-bucket-owner`).  NULL or "" clears
+ * it.  Returns 0 on success, -1 (see s3stream_last_error()) if `account_id`
+ * is not 12 digits. */
+int s3stream_set_expected_bucket_owner(const char* account_id);
 
 /* Opens a path for reading.  s3:// URIs and http(s):// URLs are streamed;
  * anything else is passed to fopen(path, "rb"), so this is a drop-in
