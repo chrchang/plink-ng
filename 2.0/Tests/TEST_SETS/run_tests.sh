@@ -209,3 +209,17 @@ fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --gene nosuchset --wri
 fails $1/plink2 $2 $3 --bfile tmp_data --gene geneA --write-snplist --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --gene-all --write-snplist --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --gene geneA --gene-all --write-snplist --out plink2_bad
+
+# 9. A set name on non-adjacent lines is still one set.  The sorted-name
+#    deduplication never compared names, so geneA below used to come out as an
+#    empty set followed by the real one, and --set-table gained a column.
+{
+    printf '1 2 4 geneA grp1\n'
+    printf '1 10 12 geneB grp1\n'
+    printf '1 20 20 geneA grp2\n'
+} > tmp_ranges_split.txt
+printf 'geneA\nsv_1\nsv_2\nsv_3\nsv_19\nEND\n\ngeneB\nsv_9\nsv_10\nsv_11\nEND\n\n' > tmp_ms_split_expected.set
+$1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges_split.txt --write-set --out plink2_ms_split
+diff -q tmp_ms_split_expected.set plink2_ms_split.set
+plink --bfile tmp_data --make-set tmp_ranges_split.txt --write-set --out plink19_ms_split > /dev/null
+diff -q plink19_ms_split.set plink2_ms_split.set
