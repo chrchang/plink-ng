@@ -62,7 +62,7 @@
 namespace plink2 {
 #endif
 
-static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.10"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.11"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -90,10 +90,10 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.10"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (29 Sep 2026)";
+  " (1 Oct 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -5283,7 +5283,7 @@ int main(int argc, char** argv) {
               pc.check_sex_info.max_female_xf = dxx * (1.0 + kSmallEpsilon);
             } else if (StrStartsWith(cur_modif, "min-male-xf=", cur_modif_slen)) {
               if (pc.check_sex_info.min_male_xf != -1.0) {
-                logerrprintf("Error: Multiple --%s min-male-xf= modifiers.\n");
+                logerrprintf("Error: Multiple --%s min-male-xf= modifiers.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* arg_start = &(cur_modif[strlen("min-male-xf=")]);
@@ -5318,7 +5318,7 @@ int main(int argc, char** argv) {
               }
             } else if (StrStartsWith(cur_modif, "max-female-yrate=", cur_modif_slen)) {
               if (pc.check_sex_info.max_female_yrate != -1.0) {
-                logerrprintf("Error: Multiple --%s max-female-yrate= modifiers.\n");
+                logerrprintf("Error: Multiple --%s max-female-yrate= modifiers.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* arg_start = &(cur_modif[strlen("max-female-yrate=")]);
@@ -5331,7 +5331,7 @@ int main(int argc, char** argv) {
               pc.check_sex_info.flags |= kfCheckSexUseY;
             } else if (StrStartsWith(cur_modif, "min-male-yrate=", cur_modif_slen)) {
               if (pc.check_sex_info.min_male_yrate != -1.0) {
-                logerrprintf("Error: Multiple --%s min-male-yrate= modifiers.\n");
+                logerrprintf("Error: Multiple --%s min-male-yrate= modifiers.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* arg_start = &(cur_modif[strlen("min-male-yrate=")]);

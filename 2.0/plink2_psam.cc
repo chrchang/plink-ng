@@ -981,7 +981,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         pheno_prestart = &(line_iter[3]);
       }
       linebuf_iter = CommaOrTspaceFirstToken(pheno_prestart, comma_delim);
-      {
+      // linebuf_iter is null when the header has no column after the IDs
+      if (linebuf_iter) {
         const char* token_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
         const uintptr_t token_slen = token_end - linebuf_iter;
         if (strequal_k(linebuf_iter, "SID", token_slen)) {

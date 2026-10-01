@@ -2700,7 +2700,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           goto GlmMain_ret_NOMEM;
         }
       }
-      memcpy(&(new_covar_cols[condition_ct + local_covar_ct]), covar_cols, orig_covar_ct * sizeof(PhenoCol));
+      if (orig_covar_ct) {
+        // covar_cols is null with no --covar
+        memcpy(&(new_covar_cols[condition_ct + local_covar_ct]), covar_cols, orig_covar_ct * sizeof(PhenoCol));
+      }
       const char* covar_names_read_iter = covar_names;
       // bugfix (11 May 2017): local covar names come before, not after,
       //   --condition[-list] covar names

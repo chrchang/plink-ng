@@ -528,7 +528,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       }
       if (sidakss_col) {
         // avoid catastrophic cancellation for small p-values
-        // 1 - (1-p)^c = 1 - e^{c log(1-p)}
+        // 1 - (1-p)^c = 1 - e^{c log(1-p)} = -expm1(c log(1-p))
         // 2^{-7} threshold is arbitrary
         // 2^{-90} corresponds to cp + (cp)^2/2! == cp in double-precision
         // arithmetic, with several bits to spare
@@ -539,7 +539,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           if (ln_pval >= -7 * kLn2) {
             pv_sidak_ss = 1 - pow(1 - pval, valid_allele_ctd);
           } else {
-            pv_sidak_ss = 1 - exp(valid_allele_ctd * log1p(-pval));
+            pv_sidak_ss = -expm1(valid_allele_ctd * log1p(-pval));
           }
           ln_pv_sidak_ss = log(pv_sidak_ss);
         } else {
@@ -561,7 +561,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
             pv_sidak_sd_new = 1 - pow(1 - pval, valid_allele_ctd - aidx_d);
           } else {
             const double cur_exp = valid_allele_ctd - aidx_d;
-            pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
+            pv_sidak_sd_new = -expm1(cur_exp * log1p(-pval));
           }
           ln_pv_sidak_sd_new = log(pv_sidak_sd_new);
         } else {
@@ -587,7 +587,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       goto Multcomp_ret_WRITE_FAIL;
     }
     // don't use valid_allele_ct due to --pfilter
-    logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
+    logprintfww("--adjust%s values (%u test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
   }
   while (0) {
   Multcomp_ret_NOMEM:
@@ -693,6 +693,10 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t test_name_slen = 0;
     uint32_t test_col_idx = 0;
     if (test_name) {
+      if (unlikely(!(found_type_bitset & 0x80))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --adjust-file test= parameter provided, but %s has no TEST column.\n", in_fname);
+        goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+      }
       test_name_slen = strlen(test_name);
       // this duplicates a bit of work done in SearchHeaderLine(), but not a
       // big deal
@@ -862,6 +866,11 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           continue;
         }
       }
+      // Multcomp()'s write buffer assumes these limits.
+      if (unlikely((token_slens[2] > kMaxIdSlen) || (chr_ids && (token_slens[0] > kMaxIdSlen)))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has a variant ID or chromosome code longer than " MAX_ID_SLEN_STR " characters.\n", line_idx, in_fname);
+        goto AdjustFile_ret_MALFORMED_INPUT_WW;
+      }
       if (chr_ids) {
         const uint32_t cur_slen = token_slens[0];
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[0], cur_slen, &tmp_alloc_base, &(chr_ids[variant_idx]))) {
@@ -880,6 +889,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (need_ref) {
         const uint32_t cur_slen = token_slens[3];
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
+        }
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[3], cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
@@ -892,6 +904,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           if (alt_comma) {
             cur_slen = alt_comma - alt_str;
           }
+        }
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
         }
         if (StoreStringAtBase(tmp_alloc_end, alt_str, cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx + 1]))) {
           goto AdjustFile_ret_NOMEM;
@@ -909,6 +924,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (check_a1) {
         const uint32_t cur_slen = token_slens[6];
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
+        }
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[6], cur_slen, &tmp_alloc_base, &(a1_storage[variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
@@ -930,6 +948,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           } else {
             goto AdjustFile_ret_INVALID_PVAL;
           }
+        } else if (unlikely(ln_pval > 0.0)) {
+          // p > 1: Multcomp() would silently leave it out of the test count
+          goto AdjustFile_ret_INVALID_PVAL;
         }
       } else {
         double neglog10_pval;
@@ -940,6 +961,13 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         if (unlikely(ln_pval > 0.0)) {
           goto AdjustFile_ret_INVALID_PVAL;
         }
+      }
+      if (ln_pval <= -DBL_MAX) {
+        // p = 0 (ScantokLn returns -DBL_MAX), or a -log10(p) too large for
+        // ln(p) to be finite.  Truncate to log(DBL_MIN), as for 'INF' above;
+        // LnPToChisq() would otherwise overflow, and the GC column would
+        // come out NaN.
+        ln_pval = kLnNormalMin;
       }
       ln_pvals[variant_idx] = ln_pval;
       ++variant_idx;

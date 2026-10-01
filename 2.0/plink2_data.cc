@@ -6462,7 +6462,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
 
           if (reterr == kPglRetInconsistentInput) {
             logputs("\n");
-            logerrprintfww("Error: --flip-subset: Cannot flip (0-based) variant #%u.\n", ctx.err_info >> 32);
+            logerrprintfww("Error: --flip-subset: Cannot flip (0-based) variant #%u.\n", S_CAST(uint32_t, ctx.err_info >> 32));
           } else {
             PgenErrPrintNV(reterr, ctx.err_info >> 32);
           }
@@ -8239,7 +8239,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               errno = ctx.write_errno;
             } else if (reterr == kPglRetInconsistentInput) {
               logputs("\n");
-              logerrprintfww("Error: --flip-subset: Cannot flip (0-based) output variant #%u.\n", ctx.err_info >> 32);
+              logerrprintfww("Error: --flip-subset: Cannot flip (0-based) output variant #%u.\n", S_CAST(uint32_t, ctx.err_info >> 32));
             }
             goto MakePgenRobust_ret_1;
           }
@@ -9053,7 +9053,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
           if (unlikely(reterr)) {
             if (reterr == kPglRetInconsistentInput) {
               logputs("\n");
-              logerrprintfww("Error: --flip-subset: Cannot flip (0-based) output variant #%u.\n", ctx.err_info >> 32);
+              logerrprintfww("Error: --flip-subset: Cannot flip (0-based) output variant #%u.\n", S_CAST(uint32_t, ctx.err_info >> 32));
             } else {
               assert(reterr == kPglRetVarRecordTooLarge);
             }
