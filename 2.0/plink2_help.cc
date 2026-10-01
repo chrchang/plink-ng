@@ -213,6 +213,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("pedmap\0map\0import-dosage\0dosage\0file\0", &help_ctrl, 1,
 "  --map <filename>   : Specify full name of .map file.\n\n"
                );
+    HelpPrint("lfile\0lgen\0reference\0allele-count\0", &help_ctrl, 1,
+"  --lfile [prefix]  : Specify .lgen + .map + .fam (long-format) prefix.\n"
+"  --lgen <filename> : Specify full name of .lgen file.\n"
+"  --reference <fn>  : Specify default allele file accompanying .lgen input.\n"
+"                      Genotype calls absent from the .lgen are then homozygous\n"
+"                      for the named allele instead of missing.  An optional\n"
+"                      third column names the other allele.\n"
+"  --allele-count    : With --lfile/--lgen + --reference, specifies that the\n"
+"                      .lgen file contains reference allele counts.\n\n"
+               );
     HelpPrint("tfile\0tped\0tfam\0", &help_ctrl, 1,
 "  --tfile <prefix>   : Specify .tped + .tfam filename prefix.\n"
 "  --tped <filename>  : Specify full name of .tped file.\n"
@@ -1262,6 +1272,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      later.\n"
 "    * By default, major allele counts are used for multiallelic variants;\n"
 "      'ref-based' specifies REF allele counts instead.\n"
+"    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
 "    * PLINK 1.07 and 1.9 have no covariate support here, and report the\n"
 "      squared t-statistic as a 1-df chi-square with a normal p-value; this\n"
 "      reports the t-statistic itself, with the matching t p-value.\n"
@@ -1288,11 +1299,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        prop: Proportion significant (omitted if --parallel).\n"
 "        (BEST_CHISQ and BEST_ID are always present, and positioned here, with\n"
 "        BEST_CHROM in between when chrom is present.)\n"
-"    The default is chrom,maybea1,orbeta,se,tz,p,err.\n\n"
+"    The default is chrom,maybea1,orbeta,se,stat,p,nsig,ntot,prop.\n\n"
                );
-    HelpPrint("epistasis-boost\0fast-epistasis\0", &help_ctrl, 1,
+    HelpPrint("epistasis-boost\0fast-epistasis\0set\0", &help_ctrl, 1,
 "  --epistasis-boost ['zs'] ['ref-based'] [{no-firth | firth-fallback}]\n"
-"                    ['log10'] ['cols='<col set descriptor>]\n"
+"                    [{set-by-set | set-by-all}] ['log10']\n"
+"                    ['cols='<col set descriptor>]\n"
 "    Scan every pair of autosomal variants for an interaction, using the\n"
 "    two-stage test of Wan X et al. (2010) BOOST: A fast approach to detecting\n"
 "    gene-gene interactions in genome-wide case-control studies.  The report\n"
@@ -1310,6 +1322,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      select it with --pheno-name if you have several.\n"
 "    * By default, major allele counts are used for multiallelic variants;\n"
 "      'ref-based' specifies REF allele counts instead.\n"
+"    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
 "    * With --covar, the pairs that clear the --epi1 threshold are refit by\n"
 "      logistic and/or Firth regression (default mode 'firth-fallback') on\n"
 "      genotype dummies for both variants, their interaction, and the\n"
@@ -1319,6 +1332,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * This is quadratic in the variant count, so it is meant for a filtered\n"
 "      set rather than a whole genome.  It can be subdivided with --parallel,\n"
 "      and the resulting main reports concatenate in order.\n"
+"    * With --set or --make-set, 'set-by-set' scans the pairs inside one set,\n"
+"      or every pair across two, and 'set-by-all' scans one set against every\n"
+"      variant.  Both drop a variant's pair with itself.\n"
 "    * PLINK 1.9's --fast-epistasis is accepted as a synonym when its 'boost'\n"
 "      modifier is named.  Its other tests have been retired.\n"
 "    Supported column sets are:\n"
@@ -1605,7 +1621,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      the average pairwise distance gets a proportionally larger correction.\n"
 "      'flat-missing' weights all variants equally instead, which is what you\n"
 "      want when missingness is highly nonrandom.\n"
-"    * The computation can be subdivided with --parallel.\n\n"
+"    * As with --make-rel, variants on chrX, chrY, chrM, and other\n"
+"      non-autosomes are excluded.\n"
+"    * The computation can be subdivided with --parallel, except with a square\n"
+"      shape (use square0 or triangle there).\n\n"
                );
     HelpPrint("distance-matrix\0distance-matrix-nonstandard\0ibs-matrix\0distance\0", &help_ctrl, 1,
 "  --distance-matrix\n"
@@ -1786,7 +1805,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    membership lists to <output prefix>.set, while --set-table writes a\n"
 "    variant-by-set membership table to <output prefix>.set.table.\n\n"
               );
-    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0pmerge-pass-size\0", &help_ctrl, 1,
+    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0", &help_ctrl, 1,
 "  --pmerge <.pgen/.bed filename> <.pvar/.bim> <.psam/.fam>\n"
 "  --pmerge <.pgen + .pvar + .psam fileset prefix> ['vzs']\n"
 "    Merge the given fileset with the initially loaded fileset, writing the\n"
@@ -3027,7 +3046,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      blows up as p approaches zero, so a single very rare variant can\n"
 "      dominate the result.  Without this flag, GRM construction now errors out\n"
 "      instead of producing a silently unstable answer if there is a variant\n"
-"      with MAF < 0.25 * sqrt(sample size).\n"
+"      with MAF < 0.25 / sqrt(sample size).\n"
 "      * With --read-freq, sample size is replaced with max(2500, sample size)\n"
 "        in that formula.\n"
 "    * To intentionally set an even lower --grm-maf threshold, you must specify\n"
@@ -3872,7 +3891,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       in some programs.)\n"
                );
     HelpPrint("debug\0randmem\0", &help_ctrl, 0,
-"  --debug            : Use slower, more crash-resistant logging method.\n"
+"  --debug <lgen-block-size=[n]> <pmerge-pass-size=[n]>\n"
+"    Use slower, more crash-resistant logging method.  The optional modifiers\n"
+"    are test configurations which force code paths normally reached only with\n"
+"    much larger inputs:\n"
+"    * 'lgen-block-size=' caps the number of variants --lgen/--lfile holds in\n"
+"      memory at once.\n"
+"    * 'pmerge-pass-size=' caps the number of filesets a non-concatenating\n"
+"      --pmerge[-list] merges per pass (must be at least 2).\n"
 "  --randmem          : Randomize initial workspace memory (helps catch\n"
 "                       uninitialized-memory bugs).\n"
                );

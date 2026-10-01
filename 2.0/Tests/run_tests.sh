@@ -288,6 +288,11 @@ cd TEST_ADJUST_FILE_PROVREF
 cd ..
 echo "TEST_ADJUST_FILE_PROVREF passed."
 
+cd TEST_ADJUST_EXTREME_P
+./run_tests.sh $d $2 $3 > TEST_ADJUST_EXTREME_P.log
+cd ..
+echo "TEST_ADJUST_EXTREME_P passed."
+
 cd TEST_SCORE_VS_FIXED_ALLELE
 ./run_tests.sh $d $2 $3 > TEST_SCORE_VS_FIXED_ALLELE.log
 cd ..
@@ -372,5 +377,10 @@ cd TEST_MALFORMED_INPUTS
 ./run_tests.sh $d $2 $3 > TEST_MALFORMED_INPUTS.log
 cd ..
 echo "TEST_MALFORMED_INPUTS passed."
+
+cd TEST_LGEN
+./run_tests.sh $d $2 $3 > TEST_LGEN.log
+cd ..
+echo "TEST_LGEN passed."
 
 echo "All tests passed."

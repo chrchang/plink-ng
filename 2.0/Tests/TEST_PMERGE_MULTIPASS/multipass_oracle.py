@@ -299,7 +299,7 @@ def read_bytes(path):
 def run_merge(plink2, extra, list_path, out, flags, pass_size):
     cmd = [plink2] + extra + ["--pmerge-list", list_path] + flags + ["--out", out]
     if pass_size:
-        cmd += ["--pmerge-pass-size", str(pass_size)]
+        cmd += ["--debug", "pmerge-pass-size=%d" % pass_size]
     return subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
 
 

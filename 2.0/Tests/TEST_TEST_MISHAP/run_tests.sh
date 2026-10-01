@@ -8,10 +8,12 @@
 # a sample count whose packed and aligned word counts differ is the regression
 # test for that.
 #
-# The HETERO rows are compared against PLINK 1.9.  Its haplotype rows are not
-# comparable in general: the two programs label haplotypes by different
-# alleles, and 1.9's EM step emits numerically degenerate rows (counts like
-# 9.99e-16/2.02e-14) where plink2 reports 0/0.
+# The HETERO rows are compared against PLINK 1.9 numerically, and every
+# haplotype row by its label (compare_labels.awk): plink2 used to name each
+# flanking allele after the major allele where PLINK 1.x names the nonmajor
+# one, so all haplotype rows but the symmetric ones carried the wrong label.
+# Numerically degenerate EM rows (counts like 9.99e-16/2.02e-14 on either side)
+# are skipped.
 
 set -exo pipefail
 
@@ -27,11 +29,13 @@ test "$(wc -l < tmp_data.fam)" -eq 400
 plink --bfile tmp_data --test-mishap --out plink19
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --test-mishap --out plink2
 awk -f compare_hetero.awk plink19.missing.hap plink2.missing.hap
+awk -f compare_labels.awk plink19.missing.hap plink2.missing.hap
 
 # 2. Same, with --maf, which changes which variants have flanking neighbors.
 plink --bfile tmp_data --maf 0.1 --test-mishap --out plink19_maf
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.1 --test-mishap --out plink2_maf
 awk -f compare_hetero.awk plink19_maf.missing.hap plink2_maf.missing.hap
+awk -f compare_labels.awk plink19_maf.missing.hap plink2_maf.missing.hap
 
 # 3. Structure: every checked locus gets one HETERO row plus one row per
 #    observed flanking haplotype (four when all four occur, two when only two

@@ -510,15 +510,15 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	}
       }
       // avoid catastrophic cancellation for small p-values
-      // 1 - (1-p)^c = 1 - e^{c log(1-p)}
+      // 1 - (1-p)^c = 1 - e^{c log(1-p)} = -expm1(c log(1-p))
       // 2^{-7} threshold is arbitrary
       if (pval >= 0.0078125) {
 	pv_sidak_ss = 1 - pow(1 - pval, dct);
 	dyy = 1 - pow(1 - pval, dct - ((double)((int32_t)cur_idx)));
       } else {
-	pv_sidak_ss = 1 - exp(dct * log1p(-pval));
+	pv_sidak_ss = -expm1(dct * log1p(-pval));
 	dyy = dct - (double)((int32_t)cur_idx);
-	dyy = 1 - exp(dyy * log1p(-pval));
+	dyy = -expm1(dyy * log1p(-pval));
       }
       if (pv_sidak_sd < dyy) {
 	pv_sidak_sd = dyy;

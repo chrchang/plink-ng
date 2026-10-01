@@ -6291,7 +6291,7 @@ PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* _
       return kPglRetSuccess;
     }
     if (allele_idx0 == 1) {
-      // alelle_idx1 == 0, allele_idx0 == 1
+      // allele_idx1 == 0, allele_idx0 == 1
       GenovecInvertUnsafe(sample_ct, genovec);
       return kPglRetSuccess;
     }
@@ -9843,10 +9843,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
   const uint32_t save_dphase = (vrtype & 0x80) && (read_gflags & kfPgenGlobalDosagePhasePresent);
   assert(save_dosage || (!save_dphase));
 
-  uint32_t save_multiallelic_hc = 0;
+  uint32_t save_multiallelic_hc = multiallelic_hc_present;
   uint32_t allele_ct = 2;
   if (multiallelic_hc_present) {
-    save_multiallelic_hc = 1;
     const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
     allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
     if (allele_ct == 2) {
@@ -10382,10 +10381,15 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
         return 1;
       }
       const uintptr_t cur_geno = cur_raregeno_word & 3;
-      if (unlikely(GetNyparrEntry(genoarr, sample_idx) == cur_geno)) {
+      // AssignNyparrEntry(sample_idx, cur_geno, genoarr) with validation
+      const uint32_t bit_shift_ct = 2 * (sample_idx % kBitsPerWordD2);
+      uintptr_t* cur_wordp = &(genoarr[sample_idx / kBitsPerWordD2]);
+      const uintptr_t old_word = *cur_wordp;
+      const uintptr_t new_word = (old_word & (~((3 * k1LU) << bit_shift_ct))) | (cur_geno << bit_shift_ct);
+      if (unlikely(old_word == new_word)) {
         return 1;
       }
-      AssignNyparrEntry(sample_idx, cur_geno, genoarr);
+      *cur_wordp = new_word;
       if (!remaining_deltas_in_subgroup) {
         break;
       }

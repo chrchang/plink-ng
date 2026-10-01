@@ -250,13 +250,16 @@ static uint32_t FepiBoost(const uint32_t* counts, const double* recip_cache, con
 
 // Per-variant genotype bitvectors, one triple per group: index 0 is hom-REF,
 // 1 is het, 2 is hom-ALT, and a missing call is in none of them.  A 3x3 cell
-// count is then one PopcountWordsIntersect.
+// count is then one PopcountWordsIntersect, which requires each bitvector to
+// be vector-aligned; they are spaced BitCtToAlignedWordCt(sample_ct) words
+// apart, with zeroed padding.
 static void GenovecToGenoBits(const uintptr_t* genovec, uint32_t sample_ct, uintptr_t* hom_buf, uintptr_t* ref2het_buf, uintptr_t* dst) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   SplitHomRef2het(genovec, sample_ct, hom_buf, ref2het_buf);
   uintptr_t* hom_ref = dst;
-  uintptr_t* het = &(dst[sample_ctl]);
-  uintptr_t* hom_alt = &(dst[2 * sample_ctl]);
+  uintptr_t* het = &(dst[sample_ctaw]);
+  uintptr_t* hom_alt = &(dst[2 * sample_ctaw]);
   for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
     const uintptr_t hom_word = hom_buf[widx];
     const uintptr_t ref2het_word = ref2het_buf[widx];
@@ -267,6 +270,11 @@ static void GenovecToGenoBits(const uintptr_t* genovec, uint32_t sample_ct, uint
   ZeroTrailingBits(sample_ct, hom_ref);
   ZeroTrailingBits(sample_ct, het);
   ZeroTrailingBits(sample_ct, hom_alt);
+  for (uint32_t widx = sample_ctl; widx != sample_ctaw; ++widx) {
+    hom_ref[widx] = 0;
+    het[widx] = 0;
+    hom_alt[widx] = 0;
+  }
 }
 
 typedef struct EpiSummaryEntryStruct {
@@ -485,7 +493,7 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
   return 0;
 }
 
-PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, const VariantSets* vsp, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritetp = nullptr;
@@ -496,6 +504,23 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
   PreinitCstream(&csst);
   {
     const EpiFlags flags = epi_ip->flags;
+    const uint32_t is_set_by_set = (flags / kfEpiSetBySet) & 1;
+    const uint32_t is_set_by_all = (flags / kfEpiSetByAll) & 1;
+    if (is_set_by_set || is_set_by_all) {
+      if (unlikely(!vsp->set_ct)) {
+        logerrputs("Error: --epistasis-boost's set modes require a variant set; load one with\n--set or --make-set.\n");
+        goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
+      }
+      if (is_set_by_all) {
+        if (unlikely(vsp->set_ct != 1)) {
+          logerrputs("Error: --epistasis-boost set-by-all takes exactly one set.  --set-names or\n--set-collapse-all may be handy here.\n");
+          goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
+        }
+      } else if (unlikely(vsp->set_ct > 2)) {
+        logerrputs("Error: --epistasis-boost set-by-set takes one or two sets.  --set-names or\n--set-collapse-all may be handy here.\n");
+        goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
+      }
+    }
 
     // For interface consistency with --glm, etc., this should loop over all
     // case/control phenotypes.  But that's expensive, O(variant_ct^2) each.
@@ -624,9 +649,10 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t group_ct = 2;
     const uint32_t group_cts[3] = {case_ct, ctrl_ct, analysis_ct};
     const uintptr_t* group_includes[3] = {case_include, ctrl_include, analysis_include};
-    const uint32_t case_ctl = BitCtToWordCt(case_ct);
-    const uint32_t ctrl_ctl = BitCtToWordCt(ctrl_ct);
-    const uint32_t analysis_ctl = BitCtToWordCt(analysis_ct);
+    // vector-aligned, to match GenovecToGenoBits()
+    const uint32_t case_ctl = BitCtToAlignedWordCt(case_ct);
+    const uint32_t ctrl_ctl = BitCtToAlignedWordCt(ctrl_ct);
+    const uint32_t analysis_ctl = BitCtToAlignedWordCt(analysis_ct);
     // The refit needs each variant's genotypes over the analysis samples, not
     // split by phenotype, so a third bitvector triple is loaded alongside the
     // two the 2x3x3 table is counted from.  It is only allocated when there is
@@ -744,20 +770,93 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       }
     }
 
+    // The scan is a rectangle of rows against columns.  Without a set mode
+    // both are every variant and the rectangle is the upper triangle; with one
+    // the rows come from a set, and the columns either from a second set or
+    // from every variant, so every ordered pair has to be visited instead.
+    //
+    // Set membership is over the variant space plink2 handed us, while the
+    // indexes here are over the polymorphic autosomal subset of it, so the
+    // membership test goes back through the raw index.
+    uint32_t* row_vidxs;
+    uint32_t* col_vidxs;
+    uint32_t row_ct = variant_ct;
+    uint32_t col_ct = variant_ct;
+    uint32_t is_triangular = 1;
+    if (unlikely(bigstack_alloc_u32(variant_ct, &row_vidxs))) {
+      goto CalcEpiBoost_ret_NOMEM;
+    }
+    if (is_set_by_set || is_set_by_all) {
+      uint32_t* orig_cumulative_popcounts;
+      if (unlikely(bigstack_alloc_u32(raw_variant_ctl, &orig_cumulative_popcounts))) {
+        goto CalcEpiBoost_ret_NOMEM;
+      }
+      FillCumulativePopcounts(orig_variant_include, raw_variant_ctl, orig_cumulative_popcounts);
+      row_ct = 0;
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t orig_idx = RawToSubsettedPos(orig_variant_include, orig_cumulative_popcounts, variant_uidxs[variant_idx]);
+        if (InSetdef(vsp->setdefs[0], orig_idx)) {
+          row_vidxs[row_ct++] = variant_idx;
+        }
+      }
+      if (is_set_by_set && (vsp->set_ct == 1)) {
+        // One set against itself is still a triangle, just a smaller one.
+        col_vidxs = row_vidxs;
+        col_ct = row_ct;
+      } else {
+        is_triangular = 0;
+        if (unlikely(bigstack_alloc_u32(variant_ct, &col_vidxs))) {
+          goto CalcEpiBoost_ret_NOMEM;
+        }
+        if (is_set_by_all) {
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            col_vidxs[variant_idx] = variant_idx;
+          }
+        } else {
+          col_ct = 0;
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            const uint32_t orig_idx = RawToSubsettedPos(orig_variant_include, orig_cumulative_popcounts, variant_uidxs[variant_idx]);
+            if (InSetdef(vsp->setdefs[1], orig_idx)) {
+              col_vidxs[col_ct++] = variant_idx;
+            }
+          }
+        }
+      }
+      if (unlikely((!row_ct) || (!col_ct) || (is_triangular && (row_ct < 2)))) {
+        logerrputs("Error: --epistasis-boost's set modes have too few usable variants left.\n");
+        goto CalcEpiBoost_ret_DEGENERATE_DATA;
+      }
+      logprintf("--epistasis-boost: %u row variant%s, %u column variant%s.\n", row_ct, (row_ct == 1)? "" : "s", col_ct, (col_ct == 1)? "" : "s");
+    } else {
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        row_vidxs[variant_idx] = variant_idx;
+      }
+      col_vidxs = row_vidxs;
+    }
+
     // Rows are split across --parallel jobs; every job still needs to reach
     // every column to its right.
-    // ParallelBounds() splits a triangle whose row r carries r entries below
-    // it; this scan's row r carries variant_ct - 1 - r entries above it.  The
-    // two are mirror images, so the bounds come back in the mirrored index and
-    // get reflected here.
-    uint32_t mirror_start;
-    uint32_t mirror_end;
-    // The reflection also reverses the job order, so ask for the mirrored job
-    // index as well; job 1 then produces the first rows and concatenating the
-    // jobs in order reproduces a single run.
-    ParallelBounds(variant_ct, 1, parallel_tot - 1 - parallel_idx, parallel_tot, R_CAST(int32_t*, &mirror_start), R_CAST(int32_t*, &mirror_end));
-    const uint32_t row_start_idx = variant_ct - mirror_end;
-    const uint32_t row_end_idx = variant_ct - mirror_start;
+    uint32_t row_start_idx;
+    uint32_t row_end_idx;
+    if (is_triangular) {
+      // ParallelBounds() splits a triangle whose row r carries r entries
+      // below it; this scan's row r carries row_ct - 1 - r entries above it.
+      // The two are mirror images, so the bounds come back in the mirrored
+      // index and get reflected here.
+      uint32_t mirror_start;
+      uint32_t mirror_end;
+      // The reflection also reverses the job order, so ask for the mirrored
+      // job index as well; job 1 then produces the first rows and
+      // concatenating the jobs in order reproduces a single run.
+      ParallelBounds(row_ct, 1, parallel_tot - 1 - parallel_idx, parallel_tot, R_CAST(int32_t*, &mirror_start), R_CAST(int32_t*, &mirror_end));
+      row_start_idx = row_ct - mirror_end;
+      row_end_idx = row_ct - mirror_start;
+    } else {
+      // Every row carries the same number of pairs here, so an even split of
+      // the row list is already balanced.
+      row_start_idx = (S_CAST(uint64_t, parallel_idx) * row_ct) / parallel_tot;
+      row_end_idx = (S_CAST(uint64_t, parallel_idx + 1) * row_ct) / parallel_tot;
+    }
     if (row_start_idx == row_end_idx) {
       logerrputs("Warning: This --parallel job has no rows to scan.\n");
     }
@@ -851,9 +950,9 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     // dominated by rereads.
     uint32_t col_block_size;
     uint32_t row_block_size;
-    if (max_slot_ct > variant_ct) {
-      col_block_size = variant_ct;
-      row_block_size = MINV(max_slot_ct - variant_ct, variant_ct);
+    if (max_slot_ct > col_ct) {
+      col_block_size = col_ct;
+      row_block_size = MINV(max_slot_ct - col_ct, row_ct);
     } else {
       col_block_size = max_slot_ct - 1;
       row_block_size = 1;
@@ -919,6 +1018,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t stat_col = flags & kfEpiColStat;
     const uint32_t df_col = flags & kfEpiColDf;
     const uint32_t p_col = flags & kfEpiColP;
+    const uint32_t report_neglog10p = (flags / kfEpiLog10) & 1;
     uint32_t max_chr_slen = 0;
     if (chrom_col) {
       max_chr_slen = GetMaxChrSlen(cip);
@@ -957,7 +1057,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
         cswritep = strcpya_k(cswritep, "\tDF");
       }
       if (p_col) {
-        cswritep = strcpya_k(cswritep, "\tP");
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
+        } else {
+          cswritep = strcpya_k(cswritep, "\tP");
+        }
       }
       AppendBinaryEoln(&cswritep);
     }
@@ -965,8 +1069,12 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     // Loads variant_idxs [block_start, block_end) into dst.
     // (Declared as a lambda-free helper loop to keep the reader in one place.)
     uint64_t pair_ct_total = 0;
-    for (uint32_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
-      pair_ct_total += variant_ct - row_idx - 1;
+    if (is_triangular) {
+      for (uint32_t row_pos = row_start_idx; row_pos != row_end_idx; ++row_pos) {
+        pair_ct_total += row_ct - row_pos - 1;
+      }
+    } else {
+      pair_ct_total = S_CAST(uint64_t, row_end_idx - row_start_idx) * col_ct;
     }
     uint64_t pairs_reported = 0;
     uint64_t refit_fail_ct = 0;
@@ -987,45 +1095,52 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
         uintptr_t* dst = &(row_bits[slot_idx * words_per_variant]);
         for (uint32_t group_idx = 0; group_idx != load_group_ct; ++group_idx) {
           PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
-          const uint32_t variant_uidx = variant_uidxs[row_block_start + slot_idx];
+          const uint32_t variant_uidx = variant_uidxs[row_vidxs[row_block_start + slot_idx]];
           if (maj_alleles) {
             aidx = maj_alleles[variant_uidx];
           }
           reterr = PgrGetInv1(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidx, aidx, simple_pgrp, genovec);
           if (unlikely(reterr)) {
-            PgenErrPrintNV(reterr, variant_uidxs[row_block_start + slot_idx]);
+            PgenErrPrintNV(reterr, variant_uidx);
             goto CalcEpiBoost_ret_1;
           }
           GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
           dst = &(dst[3 * group_ctls[group_idx]]);
         }
       }
-      for (uint32_t col_block_start = row_block_start; col_block_start < variant_ct; col_block_start += col_block_size) {
-        const uint32_t col_block_end = MINV(col_block_start + col_block_size, variant_ct);
+      const uint32_t col_sweep_start = is_triangular? row_block_start : 0;
+      for (uint32_t col_block_start = col_sweep_start; col_block_start < col_ct; col_block_start += col_block_size) {
+        const uint32_t col_block_end = MINV(col_block_start + col_block_size, col_ct);
         const uint32_t cur_col_ct = col_block_end - col_block_start;
         for (uint32_t slot_idx = 0; slot_idx != cur_col_ct; ++slot_idx) {
           uintptr_t* dst = &(col_bits[slot_idx * words_per_variant]);
           for (uint32_t group_idx = 0; group_idx != load_group_ct; ++group_idx) {
             PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
-            const uint32_t variant_uidx = variant_uidxs[col_block_start + slot_idx];
+            const uint32_t variant_uidx = variant_uidxs[col_vidxs[col_block_start + slot_idx]];
             if (maj_alleles) {
               aidx = maj_alleles[variant_uidx];
             }
             reterr = PgrGetInv1(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidx, aidx, simple_pgrp, genovec);
             if (unlikely(reterr)) {
-              PgenErrPrintNV(reterr, variant_uidxs[col_block_start + slot_idx]);
+              PgenErrPrintNV(reterr, variant_uidx);
               goto CalcEpiBoost_ret_1;
             }
             GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
             dst = &(dst[3 * group_ctls[group_idx]]);
           }
         }
-        for (uint32_t row_idx = row_block_start; row_idx != row_block_end; ++row_idx) {
-          const uintptr_t* row_slot = &(row_bits[(row_idx - row_block_start) * words_per_variant]);
-          const uint32_t col_first = MAXV(col_block_start, row_idx + 1);
-          for (uint32_t col_idx = col_first; col_idx != col_block_end; ++col_idx) {
+        for (uint32_t row_pos = row_block_start; row_pos != row_block_end; ++row_pos) {
+          const uintptr_t* row_slot = &(row_bits[(row_pos - row_block_start) * words_per_variant]);
+          const uint32_t row_idx = row_vidxs[row_pos];
+          const uint32_t col_first = is_triangular? MAXV(col_block_start, row_pos + 1) : col_block_start;
+          for (uint32_t col_pos = col_first; col_pos != col_block_end; ++col_pos) {
+            const uint32_t col_idx = col_vidxs[col_pos];
+            if (col_idx == row_idx) {
+              // A variant in both sets would otherwise be paired with itself.
+              continue;
+            }
             ++pairs_seen;
-            const uintptr_t* col_slot = &(col_bits[(col_idx - col_block_start) * words_per_variant]);
+            const uintptr_t* col_slot = &(col_bits[(col_pos - col_block_start) * words_per_variant]);
             uint32_t counts[18];
             {
               const uintptr_t* row_iter = row_slot;
@@ -1145,7 +1260,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
               }
               if (p_col) {
                 *cswritep++ = '\t';
-                cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                if (report_neglog10p) {
+                  cswritep = dtoa_g((-kRecipLn10) * ln_pval, cswritep);
+                } else {
+                  cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                }
               }
               AppendBinaryEoln(&cswritep);
               if (unlikely(Cswrite(&css, &cswritep))) {
@@ -1326,12 +1445,15 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
 // product with each covariate.
 CONSTI32(kEpiLinearVariantDoubleCt, 3);
 
+// The three bitvectors are spaced BitCtToAlignedWordCt(sample_ct) words apart,
+// since PopcountWords() requires vector alignment; the padding is zeroed.
 static void EpiLinearFillSlot(const uintptr_t* genovec, const double* pheno_vals, const double* covar_vals, uint32_t sample_ct, uint32_t covar_ct, uintptr_t* bits, double* dbls, uint32_t* miss_ct_ptr) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   uintptr_t* nonzero = bits;
-  uintptr_t* hom_alt = &(bits[sample_ctl]);
-  uintptr_t* missing = &(bits[2 * sample_ctl]);
+  uintptr_t* hom_alt = &(bits[sample_ctaw]);
+  uintptr_t* missing = &(bits[2 * sample_ctaw]);
   Halfword* nonzero_alias = R_CAST(Halfword*, nonzero);
   Halfword* hom_alt_alias = R_CAST(Halfword*, hom_alt);
   Halfword* missing_alias = R_CAST(Halfword*, missing);
@@ -1348,6 +1470,11 @@ static void EpiLinearFillSlot(const uintptr_t* genovec, const double* pheno_vals
     nonzero_alias[sample_ctl2] = 0;
     hom_alt_alias[sample_ctl2] = 0;
     missing_alias[sample_ctl2] = 0;
+  }
+  for (uint32_t widx = sample_ctl; widx != sample_ctaw; ++widx) {
+    nonzero[widx] = 0;
+    hom_alt[widx] = 0;
+    missing[widx] = 0;
   }
   const uint32_t nonzero_ct = PopcountWords(nonzero, sample_ctl);
   const uint32_t hom_alt_ct = PopcountWords(hom_alt, sample_ctl);
@@ -2056,7 +2183,8 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
 
     // Two variant blocks are held at once, rows and columns, as in
     // CalcEpiBoost().
-    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    // vector-aligned, to match EpiLinearFillSlot()
+    const uint32_t sample_ctl = BitCtToAlignedWordCt(sample_ct);
     const uintptr_t words_per_variant = 3 * S_CAST(uintptr_t, sample_ctl);
     const uintptr_t doubles_per_variant = kEpiLinearVariantDoubleCt + cur_covar_ct;
     const uintptr_t bytes_per_variant = words_per_variant * sizeof(intptr_t) + doubles_per_variant * sizeof(double) + sizeof(int32_t);
@@ -2176,6 +2304,7 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
     const uint32_t se_col = flags & kfEpiColSe;
     const uint32_t stat_col = flags & kfEpiColStat;
     const uint32_t p_col = flags & kfEpiColP;
+    const uint32_t report_neglog10p = (flags / kfEpiLog10) & 1;
     uint32_t max_chr_slen = 0;
     if (chrom_col) {
       max_chr_slen = GetMaxChrSlen(cip);
@@ -2217,7 +2346,11 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
         cswritep = strcpya_k(cswritep, "\tT_STAT");
       }
       if (p_col) {
-        cswritep = strcpya_k(cswritep, "\tP");
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
+        } else {
+          cswritep = strcpya_k(cswritep, "\tP");
+        }
       }
       AppendBinaryEoln(&cswritep);
     }
@@ -2347,8 +2480,9 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
                 if (pos_col) {
                   cswritep = u32toa_x(variant_bps[col_variant_uidx], '\t', cswritep);
                 }
-                cswritep = strcpyax(cswritep, variant_ids[col_variant_uidx], '\t');
+                cswritep = strcpya(cswritep, variant_ids[col_variant_uidx]);
                 if (a1_col) {
+                  *cswritep++ = '\t';
                   uintptr_t allele_idx_offset_base = col_variant_uidx * 2;
                   if (allele_idx_offsets) {
                     allele_idx_offset_base = allele_idx_offsets[col_variant_uidx];
@@ -2373,7 +2507,11 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
                 }
                 if (p_col) {
                   *cswritep++ = '\t';
-                  cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                  if (report_neglog10p) {
+                    cswritep = dtoa_g((-kRecipLn10) * ln_pval, cswritep);
+                  } else {
+                    cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                  }
                 }
                 AppendBinaryEoln(&cswritep);
                 if (unlikely(Cswrite(&css, &cswritep))) {
