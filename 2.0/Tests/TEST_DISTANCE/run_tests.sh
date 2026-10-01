@@ -184,8 +184,8 @@ cmp plink19_b4.dist.bin plink2_b4.dist.bin
 # Non-autosomal variants are excluded, as in PLINK 1.9 and plink2's GRM code.
 # Relabel the last quarter of the variants as chrX/chrY/chrMT: the matrices
 # must match 1.9 exactly, and match an --autosome run.
-n=$(wc -l < tmp_data.bim)
-awk -v n=$n 'BEGIN {OFS = "\t"} {q = NR / n; if (q > 0.9375) {$1 = "MT"} else if (q > 0.875) {$1 = "Y"} else if (q > 0.75) {$1 = "X"} print}' tmp_data.bim > tmp_sexchr.bim
+# (Two passes, so the variant count never goes through BSD wc's padded output.)
+awk 'BEGIN {OFS = "\t"} NR == FNR {n++; next} {q = FNR / n; if (q > 0.9375) {$1 = "MT"} else if (q > 0.875) {$1 = "Y"} else if (q > 0.75) {$1 = "X"} print}' tmp_data.bim tmp_data.bim > tmp_sexchr.bim
 cp tmp_data.bed tmp_sexchr.bed
 cp tmp_data.fam tmp_sexchr.fam
 plink --bfile tmp_sexchr --distance flat-missing square --out plink19_sexchr
