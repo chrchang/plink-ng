@@ -528,7 +528,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       }
       if (sidakss_col) {
         // avoid catastrophic cancellation for small p-values
-        // 1 - (1-p)^c = 1 - e^{c log(1-p)}
+        // 1 - (1-p)^c = 1 - e^{c log(1-p)} = -expm1(c log(1-p))
         // 2^{-7} threshold is arbitrary
         // 2^{-90} corresponds to cp + (cp)^2/2! == cp in double-precision
         // arithmetic, with several bits to spare
@@ -539,7 +539,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           if (ln_pval >= -7 * kLn2) {
             pv_sidak_ss = 1 - pow(1 - pval, valid_allele_ctd);
           } else {
-            pv_sidak_ss = 1 - exp(valid_allele_ctd * log1p(-pval));
+            pv_sidak_ss = -expm1(valid_allele_ctd * log1p(-pval));
           }
           ln_pv_sidak_ss = log(pv_sidak_ss);
         } else {
@@ -561,7 +561,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
             pv_sidak_sd_new = 1 - pow(1 - pval, valid_allele_ctd - aidx_d);
           } else {
             const double cur_exp = valid_allele_ctd - aidx_d;
-            pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
+            pv_sidak_sd_new = -expm1(cur_exp * log1p(-pval));
           }
           ln_pv_sidak_sd_new = log(pv_sidak_sd_new);
         } else {
@@ -1713,6 +1713,13 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         if (unlikely(ln_pval > 0.0)) {
           goto AdjustFile_ret_INVALID_PVAL;
         }
+      }
+      if (ln_pval <= -DBL_MAX) {
+        // p = 0 (ScantokLn returns -DBL_MAX), or a -log10(p) too large for
+        // ln(p) to be finite.  Truncate to log(DBL_MIN), as for 'INF' above;
+        // LnPToChisq() would otherwise overflow, and the GC column would
+        // come out NaN.
+        ln_pval = kLnNormalMin;
       }
       ln_pvals[variant_idx] = ln_pval;
       ++variant_idx;
