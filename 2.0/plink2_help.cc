@@ -1290,9 +1290,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        BEST_CHROM in between when chrom is present.)\n"
 "    The default is chrom,maybea1,orbeta,se,tz,p,err.\n\n"
                );
-    HelpPrint("epistasis-boost\0fast-epistasis\0", &help_ctrl, 1,
+    HelpPrint("epistasis-boost\0fast-epistasis\0set\0", &help_ctrl, 1,
 "  --epistasis-boost ['zs'] ['ref-based'] [{no-firth | firth-fallback}]\n"
-"                    ['log10'] ['cols='<col set descriptor>]\n"
+"                    [{set-by-set | set-by-all}] ['log10']\n"
+"                    ['cols='<col set descriptor>]\n"
 "    Scan every pair of autosomal variants for an interaction, using the\n"
 "    two-stage test of Wan X et al. (2010) BOOST: A fast approach to detecting\n"
 "    gene-gene interactions in genome-wide case-control studies.  The report\n"
@@ -1319,6 +1320,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * This is quadratic in the variant count, so it is meant for a filtered\n"
 "      set rather than a whole genome.  It can be subdivided with --parallel,\n"
 "      and the resulting main reports concatenate in order.\n"
+"    * With --set or --make-set, 'set-by-set' scans the pairs inside one set,\n"
+"      or every pair across two, and 'set-by-all' scans one set against every\n"
+"      variant.  Both drop a variant's pair with itself.\n"
 "    * PLINK 1.9's --fast-epistasis is accepted as a synonym when its 'boost'\n"
 "      modifier is named.  Its other tests have been retired.\n"
 "    Supported column sets are:\n"
