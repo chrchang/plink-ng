@@ -2886,24 +2886,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      // Sets index the filtered variant space, so they are defined once
-      // every variant filter has been applied.
-      VariantSets variant_sets;
-      variant_sets.set_ct = 0;
-      variant_sets.set_names = nullptr;
-      variant_sets.max_set_name_blen = 0;
-      variant_sets.setdefs = nullptr;
-      if (pcp->set_info.fname) {
-        if (unlikely((pcp->set_info.flags & kfSetMakeFromRanges) && (vpos_sortstatus & kfUnsortedVarBp))) {
-          logerrputs("Error: --make-set requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
-          goto Plink2Core_ret_INCONSISTENT_INPUT;
-        }
-        reterr = DefineSets(&(pcp->set_info), cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, 0, &variant_sets);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-
       if (pcp->command_flags1 & kfCommand1SampleCounts) {
         reterr = SampleCounts(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, allele_storage, raw_sample_ct, sample_ct, male_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->sample_counts_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3177,21 +3159,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1WriteSet) {
-        if (pcp->set_info.flags & kfSetWriteList) {
-          reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
-          if (unlikely(reterr)) {
-            goto Plink2Core_ret_1;
-          }
-        }
-        if (pcp->set_info.flags & kfSetWriteTable) {
-          reterr = WriteSetTable(&variant_sets, variant_include, cip, variant_bps, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
-          if (unlikely(reterr)) {
-            goto Plink2Core_ret_1;
-          }
-        }
-      }
-
       if (pcp->command_flags1 & kfCommand1InfoToCols) {
         reterr = InfoToCols(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, info_reload_slen? pvarname : nullptr, xheader, &(pcp->info_cols_info), xheader_blen, variant_ct, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3443,6 +3410,41 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       BigstackReset(bigstack_mark_allele_ddosages);
 
+      // Sets index the filtered variant space, so they are defined once
+      // every variant filter has been applied.  They are also defined after
+      // the reset above, since --epistasis-boost's set modes still need them
+      // further down.
+      VariantSets variant_sets;
+      variant_sets.set_ct = 0;
+      variant_sets.set_names = nullptr;
+      variant_sets.max_set_name_blen = 0;
+      variant_sets.setdefs = nullptr;
+      if (pcp->set_info.fname) {
+        if (unlikely((pcp->set_info.flags & kfSetMakeFromRanges) && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: --make-set requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        reterr = DefineSets(&(pcp->set_info), cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, 0, &variant_sets);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1WriteSet) {
+        if (pcp->set_info.flags & kfSetWriteList) {
+          reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->set_info.flags & kfSetWriteTable) {
+          reterr = WriteSetTable(&variant_sets, variant_include, cip, variant_bps, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1PgenDiff) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --pgen-diff requires sorted .pvar/.bim files.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -3621,7 +3623,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->epi_info.flags & kfEpiRegress) {
           reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         } else {
-          reterr = CalcEpiBoost(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcEpiBoost(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), &variant_sets, raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
@@ -3882,9 +3884,10 @@ PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p
       explicit_cols = 1;
     } else if (likely(accept_boost && strequal_k(cur_modif, "boost", cur_modif_slen))) {
       // The test selector, already found by the caller.
-    } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
-      logerrprintfww("Error: --%s's '%s' modifier is not implemented yet.\n", flagname_p, cur_modif);
-      return kPglRetNotYetSupported;
+    } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen)) {
+      flags |= kfEpiSetBySet;
+    } else if (strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
+      flags |= kfEpiSetByAll;
     } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
       logerrprintf("Error: --%s: 'nop' modifier is retired.  Use e.g. 'cols=-p' instead.\n", flagname_p);
       return kPglRetInvalidCmdline;
@@ -3898,6 +3901,10 @@ PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p
   }
   if (unlikely(explicit_firth_fallback && (flags & kfEpiNoFirth))) {
     logerrprintfww("Error: --%s: 'no-firth' and 'firth-fallback' modifiers cannot be used together.\n", flagname_p);
+    return kPglRetInvalidCmdline;
+  }
+  if (unlikely((flags & (kfEpiSetBySet | kfEpiSetByAll)) == (kfEpiSetBySet | kfEpiSetByAll))) {
+    logerrprintfww("Error: --%s: 'set-by-set' and 'set-by-all' modifiers cannot be used together.\n", flagname_p);
     return kPglRetInvalidCmdline;
   }
   if (!explicit_cols) {
@@ -6776,7 +6783,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --epistasis-boost cannot be used with --epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 6))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0, &pc.epi_info.flags))) {
@@ -7372,7 +7379,7 @@ int main(int argc, char** argv) {
 
       case 'f':
         if (strequal_k_unsafe(flagname_p2, "ast-epistasis")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           // Only the 'boost' test is kept, so --fast-epistasis is accepted as
