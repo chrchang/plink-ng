@@ -14574,7 +14574,9 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_cumulative_popcounts);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(founder_cumulative_popcounts, simple_pgrp, &pssi);
-    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
+    // vector-aligned, since PopcountWordsIntersect() requires each of the
+    // three per-genotype masks to start on a vector boundary
+    const uint32_t founder_ctl = BitCtToAlignedWordCt(founder_ct);
 
     // Ring buffer over the widest window, as in --ld-score.
     uint32_t max_block_size = 2;

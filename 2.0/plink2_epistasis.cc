@@ -250,13 +250,16 @@ static uint32_t FepiBoost(const uint32_t* counts, const double* recip_cache, con
 
 // Per-variant genotype bitvectors, one triple per group: index 0 is hom-REF,
 // 1 is het, 2 is hom-ALT, and a missing call is in none of them.  A 3x3 cell
-// count is then one PopcountWordsIntersect.
+// count is then one PopcountWordsIntersect, which requires each bitvector to
+// be vector-aligned; they are spaced BitCtToAlignedWordCt(sample_ct) words
+// apart, with zeroed padding.
 static void GenovecToGenoBits(const uintptr_t* genovec, uint32_t sample_ct, uintptr_t* hom_buf, uintptr_t* ref2het_buf, uintptr_t* dst) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   SplitHomRef2het(genovec, sample_ct, hom_buf, ref2het_buf);
   uintptr_t* hom_ref = dst;
-  uintptr_t* het = &(dst[sample_ctl]);
-  uintptr_t* hom_alt = &(dst[2 * sample_ctl]);
+  uintptr_t* het = &(dst[sample_ctaw]);
+  uintptr_t* hom_alt = &(dst[2 * sample_ctaw]);
   for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
     const uintptr_t hom_word = hom_buf[widx];
     const uintptr_t ref2het_word = ref2het_buf[widx];
@@ -267,6 +270,11 @@ static void GenovecToGenoBits(const uintptr_t* genovec, uint32_t sample_ct, uint
   ZeroTrailingBits(sample_ct, hom_ref);
   ZeroTrailingBits(sample_ct, het);
   ZeroTrailingBits(sample_ct, hom_alt);
+  for (uint32_t widx = sample_ctl; widx != sample_ctaw; ++widx) {
+    hom_ref[widx] = 0;
+    het[widx] = 0;
+    hom_alt[widx] = 0;
+  }
 }
 
 typedef struct EpiSummaryEntryStruct {
@@ -641,9 +649,10 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t group_ct = 2;
     const uint32_t group_cts[3] = {case_ct, ctrl_ct, analysis_ct};
     const uintptr_t* group_includes[3] = {case_include, ctrl_include, analysis_include};
-    const uint32_t case_ctl = BitCtToWordCt(case_ct);
-    const uint32_t ctrl_ctl = BitCtToWordCt(ctrl_ct);
-    const uint32_t analysis_ctl = BitCtToWordCt(analysis_ct);
+    // vector-aligned, to match GenovecToGenoBits()
+    const uint32_t case_ctl = BitCtToAlignedWordCt(case_ct);
+    const uint32_t ctrl_ctl = BitCtToAlignedWordCt(ctrl_ct);
+    const uint32_t analysis_ctl = BitCtToAlignedWordCt(analysis_ct);
     // The refit needs each variant's genotypes over the analysis samples, not
     // split by phenotype, so a third bitvector triple is loaded alongside the
     // two the 2x3x3 table is counted from.  It is only allocated when there is
@@ -1009,6 +1018,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t stat_col = flags & kfEpiColStat;
     const uint32_t df_col = flags & kfEpiColDf;
     const uint32_t p_col = flags & kfEpiColP;
+    const uint32_t report_neglog10p = (flags / kfEpiLog10) & 1;
     uint32_t max_chr_slen = 0;
     if (chrom_col) {
       max_chr_slen = GetMaxChrSlen(cip);
@@ -1047,7 +1057,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
         cswritep = strcpya_k(cswritep, "\tDF");
       }
       if (p_col) {
-        cswritep = strcpya_k(cswritep, "\tP");
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
+        } else {
+          cswritep = strcpya_k(cswritep, "\tP");
+        }
       }
       AppendBinaryEoln(&cswritep);
     }
@@ -1246,7 +1260,11 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
               }
               if (p_col) {
                 *cswritep++ = '\t';
-                cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                if (report_neglog10p) {
+                  cswritep = dtoa_g((-kRecipLn10) * ln_pval, cswritep);
+                } else {
+                  cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                }
               }
               AppendBinaryEoln(&cswritep);
               if (unlikely(Cswrite(&css, &cswritep))) {
@@ -1427,12 +1445,15 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
 // product with each covariate.
 CONSTI32(kEpiLinearVariantDoubleCt, 3);
 
+// The three bitvectors are spaced BitCtToAlignedWordCt(sample_ct) words apart,
+// since PopcountWords() requires vector alignment; the padding is zeroed.
 static void EpiLinearFillSlot(const uintptr_t* genovec, const double* pheno_vals, const double* covar_vals, uint32_t sample_ct, uint32_t covar_ct, uintptr_t* bits, double* dbls, uint32_t* miss_ct_ptr) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   uintptr_t* nonzero = bits;
-  uintptr_t* hom_alt = &(bits[sample_ctl]);
-  uintptr_t* missing = &(bits[2 * sample_ctl]);
+  uintptr_t* hom_alt = &(bits[sample_ctaw]);
+  uintptr_t* missing = &(bits[2 * sample_ctaw]);
   Halfword* nonzero_alias = R_CAST(Halfword*, nonzero);
   Halfword* hom_alt_alias = R_CAST(Halfword*, hom_alt);
   Halfword* missing_alias = R_CAST(Halfword*, missing);
@@ -1449,6 +1470,11 @@ static void EpiLinearFillSlot(const uintptr_t* genovec, const double* pheno_vals
     nonzero_alias[sample_ctl2] = 0;
     hom_alt_alias[sample_ctl2] = 0;
     missing_alias[sample_ctl2] = 0;
+  }
+  for (uint32_t widx = sample_ctl; widx != sample_ctaw; ++widx) {
+    nonzero[widx] = 0;
+    hom_alt[widx] = 0;
+    missing[widx] = 0;
   }
   const uint32_t nonzero_ct = PopcountWords(nonzero, sample_ctl);
   const uint32_t hom_alt_ct = PopcountWords(hom_alt, sample_ctl);
@@ -2157,7 +2183,8 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
 
     // Two variant blocks are held at once, rows and columns, as in
     // CalcEpiBoost().
-    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    // vector-aligned, to match EpiLinearFillSlot()
+    const uint32_t sample_ctl = BitCtToAlignedWordCt(sample_ct);
     const uintptr_t words_per_variant = 3 * S_CAST(uintptr_t, sample_ctl);
     const uintptr_t doubles_per_variant = kEpiLinearVariantDoubleCt + cur_covar_ct;
     const uintptr_t bytes_per_variant = words_per_variant * sizeof(intptr_t) + doubles_per_variant * sizeof(double) + sizeof(int32_t);
@@ -2277,6 +2304,7 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
     const uint32_t se_col = flags & kfEpiColSe;
     const uint32_t stat_col = flags & kfEpiColStat;
     const uint32_t p_col = flags & kfEpiColP;
+    const uint32_t report_neglog10p = (flags / kfEpiLog10) & 1;
     uint32_t max_chr_slen = 0;
     if (chrom_col) {
       max_chr_slen = GetMaxChrSlen(cip);
@@ -2318,7 +2346,11 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
         cswritep = strcpya_k(cswritep, "\tT_STAT");
       }
       if (p_col) {
-        cswritep = strcpya_k(cswritep, "\tP");
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
+        } else {
+          cswritep = strcpya_k(cswritep, "\tP");
+        }
       }
       AppendBinaryEoln(&cswritep);
     }
@@ -2448,8 +2480,9 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
                 if (pos_col) {
                   cswritep = u32toa_x(variant_bps[col_variant_uidx], '\t', cswritep);
                 }
-                cswritep = strcpyax(cswritep, variant_ids[col_variant_uidx], '\t');
+                cswritep = strcpya(cswritep, variant_ids[col_variant_uidx]);
                 if (a1_col) {
+                  *cswritep++ = '\t';
                   uintptr_t allele_idx_offset_base = col_variant_uidx * 2;
                   if (allele_idx_offsets) {
                     allele_idx_offset_base = allele_idx_offsets[col_variant_uidx];
@@ -2474,7 +2507,11 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
                 }
                 if (p_col) {
                   *cswritep++ = '\t';
-                  cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                  if (report_neglog10p) {
+                    cswritep = dtoa_g((-kRecipLn10) * ln_pval, cswritep);
+                  } else {
+                    cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+                  }
                 }
                 AppendBinaryEoln(&cswritep);
                 if (unlikely(Cswrite(&css, &cswritep))) {

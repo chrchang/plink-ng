@@ -101,3 +101,36 @@ fails $1/plink2 $2 $3 --bfile tmp_data --epistasis set-by-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --epistasis-boost --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --fast-epistasis boost --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --gap 100 --out plink2_bad
+
+# 10. Every row has as many tab-separated fields as the header, with and
+#     without the A1 columns.  (The comparisons above split on runs of
+#     whitespace, so they cannot see an empty field.)
+for c in "" "cols=+a1" "cols=+pos" "cols=-chrom"
+do
+$1/plink2 $2 $3 --bfile tmp_data --epistasis $c --epi1 1 --out plink2_fields
+awk -F'\t' 'NR == 1 {n = NF} NF != n {exit 1}' plink2_fields.PHENO1.epi.qt
+done
+head -n 2 plink2.PHENO1.epi.qt | tail -n 1 | awk -F'\t' '{exit ($5 == "")}'
+
+# 11. 'log10' reports -log10(p) under a NEG_LOG10_P header.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis log10 --epi1 1 --out plink2_log10
+head -n 1 plink2_log10.PHENO1.epi.qt | grep -qx '#CHROM1	ID1	CHROM2	ID2	BETA_INT	SE	T_STAT	NEG_LOG10_P'
+paste <(cut -f 8 plink2.PHENO1.epi.qt) <(cut -f 8 plink2_log10.PHENO1.epi.qt) | awk 'NR > 1 {d = -log($1) / log(10) - $2; if (d < 0) {d = -d} if (d > 1e-4 * (1 + $2)) {exit 1}}'
+
+# 12. Sample counts whose bit arrays take an odd number (7 or more) of words:
+#     the three per-variant bitvectors were packed at that unaligned stride,
+#     and PopcountWords() tripped its alignment assertion.
+for n in 400 448
+do
+$1/plink2 $2 $3 --dummy $n 20 0.1 scalar-pheno --seed 1 --epistasis --epi1 1 --out plink2_n$n
+done
+
+# 13. 'ref-based' is accepted, as documented.  With REF as the major allele of
+#     every variant, it must not change the report.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis ref-based --epi1 1 --out plink2_rb
+$1/plink2 $2 $3 --bfile tmp_data --freq --out plink2_rb_freq
+if awk 'NR > 1 && $6 > 0.5 {found = 1} END {exit !found}' plink2_rb_freq.afreq; then
+    echo "some ALT allele is the major one; skipping the comparison"
+else
+    diff -q plink2.PHENO1.epi.qt plink2_rb.PHENO1.epi.qt
+fi

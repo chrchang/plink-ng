@@ -6816,6 +6816,8 @@ int main(int argc, char** argv) {
               explicit_firth_fallback = 1;
             } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
               pc.epi_info.flags |= kfEpiLog10;
+            } else if (strequal_k(cur_modif, "ref-based", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiRefBased;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
               if (unlikely(explicit_cols)) {
                 logerrputs("Error: Multiple --epistasis cols= modifiers.\n");

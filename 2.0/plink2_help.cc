@@ -1272,6 +1272,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      later.\n"
 "    * By default, major allele counts are used for multiallelic variants;\n"
 "      'ref-based' specifies REF allele counts instead.\n"
+"    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
 "    * PLINK 1.07 and 1.9 have no covariate support here, and report the\n"
 "      squared t-statistic as a 1-df chi-square with a normal p-value; this\n"
 "      reports the t-statistic itself, with the matching t p-value.\n"
@@ -1298,7 +1299,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        prop: Proportion significant (omitted if --parallel).\n"
 "        (BEST_CHISQ and BEST_ID are always present, and positioned here, with\n"
 "        BEST_CHROM in between when chrom is present.)\n"
-"    The default is chrom,maybea1,orbeta,se,tz,p,err.\n\n"
+"    The default is chrom,maybea1,orbeta,se,stat,p,nsig,ntot,prop.\n\n"
                );
     HelpPrint("epistasis-boost\0fast-epistasis\0set\0", &help_ctrl, 1,
 "  --epistasis-boost ['zs'] ['ref-based'] [{no-firth | firth-fallback}]\n"
@@ -1321,6 +1322,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      select it with --pheno-name if you have several.\n"
 "    * By default, major allele counts are used for multiallelic variants;\n"
 "      'ref-based' specifies REF allele counts instead.\n"
+"    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
 "    * With --covar, the pairs that clear the --epi1 threshold are refit by\n"
 "      logistic and/or Firth regression (default mode 'firth-fallback') on\n"
 "      genotype dummies for both variants, their interaction, and the\n"
