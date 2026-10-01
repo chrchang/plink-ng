@@ -3483,7 +3483,7 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
   }
   pmcp->merge_filter_mode = merge_filter_mode;
   pmcp->merge_info_mode = pmip->merge_info_mode;
-  pmcp->merge_cm_mode = pmip->merge_info_mode;
+  pmcp->merge_cm_mode = pmip->merge_cm_mode;
   pmcp->merge_info_sort = pmip->merge_info_sort;
   const uint32_t max_allele_ct = pmip->max_allele_ct;
   pmcp->max_allele_ct = max_allele_ct;
@@ -3574,7 +3574,9 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
         continue;
       }
       ++ar_info_ct;
-      const uintptr_t subfield_ct = write_max_allele_ct + kInfoVtypeR - info_vtype;
+      // One slot per merged allele, even under Number=A: MergePvariant()
+      // indexes these by merged allele index.
+      const uintptr_t subfield_ct = write_max_allele_ct;
       if (unlikely(S_CAST(uintptr_t, ar_info_alloc_limit - ar_info_alloc_iter) < subfield_ct)) {
         return kPglRetNomem;
       }
@@ -3587,12 +3589,10 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
     } else {
       BigstackReset(ar_info_fields);
     }
-    if (ar_info_ct != info_key_ct) {
-      if (unlikely(bigstack_calloc_cp(info_key_ct, &pmcp->basic_info_fields))) {
-        return kPglRetNomem;
-      }
-    }
-    if (unlikely(bigstack_alloc_c(2 * max_num, &pmcp->info_missing_str) ||
+    // bugfix (21 Sep 2026): RenderTmpInfoFromSingleUnsorted() uses
+    // basic_info_fields for Number=A/R keys too.
+    if (unlikely(bigstack_calloc_cp(info_key_ct, &pmcp->basic_info_fields) ||
+                 bigstack_alloc_c(2 * max_num, &pmcp->info_missing_str) ||
                  bigstack_alloc_c(strlen("PR;==;=.;=,.,"), &pmcp->pr_str))) {
       return kPglRetNomem;
     }
@@ -3778,7 +3778,7 @@ PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t li
     cswritep = memcpya(cswritep, kv_start, kv_end - kv_start);
   }
   if (is_pr_ptr) {
-    *is_pr_ptr = IsSet(info_field_set, pmcp->pr_kidx);
+    *is_pr_ptr = (pmcp->pr_kidx != UINT32_MAX) && IsSet(info_field_set, pmcp->pr_kidx);
   }
   *cswritepp = &(cswritep[-1]);
   return kPglRetSuccess;
@@ -3892,13 +3892,19 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
     if (pmcp->write_info) {
       const uint32_t info_offset = other_field_offsets[4];
       const uint32_t read_info_blen = other_field_offsets[5] - info_offset;
-      const uint32_t lone_pgen_pr = (cur_record->pgen_pr_status == 1);
+      // A PR key is synthesized when the .pgen says PR but the .pvar has no
+      // INFO/PR header line.
+      // bugfix (21 Sep 2026): this happened even when the merged header had
+      // no INFO/PR line.
+      const uint32_t lone_pgen_pr = (cur_record->pgen_pr_status == 1) && (pmcp->pr_kidx != UINT32_MAX);
       if (is_pr_ptr && (cur_record->pgen_pr_status & 1)) {
         *is_pr_ptr = 1;
         is_pr_ptr = nullptr;
       }
       char* read_info_start = &(cur_variant_id[info_offset]);
-      if ((!read_info_blen) || ((read_info_blen == 1) && (read_info_start[0] == '.'))) {
+      // bugfix (21 Sep 2026): read_info_blen includes the null terminator, so
+      // this compared against 1 and never matched '.', producing ".;PR".
+      if ((!read_info_blen) || ((read_info_blen == 2) && (read_info_start[0] == '.'))) {
         if (!lone_pgen_pr) {
           cswritep = strcpya_k(cswritep, "\t.");
         } else {
@@ -3909,6 +3915,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
         if ((pmcp->merge_info_sort == kSortNone) || (tmp_status & 2)) {
           if ((pmcp->merge_info_mode == kMergeInfoCmModeNmFirst) || (tmp_status != 3)) {
             *cswritep++ = '\t';
+            char* initial_write_ptr = cswritep;
             if ((!pmcp->info_conflict_present) || (tmp_status & 2)) {
               cswritep = memcpya(cswritep, read_info_start, read_info_slen);
             } else {
@@ -3927,7 +3934,6 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               const uint32_t info_keys_htable_size = pmcp->info_keys_htable_size;
               char* read_info_iter = read_info_start;
               char* read_info_end = &(read_info_start[read_info_slen]);
-              char* initial_write_ptr = cswritep;
               *read_info_end++ = ';';
               do {
                 char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
@@ -3944,17 +3950,24 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 read_info_iter = value_end;
               } while (read_info_iter != read_info_end);
               read_info_end[-1] = '\0';
-              if (cswritep == initial_write_ptr) {
-                *cswritep++ = '.';
-              } else {
+              if (cswritep != initial_write_ptr) {
                 // strip trailing semicolon
                 --cswritep;
               }
             }
             if (lone_pgen_pr) {
-              cswritep = strcpya_k(cswritep, ";PR");
-            } else if (is_pr_ptr != nullptr) {
-              *is_pr_ptr = PrInInfo(read_info_slen, read_info_start);
+              // bugfix (21 Sep 2026): this could produce ".;PR".
+              if (cswritep != initial_write_ptr) {
+                *cswritep++ = ';';
+              }
+              cswritep = strcpya_k(cswritep, "PR");
+            } else {
+              if (cswritep == initial_write_ptr) {
+                *cswritep++ = '.';
+              }
+              if (is_pr_ptr != nullptr) {
+                *is_pr_ptr = PrInInfo(read_info_slen, read_info_start);
+              }
             }
           } else {
             // convert from tmp to final.
@@ -3982,14 +3995,19 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
     } else if (is_pr_ptr) {
       const uint32_t info_offset = other_field_offsets[4];
       const uint32_t read_info_blen = other_field_offsets[5] - info_offset;
-      if (read_info_blen >= 2) {
+      // bugfix (21 Sep 2026): the .pgen PR flag was ignored here.
+      if (cur_record->pgen_pr_status & 1) {
+        *is_pr_ptr = 1;
+      } else if (read_info_blen >= 2) {
         char* read_info_start = &(cur_variant_id[info_offset]);
         *is_pr_ptr = PrInInfo(read_info_blen - 1, read_info_start);
       }
     }
     if (pmcp->write_cm) {
       char* cm_start = &(cur_variant_id[other_field_offsets[5]]);
-      if ((tmp_status != 3) || (!strequal_k_unsafe(cm_start, "="))) {
+      // bugfix (21 Sep 2026): a fileset without a CM column left an empty
+      // field here.
+      if ((cm_start[0] != '\0') && ((tmp_status != 3) || (!strequal_k_unsafe(cm_start, "=")))) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cm_start);
       } else {
@@ -4431,6 +4449,16 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             read_info_iter = &(key_end[1]);
             continue;
           }
+          if ((kidx == pmcp->pr_kidx) && (!is_pr)) {
+            // bugfix (21 Sep 2026): INFO/PR must not survive when some other
+            // record has a known REF allele, otherwise it contradicts the
+            // .pgen flag.
+            if (*key_end != ';') {
+              key_end = AdvToDelim(&(key_end[1]), ';');
+            }
+            read_info_iter = &(key_end[1]);
+            continue;
+          }
           // possible todo: error out on duplicated INFO key in a single
           // input variant, like we already do in
           // RenderTmpInfoFromSingleUnsorted().
@@ -4520,11 +4548,11 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               logerrprintfww("Error: Invalid INFO key '%s' on line %" PRIuPTR " of %s (this variant has no %s allele, and key has Number=%c).\n", info_keys[kidx], pmcp->line_idx_body_starts[file_idx] + variant_uidx, pmcp->fnames[file_idx], read_allele_ct? "ALT" : "REF", first_aidx? 'A' : 'R');
               return kPglRetInconsistentInput;
             }
+            // cur_ar_info_fields[] is indexed by merged allele index.
             char** cur_ar_info_fields = ar_info_fields[kidx];
-            const uint32_t subfield_ct = merged_info_allele_ct - first_aidx;
             if (!IsSet(info_field_set, kidx)) {
               SetBit(kidx, info_field_set);
-              ZeroPtrArr(subfield_ct, cur_ar_info_fields);
+              ZeroPtrArr(merged_info_allele_ct, cur_ar_info_fields);
               if (read_info_field_order_iter) {
                 *read_info_field_order_iter++ = kidx;
               }
@@ -4542,7 +4570,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             uint32_t read_aidx = first_aidx;
             if (merge_info_mode == kMergeInfoCmModeNmFirst) {
               do {
-                const uint32_t write_aidx = cur_allele_remap[read_aidx] - first_aidx;
+                const uint32_t write_aidx = cur_allele_remap[read_aidx];
                 if ((!cur_ar_info_fields[write_aidx]) && (!memequal_sk(read_info_iter, ".,"))) {
                   cur_ar_info_fields[write_aidx] = read_info_iter;
                 }
@@ -4550,16 +4578,20 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 ++read_aidx;
               } while (read_aidx != read_allele_ct);
             } else if (merge_info_mode == kMergeInfoCmModeFirst) {
+              // bugfix (21 Sep 2026): this kept the last value instead of the
+              // first.
               do {
-                const uint32_t write_aidx = cur_allele_remap[read_aidx] - first_aidx;
-                cur_ar_info_fields[write_aidx] = read_info_iter;
+                const uint32_t write_aidx = cur_allele_remap[read_aidx];
+                if (!cur_ar_info_fields[write_aidx]) {
+                  cur_ar_info_fields[write_aidx] = read_info_iter;
+                }
                 read_info_iter = AdvPastDelim(read_info_iter, ',');
                 ++read_aidx;
               } while (read_aidx != read_allele_ct);
             } else {
               // NmMatch
               do {
-                const uint32_t write_aidx = cur_allele_remap[read_aidx] - first_aidx;
+                const uint32_t write_aidx = cur_allele_remap[read_aidx];
                 char* next_subtoken_start = AdvPastDelim(read_info_iter, ',');
                 if (!memequal_sk(read_info_iter, ".,")) {
                   if (!cur_ar_info_fields[write_aidx]) {
@@ -4577,11 +4609,14 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           }
         } while (read_info_iter != read_info_end);
       }
-      if (is_pr) {
-        const uint32_t pr_kidx = pmcp->pr_kidx;
+      // bugfix (21 Sep 2026): this set an out-of-bounds bit when the merged
+      // header had no INFO/PR line, and printed "PRPR" otherwise.
+      const uint32_t pr_kidx = pmcp->pr_kidx;
+      if (is_pr && (pr_kidx != UINT32_MAX)) {
         if (!IsSet(info_field_set, pr_kidx)) {
           SetBit(pr_kidx, info_field_set);
-          basic_info_fields[pr_kidx] = pmcp->pr_str;
+          // just ";"
+          basic_info_fields[pr_kidx] = &(pmcp->pr_str[2]);
           if (read_info_field_order_iter) {
             *read_info_field_order_iter++ = pr_kidx;
           }
@@ -4632,7 +4667,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               *cswritep++ = '=';
               char** cur_ar_info_fields = ar_info_fields[kidx];
               const uint32_t first_aidx = knum - kInfoVtypeR;
-              for (uint32_t write_idx = 0; write_idx != merged_info_allele_ct - first_aidx; ++write_idx) {
+              for (uint32_t write_idx = first_aidx; write_idx != merged_info_allele_ct; ++write_idx) {
                 char* v_start = cur_ar_info_fields[write_idx];
                 if (!v_start) {
                   cswritep = strcpya_k(cswritep, ".,");
@@ -4668,7 +4703,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               *cswritep++ = '=';
               char** cur_ar_info_fields = ar_info_fields[kidx];
               const uint32_t first_aidx = knum - kInfoVtypeR;
-              for (uint32_t write_idx = 0; write_idx != merged_info_allele_ct - first_aidx; ++write_idx) {
+              for (uint32_t write_idx = first_aidx; write_idx != merged_info_allele_ct; ++write_idx) {
                 char* v_start = cur_ar_info_fields[write_idx];
                 if (v_start && (!memequal_k(v_start, locked_missing_comma_str, 2))) {
                   char* v_end = AdvPastDelim(v_start, ',');
@@ -4747,7 +4782,8 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           if (nm_rec_idx == nz_cm_ct) {
             cswritep = dtoa_g(main_cm, cswritep);
           } else {
-            *cswritep++ = '.';
+            // '0' is the missing CM value; '.' can't be loaded back.
+            *cswritep++ = '0';
           }
         }
       }
@@ -4924,7 +4960,10 @@ void PermuteUpdateHphase(const uintptr_t* __restrict r_phasepresent, const uintp
     const uint32_t write_widx = write_sample_idx / kBitsPerWord;
     const uintptr_t write_bit = k1LU << (write_sample_idx % kBitsPerWord);
     phasepresent[write_widx] |= write_bit;
-    phaseinfo[write_widx] |= write_bit & (-is_phaseinfo);
+    // bugfix (21 Sep 2026): phaseinfo bits aren't necessarily cleared where
+    // phasepresent is unset (the buffer is reused across variants), so we
+    // can't just OR here.
+    phaseinfo[write_widx] = (phaseinfo[write_widx] & (~write_bit)) | (write_bit & (-is_phaseinfo));
   }
 }
 
@@ -5144,6 +5183,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       dphase_exists = (vrtype_or / 0x80) & 1;
       assert((!dphase_exists) || dosage_exists);
       if (dosage_exists && (write_allele_ct > 2)) {
+        logputs("\n");
         logerrputs("Error: --pmerge[-list] multiallelic-variant dosage support is under development.\n");
         reterr = kPglRetNotYetSupported;
         goto MergePgenVariantNoTmpLocked_ret_1;
@@ -5165,6 +5205,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
         pgvp->dosage_ct = 0;
+        // bugfix (21 Sep 2026): dphase_ct was left stale here.
+        pgvp->dphase_ct = 0;
         if (!read_phase_present) {
           pgvp->phasepresent_ct = 0;
           reterr = PgrGet(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp->genovec);
@@ -5276,9 +5318,10 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             ZeroWArr(write_sample_ctl, mwp->dosage_present);
           }
           if (dphase_exists) {
+            // bugfix (21 Sep 2026): wrong dense-conversion count.
             if (pgvp->dphase_ct) {
               memcpy(mwp->dphase_present, pgvp->dphase_present, write_sample_ctb);
-              Update16bitDenseFromSparse(pgvp->dphase_present, pgvp->dphase_delta, pgvp->dosage_ct, mwp->dphase_delta);
+              Update16bitDenseFromSparse(pgvp->dphase_present, pgvp->dphase_delta, pgvp->dphase_ct, mwp->dphase_delta);
             } else {
               ZeroWArr(write_sample_ctl, mwp->dphase_present);
             }
@@ -5450,7 +5493,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               if (!unlocked_ct) {
                 memcpy(mwp->dphase_delta, pgvp->dphase_delta, dphase_ct * 2);
               } else {
-                Update16bitDenseFromSparse(mwp->dphase_present, pgvp->dphase_delta, dosage_ct, mwp->dphase_delta);
+                Update16bitDenseFromSparse(mwp->dphase_present, pgvp->dphase_delta, dphase_ct, mwp->dphase_delta);
               }
             } else {
               if (!unlocked_ct) {
@@ -5504,9 +5547,11 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         }
         if (dosage_exists && (!dosage_ct)) {
           ZeroWArr(write_sample_ctl, mwp->dosage_present);
-          if (dphase_exists && (!dphase_ct)) {
-            ZeroWArr(write_sample_ctl, mwp->dphase_present);
-          }
+        }
+        // bugfix (21 Sep 2026): this was skipped when the first record had
+        // dosages but no phased dosages.
+        if (dphase_exists && (!dphase_ct)) {
+          ZeroWArr(write_sample_ctl, mwp->dphase_present);
         }
       }
     } else {
@@ -5598,6 +5643,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
         pgvp->dosage_ct = 0;
+        // bugfix (21 Sep 2026): dphase_ct was left stale here.
+        pgvp->dphase_ct = 0;
         if (!read_hphase_present) {
           pgvp->phasepresent_ct = 0;
           reterr = PgrGet(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp->genovec);
@@ -5650,7 +5697,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               GenovecInvertUnsafe(read_sample_ct, pgvp->genovec);
               ZeroTrailingNyps(read_sample_ct, pgvp->genovec);
               if (pgvp->phasepresent_ct) {
-                BitvecInvert(read_sample_ct, pgvp->phaseinfo);
+                // bugfix (21 Sep 2026): this took a sample count instead of a
+                // word count, and inverted far past the end of phaseinfo.
+                BitvecInvert(BitCtToWordCt(read_sample_ct), pgvp->phaseinfo);
               }
               if (pgvp->dosage_ct) {
                 BiallelicDosage16Invert(pgvp->dosage_ct, pgvp->dosage_main);
@@ -5733,7 +5782,10 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
                 // comparison.
                 const uint32_t new_widx = new_sample_idx / kBitsPerWord;
                 const uintptr_t new_bit = k1LU << (new_sample_idx % kBitsPerWord);
-                if ((!new_dosage_ct) || (!(new_raw_dosage_present[new_widx] & new_bit))) {
+                // bugfix (21 Sep 2026): new_raw_dosage_present is indexed by
+                // read sample index, not write sample index.
+                const uint32_t read_sample_idx = widx * kBitsPerWordD2 + (bit_read_shift_ct / 2);
+                if ((!new_dosage_ct) || (!IsSet(new_raw_dosage_present, read_sample_idx))) {
                   unlocked_dbl_nonmissing_sample_span[new_widx] &= ~new_bit;
                   // cur_geno must still be stored in r_genovec below: the
                   // clobber loop tells "incoming missing" apart from "incoming
@@ -5827,7 +5879,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
                   continue;
                 }
                 phasepresent[widx] |= src_present_word;
-                phaseinfo[widx] |= src_present_word & r_phaseinfo[widx];
+                // bugfix (21 Sep 2026): stale phaseinfo bits may be set here.
+                phaseinfo[widx] = (phaseinfo[widx] & (~src_present_word)) | (src_present_word & r_phaseinfo[widx]);
               }
             }
           } else {
@@ -5853,7 +5906,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               CopyAndPermute16bitDense(pgvp->dphase_present, pgvp->dphase_delta, old_sample_idx_to_new, write_sample_ct, pgvp->dphase_ct, r_dphase_present, r_dphase_dense);
               Compare16bitDense(r_dphase_present, r_dphase_dense, dphase_present, dphase_dense, write_sample_ctl, compare_mask);
               if (clobber_sample_ct) {
-                Update16bitDense(clobber_sample_span, r_dphase_present, r_dphase_dense, write_sample_ctl, dosage_present, dosage_dense);
+                Update16bitDense(clobber_sample_span, r_dphase_present, r_dphase_dense, write_sample_ctl, dphase_present, dphase_dense);
               }
             } else {
               BitvecInvmask(dphase_present, write_sample_ctl, compare_mask);
@@ -5873,10 +5926,21 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           // merge_mode is either 'first' or 'nm-first'.
           // Similar to subsetting logic in MakePgenThread().
           uintptr_t* clobber_subset_of_read = mwp->mask_buf;
-          CopyBitarrSubset(clobber_sample_span, sample_span, read_sample_ct, clobber_subset_of_read);
           clobber_sample_idx_to_new = mwp->clobber_sample_idx_to_new;
           const uint32_t* old_sample_idx_to_new = cur_mrp->old_sample_idx_to_new;
           const uint32_t sample_idx_increasing = cur_mrp->sample_idx_increasing;
+          if (sample_idx_increasing) {
+            CopyBitarrSubset(clobber_sample_span, sample_span, read_sample_ct, clobber_subset_of_read);
+          } else {
+            // bugfix (21 Sep 2026): sample_span ranks are only read indexes
+            // when the sample order is preserved.
+            ZeroWArr(BitCtToWordCt(read_sample_ct), clobber_subset_of_read);
+            for (uint32_t read_idx = 0; read_idx != read_sample_ct; ++read_idx) {
+              if (IsSet(clobber_sample_span, old_sample_idx_to_new[read_idx])) {
+                SetBit(read_idx, clobber_subset_of_read);
+              }
+            }
+          }
           uintptr_t read_idx_base = 0;
           uintptr_t cur_bits = clobber_subset_of_read[0];
           if (sample_idx_increasing < 2) {

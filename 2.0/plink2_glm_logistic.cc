@@ -1683,8 +1683,13 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
         const uint32_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
         const uint32_t nm_sample_ct_rem = nm_sample_ctav - nm_sample_ct;
         // first predictor column: intercept
+        // bugfix (22 Sep 2026): when prev_nm is set but this variant has
+        // missing calls, the column is shorter, and its trailing elements
+        // (which must be zero) still hold 1s from the previous variant.
         if (!prev_nm) {
           FillFVec(nm_sample_ct, S_CAST(float, 1.0), nm_predictors_pmaj_buf);
+        } else if (missing_ct) {
+          ZeroFArr(nm_sample_ct_rem, &(nm_predictors_pmaj_buf[nm_sample_ct]));
         }
         // second predictor column: genotype
         float* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
@@ -3699,8 +3704,11 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         const uint32_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kDoublePerDVec);
         const uint32_t nm_sample_ct_rem = nm_sample_ctav - nm_sample_ct;
         // first predictor column: intercept
+        // bugfix (22 Sep 2026): see GlmLogisticThreadF().
         if (!prev_nm) {
           FillDVec(nm_sample_ct, 1.0, nm_predictors_pmaj_buf);
+        } else if (missing_ct) {
+          ZeroDArr(nm_sample_ct_rem, &(nm_predictors_pmaj_buf[nm_sample_ct]));
         }
         // second predictor column: genotype
         double* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
