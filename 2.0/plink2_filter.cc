@@ -1577,7 +1577,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     if (duplicate_ct) {
       // "At least" since this does not count duplicate IDs absent from the
       // .fam.
-      logerrprintf("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
+      logerrprintf("Warning: At least %u duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
     }
   }
  KeepOrRemove_ret_1:
@@ -3124,6 +3124,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   SetBit(internal_allele_idx, matched_internal_alleles);
                   SetBit(loaded_allele_idx_end, matched_loaded_alleles);
                   loaded_to_internal_allele_idx[loaded_allele_idx_end] = internal_allele_idx;
+                  // otherwise the BitIter0() loop above runs past the last
+                  // allele on the next loaded allele code
+                  --unmatched_allele_ct;
                   break;
                 }
               }

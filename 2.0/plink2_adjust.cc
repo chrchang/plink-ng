@@ -587,7 +587,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       goto Multcomp_ret_WRITE_FAIL;
     }
     // don't use valid_allele_ct due to --pfilter
-    logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
+    logprintfww("--adjust%s values (%u test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
   }
   while (0) {
   Multcomp_ret_NOMEM:
@@ -887,6 +887,8 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
 
     uintptr_t record_ct = 0;
     uintptr_t str_byte_ct = 0;
+    // longest CHR/A1/A2 token, which sizes the output buffer
+    uint32_t max_other_slen = 0;
     uint64_t p_underflow_ct = 0;
     MetaRecord* records = nullptr;
     char* str_arena = nullptr;
@@ -958,6 +960,14 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
           if ((!ScantokDouble(token_ptrs[6], &se)) || (se <= 0.0)) {
             continue;
           }
+          {
+            // The inverse-variance weight 1/se^2, and its square, must be
+            // finite; otherwise the fixed-effect estimate is NaN.
+            const double cur_w = 1.0 / (se * se);
+            if (!(cur_w * cur_w <= DBL_MAX)) {
+              continue;
+            }
+          }
           double cur_ln_pval = 0.0;
           double cur_ess = 0.0;
           if (weighted_z) {
@@ -979,6 +989,9 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
             }
             effect = log(effect);
           }
+          if (!(fabs(effect) <= DBL_MAX)) {
+            continue;
+          }
           uint32_t bp = 0;
           if (!no_map) {
             if (ScanUintDefcapx(token_ptrs[2], &bp)) {
@@ -986,6 +999,10 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
             }
           }
           const uint32_t id_slen = token_slens[1];
+          if (unlikely(id_slen > kMaxIdSlen)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Variant ID on line %" PRIuPTR " of %s is longer than " MAX_ID_SLEN_STR " characters.\n", line_idx, cur_fname);
+            goto MetaAnalysis_ret_MALFORMED_INPUT_WW;
+          }
           uintptr_t cur_str_bytes = id_slen + 1;
           if (!no_map) {
             cur_str_bytes += token_slens[0] + 1;
@@ -997,6 +1014,17 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
             }
           }
           if (!pass_idx) {
+            if ((!no_map) && (token_slens[0] > max_other_slen)) {
+              max_other_slen = token_slens[0];
+            }
+            if (!no_allele) {
+              if (token_slens[3] > max_other_slen) {
+                max_other_slen = token_slens[3];
+              }
+              if (has_a2 && (token_slens[4] > max_other_slen)) {
+                max_other_slen = token_slens[4];
+              }
+            }
             str_byte_ct += cur_str_bytes;
           } else {
             MetaRecord* cur_rec = &(records[record_ct]);
@@ -1075,7 +1103,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     }
     STD_SORT(group_ct, MetaGroupCmp, groups);
 
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 256 + file_ct * 32;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 3 * S_CAST(uintptr_t, max_other_slen) + 256 + file_ct * 32;
     OutnameZstSet(".meta", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
@@ -1465,6 +1493,10 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t test_name_slen = 0;
     uint32_t test_col_idx = 0;
     if (test_name) {
+      if (unlikely(!(found_type_bitset & 0x80))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --adjust-file test= parameter provided, but %s has no TEST column.\n", in_fname);
+        goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+      }
       test_name_slen = strlen(test_name);
       // this duplicates a bit of work done in SearchHeaderLine(), but not a
       // big deal
@@ -1635,6 +1667,11 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           continue;
         }
       }
+      // Multcomp()'s write buffer assumes these limits.
+      if (unlikely((token_slens[2] > kMaxIdSlen) || (chr_ids && (token_slens[0] > kMaxIdSlen)))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has a variant ID or chromosome code longer than " MAX_ID_SLEN_STR " characters.\n", line_idx, in_fname);
+        goto AdjustFile_ret_MALFORMED_INPUT_WW;
+      }
       if (chr_ids) {
         const uint32_t cur_slen = token_slens[0];
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[0], cur_slen, &tmp_alloc_base, &(chr_ids[variant_idx]))) {
@@ -1653,6 +1690,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (need_ref) {
         const uint32_t cur_slen = token_slens[3];
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
+        }
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[3], cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
@@ -1665,6 +1705,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           if (alt_comma) {
             cur_slen = alt_comma - alt_str;
           }
+        }
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
         }
         if (StoreStringAtBase(tmp_alloc_end, alt_str, cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx + 1]))) {
           goto AdjustFile_ret_NOMEM;
@@ -1682,6 +1725,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (check_a1) {
         const uint32_t cur_slen = token_slens[6];
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
+        }
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[6], cur_slen, &tmp_alloc_base, &(a1_storage[variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
@@ -1703,6 +1749,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           } else {
             goto AdjustFile_ret_INVALID_PVAL;
           }
+        } else if (unlikely(ln_pval > 0.0)) {
+          // p > 1: Multcomp() would silently leave it out of the test count
+          goto AdjustFile_ret_INVALID_PVAL;
         }
       } else {
         double neglog10_pval;
