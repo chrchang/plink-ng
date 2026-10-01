@@ -524,7 +524,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
             dxx = missing_phenod;
           } else {
             if (unlikely(!IsSet(categorical_phenos, pheno_idx))) {
-              if (unlikely(!psam_info_reverse_ll->next)) {
+              if (!psam_info_reverse_ll->next) {
                 // First line, so the entry was classified as numeric; it
                 // looks like a number but is out of range (e.g. 1e400).
                 *K_CAST(char*, &(cur_phenostr[slen])) = '\0';
@@ -1323,7 +1323,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             dxx = missing_phenod;
           } else {
             if (unlikely(!IsSet(categorical_phenos, new_pheno_idx))) {
-              if (unlikely(!pheno_info_reverse_ll)) {
+              if (!pheno_info_reverse_ll) {
                 // First relevant line, so the entry was classified as
                 // numeric; it looks like a number but is out of range (e.g.
                 // 1e400).
