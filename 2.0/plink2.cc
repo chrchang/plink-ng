@@ -2978,7 +2978,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         const double instability_thresh = 0.25 * (1 - kSmallEpsilon) / sqrt(u31tod(assumed_sample_size));
         if (pcp->grm_min_maf >= 0.0) {
           if (unlikely((pcp->grm_min_maf < instability_thresh) && (!pcp->grm_maf_yes_really))) {
-            logerrprintfww("Error: --grm-maf argument is below %g, a quarter of the inverse square root of the sample size; this is unusually low, and may not protect against instability. Add 'yes-really' to --grm-maf if you are sure you want to proceed.\n", pcp->grm_min_maf, instability_thresh);
+            logerrprintfww("Error: --grm-maf argument is below %g, a quarter of the inverse square root of the sample size; this is unusually low, and may not protect against instability. Add 'yes-really' to --grm-maf if you are sure you want to proceed.\n", instability_thresh);
             goto Plink2Core_ret_INCONSISTENT_INPUT;
           }
           uintptr_t* new_variant_include;
