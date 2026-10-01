@@ -13134,7 +13134,7 @@ PglErr LdScoreReadAnnot(const char* fname, const uintptr_t* variant_include, con
           double cur_val;
           // The whole token must parse ('1abc' is not 1), and the value must
           // fit in the float it is stored as.
-          if (unlikely((ScanadvDouble(iter, &cur_val) != token_end) || (!(fabs(cur_val) <= FLT_MAX)))) {
+          if (unlikely((ScanadvDouble(iter, &cur_val) != token_end) || (!(fabs(cur_val) <= FLT_MAX_D)))) {
             logerrprintfww("Error: Invalid annotation value on line %" PRIuPTR " of %s.\n", line_idx, fname);
             goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
           }
