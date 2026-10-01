@@ -1944,9 +1944,69 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
 }
 
 // PLINK 1.x long-format (.lgen) import.  Unlike .ped and .tped, the genotypes
-// arrive one (sample, variant) call per line and in no particular order, so
-// the whole matrix is held in memory before it can be written; PLINK 1.9 has
-// the same constraint.
+// arrive one (sample, variant) call per line and in no particular order, so a
+// variant can only be written once every line has been seen.  PLINK 1.9 holds
+// the whole genotype matrix in memory for this.  Here a block of variants is
+// held at a time: calls for the first block go straight into memory, the rest
+// are written to a temporary file of packed (variant, sample, genotype)
+// records, and that file is reread once per remaining block.
+
+// 1 MiB of records.
+CONSTI32(kLgenSpillBufRecordCt, 131072);
+
+// --debug caps the block size at this many variants, so that the spill path
+// can be exercised by a test fileset far smaller than --memory's minimum.
+CONSTI32(kLgenDebugBlockVariantCt, 7);
+
+// Every variant in [variant_start, variant_end) starts out all-missing, except
+// that with --reference a variant named in the reference file starts out
+// homozygous-reference: calls absent from the .lgen mean exactly that.
+static void LgenInitBlock(const uintptr_t* ref_seen, uint32_t sample_ctaw2, uint32_t variant_start, uint32_t variant_end, uintptr_t* genovecs) {
+  for (uint32_t variant_idx = variant_start; variant_idx != variant_end; ++variant_idx) {
+    uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx - variant_start) * sample_ctaw2]);
+    if (ref_seen && IsSet(ref_seen, variant_idx)) {
+      ZeroWArr(sample_ctaw2, cur_genovec);
+    } else {
+      SetAllWArr(sample_ctaw2, cur_genovec);
+    }
+  }
+}
+
+// Picks REF/ALT for every variant in the block and appends it to the .pgen.
+// The genotypes are stored relative to each variant's first-seen allele, and
+// PLINK 1.x makes the more common allele A2, so the choice needs every call of
+// the variant; that is why it is made here rather than while reading.
+static BoolErr LgenWriteBlock(const uintptr_t* ref_seen, uint32_t sample_ct, uint32_t sample_ctaw2, uint32_t variant_start, uint32_t variant_end, uintptr_t* genovecs, const char** allele_codes, STPgenWriter* spgwp) {
+  const char* null_str = &(g_one_char_strs[0]);
+  for (uint32_t variant_idx = variant_start; variant_idx != variant_end; ++variant_idx) {
+    uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx - variant_start) * sample_ctaw2]);
+    // The block was initialized a whole word at a time, so the trailing
+    // entries in the last word have to be cleared before they can be counted.
+    ZeroTrailingNyps(sample_ct, cur_genovec);
+    STD_ARRAY_DECL(uint32_t, 4, genocounts);
+    GenoarrCountFreqsUnsafe(cur_genovec, sample_ct, genocounts);
+    // PLINK 1.x makes the more common allele A2, counting only nonmissing
+    // calls, and keeps the first-seen assignment on an exact tie.  With
+    // --reference, the reference file decides instead.
+    if (((!ref_seen) || (!IsSet(ref_seen, variant_idx))) && (genocounts[2] > genocounts[0])) {
+      const char* tmp_allele_code = allele_codes[variant_idx * 2];
+      allele_codes[variant_idx * 2] = allele_codes[variant_idx * 2 + 1];
+      allele_codes[variant_idx * 2 + 1] = tmp_allele_code;
+      GenovecInvertUnsafe(sample_ct, cur_genovec);
+      ZeroTrailingNyps(sample_ct, cur_genovec);
+    } else if (allele_codes[variant_idx * 2 + 1] == null_str) {
+      allele_codes[variant_idx * 2 + 1] = nullptr;
+      if (allele_codes[variant_idx * 2] == null_str) {
+        allele_codes[variant_idx * 2] = nullptr;
+      }
+    }
+    if (unlikely(SpgwAppendBiallelicGenovec(cur_genovec, spgwp))) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname, const char* refname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t lgen_allele_count, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -1956,6 +2016,9 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
   PreinitTextStream(&txs);
   STPgenWriter spgw;
   PreinitSpgw(&spgw);
+  FILE* spillfile = nullptr;
+  char spillname[kPglFnamesize];
+  spillname[0] = '\0';
   PglErr reterr = kPglRetSuccess;
   {
     FinalizeChrset(load_filter_log_import_flags, cip);
@@ -2039,27 +2102,10 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     }
     logprintf("--l%s: %u sample%s and %u variant%s present.\n", lgenname? "gen" : "file", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s");
 
-    // 3. Genotype matrix, variant-major, in plink2's encoding.  Initially all
-    //    missing; with --reference, unlisted calls mean homozygous-reference
-    //    instead, which is applied once the reference alleles are known.
-    // GenovecInvertUnsafe() below works a vector at a time, so the per-variant
-    // slices have to be vector-aligned, not just word-aligned.
-    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
-    const uint64_t genovec_alloc = S_CAST(uint64_t, variant_ct) * sample_ctaw2 * sizeof(intptr_t);
-    if (unlikely(genovec_alloc > bigstack_left() / 2)) {
-      logerrputs("Error: Not enough memory for .lgen import.  (This importer holds the entire\ngenotype matrix in memory, since .lgen entries are unordered.)\n");
-      goto LgenToPgen_ret_NOMEM;
-    }
-    uintptr_t* genovecs;
-    if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, variant_ct) * sample_ctaw2, &genovecs))) {
-      goto LgenToPgen_ret_NOMEM;
-    }
-    memset(genovecs, 255, S_CAST(uintptr_t, variant_ct) * sample_ctaw2 * sizeof(intptr_t));
-
+    // 3. Allele tables, filled in as alleles are seen.  Allele strings
+    //    longer than one character are stored at the far end of bigstack.
     const char** allele_codes;
-    uintptr_t* allele_flips;
-    if (unlikely(bigstack_end_alloc_kcp(2 * S_CAST(uintptr_t, variant_ct), &allele_codes) ||
-                 bigstack_end_calloc_w(BitCtToWordCt(variant_ct), &allele_flips))) {
+    if (unlikely(bigstack_end_alloc_kcp(2 * S_CAST(uintptr_t, variant_ct), &allele_codes))) {
       goto LgenToPgen_ret_NOMEM;
     }
     const char* null_str = &(g_one_char_strs[0]);
@@ -2136,22 +2182,74 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
       if (unlikely(CleanupTextStream2(refname, &txs, &reterr))) {
         goto LgenToPgen_ret_1;
       }
-      // Calls absent from the .lgen are homozygous for the reference allele.
-      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-        if (IsSet(ref_seen, variant_idx)) {
-          uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
-          ZeroWArr(sample_ctaw2, cur_genovec);
-        }
-      }
       logprintf("--reference: %u variant%s.\n", PopcountWords(ref_seen, BitCtToWordCt(variant_ct)), (PopcountWords(ref_seen, BitCtToWordCt(variant_ct)) == 1)? "" : "s");
     }
 
-    // 5. The .lgen itself.
+    // 5. The .pgen writer is claimed before the .lgen pass, so that it
+    //    outlives the per-pass allocations below.
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto LgenToPgen_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+      goto LgenToPgen_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+    unsigned char* bigstack_mark_passes = g_bigstack_base;
+
+    // 6. The .lgen itself, read once.  The genotype matrix is variant-major,
+    //    and the first block of variants is filled in directly.
     cur_fname = lgenname;
     reterr = SizeAndInitTextStream(lgenname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
       goto LgenToPgen_ret_TSTREAM_FAIL;
     }
+    // GenovecInvertUnsafe() works a vector at a time, so the per-variant
+    // slices have to be vector-aligned, not just word-aligned.
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    const uintptr_t genovec_byte_ct = sample_ctaw2 * sizeof(intptr_t);
+    // Half of what is left stays free for allele strings.
+    uintptr_t block_variant_ct = (bigstack_left() / 2) / genovec_byte_ct;
+    if (g_debug_on) {
+      block_variant_ct = MINV(block_variant_ct, kLgenDebugBlockVariantCt);
+    }
+    uint64_t* spill_buf = nullptr;
+    if (block_variant_ct < variant_ct) {
+      if (unlikely(bigstack_alloc_u64(kLgenSpillBufRecordCt, &spill_buf))) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+      block_variant_ct = (bigstack_left() / 2) / genovec_byte_ct;
+      if (g_debug_on) {
+        block_variant_ct = MINV(block_variant_ct, kLgenDebugBlockVariantCt);
+      }
+      if (unlikely(!block_variant_ct)) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".lgen.tmp");
+      strcpy(spillname, outname);
+      if (unlikely(fopen_checked(spillname, FOPEN_WB, &spillfile))) {
+        spillname[0] = '\0';
+        goto LgenToPgen_ret_OPEN_FAIL;
+      }
+    } else {
+      block_variant_ct = variant_ct;
+    }
+    const uint32_t first_block_end = block_variant_ct;
+    uintptr_t* genovecs;
+    if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, first_block_end) * sample_ctaw2, &genovecs))) {
+      goto LgenToPgen_ret_NOMEM;
+    }
+    LgenInitBlock(ref_seen, sample_ctaw2, 0, first_block_end, genovecs);
+    tmp_alloc_base = g_bigstack_base;
+    uintptr_t spill_buf_record_ct = 0;
+    uint64_t spill_record_ct = 0;
     line_idx = 0;
     uintptr_t entry_ct = 0;
     while (1) {
@@ -2299,11 +2397,23 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
         }
       }
     LgenToPgen_store:
-      {
+      if (variant_idx < first_block_end) {
         uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
         AssignNyparrEntry(sample_idx, cur_geno, cur_genovec);
-        ++entry_ct;
+      } else {
+        // Variant and sample indexes are both below 2^31.  The records keep
+        // line order, so a later call for the same (sample, variant) pair
+        // still overrides an earlier one, as it does in memory.
+        spill_buf[spill_buf_record_ct++] = (S_CAST(uint64_t, variant_idx) << 33) | (S_CAST(uint64_t, sample_idx) << 2) | cur_geno;
+        if (spill_buf_record_ct == kLgenSpillBufRecordCt) {
+          if (unlikely(fwrite_checked(spill_buf, kLgenSpillBufRecordCt * sizeof(int64_t), spillfile))) {
+            goto LgenToPgen_ret_WRITE_FAIL;
+          }
+          spill_record_ct += kLgenSpillBufRecordCt;
+          spill_buf_record_ct = 0;
+        }
       }
+      ++entry_ct;
     }
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto LgenToPgen_ret_TSTREAM_FAIL;
@@ -2313,32 +2423,82 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     }
     logprintf("--l%s: %" PRIuPTR " genotype call%s read.\n", refname? "gen (with --reference)" : "gen", entry_ct, (entry_ct == 1)? "" : "s");
 
-    // 6. Pick REF/ALT.  Without --reference this follows PLINK 1.x, which
-    //    makes the more common allele A2; with it, the reference file decides.
-    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
-      // The matrix was initialized to all-missing, so the trailing entries in
-      // the last word have to be cleared before they can be counted.
-      ZeroTrailingNyps(sample_ct, cur_genovec);
-      STD_ARRAY_DECL(uint32_t, 4, genocounts);
-      GenoarrCountFreqsUnsafe(cur_genovec, sample_ct, genocounts);
-      if ((!ref_seen) || (!IsSet(ref_seen, variant_idx))) {
-        // PLINK 1.x makes the more common allele A2, counting only nonmissing
-        // calls, and keeps the first-seen assignment on an exact tie.
-        if (genocounts[2] > genocounts[0]) {
-          SetBit(variant_idx, allele_flips);
-          const char* tmp_allele_code = allele_codes[variant_idx * 2];
-          allele_codes[variant_idx * 2] = allele_codes[variant_idx * 2 + 1];
-          allele_codes[variant_idx * 2 + 1] = tmp_allele_code;
-          continue;
+    // The allele strings are final now; keep later end-of-bigstack
+    // allocations clear of them.
+    BigstackEndSet(tmp_alloc_end);
+    if (unlikely(LgenWriteBlock(ref_seen, sample_ct, sample_ctaw2, 0, first_block_end, genovecs, allele_codes, &spgw))) {
+      goto LgenToPgen_ret_WRITE_FAIL;
+    }
+
+    // 7. The remaining blocks, one pass over the temporary file each.
+    if (spillfile) {
+      if (spill_buf_record_ct) {
+        if (unlikely(fwrite_checked(spill_buf, spill_buf_record_ct * sizeof(int64_t), spillfile))) {
+          goto LgenToPgen_ret_WRITE_FAIL;
         }
+        spill_record_ct += spill_buf_record_ct;
       }
-      if (allele_codes[variant_idx * 2 + 1] == null_str) {
-        allele_codes[variant_idx * 2 + 1] = nullptr;
-        if (allele_codes[variant_idx * 2] == null_str) {
-          allele_codes[variant_idx * 2] = nullptr;
+      if (unlikely(fclose_null(&spillfile))) {
+        goto LgenToPgen_ret_WRITE_FAIL;
+      }
+      // The text stream and the first block are done with.
+      BigstackReset(bigstack_mark_passes);
+      if (unlikely(bigstack_alloc_u64(kLgenSpillBufRecordCt, &spill_buf))) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+      block_variant_ct = bigstack_left() / genovec_byte_ct;
+      if (g_debug_on) {
+        block_variant_ct = MINV(block_variant_ct, kLgenDebugBlockVariantCt);
+      }
+      const uint32_t remaining_variant_ct = variant_ct - first_block_end;
+      if (block_variant_ct > remaining_variant_ct) {
+        block_variant_ct = remaining_variant_ct;
+      }
+      if (unlikely((!block_variant_ct) || bigstack_alloc_w(block_variant_ct * sample_ctaw2, &genovecs))) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+      const uint32_t pass_ct = 1 + (remaining_variant_ct - 1) / block_variant_ct;
+      logprintfww("--l%s: Genotype matrix does not fit in memory; %u variant%s held directly, %" PRIu64 " call%s spilled to %s and reread in %u pass%s.\n", lgenname? "gen" : "file", first_block_end, (first_block_end == 1)? "" : "s", spill_record_ct, (spill_record_ct == 1)? "" : "s", spillname, pass_ct, (pass_ct == 1)? "" : "es");
+      if (unlikely(fopen_checked(spillname, FOPEN_RB, &spillfile))) {
+        goto LgenToPgen_ret_OPEN_FAIL;
+      }
+      for (uint32_t block_start = first_block_end; block_start != variant_ct; ) {
+        const uint32_t block_end = block_start + MINV(block_variant_ct, variant_ct - block_start);
+        LgenInitBlock(ref_seen, sample_ctaw2, block_start, block_end, genovecs);
+        rewind(spillfile);
+        for (uint64_t records_left = spill_record_ct; records_left; ) {
+          const uintptr_t cur_record_ct = MINV(records_left, S_CAST(uint64_t, kLgenSpillBufRecordCt));
+          if (unlikely(fread_checked(spill_buf, cur_record_ct * sizeof(int64_t), spillfile))) {
+            goto LgenToPgen_ret_READ_FAIL;
+          }
+          for (uintptr_t record_idx = 0; record_idx != cur_record_ct; ++record_idx) {
+            const uint64_t cur_record = spill_buf[record_idx];
+            const uint32_t variant_idx = cur_record >> 33;
+            if ((variant_idx >= block_start) && (variant_idx < block_end)) {
+              const uint32_t sample_idx = (cur_record >> 2) & 0x7fffffff;
+              AssignNyparrEntry(sample_idx, cur_record & 3, &(genovecs[S_CAST(uintptr_t, variant_idx - block_start) * sample_ctaw2]));
+            }
+          }
+          records_left -= cur_record_ct;
         }
+        if (unlikely(LgenWriteBlock(ref_seen, sample_ct, sample_ctaw2, block_start, block_end, genovecs, allele_codes, &spgw))) {
+          goto LgenToPgen_ret_WRITE_FAIL;
+        }
+        block_start = block_end;
       }
+      if (unlikely(fclose_null(&spillfile))) {
+        goto LgenToPgen_ret_READ_FAIL;
+      }
+      if (unlikely(unlink(spillname))) {
+        logerrprintfww("Error: Failed to delete %s .\n", spillname);
+        reterr = kPglRetWriteFail;
+        goto LgenToPgen_ret_1;
+      }
+      spillname[0] = '\0';
+    }
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto LgenToPgen_ret_1;
     }
 
     reterr = RewritePsam(famname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr, nullptr);
@@ -2346,37 +2506,6 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
       goto LgenToPgen_ret_1;
     }
     reterr = MapToPvar(mapname, cip, allele_codes, variant_ct, max_allele_slen, import_flags, at_least_one_nzero_cm, outname, outname_end);
-    if (unlikely(reterr)) {
-      goto LgenToPgen_ret_1;
-    }
-
-    // 7. .pgen.
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
-    uintptr_t spgw_alloc_cacheline_ct;
-    uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
-    if (unlikely(reterr)) {
-      if (reterr == kPglRetOpenFail) {
-        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
-      }
-      goto LgenToPgen_ret_1;
-    }
-    unsigned char* spgw_alloc;
-    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
-      goto LgenToPgen_ret_NOMEM;
-    }
-    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
-    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
-      if (IsSet(allele_flips, variant_idx)) {
-        GenovecInvertUnsafe(sample_ct, cur_genovec);
-        ZeroTrailingNyps(sample_ct, cur_genovec);
-      }
-      if (unlikely(SpgwAppendBiallelicGenovec(cur_genovec, &spgw))) {
-        goto LgenToPgen_ret_WRITE_FAIL;
-      }
-    }
-    reterr = SpgwFinish(&spgw);
     if (unlikely(reterr)) {
       goto LgenToPgen_ret_1;
     }
@@ -2389,6 +2518,12 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     break;
   LgenToPgen_ret_TSTREAM_FAIL:
     TextStreamErrPrint(cur_fname, &txs);
+    break;
+  LgenToPgen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  LgenToPgen_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
     break;
   LgenToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -2420,6 +2555,10 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
  LgenToPgen_ret_1:
   CleanupSpgw(&spgw, &reterr);
   CleanupTextStream2(cur_fname, &txs, &reterr);
+  fclose_cond(spillfile);
+  if (spillname[0]) {
+    unlink(spillname);
+  }
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
