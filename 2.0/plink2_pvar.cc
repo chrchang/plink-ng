@@ -1734,10 +1734,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       char* linebuf_iter = CurTokenEnd(line_iter);
       // #CHROM
-      if (unlikely(*linebuf_iter == '\n')) {
-        goto LoadPvar_ret_MISSING_TOKENS;
-      }
       if (unlikely((*linebuf_iter != '\t') && (*linebuf_iter != ' '))) {
+        if (*linebuf_iter == '\n') {
+          goto LoadPvar_ret_MISSING_TOKENS;
+        }
         // e.g. a NUL byte; the INFO reload paths would not find the line's
         // later columns
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid character after the chromosome code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);

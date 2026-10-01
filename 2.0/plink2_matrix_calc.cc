@@ -734,18 +734,12 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
       }
       while (1) {
         linebuf_iter = FirstNonTspace(token_end);
-        // CurTokenEnd() starts past its first character, so it would walk past
-        // the end of the header line
-        if (unlikely(IsEolnKns(*linebuf_iter))) {
-          logerrputs("Error: No kinship-coefficient column in --king-cutoff-table file.\n");
-          goto KingCutoffBatchTable_ret_INCONSISTENT_INPUT;
-        }
-        token_end = CurTokenEnd(linebuf_iter);
-        token_slen = token_end - linebuf_iter;
+        token_slen = strlen_se(linebuf_iter);
         if (unlikely(!token_slen)) {
           logerrputs("Error: No kinship-coefficient column in --king-cutoff-table file.\n");
           goto KingCutoffBatchTable_ret_INCONSISTENT_INPUT;
         }
+        token_end = &(linebuf_iter[token_slen]);
         if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
           break;
         }
@@ -3769,18 +3763,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
         king_table_subset_thresh *= 1.0 - kSmallEpsilon;
         while (1) {
           linebuf_iter = FirstNonTspace(token_end);
-          // CurTokenEnd() starts past its first character, so it would walk past
-          // the end of the header line
-          if (unlikely(IsEolnKns(*linebuf_iter))) {
-            logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
-            goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
-          }
-          token_end = CurTokenEnd(linebuf_iter);
-          token_slen = token_end - linebuf_iter;
+          token_slen = strlen_se(linebuf_iter);
           if (unlikely(!token_slen)) {
             logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
             goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
           }
+          token_end = &(linebuf_iter[token_slen]);
           if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
             break;
           }
