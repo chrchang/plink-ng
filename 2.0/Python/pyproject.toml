@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pgenlib"
-version = "0.95.0"
+version = "0.95.1"
 authors = [
   { name="Christopher Chang", email="chrchang@alumni.caltech.edu" },
 ]

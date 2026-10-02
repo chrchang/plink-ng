@@ -1345,7 +1345,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        maybea1: A1 alleles, if at least 1 multiallelic variant is present.\n"
 "        a1: Force A1 columns even if all variants are biallelic.\n"
 "      Specific to .epi.cc:\n"
-"        stat: Chi-square statistic or logistic regression t-statistic.\n"
+"        stat: Chi-square statistic.\n"
 "        df: Degrees of freedom.\n"
 "        p: P-value (or -log10(p)).\n"
 "      Specific to .epi.cc.summary:\n"
