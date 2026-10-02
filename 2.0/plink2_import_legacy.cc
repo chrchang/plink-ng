@@ -2079,6 +2079,7 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     }
     CleanupPhenoCols(pheno_ct, pheno_cols);
     pheno_cols = nullptr;
+    free_cond(pheno_names);
     const uint32_t sample_id_htable_size = GetHtableFastSize(sample_ct);
     uint32_t* sample_id_htable;
     char* idbuf;
