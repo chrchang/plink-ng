@@ -438,7 +438,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     double ln_pv_sidak_sd = -DBL_MAX;
     double ln_pv_holm = -DBL_MAX;
     uint32_t cur_allele_ct = 2;
-    uint32_t aidx = 0;
+    uintptr_t aidx = 0;
     for (; aidx < valid_allele_ct; ++aidx) {
       double ln_pval = sorted_ln_pvals[aidx];
       if (ln_pval > ln_pfilter) {
@@ -586,8 +586,11 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto Multcomp_ret_WRITE_FAIL;
     }
-    // don't use valid_allele_ct due to --pfilter
-    logprintfww("--adjust%s values (%u test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
+    if (aidx == valid_allele_ct) {
+      logprintfww("--adjust%s records (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
+    } else {
+      logprintfww("%" PRIuPTR " --adjust%s record%s (%" PRIuPTR " test%s, %" PRIuPTR " excluded by --pfilter) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", valid_allele_ct, (valid_allele_ct == 1)? "" : "s", valid_allele_ct - aidx, outname);
+    }
   }
   while (0) {
   Multcomp_ret_NOMEM:
