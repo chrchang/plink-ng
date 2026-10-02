@@ -1223,54 +1223,56 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         continue;
       }
-      if (!comma_delim) {
-        line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
-      } else {
-        line_iter = CsvLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
-      }
-      if (unlikely(!line_iter)) {
-        goto LoadPhenos_ret_MISSING_TOKENS;
-      }
-      if ((!pheno_info_reverse_ll) && (!no_categorical)) {
-        // first relevant line, detect categorical phenotypes
-        // bugfix (18 Apr 2024): ...unless --no-categorical
-        for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
-          if (IsCategoricalPhenostr(token_ptrs[new_pheno_idx])) {
-            SetBit(new_pheno_idx, categorical_phenos);
-          } else if (affection_01 == 2) {
-            SetBit(new_pheno_idx, quantitative_phenos);
-          }
+      if (new_pheno_ct) {
+        if (!comma_delim) {
+          line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
+        } else {
+          line_iter = CsvLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
         }
-        categorical_pheno_ct = PopcountWords(categorical_phenos, new_pheno_ctl);
-        if (categorical_pheno_ct) {
-          // initialize hash table
-          const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
-          const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
-          const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
-
-          if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
-            goto LoadPhenos_ret_NOMEM;
+        if (unlikely(!line_iter)) {
+          goto LoadPhenos_ret_MISSING_TOKENS;
+        }
+        if ((!pheno_info_reverse_ll) && (!no_categorical)) {
+          // first relevant line, detect categorical phenotypes
+          // bugfix (18 Apr 2024): ...unless --no-categorical
+          for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
+            if (IsCategoricalPhenostr(token_ptrs[new_pheno_idx])) {
+              SetBit(new_pheno_idx, categorical_phenos);
+            } else if (affection_01 == 2) {
+              SetBit(new_pheno_idx, quantitative_phenos);
+            }
           }
-          tmp_bigstack_end -= cat_ul_byte_ct;
-          total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_end);
-          tmp_bigstack_end -= cat_ul_byte_ct;
-          pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_end);
-          ZeroWArr(categorical_pheno_ct, total_catname_blens);
-          tmp_bigstack_end -= htable_byte_ct;
-          catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_end);
-          ZeroPtrArr(kCatHtableSize, catname_htable);
-          uint32_t cur_hval = missing_catname_hval;
-          for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
-            tmp_bigstack_end -= entry_byte_ct;
-            CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
-            pheno_catname_last[cat_pheno_idx] = new_entry;
-            new_entry->cat_idx = 0;
-            new_entry->htable_next = nullptr;
-            new_entry->pheno_next = nullptr;
-            memcpy(new_entry->str, missing_catname, missing_catname_blen);
-            catname_htable[cur_hval++] = new_entry;
-            if (cur_hval == kCatHtableSize) {
-              cur_hval = 0;
+          categorical_pheno_ct = PopcountWords(categorical_phenos, new_pheno_ctl);
+          if (categorical_pheno_ct) {
+            // initialize hash table
+            const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
+            const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
+            const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
+
+            if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
+              goto LoadPhenos_ret_NOMEM;
+            }
+            tmp_bigstack_end -= cat_ul_byte_ct;
+            total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_end);
+            tmp_bigstack_end -= cat_ul_byte_ct;
+            pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_end);
+            ZeroWArr(categorical_pheno_ct, total_catname_blens);
+            tmp_bigstack_end -= htable_byte_ct;
+            catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_end);
+            ZeroPtrArr(kCatHtableSize, catname_htable);
+            uint32_t cur_hval = missing_catname_hval;
+            for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
+              tmp_bigstack_end -= entry_byte_ct;
+              CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
+              pheno_catname_last[cat_pheno_idx] = new_entry;
+              new_entry->cat_idx = 0;
+              new_entry->htable_next = nullptr;
+              new_entry->pheno_next = nullptr;
+              memcpy(new_entry->str, missing_catname, missing_catname_blen);
+              catname_htable[cur_hval++] = new_entry;
+              if (cur_hval == kCatHtableSize) {
+                cur_hval = 0;
+              }
             }
           }
         }
