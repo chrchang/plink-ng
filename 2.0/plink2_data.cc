@@ -8202,11 +8202,6 @@ void SplitNonrefFlags(const uintptr_t* old_nonref_flags, const uintptr_t* varian
   }
 }
 
-void JoinNonrefFlags() {
-  logerrputs("Provisional-reference flag join is not implemented yet.\n");
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-}
-
 // Single-output-thread implementation.  Allows variants to be unsorted.
 // (Note that MakePlink2NoVsort() currently requires enough memory for 64k * 2
 // variants per output thread, due to LD compression.  This is faster in the
@@ -8357,11 +8352,10 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 SetBit(variant_idx, nonref_flags_write);
               }
             }
-          } else if (!input_biallelic) {
-            assert(!new_variant_idx_to_old);  // not implemented in MakePlink2Vsort() yet
-            SplitNonrefFlags(old_nonref_flags, variant_include, allele_idx_offsets, allele_storage, variant_ct, ((make_plink2_flags & kfMakePlink2MMask) == kfMakePlink2MSplitSnps), nonref_flags_write);
           } else {
-            JoinNonrefFlags();
+            // Variant-join is handled by MakePgenJoin().
+            assert((!new_variant_idx_to_old) && (!input_biallelic));  // not implemented in MakePlink2Vsort() yet
+            SplitNonrefFlags(old_nonref_flags, variant_include, allele_idx_offsets, allele_storage, variant_ct, ((make_plink2_flags & kfMakePlink2MMask) == kfMakePlink2MSplitSnps), nonref_flags_write);
           }
         }
         if (nonref_flags_write[0] & 1) {
@@ -9161,6 +9155,442 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   }
  MakePgenRobust_ret_1:
   CleanupThreads(&tg);
+  CleanupSpgw(&spgw, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Sets bit i of nonref_flags_write iff every member of the i-th join group has
+// a provisional REF allele.
+PglErr JoinNonrefFlags(const uintptr_t* old_nonref_flags, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t write_variant_ct, MakePlink2Flags join_mode, uintptr_t* nonref_flags_write) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t max_block_size = JoinMaxBlockSize(variant_include, cip, variant_bps, variant_ct);
+    uint32_t* block_uidxs;
+    uint32_t* rec_classes;
+    uint32_t* rec_groups;
+    uint32_t* group_reps;
+    uint32_t* group_members;
+    uint32_t* group_starts;
+    if (unlikely(bigstack_alloc_u32(max_block_size, &block_uidxs) ||
+                 bigstack_alloc_u32(max_block_size, &rec_classes) ||
+                 bigstack_alloc_u32(max_block_size, &rec_groups) ||
+                 bigstack_alloc_u32(max_block_size, &group_reps) ||
+                 bigstack_alloc_u32(max_block_size, &group_members) ||
+                 bigstack_alloc_u32(max_block_size + 1, &group_starts))) {
+      reterr = kPglRetNomem;
+      goto JoinNonrefFlags_ret_1;
+    }
+    ZeroWArr(BitCtToWordCt(write_variant_ct), nonref_flags_write);
+    JoinBlockIter jbi;
+    JoinBlockIterInit(variant_include, cip, variant_bps, variant_ct, &jbi);
+    uint32_t write_variant_idx = 0;
+    while (1) {
+      const uint32_t block_size = JoinNextBlock(&jbi, block_uidxs);
+      if (!block_size) {
+        break;
+      }
+      uint32_t group_ct = 1;
+      group_members[0] = 0;
+      group_starts[0] = 0;
+      group_starts[1] = 1;
+      if (block_size > 1) {
+        group_ct = JoinGroupBlock(block_uidxs, allele_idx_offsets, allele_storage, join_mode, block_size, rec_classes, rec_groups, group_reps, group_members, group_starts);
+      }
+      for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx, ++write_variant_idx) {
+        uint32_t member_pos = group_starts[group_idx];
+        const uint32_t member_end = group_starts[group_idx + 1];
+        for (; member_pos != member_end; ++member_pos) {
+          if (!IsSet(old_nonref_flags, block_uidxs[group_members[member_pos]])) {
+            break;
+          }
+        }
+        if (member_pos == member_end) {
+          SetBit(write_variant_idx, nonref_flags_write);
+        }
+      }
+    }
+    assert(write_variant_idx == write_variant_ct);
+  }
+ JoinNonrefFlags_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Per-sample variant-join state bits.
+// Bits 0-1: number of non-REF alleles seen so far; 3 means too many.
+CONSTI32(kJoinSampleAltCtMask, 3);
+CONSTI32(kJoinSampleMissing, 4);
+// Set by an unphased het, or by two hets with their ALT alleles on the same
+// haplotype.
+CONSTI32(kJoinSampleUnphased, 8);
+// Bits 4-5: whether the allele in slot 0/1 came from a phased het.
+CONSTI32(kJoinSamplePhased0, 16);
+// Bits 6-7: whether the allele in slot 0/1 is on the first haplotype.
+CONSTI32(kJoinSampleHap0, 64);
+
+HEADER_INLINE void JoinSampleAddAllele(AlleleCode ac, uint32_t is_phased, uint32_t hap, unsigned char* statep, AlleleCode* slots) {
+  uint32_t state = *statep;
+  const uint32_t alt_ct = state & kJoinSampleAltCtMask;
+  if (alt_ct == 2) {
+    *statep = state | kJoinSampleAltCtMask;
+    return;
+  }
+  if (alt_ct == 3) {
+    return;
+  }
+  slots[alt_ct] = ac;
+  state += 1;
+  if (is_phased) {
+    state |= kJoinSamplePhased0 << alt_ct;
+    state |= (hap * kJoinSampleHap0) << alt_ct;
+  }
+  *statep = state;
+}
+
+// Single-output-thread genotype writer for variant-join.  Hardcalls and
+// hardcall-phase only; dosages must have been erased.
+PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* write_allele_idx_offsets, const char* writer_ver, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_write_allele_ct, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  STPgenWriter spgw;
+  PreinitSpgw(&spgw);
+  PgenExtensionLl ext_slot; // shouldn't have shorter lifetime than spgw
+  {
+    const MakePlink2Flags join_mode = make_plink2_flags & kfMakePlink2MMask;
+    PgenGlobalFlags read_gflags = PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent;
+    if (make_plink2_flags & kfMakePgenErasePhase) {
+      read_gflags = kfPgenGlobal0;
+    }
+    if (read_gflags && (variant_ct < raw_variant_ct)) {
+      read_gflags &= GflagsVfilter(variant_include, PgrGetVrtypes(simple_pgrp), raw_variant_ct, PgrGetGflags(simple_pgrp));
+    }
+    const uint32_t read_phase_present = (read_gflags != kfPgenGlobal0);
+
+    uint32_t nonref_flags_storage = 3;
+    uintptr_t* nonref_flags_write = nullptr;
+    const uintptr_t* old_nonref_flags = PgrGetNonrefFlags(simple_pgrp);
+    if (!old_nonref_flags) {
+      nonref_flags_storage = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref)? 2 : 1;
+    } else {
+      const uint32_t write_variant_ctl = BitCtToWordCt(write_variant_ct);
+      if (unlikely(bigstack_alloc_w(write_variant_ctl, &nonref_flags_write))) {
+        goto MakePgenJoin_ret_NOMEM;
+      }
+      reterr = JoinNonrefFlags(old_nonref_flags, variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, variant_ct, write_variant_ct, join_mode, nonref_flags_write);
+      if (unlikely(reterr)) {
+        goto MakePgenJoin_ret_1;
+      }
+      if (AllBitsAreOne(nonref_flags_write, write_variant_ct)) {
+        BigstackReset(nonref_flags_write);
+        nonref_flags_write = nullptr;
+        nonref_flags_storage = 2;
+      } else if (AllWordsAreZero(nonref_flags_write, write_variant_ctl)) {
+        BigstackReset(nonref_flags_write);
+        nonref_flags_write = nullptr;
+        nonref_flags_storage = 1;
+      }
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    PgenExtensionLl* header_exts = nullptr;
+    if (writer_ver) {
+      ext_slot.next = nullptr;
+      ext_slot.size = strlen(writer_ver);
+      ext_slot.contents = R_CAST(unsigned char*, K_CAST(char*, writer_ver));
+      ext_slot.type_idx = 1;
+      header_exts = &ext_slot;
+    }
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1Ex(outname, write_allele_idx_offsets, nonref_flags_write, header_exts, nullptr, write_variant_ct, sample_ct, max_write_allele_ct, kPgenWriteBackwardSeek, read_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto MakePgenJoin_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+      goto MakePgenJoin_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    const uint32_t max_block_size = JoinMaxBlockSize(variant_include, cip, variant_bps, variant_ct);
+    uint32_t* block_uidxs;
+    uint32_t* rec_classes;
+    uint32_t* rec_groups;
+    uint32_t* group_reps;
+    uint32_t* group_members;
+    uint32_t* group_starts;
+    JoinAlt* alt_buf;
+    const char** write_alleles;
+    AlleleCode* allele_remap;
+    AlleleCode* wide_codes;
+    AlleleCode* slots;
+    unsigned char* sample_states;
+    uintptr_t* write_genovec;
+    uintptr_t* write_patch_01_set;
+    AlleleCode* write_patch_01_vals;
+    uintptr_t* write_patch_10_set;
+    AlleleCode* write_patch_10_vals;
+    uintptr_t* write_phasepresent;
+    uintptr_t* write_phaseinfo;
+    PgenVariant pgv;
+    PreinitPgv(&pgv);
+    if (unlikely(bigstack_alloc_u32(max_block_size, &block_uidxs) ||
+                 bigstack_alloc_u32(max_block_size, &rec_classes) ||
+                 bigstack_alloc_u32(max_block_size, &rec_groups) ||
+                 bigstack_alloc_u32(max_block_size, &group_reps) ||
+                 bigstack_alloc_u32(max_block_size, &group_members) ||
+                 bigstack_alloc_u32(max_block_size + 1, &group_starts) ||
+                 BIGSTACK_ALLOC_X(JoinAlt, MAXV(max_block_size, kPglMaxAlleleCt), &alt_buf) ||
+                 bigstack_alloc_kcp(kPglMaxAlleleCt, &write_alleles) ||
+                 bigstack_alloc_ac(2 * max_block_size + kPglMaxAlleleCt, &allele_remap) ||
+                 bigstack_alloc_ac(2 * sample_ct, &wide_codes) ||
+                 bigstack_alloc_ac(2 * sample_ct, &slots) ||
+                 bigstack_alloc_uc(sample_ct, &sample_states) ||
+                 bigstack_alloc_w(sample_ctl2, &pgv.genovec) ||
+                 bigstack_alloc_w(sample_ctl, &pgv.patch_01_set) ||
+                 bigstack_alloc_ac(sample_ct, &pgv.patch_01_vals) ||
+                 bigstack_alloc_w(sample_ctl, &pgv.patch_10_set) ||
+                 bigstack_alloc_ac(2 * sample_ct, &pgv.patch_10_vals) ||
+                 bigstack_alloc_w(sample_ctl2, &write_genovec) ||
+                 bigstack_alloc_w(sample_ctl, &write_patch_01_set) ||
+                 bigstack_alloc_ac(sample_ct, &write_patch_01_vals) ||
+                 bigstack_alloc_w(sample_ctl, &write_patch_10_set) ||
+                 bigstack_alloc_ac(2 * sample_ct, &write_patch_10_vals))) {
+      goto MakePgenJoin_ret_NOMEM;
+    }
+    write_phasepresent = nullptr;
+    write_phaseinfo = nullptr;
+    if (read_phase_present) {
+      if (unlikely(bigstack_alloc_w(sample_ctl, &pgv.phasepresent) ||
+                   bigstack_alloc_w(sample_ctl, &pgv.phaseinfo) ||
+                   bigstack_alloc_w(sample_ctl, &write_phasepresent) ||
+                   bigstack_alloc_w(sample_ctl, &write_phaseinfo))) {
+        goto MakePgenJoin_ret_NOMEM;
+      }
+    }
+    const uintptr_t* read_sample_include = nullptr;
+    uint32_t* sample_include_cumulative_popcounts = nullptr;
+    PgrSampleSubsetIndex pssi;
+    PgrClearSampleSubsetIndex(simple_pgrp, &pssi);
+    if (sample_ct != raw_sample_ct) {
+      if (unlikely(bigstack_alloc_u32(BitCtToWordCt(raw_sample_ct), &sample_include_cumulative_popcounts))) {
+        goto MakePgenJoin_ret_NOMEM;
+      }
+      FillCumulativePopcounts(sample_include, BitCtToWordCt(raw_sample_ct), sample_include_cumulative_popcounts);
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+      read_sample_include = sample_include;
+    }
+    // Maps each output sample index to its index in the subsetted input.
+    uint32_t* write_to_read_sample_idx = nullptr;
+    if (new_sample_idx_to_old) {
+      if (unlikely(bigstack_alloc_u32(sample_ct, &write_to_read_sample_idx))) {
+        goto MakePgenJoin_ret_NOMEM;
+      }
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t sample_uidx = new_sample_idx_to_old[sample_idx];
+        write_to_read_sample_idx[sample_idx] = read_sample_include? RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, sample_uidx) : sample_uidx;
+      }
+    }
+
+    logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
+    fflush(stdout);
+    uintptr_t conflict_ct = 0;
+    uint32_t write_variant_idx = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_write_variant_idx = (write_variant_ct + 99) / 100;
+    JoinBlockIter jbi;
+    JoinBlockIterInit(variant_include, cip, variant_bps, variant_ct, &jbi);
+    while (1) {
+      const uint32_t block_size = JoinNextBlock(&jbi, block_uidxs);
+      if (!block_size) {
+        break;
+      }
+      uint32_t group_ct = 1;
+      group_members[0] = 0;
+      group_starts[0] = 0;
+      group_starts[1] = 1;
+      if (block_size > 1) {
+        group_ct = JoinGroupBlock(block_uidxs, allele_idx_offsets, allele_storage, join_mode, block_size, rec_classes, rec_groups, group_reps, group_members, group_starts);
+      }
+      for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx, ++write_variant_idx) {
+        const uint32_t* members = &(group_members[group_starts[group_idx]]);
+        const uint32_t member_ct = group_starts[group_idx + 1] - group_starts[group_idx];
+        uint32_t write_allele_ct;
+        if (member_ct == 1) {
+          GetVariantAlleles(allele_idx_offsets, allele_storage, block_uidxs[members[0]], &write_allele_ct);
+          for (uint32_t allele_idx = 0; allele_idx != write_allele_ct; ++allele_idx) {
+            allele_remap[allele_idx] = allele_idx;
+          }
+        } else {
+          write_allele_ct = JoinGroupAlleles(block_uidxs, members, allele_idx_offsets, allele_storage, allele_freqs, member_ct, alt_buf, write_alleles, allele_remap);
+        }
+        memset(sample_states, 0, sample_ct);
+        const AlleleCode* cur_remap = allele_remap;
+        for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
+          const uint32_t read_variant_uidx = block_uidxs[members[member_idx]];
+          uint32_t read_allele_ct;
+          GetVariantAlleles(allele_idx_offsets, allele_storage, read_variant_uidx, &read_allele_ct);
+          if (read_phase_present) {
+            reterr = PgrGetMDp(read_sample_include, pssi, sample_ct, read_variant_uidx, simple_pgrp, &pgv);
+          } else {
+            reterr = PgrGetMD(read_sample_include, pssi, sample_ct, read_variant_uidx, simple_pgrp, &pgv);
+            pgv.phasepresent_ct = 0;
+          }
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, read_variant_uidx);
+            goto MakePgenJoin_ret_1;
+          }
+          PglMultiallelicSparseToDenseMiss(&pgv, sample_ct, wide_codes);
+          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+            const AlleleCode ac0 = wide_codes[2 * sample_idx];
+            const AlleleCode ac1 = wide_codes[2 * sample_idx + 1];
+            if (!ac1) {
+              continue;
+            }
+            unsigned char* statep = &(sample_states[sample_idx]);
+            AlleleCode* cur_slots = &(slots[2 * sample_idx]);
+            if (ac0 == kMissingAlleleCode) {
+              *statep |= kJoinSampleMissing;
+              continue;
+            }
+            if (ac0 == ac1) {
+              // Homozygous: no phase.
+              JoinSampleAddAllele(cur_remap[ac1], 0, 0, statep, cur_slots);
+              JoinSampleAddAllele(cur_remap[ac1], 0, 0, statep, cur_slots);
+              continue;
+            }
+            // Heterozygous.  The phaseinfo bit says whether the higher allele
+            // is on the first haplotype.
+            uint32_t is_phased = 0;
+            uint32_t hap1 = 0;
+            if (pgv.phasepresent_ct && IsSet(pgv.phasepresent, sample_idx)) {
+              is_phased = 1;
+              hap1 = IsSet(pgv.phaseinfo, sample_idx);
+            } else {
+              *statep |= kJoinSampleUnphased;
+            }
+            if (ac0) {
+              JoinSampleAddAllele(cur_remap[ac0], is_phased, 1 - hap1, statep, cur_slots);
+            }
+            JoinSampleAddAllele(cur_remap[ac1], is_phased, hap1, statep, cur_slots);
+          }
+          cur_remap = &(cur_remap[read_allele_ct]);
+        }
+        // Resolve each sample's call.
+        if (write_phasepresent) {
+          ZeroWArr(sample_ctl, write_phasepresent);
+          ZeroWArr(sample_ctl, write_phaseinfo);
+        }
+        uint32_t phased_het_found = 0;
+        for (uint32_t write_sample_idx = 0; write_sample_idx != sample_ct; ++write_sample_idx) {
+          const uint32_t read_sample_idx = write_to_read_sample_idx? write_to_read_sample_idx[write_sample_idx] : write_sample_idx;
+          const uint32_t state = sample_states[read_sample_idx];
+          AlleleCode* cur_write_codes = &(wide_codes[2 * write_sample_idx]);
+          if (state & kJoinSampleMissing) {
+            cur_write_codes[0] = kMissingAlleleCode;
+            cur_write_codes[1] = kMissingAlleleCode;
+            continue;
+          }
+          const uint32_t alt_ct = state & kJoinSampleAltCtMask;
+          if (alt_ct == 3) {
+            cur_write_codes[0] = kMissingAlleleCode;
+            cur_write_codes[1] = kMissingAlleleCode;
+            ++conflict_ct;
+            continue;
+          }
+          const AlleleCode* cur_slots = &(slots[2 * read_sample_idx]);
+          if (!alt_ct) {
+            cur_write_codes[0] = 0;
+            cur_write_codes[1] = 0;
+            continue;
+          }
+          if (alt_ct == 1) {
+            cur_write_codes[0] = 0;
+            cur_write_codes[1] = cur_slots[0];
+            if ((state & (kJoinSampleUnphased | kJoinSamplePhased0)) == kJoinSamplePhased0) {
+              SetBit(write_sample_idx, write_phasepresent);
+              if (state & kJoinSampleHap0) {
+                SetBit(write_sample_idx, write_phaseinfo);
+              }
+              phased_het_found = 1;
+            }
+            continue;
+          }
+          const AlleleCode slot0 = cur_slots[0];
+          const AlleleCode slot1 = cur_slots[1];
+          const uint32_t slot1_higher = (slot1 > slot0);
+          cur_write_codes[0] = slot1_higher? slot0 : slot1;
+          cur_write_codes[1] = slot1_higher? slot1 : slot0;
+          if (slot0 != slot1) {
+            const uint32_t both_phased = kJoinSamplePhased0 * 3;
+            if ((state & (kJoinSampleUnphased | both_phased)) == both_phased) {
+              const uint32_t hap0 = (state / kJoinSampleHap0) & 1;
+              const uint32_t hap1 = (state / (kJoinSampleHap0 * 2)) & 1;
+              if (hap0 != hap1) {
+                SetBit(write_sample_idx, write_phasepresent);
+                if (slot1_higher? hap1 : hap0) {
+                  SetBit(write_sample_idx, write_phaseinfo);
+                }
+                phased_het_found = 1;
+              }
+            }
+          }
+        }
+        uint32_t patch_01_ct;
+        uint32_t patch_10_ct;
+        PglMultiallelicDenseToSparse(wide_codes, sample_ct, write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, &patch_01_ct, &patch_10_ct);
+        if (write_allele_ct == 2) {
+          if (phased_het_found) {
+            reterr = SpgwAppendBiallelicGenovecHphase(write_genovec, write_phasepresent, write_phaseinfo, &spgw);
+          } else {
+            reterr = SpgwAppendBiallelicGenovec(write_genovec, &spgw);
+          }
+        } else if (phased_het_found) {
+          reterr = SpgwAppendMultiallelicGenovecHphase(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, write_phasepresent, write_phaseinfo, write_allele_ct, patch_01_ct, patch_10_ct, &spgw);
+        } else {
+          reterr = SpgwAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, write_allele_ct, patch_01_ct, patch_10_ct, &spgw);
+        }
+        if (unlikely(reterr)) {
+          goto MakePgenJoin_ret_1;
+        }
+      }
+      if (write_variant_idx >= next_print_write_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (write_variant_idx * 100LLU) / write_variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct) + 99) / 100;
+      }
+    }
+    assert(write_variant_idx == write_variant_ct);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto MakePgenJoin_ret_1;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+    logputs("done.\n");
+    if (conflict_ct) {
+      logerrprintfww("Warning: %" PRIuPTR " genotype call%s set to missing during variant-join, since the variants being joined had conflicting calls for the sample.\n", conflict_ct, (conflict_ct == 1)? " was" : "s were");
+    }
+  }
+  while (0) {
+  MakePgenJoin_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+ MakePgenJoin_ret_1:
   CleanupSpgw(&spgw, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -9994,7 +10424,11 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       g_failed_alloc_attempt_size = 0;
       mpgwp = nullptr;
       BigstackReset(bigstack_mark2);
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, allele_storage, nullptr, ctx.sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
+      if (make_plink2_flags & kfMakePlink2MJoin) {
+        reterr = MakePgenJoin(sample_include, new_sample_idx_to_old, variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, allele_freqs, write_allele_idx_offsets, writer_ver, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, write_variant_ct, max_write_allele_ct, make_plink2_flags, simple_pgrp, outname, outname_end);
+      } else {
+        reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, allele_storage, nullptr, ctx.sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
+      }
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
