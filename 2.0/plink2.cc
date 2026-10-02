@@ -3375,8 +3375,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (pcp->sort_vars_mode > kSortNone) {
             reterr = MakePlink2Vsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->rename_chrs_fname, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, &(pcp->flip_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
-            if (vpos_sortstatus & kfUnsortedVarBp) {
-              logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
+            if (vpos_sortstatus & (kfUnsortedVarBp | kfUnsortedVarSplitChr)) {
+              if (unlikely(make_plink2_flags & kfMakePlink2MJoin)) {
+                logerrputs("Error: Variant-join requires a sorted .pvar.  Sort it with --sort-vars in a\nseparate run first.\n");
+                goto Plink2Core_ret_INCONSISTENT_INPUT;
+              }
+              if (vpos_sortstatus & kfUnsortedVarBp) {
+                logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
+              }
             }
             reterr = MakePlink2NoVsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, &(pcp->flip_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           }
@@ -15510,6 +15516,20 @@ int main(int argc, char** argv) {
       if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
         logerrputs("Error: When the 'multiallelics=' modifier is present, --make-bed/--make-[b]pgen\ncannot be used with a flag which alters REF/ALT allele settings.\n");
         goto main_ret_INVALID_CMDLINE;
+      }
+      if (make_plink2_flags & kfMakePlink2MJoin) {
+        if (unlikely(make_plink2_flags & (kfMakeBed | kfMakeBim | (kfMakePgenFormatBase * 3)))) {
+          logerrputs("Error: Variant-join (multiallelics=+...) requires regular .pgen + .pvar output.\n");
+          goto main_ret_INVALID_CMDLINE;
+        }
+        if (unlikely(pc.sort_vars_mode > kSortNone)) {
+          logerrputs("Error: Variant-join (multiallelics=+...) cannot be used with --sort-vars yet.\nSort in a separate run first.\n");
+          goto main_ret_INVALID_CMDLINE;
+        }
+        if (unlikely((make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMixedMtMissing | kfMakePlink2SetMeMissing | kfMakePlink2FillMissingWithRef | kfMakePgenFillMissingFromDosage)) || pc.flip_info.subset_fname || pc.zero_cluster_fname)) {
+          logerrputs("Error: Variant-join (multiallelics=+...) cannot be used with\n--set-invalid-haploid-missing, --set-mixed-mt-missing, --set-me-missing,\n--fill-missing-with-ref, --flip-subset, --zero-cluster, or\n'fill-missing-from-dosage' yet.  Run them separately.\n");
+          goto main_ret_INVALID_CMDLINE;
+        }
       }
     }
     if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))) {
