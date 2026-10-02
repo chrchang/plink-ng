@@ -3123,12 +3123,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         king_table_subset_thresh *= 1.0 - kSmallEpsilon;
         while (1) {
           linebuf_iter = FirstNonTspace(token_end);
-          token_end = CurTokenEnd(linebuf_iter);
-          token_slen = token_end - linebuf_iter;
+          token_slen = strlen_se(linebuf_iter);
           if (unlikely(!token_slen)) {
             logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
             goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
           }
+          token_end = &(linebuf_iter[token_slen]);
           if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
             break;
           }
@@ -5373,7 +5373,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // Simplest solution is to force the user to request fewer PCs, since the
       // final PCs wouldn't be accurate anyway.
       if (qq_col_ct > variant_ct) {
-        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%u required).\n", pc_ct, qq_col_ct);
+        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%" PRIuPTR " required).\n", pc_ct, qq_col_ct);
         goto CalcPca_ret_DEGENERATE_DATA;
       }
 #ifndef LAPACK_ILP64
