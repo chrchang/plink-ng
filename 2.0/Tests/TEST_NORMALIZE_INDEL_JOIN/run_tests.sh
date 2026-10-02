@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# --normalize indel-join + --make-pgen multiallelics=+ should merge
+# overlapping deletions like 'bcftools norm -m +both'.  The expected output
+# below matches bcftools 1.x on the same input, except that bcftools drops
+# s3's phase at position 44 (its other source records are unphased hom-ref
+# calls), while plink2 keeps it.
+
+set -exo pipefail
+
+printf '>1\nGATTACAGATTACACCGGTTAACCGGTTAAGCGCATATCGCGTAGCTAGCTA\n' > ref.fa
+
+cat > in.vcf << 'EOF2'
+##fileformat=VCFv4.2
+##contig=<ID=1,length=52>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3	s4
+1	30	d1	AG	A	.	.	.	GT	0|1	0/0	1/1	0/0
+1	30	d2	AGC	A	.	.	.	GT	1|0	0/1	0/0	0/0
+1	30	i1	A	AT	.	.	.	GT	0/0	0/0	0/0	0/1
+1	30	s1	A	C	.	.	.	GT	0/0	0/1	0/0	0/0
+1	44	e1	AG	A	.	.	.	GT	0/1	0/0	0/0	0/1
+1	44	e2	AGCT	A	.	.	.	GT	0/1	0/0	0/0	0/0
+1	44	e3	A	T	.	.	.	GT	0/0	1/1	0/0	0/0
+1	44	e4	A	AC	.	.	.	GT	0/0	0/0	0|1	0/0
+EOF2
+
+cat > expected.txt << 'EOF2'
+1 30 d1;d2;i1 AGC AC,A,ATGC 2|1 0/2 1/1 0/3
+1 30 s1 A C 0/0 0/1 0/0 0/0
+1 44 e1;e2;e4 AGCT ACT,A,ACGCT 1/2 0/0 0|3 0/1
+1 44 e3 A T 0/0 1/1 0/0 0/0
+EOF2
+
+$1/plink2 $2 $3 --vcf in.vcf --fa ref.fa --normalize indel-join --make-pgen multiallelics=+ varid-join --out tmp_join
+grep -q -- '--normalize indel-join: REF allele extended for 4 variants.' tmp_join.log
+$1/plink2 $2 $3 --pfile tmp_join --export vcf --out tmp_join
+# Homozygous calls are written as 'x/y', since their phase doesn't matter.
+grep -v '^#' tmp_join.vcf | cut -f 1-5,10- | sed 's/\([0-9]\)|\1/\1\/\1/g' | tr '\t' ' ' > tmp_got.txt
+diff expected.txt tmp_got.txt
+
+# With a REF length limit of 3, only position 30 is extended.
+$1/plink2 $2 $3 --vcf in.vcf --fa ref.fa --normalize indel-join --indel-join-max-ref-len 3 --make-pgen multiallelics=+ --out tmp_limit
+grep -q 'Warning: 1 position was skipped by --normalize indel-join' tmp_limit.log
+if [ $(grep -v '^#' tmp_limit.pvar | wc -l) -ne 6 ]; then
+    exit 1
+fi
+
+# Inconsistent REF alleles at one position.
+sed 's/^1	30	d1	AG	/1	30	d1	AT	/' in.vcf > bad.vcf
+if $1/plink2 $2 $3 --vcf bad.vcf --fa ref.fa --normalize indel-join --make-pgen --out tmp_bad; then
+    exit 1
+fi
+grep -q "Variants 'd1' and 'd2' have the same position" tmp_bad.log
+
+# Flag checks.
+if $1/plink2 $2 $3 --vcf in.vcf --indel-join-max-ref-len 3 --make-pgen --out tmp_flag1; then
+    exit 1
+fi
+if $1/plink2 $2 $3 --vcf in.vcf --fa ref.fa --normalize left indel-join --make-pgen --out tmp_flag2; then
+    exit 1
+fi

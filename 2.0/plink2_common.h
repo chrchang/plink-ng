@@ -1609,6 +1609,17 @@ void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, 
 
 PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags);
 
+HEADER_INLINE const char* const* GetVariantAlleles(const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_uidx, uint32_t* allele_ctp) {
+  uintptr_t allele_idx_offset_base = variant_uidx * S_CAST(uintptr_t, 2);
+  if (allele_idx_offsets) {
+    allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+    *allele_ctp = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+  } else {
+    *allele_ctp = 2;
+  }
+  return &(allele_storage[allele_idx_offset_base]);
+}
+
 uint32_t TriangleDivide(int64_t cur_prod_x2, int32_t modif);
 
 void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* __restrict bound_start_ptr, int32_t* __restrict bound_end_ptr);

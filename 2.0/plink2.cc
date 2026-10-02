@@ -596,6 +596,7 @@ typedef struct Plink2CmdlineStruct {
   uint32_t splitpar_bound1;
   uint32_t splitpar_bound2;
   uint32_t new_variant_id_max_allele_slen;
+  uint32_t indel_join_max_ref_slen;
   uint32_t update_sex_colm2;
 
   // maybe support BGEN v1.2-style variable-precision dosages later, at which
@@ -3295,7 +3296,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrputs("Error: --normalize and --ref-from-fa require a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            reterr = ProcessFa(variant_include, variant_ids, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, ctou32(pcp->output_missing_geno_char), pcp->max_thread_ct, &vpos_sortstatus, variant_bps, allele_storage, allele_permute, nonref_flags, contig_lens, outname, outname_end);
+            reterr = ProcessFa(variant_include, variant_ids, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, pcp->indel_join_max_ref_slen, pcp->fa_flags, ctou32(pcp->output_missing_geno_char), pcp->max_thread_ct, &vpos_sortstatus, &max_allele_slen, variant_bps, allele_storage, allele_permute, nonref_flags, contig_lens, outname, outname_end);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -3379,7 +3380,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           } else {
             if (vpos_sortstatus & (kfUnsortedVarBp | kfUnsortedVarSplitChr)) {
               if (unlikely(make_plink2_flags & kfMakePlink2MJoin)) {
-                logerrputs("Error: Variant-join requires a sorted .pvar.  Sort it with --sort-vars in a\nseparate run first.\n");
+                if (pcp->fa_flags & kfFaNormalize) {
+                  logerrputs("Error: Variant-join requires sorted positions, and --normalize left them\nunsorted.  Run --normalize with --make-pgen + --sort-vars first, and then join\nin a separate run.\n");
+                } else {
+                  logerrputs("Error: Variant-join requires a sorted .pvar.  Sort it with --sort-vars in a\nseparate run first.\n");
+                }
                 goto Plink2Core_ret_INCONSISTENT_INPUT;
               }
               if (vpos_sortstatus & kfUnsortedVarBp) {
@@ -4885,6 +4890,7 @@ int main(int argc, char** argv) {
     pc.var_min_qual = -1;
     pc.update_sex_colm2 = 1;
     pc.new_variant_id_max_allele_slen = 23;
+    pc.indel_join_max_ref_slen = UINT32_MAX;
     pc.splitpar_bound1 = 0;
     pc.splitpar_bound2 = 0;
     pc.missing_pheno = -9;
@@ -8938,7 +8944,16 @@ int main(int argc, char** argv) {
         break;
 
       case 'i':
-        if (strequal_k_unsafe(flagname_p2, "ndiv-sort")) {
+        if (strequal_k_unsafe(flagname_p2, "ndel-join-max-ref-len")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.indel_join_max_ref_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --indel-join-max-ref-len argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "ndiv-sort")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12071,14 +12086,24 @@ int main(int argc, char** argv) {
             logerrputs("Error: --normalize requires --fa.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t mode_seen = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "list", cur_modif_slen)) {
               pc.fa_flags |= kfFaNormalizeList;
+            } else if (strequal_k(cur_modif, "left", cur_modif_slen) || strequal_k(cur_modif, "indel-join", cur_modif_slen)) {
+              if (unlikely(mode_seen)) {
+                logerrputs("Error: --normalize 'left' and 'indel-join' modifiers are mutually exclusive.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              mode_seen = 1;
+              if (cur_modif[0] == 'i') {
+                pc.fa_flags |= kfFaNormalizeIndelJoin;
+              }
             } else if (strequal_k(cur_modif, "shrink-overlapping-deletions", cur_modif_slen)) {
               logerrputs("Warning: 'shrink-overlapping-deletions' modifier has been renamed to\n'adjust-overlapping-deletions'.\n");
               pc.fa_flags |= kfFaNormalizeAdjustOverlappingDeletions;
@@ -15514,6 +15539,10 @@ int main(int argc, char** argv) {
     if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))))) {
       logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-[b]pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
+    }
+    if (unlikely((pc.indel_join_max_ref_slen != UINT32_MAX) && (!(pc.fa_flags & kfFaNormalizeIndelJoin)))) {
+      logerrputs("Error: --indel-join-max-ref-len must be used with --normalize indel-join.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (make_plink2_flags & kfMakePlink2MMask) {
       if (unlikely(make_plink2_flags & kfMakePlink2TrimAlts)) {
