@@ -447,17 +447,15 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
 // extends shorter REF alleles to the longest one, appending the missing
 // bases to each ALT allele, so that multiallelics=+ can join overlapping
 // deletions.  SNPs, symbolic alleles, and variants with a missing or '*'
-// allele are left alone.  Positions where the longest REF would exceed
-// max_ref_slen are skipped.  Assumes the contig is sorted; same-position
+// allele are left alone.  Assumes the contig is sorted; same-position
 // variants which aren't adjacent are not extended.
-PglErr VIndelJoinContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t max_ref_slen, const uint32_t* variant_bps, unsigned char** alloc_endp, const char** allele_storage, uint32_t* extended_ct_ptr, uint32_t* skipped_pos_ct_ptr, uint32_t* max_allele_slen_ptr) {
+PglErr VIndelJoinContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, uint32_t chr_fo_idx, uint32_t variant_uidx_last, const uint32_t* variant_bps, unsigned char** alloc_endp, const char** allele_storage, uint32_t* extended_ct_ptr, uint32_t* max_allele_slen_ptr) {
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* alloc_end = *alloc_endp;
   uint32_t extended_ct = *extended_ct_ptr;
-  uint32_t skipped_pos_ct = *skipped_pos_ct_ptr;
   uint32_t max_allele_slen = *max_allele_slen_ptr;
   // First and last eligible variant at the current position, and the one
   // with the longest REF.
@@ -495,71 +493,67 @@ PglErr VIndelJoinContig(const uintptr_t* variant_include, const char* const* var
     if (cur_bp != block_bp) {
       // Flush the previous position.
       if ((block_eligible_ct > 1) && ref_slens_differ) {
-        if (longest_ref_slen > max_ref_slen) {
-          ++skipped_pos_ct;
-        } else {
-          uint32_t allele_ct;
-          const char* longest_ref = GetVariantAlleles(allele_idx_offsets, allele_storage, longest_uidx, &allele_ct)[0];
-          uintptr_t block_uidx_base;
-          uintptr_t block_bits;
-          BitIter1Start(variant_include, block_start_uidx, &block_uidx_base, &block_bits);
-          while (1) {
-            const uint32_t block_uidx = BitIter1(variant_include, &block_uidx_base, &block_bits);
-            if (variant_bps[block_uidx] != block_bp) {
+        uint32_t allele_ct;
+        const char* longest_ref = GetVariantAlleles(allele_idx_offsets, allele_storage, longest_uidx, &allele_ct)[0];
+        uintptr_t block_uidx_base;
+        uintptr_t block_bits;
+        BitIter1Start(variant_include, block_start_uidx, &block_uidx_base, &block_bits);
+        while (1) {
+          const uint32_t block_uidx = BitIter1(variant_include, &block_uidx_base, &block_bits);
+          if (variant_bps[block_uidx] != block_bp) {
+            break;
+          }
+          uintptr_t allele_idx_offset_base = block_uidx * S_CAST(uintptr_t, 2);
+          if (allele_idx_offsets) {
+            allele_idx_offset_base = allele_idx_offsets[block_uidx];
+            allele_ct = allele_idx_offsets[block_uidx + 1] - allele_idx_offset_base;
+          } else {
+            allele_ct = 2;
+          }
+          const char** cur_alleles = &(allele_storage[allele_idx_offset_base]);
+          const char* cur_ref = cur_alleles[0];
+          const uint32_t cur_ref_slen = strlen(cur_ref);
+          uint32_t cur_eligible = 1;
+          uint32_t nonsnp = 0;
+          for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+            const char* cur_allele = cur_alleles[aidx];
+            const char first_char = cur_allele[0];
+            if ((first_char == '<') || (((first_char == '.') || (first_char == '*')) && (!cur_allele[1]))) {
+              cur_eligible = 0;
               break;
             }
-            uintptr_t allele_idx_offset_base = block_uidx * S_CAST(uintptr_t, 2);
-            if (allele_idx_offsets) {
-              allele_idx_offset_base = allele_idx_offsets[block_uidx];
-              allele_ct = allele_idx_offsets[block_uidx + 1] - allele_idx_offset_base;
-            } else {
-              allele_ct = 2;
+            nonsnp |= (cur_allele[1] != '\0');
+          }
+          if (cur_eligible && nonsnp && (cur_ref_slen < longest_ref_slen)) {
+            if (unlikely(!memequal(cur_ref, longest_ref, cur_ref_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --normalize indel-join: Variants '%s' and '%s' have the same position, but inconsistent REF alleles.\n", variant_ids[block_uidx], variant_ids[longest_uidx]);
+              WordWrapB(0);
+              logerrputsb();
+              return kPglRetInconsistentInput;
             }
-            const char** cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            const char* cur_ref = cur_alleles[0];
-            const uint32_t cur_ref_slen = strlen(cur_ref);
-            uint32_t cur_eligible = 1;
-            uint32_t nonsnp = 0;
-            for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
-              const char* cur_allele = cur_alleles[aidx];
-              const char first_char = cur_allele[0];
-              if ((first_char == '<') || (((first_char == '.') || (first_char == '*')) && (!cur_allele[1]))) {
-                cur_eligible = 0;
-                break;
+            const char* suffix = &(longest_ref[cur_ref_slen]);
+            const uint32_t suffix_slen = longest_ref_slen - cur_ref_slen;
+            cur_alleles[0] = longest_ref;
+            for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+              const char* cur_alt = cur_alleles[aidx];
+              const uint32_t alt_slen = strlen(cur_alt);
+              const uint32_t new_slen = alt_slen + suffix_slen;
+              if (S_CAST(uintptr_t, alloc_end - alloc_base) <= new_slen) {
+                return kPglRetNomem;
               }
-              nonsnp |= (cur_allele[1] != '\0');
-            }
-            if (cur_eligible && nonsnp && (cur_ref_slen < longest_ref_slen)) {
-              if (unlikely(!memequal(cur_ref, longest_ref, cur_ref_slen))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: --normalize indel-join: Variants '%s' and '%s' have the same position, but inconsistent REF alleles.\n", variant_ids[block_uidx], variant_ids[longest_uidx]);
-                WordWrapB(0);
-                logerrputsb();
-                return kPglRetInconsistentInput;
+              alloc_end -= new_slen + 1;
+              char* new_alt = R_CAST(char*, alloc_end);
+              char* new_alt_iter = memcpya(new_alt, cur_alt, alt_slen);
+              memcpyx(new_alt_iter, suffix, suffix_slen, '\0');
+              cur_alleles[aidx] = new_alt;
+              if (new_slen > max_allele_slen) {
+                max_allele_slen = new_slen;
               }
-              const char* suffix = &(longest_ref[cur_ref_slen]);
-              const uint32_t suffix_slen = longest_ref_slen - cur_ref_slen;
-              cur_alleles[0] = longest_ref;
-              for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
-                const char* cur_alt = cur_alleles[aidx];
-                const uint32_t alt_slen = strlen(cur_alt);
-                const uint32_t new_slen = alt_slen + suffix_slen;
-                if (S_CAST(uintptr_t, alloc_end - alloc_base) <= new_slen) {
-                  return kPglRetNomem;
-                }
-                alloc_end -= new_slen + 1;
-                char* new_alt = R_CAST(char*, alloc_end);
-                char* new_alt_iter = memcpya(new_alt, cur_alt, alt_slen);
-                memcpyx(new_alt_iter, suffix, suffix_slen, '\0');
-                cur_alleles[aidx] = new_alt;
-                if (new_slen > max_allele_slen) {
-                  max_allele_slen = new_slen;
-                }
-              }
-              ++extended_ct;
             }
-            if (block_uidx == variant_uidx_last) {
-              break;
-            }
+            ++extended_ct;
+          }
+          if (block_uidx == variant_uidx_last) {
+            break;
           }
         }
       }
@@ -587,12 +581,11 @@ PglErr VIndelJoinContig(const uintptr_t* variant_include, const char* const* var
   }
   *alloc_endp = alloc_end;
   *extended_ct_ptr = extended_ct;
-  *skipped_pos_ct_ptr = skipped_pos_ct;
   *max_allele_slen_ptr = max_allele_slen;
   return kPglRetSuccess;
 }
 
-PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t indel_join_max_ref_slen, FaFlags flags, uint32_t output_missing_geno_code, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* max_allele_slen_ptr, uint32_t* variant_bps, const char** allele_storage, AlleleCode* allele_permute, uintptr_t* nonref_flags, uint32_t* contig_lens, char* outname, char* outname_end) {
+PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, FaFlags flags, uint32_t output_missing_geno_code, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* max_allele_slen_ptr, uint32_t* variant_bps, const char** allele_storage, AlleleCode* allele_permute, uintptr_t* nonref_flags, uint32_t* contig_lens, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   FILE* nlist_file = nullptr;
@@ -603,7 +596,6 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     const uint32_t max_allele_slen = *max_allele_slen_ptr;
     uint32_t new_max_allele_slen = max_allele_slen;
     uint32_t indel_join_extended_ct = 0;
-    uint32_t indel_join_skipped_pos_ct = 0;
     const uint32_t chr_ct = cip->chr_ct;
     char* chr_name_buf;
     uintptr_t* chr_already_seen;
@@ -722,7 +714,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
               goto ProcessFa_ret_1;
             }
             if (flags & kfFaNormalizeIndelJoin) {
-              reterr = VIndelJoinContig(variant_include, variant_ids, allele_idx_offsets, cip, chr_fo_idx, cur_vidx_last, indel_join_max_ref_slen, variant_bps, &tmp_alloc_end, allele_storage, &indel_join_extended_ct, &indel_join_skipped_pos_ct, &new_max_allele_slen);
+              reterr = VIndelJoinContig(variant_include, variant_ids, allele_idx_offsets, cip, chr_fo_idx, cur_vidx_last, variant_bps, &tmp_alloc_end, allele_storage, &indel_join_extended_ct, &new_max_allele_slen);
               if (unlikely(reterr)) {
                 goto ProcessFa_ret_1;
               }
@@ -834,7 +826,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
           goto ProcessFa_ret_1;
         }
         if (flags & kfFaNormalizeIndelJoin) {
-          reterr = VIndelJoinContig(variant_include, variant_ids, allele_idx_offsets, cip, chr_fo_idx, cur_vidx_last, indel_join_max_ref_slen, variant_bps, &tmp_alloc_end, allele_storage, &indel_join_extended_ct, &indel_join_skipped_pos_ct, &new_max_allele_slen);
+          reterr = VIndelJoinContig(variant_include, variant_ids, allele_idx_offsets, cip, chr_fo_idx, cur_vidx_last, variant_bps, &tmp_alloc_end, allele_storage, &indel_join_extended_ct, &new_max_allele_slen);
           if (unlikely(reterr)) {
             goto ProcessFa_ret_1;
           }
@@ -844,9 +836,6 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       logprintf("--normalize: %u variant%s changed.\n", nchanged_ct, (nchanged_ct == 1)? "" : "s");
       if (flags & kfFaNormalizeIndelJoin) {
         logprintfww("--normalize indel-join: REF allele extended for %u variant%s.\n", indel_join_extended_ct, (indel_join_extended_ct == 1)? "" : "s");
-        if (indel_join_skipped_pos_ct) {
-          logerrprintfww("Warning: %u position%s skipped by --normalize indel-join, since the extended REF allele would be longer than --indel-join-max-ref-len.\n", indel_join_skipped_pos_ct, (indel_join_skipped_pos_ct == 1)? " was" : "s were");
-        }
         *max_allele_slen_ptr = new_max_allele_slen;
       }
       if (nlist_file) {
