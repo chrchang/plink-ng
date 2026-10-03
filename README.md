@@ -25,9 +25,9 @@ analysis toolset.
 
 **PLINK 1.9** (`1.9/`) can typically be used as a drop-in replacement for
 PLINK 1.07 that scales to much larger datasets. It works with the .bed/.bim/.fam
-fileset. It's technically still a beta version because there are a few
-rarely-used but possibly-worthwhile PLINK 1.07 commands that are still absent,
-but active feature development for it ended in 2016.
+fileset. It left beta with the 1.9.0 release in September 2026; a few
+rarely-used PLINK 1.07 commands are still absent. Active feature development
+for it ended in 2016, and it now receives only bugfixes.
 
 **PLINK 2.0** (`2.0/`) is designed to handle VCF files and dosage data, and is
 under active development. Its native format is the .pgen/.pvar/.psam fileset,
