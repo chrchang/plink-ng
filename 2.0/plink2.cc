@@ -15726,7 +15726,7 @@ int main(int argc, char** argv) {
     if (unlikely(merge_col_mode_required && (!(pc.command_flags1 & kfCommand1Pmerge)) && (!((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePlink2MJoin))))) {
       if (pmerge_info.merge_cm_mode != kMergeInfoCmModeNmFirst) {
         logerrputs("Error: --merge-cm-mode must be used with --pmerge[-list] or variant-join\n(--make-pgen multiallelics=+...).\n");
-      } else if (pmerge_info.merge_filter_mode != kMergeFilterModeNmFirst) {
+      } else if (pmerge_info.merge_filter_mode != kMergeFilterModeNonpassUnion) {
         logerrputs("Error: --merge-filter-mode must be used with --pmerge[-list] or variant-join\n(--make-pgen multiallelics=+...).\n");
       } else if (pmerge_info.merge_info_mode != kMergeInfoCmModeNmFirst) {
         logerrputs("Error: --merge-info-mode must be used with --pmerge[-list] or variant-join\n(--make-pgen multiallelics=+...).\n");
