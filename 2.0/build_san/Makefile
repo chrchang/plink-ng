@@ -210,11 +210,35 @@ SFX ?= ""
 
 all: plink2$(SFX) pgen_compress$(SFX)
 
-plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
-	$(CC) $(CFLAGS) $(CSRC2) -c
-	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
-	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
-	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
+# Each source file gets its own compiler invocation, so "make -j" can run them
+# in parallel.  A change to any plink2 header rebuilds every object.
+vpath %.c $(sort $(dir $(CSRC2) $(ZCSRC2)))
+vpath %.S $(sort $(dir $(ZSSRC2)))
+vpath %.cc $(sort $(dir $(CCSRC2)))
+
+COBJL = $(notdir $(CSRC:.c=.o))
+ZCOBJL = $(notdir $(ZCSRC:.c=.o))
+ZSOBJL = $(notdir $(ZSSRC:.S=.o))
+CCOBJL = $(notdir $(CCSRC:.cc=.o))
+
+$(COBJL) $(ZCOBJL) $(ZSOBJL) $(CCOBJL) plink2_cpu.o: $(wildcard ../*.h ../include/*.h)
+
+$(COBJL): %.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ZCOBJL): %.o: %.c
+	$(CC) $(ZCFLAGS) -c $< -o $@
+
+$(ZSOBJL): %.o: %.S
+	$(CC) $(ZCFLAGS) -c $< -o $@
+
+$(CCOBJL): %.o: %.cc
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+plink2_cpu.o: ../plink2_cpu.cc
+	$(CXX) $(CPUCHECK_FLAGS) -c $< -o $@
+
+plink2$(SFX): $(OBJL) plink2_cpu.o
 	$(CXX) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress$(SFX): $(PGCSRC2)
