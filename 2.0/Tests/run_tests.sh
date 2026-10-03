@@ -388,4 +388,9 @@ cd TEST_VARIANT_JOIN
 cd ..
 echo "TEST_VARIANT_JOIN passed."
 
+cd TEST_NORMALIZE_INDEL_JOIN
+./run_tests.sh $d $2 $3 > TEST_NORMALIZE_INDEL_JOIN.log
+cd ..
+echo "TEST_NORMALIZE_INDEL_JOIN passed."
+
 echo "All tests passed."
