@@ -983,6 +983,7 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
       }
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
+      const char* missing_allele_str = &(g_one_char_strs[92]);
       write_iter = writebuf;
       variant_uidx_base = 0;
       cur_bits = variant_include[0];
@@ -992,8 +993,11 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
         write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
         *write_iter++ = exportf_delim;
         write_iter = strcpya(write_iter, allele_storage[allele_idx_offset_base]);
-        *write_iter++ = exportf_delim;
-        write_iter = strcpya(write_iter, allele_storage[allele_idx_offset_base + 1]);
+        const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+        if (alt_allele != missing_allele_str) {
+          *write_iter++ = exportf_delim;
+          write_iter = strcpya(write_iter, allele_storage[allele_idx_offset_base + 1]);
+        }
         AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto ExportLgen_ret_WRITE_FAIL;
