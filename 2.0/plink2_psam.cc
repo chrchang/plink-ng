@@ -1540,6 +1540,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
       }
     }
+    free_cond(*pheno_names_ptr);
     *pheno_names_ptr = pheno_names;
     *max_pheno_name_blen_ptr = max_pheno_name_blen;
   }

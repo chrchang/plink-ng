@@ -35,7 +35,7 @@ void InitPmerge(PmergeInfo* pmerge_info_ptr) {
   pmerge_info_ptr->merge_pheno_mode = kMergePhenoModeNmMatch;
   pmerge_info_ptr->merge_xheader_mode = kMergeXheaderModeFirst;
   pmerge_info_ptr->merge_qual_mode = kMergeQualModeMin;
-  pmerge_info_ptr->merge_filter_mode = kMergeFilterModeNmFirst;
+  pmerge_info_ptr->merge_filter_mode = kMergeFilterModeNonpassUnion;
   pmerge_info_ptr->merge_info_mode = kMergeInfoCmModeNmFirst;
   pmerge_info_ptr->merge_cm_mode = kMergeInfoCmModeNmFirst;
   pmerge_info_ptr->merge_pheno_sort = kSortNone;
