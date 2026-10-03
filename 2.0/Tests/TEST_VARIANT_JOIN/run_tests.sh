@@ -212,7 +212,7 @@ cat > fields.vcf << 'EOF2'
 EOF2
 
 cat > expected_both.txt << 'EOF2'
-1	100	a;b	A	C,G	20	q10;q20	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
+1	100	a;b	A	C,G	20	q10	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
 1	100	c	A	AT	.	PASS	DP=7	0/0 0/0 0/0 0/0 0/0 0/1
 1	200	d	A	C,G	.	.	.	0/1 0/2 0/0 0/0 0/0 0/0
 1	300	e3;e1	A	C,G	.	.	.	0/0 0/0 0/0 0/0 0/0 0/0
@@ -220,7 +220,7 @@ cat > expected_both.txt << 'EOF2'
 EOF2
 
 cat > expected_snps.txt << 'EOF2'
-1	100	a;b	A	C,G	20	q10;q20	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
+1	100	a;b	A	C,G	20	q10	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
 1	100	c	A	AT	.	PASS	DP=7	0/0 0/0 0/0 0/0 0/0 0/1
 1	200	d	A	C,G	.	.	.	0/1 0/2 0/0 0/0 0/0 0/0
 1	300	e3;e1	A	C,G	.	.	.	0/0 0/0 0/0 0/0 0/0 0/0
@@ -229,7 +229,7 @@ cat > expected_snps.txt << 'EOF2'
 EOF2
 
 cat > expected_any.txt << 'EOF2'
-1	100	a;b;c	A	C,G,AT	20	q10;q20	AC=1,2,.;DP=.;AF=0.1,0.2,.;FL;RV=5,1,2,.	. 1/2 2|1 1/2 . 0/3
+1	100	a;b;c	A	C,G,AT	.	q10	AC=1,2,.;DP=10;AF=0.1,0.2,.;FL;RV=5,1,2,.	. 1/2 2|1 1/2 . 0/3
 1	200	d	A	C,G	.	.	.	0/1 0/2 0/0 0/0 0/0 0/0
 1	300	e4;e2;e3;e1	A	AC,AT,C,G	.	.	.	0/0 0/0 0/0 0/0 0/0 0/0
 EOF2
@@ -238,9 +238,6 @@ $1/plink2 $2 $3 --vcf fields.vcf --make-pgen --out tmp_fields
 for mode in both snps any; do
     $1/plink2 $2 $3 --pfile tmp_fields --make-pgen multiallelics=+$mode varid-join --out tmp_fields_$mode
     grep -q 'Warning: 1 genotype call was set to missing' tmp_fields_$mode.log
-    if [ $mode = any ]; then
-        grep -q "Warning: 1 INFO value was set to '.'" tmp_fields_$mode.log
-    fi
     $1/plink2 $2 $3 --pfile tmp_fields_$mode --export vcf --out tmp_fields_$mode
     # .pvar columns, then genotypes with '.|.'/'./.' collapsed to '.'
     grep -v '^#' tmp_fields_$mode.pvar > tmp_pvar.txt
@@ -248,6 +245,49 @@ for mode in both snps any; do
     paste tmp_pvar.txt tmp_gt.txt > tmp_got.txt
     diff expected_$mode.txt tmp_got.txt
 done
+
+# --merge-{qual,filter,info,cm}-mode.  The defaults ('min' QUAL, 'nm-first'
+# FILTER/INFO) were checked above.
+$1/plink2 $2 $3 --pfile tmp_fields --make-pgen multiallelics=+any --merge-qual-mode nm-first --merge-filter-mode np-union --merge-info-mode nm-match --out tmp_fields_modes
+grep -q "Warning: 1 INFO value was set to '.'" tmp_fields_modes.log
+grep -v '^#' tmp_fields_modes.pvar | head -n 1 | cut -f 6-8 > tmp_got.txt
+printf '30\tq10;q20\tAC=1,2,.;DP=.;AF=0.1,0.2,.;FL;RV=5,1,2,.\n' > tmp_expected.txt
+diff tmp_expected.txt tmp_got.txt
+$1/plink2 $2 $3 --pfile tmp_fields --make-pgen multiallelics=+any --merge-qual-mode first --merge-filter-mode nm-match --merge-info-mode first --out tmp_fields_modes
+grep -v '^#' tmp_fields_modes.pvar | head -n 1 | cut -f 6-8 > tmp_got.txt
+printf '30\t.\tAC=1,2,.;DP=10;AF=0.1,0.2,.;FL;RV=5,1,2,.\n' > tmp_expected.txt
+diff tmp_expected.txt tmp_got.txt
+$1/plink2 $2 $3 --pfile tmp_fields --make-pgen multiallelics=+any --merge-qual-mode erase --merge-filter-mode erase --merge-info-mode erase --out tmp_fields_modes
+grep '^#CHROM' tmp_fields_modes.pvar > tmp_got.txt
+printf '#CHROM\tPOS\tID\tREF\tALT\n' > tmp_expected.txt
+diff tmp_expected.txt tmp_got.txt
+# Without --pmerge[-list], the flags require variant-join.
+if $1/plink2 $2 $3 --pfile tmp_fields --merge-info-mode first --make-pgen --out tmp_fields_modes; then
+    exit 1
+fi
+
+# INFO/PR, in the .pvar and the .pgen, is only set when every member has a
+# provisional REF allele.
+cat > pr.vcf << 'EOF2'
+##fileformat=VCFv4.3
+##contig=<ID=1,length=1000>
+##INFO=<ID=PR,Number=0,Type=Flag,Description="x">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="x">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="x">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2
+1	100	a	A	C	.	.	PR;DP=3	GT	0/1	0/0
+1	100	b	A	G	.	.	DP=3	GT	0/0	0/1
+1	200	c	A	C	.	.	PR;DP=4	GT	0/1	0/0
+1	200	d	A	G	.	.	PR;DP=4	GT	0/0	0/1
+EOF2
+$1/plink2 $2 $3 --vcf pr.vcf --make-pgen --out tmp_pr
+$1/plink2 $2 $3 --pfile tmp_pr --make-pgen multiallelics=+ --out tmp_pr_join
+$1/plink2 $2 $3 --pfile tmp_pr_join --make-just-pvar --out tmp_pr_reload
+printf 'DP=3\nDP=4;PR\n' > tmp_expected.txt
+grep -v '^#' tmp_pr_join.pvar | cut -f 6 > tmp_got.txt
+diff tmp_expected.txt tmp_got.txt
+grep -v '^#' tmp_pr_reload.pvar | cut -f 6 > tmp_got.txt
+diff tmp_expected.txt tmp_got.txt
 
 # Error cases.
 # Duplicate ALT allele at the same position and REF.
