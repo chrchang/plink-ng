@@ -243,6 +243,9 @@ HEADERS = $(wildcard ../*.h ../include/*.h ../libdeflate/*.h ../libdeflate/lib/*
 
 $(ALLOBJL): .build_config $(HEADERS)
 
+# In "make -j clean all", build nothing until clean has finished.
+.build_config $(ALLOBJL): | $(filter clean,$(MAKECMDGOALS))
+
 $(COBJL): %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
