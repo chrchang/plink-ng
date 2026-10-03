@@ -212,7 +212,7 @@ cat > fields.vcf << 'EOF2'
 EOF2
 
 cat > expected_both.txt << 'EOF2'
-1	100	a;b	A	C,G	20	q10	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
+1	100	a;b	A	C,G	20	q10;q20	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
 1	100	c	A	AT	.	PASS	DP=7	0/0 0/0 0/0 0/0 0/0 0/1
 1	200	d	A	C,G	.	.	.	0/1 0/2 0/0 0/0 0/0 0/0
 1	300	e3;e1	A	C,G	.	.	.	0/0 0/0 0/0 0/0 0/0 0/0
@@ -220,7 +220,7 @@ cat > expected_both.txt << 'EOF2'
 EOF2
 
 cat > expected_snps.txt << 'EOF2'
-1	100	a;b	A	C,G	20	q10	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
+1	100	a;b	A	C,G	20	q10;q20	AC=1,2;DP=10;AF=0.1,0.2;FL;RV=5,1,2	. 1/2 2|1 1/2 . 0/0
 1	100	c	A	AT	.	PASS	DP=7	0/0 0/0 0/0 0/0 0/0 0/1
 1	200	d	A	C,G	.	.	.	0/1 0/2 0/0 0/0 0/0 0/0
 1	300	e3;e1	A	C,G	.	.	.	0/0 0/0 0/0 0/0 0/0 0/0
@@ -229,7 +229,7 @@ cat > expected_snps.txt << 'EOF2'
 EOF2
 
 cat > expected_any.txt << 'EOF2'
-1	100	a;b;c	A	C,G,AT	.	q10	AC=1,2,.;DP=10;AF=0.1,0.2,.;FL;RV=5,1,2,.	. 1/2 2|1 1/2 . 0/3
+1	100	a;b;c	A	C,G,AT	.	q10;q20	AC=1,2,.;DP=10;AF=0.1,0.2,.;FL;RV=5,1,2,.	. 1/2 2|1 1/2 . 0/3
 1	200	d	A	C,G	.	.	.	0/1 0/2 0/0 0/0 0/0 0/0
 1	300	e4;e2;e3;e1	A	AC,AT,C,G	.	.	.	0/0 0/0 0/0 0/0 0/0 0/0
 EOF2
@@ -246,12 +246,12 @@ for mode in both snps any; do
     diff expected_$mode.txt tmp_got.txt
 done
 
-# --merge-{qual,filter,info,cm}-mode.  The defaults ('min' QUAL, 'nm-first'
-# FILTER/INFO) were checked above.
-$1/plink2 $2 $3 --pfile tmp_fields --make-pgen multiallelics=+any --merge-qual-mode nm-first --merge-filter-mode np-union --merge-info-mode nm-match --out tmp_fields_modes
+# --merge-{qual,filter,info,cm}-mode.  The defaults ('min' QUAL, 'np-union'
+# FILTER, 'nm-first' INFO) were checked above.
+$1/plink2 $2 $3 --pfile tmp_fields --make-pgen multiallelics=+any --merge-qual-mode nm-first --merge-filter-mode nm-first --merge-info-mode nm-match --out tmp_fields_modes
 grep -q "Warning: 1 INFO value was set to '.'" tmp_fields_modes.log
 grep -v '^#' tmp_fields_modes.pvar | head -n 1 | cut -f 6-8 > tmp_got.txt
-printf '30\tq10;q20\tAC=1,2,.;DP=.;AF=0.1,0.2,.;FL;RV=5,1,2,.\n' > tmp_expected.txt
+printf '30\tq10\tAC=1,2,.;DP=.;AF=0.1,0.2,.;FL;RV=5,1,2,.\n' > tmp_expected.txt
 diff tmp_expected.txt tmp_got.txt
 $1/plink2 $2 $3 --pfile tmp_fields --make-pgen multiallelics=+any --merge-qual-mode first --merge-filter-mode nm-match --merge-info-mode first --out tmp_fields_modes
 grep -v '^#' tmp_fields_modes.pvar | head -n 1 | cut -f 6-8 > tmp_got.txt
