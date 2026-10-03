@@ -587,7 +587,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       goto Multcomp_ret_WRITE_FAIL;
     }
     if (aidx == valid_allele_ct) {
-      logprintfww("--adjust%s records (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
+      logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
     } else {
       logprintfww("%" PRIuPTR " --adjust%s record%s (%" PRIuPTR " test%s, %" PRIuPTR " excluded by --pfilter) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", valid_allele_ct, (valid_allele_ct == 1)? "" : "s", valid_allele_ct - aidx, outname);
     }
