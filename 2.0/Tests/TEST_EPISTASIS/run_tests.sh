@@ -189,10 +189,9 @@ $1/plink2 $2 $3 --dummy 800 20 0.5 --seed 1 --epistasis-boost --epi1 1 --out pli
 
 # 20. The set modes, which PLINK 1.9 also has, so they are checked against it.
 #     setA is 40 variants on the first chromosome, setB 30 on the second.
-#     The pair counts are read from the log's "pairs tested", not from the
-#     report: under --epi1 1 the screening threshold is zero, so a pair whose
-#     statistic is zero up to rounding noise may or may not be written
-#     (seed 1791033820 left one out of set-by-all).
+#     With --epi1 1 every pair tested is reported, including one whose
+#     statistic is zero up to rounding noise of either sign (seed 1791033820
+#     once left such a pair out of set-by-all).
 {
     printf 'setA\n'
     awk 'NR <= 40 {print $2}' tmp_data.bim
@@ -205,19 +204,19 @@ $1/plink2 $2 $3 --dummy 800 20 0.5 --seed 1 --epistasis-boost --epi1 1 --out pli
 plink --bfile tmp_data --set tmp_sets.txt --set-names setA --fast-epistasis boost set-by-set --epi1 1 --out plink19_sbs
 $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --out plink2_sbs
 compare plink19_sbs.epi.cc plink2_sbs.PHENO1.epi.cc
-grep -q '^--epistasis-boost: 780 pairs tested,' plink2_sbs.log
+test "$(grep -vc '^#' plink2_sbs.PHENO1.epi.cc)" -eq 780
 
 # 20b. Two sets: every ordered pair across them.
 plink --bfile tmp_data --set tmp_sets.txt --fast-epistasis boost set-by-set --epi1 1 --out plink19_2s
 $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis-boost set-by-set --epi1 1 --out plink2_2s
 compare plink19_2s.epi.cc plink2_2s.PHENO1.epi.cc
-grep -q '^--epistasis-boost: 1200 pairs tested,' plink2_2s.log
+test "$(grep -vc '^#' plink2_2s.PHENO1.epi.cc)" -eq 1200
 
 # 20c. set-by-all: the set against every variant, minus the self-pairs.
 plink --bfile tmp_data --set tmp_sets.txt --set-names setA --fast-epistasis boost set-by-all --epi1 1 --out plink19_sba
 $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-all --epi1 1 --out plink2_sba
 compare plink19_sba.epi.cc plink2_sba.PHENO1.epi.cc
-grep -q '^--epistasis-boost: 23960 pairs tested,' plink2_sba.log
+test "$(grep -vc '^#' plink2_sba.PHENO1.epi.cc)" -eq 23960
 
 # 21. --parallel splits the row list in both modes, and the chunks concatenate.
 for i in 1 2 3
@@ -236,7 +235,7 @@ diff -q plink2_sbs.PHENO1.epi.cc plink2_sbsp.PHENO1.epi.cc
 # 22. A variant filter takes variants out of the sets, so the row count follows.
 printf 'common_0\ncommon_1\n' > tmp_set_exclude.txt
 $1/plink2 $2 $3 --bfile tmp_data --exclude tmp_set_exclude.txt --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --out plink2_sbsf
-grep -q '^--epistasis-boost: 703 pairs tested,' plink2_sbsf.log
+test "$(grep -vc '^#' plink2_sbsf.PHENO1.epi.cc)" -eq 703
 
 # 23. Rejected: a set mode with no --set, the two modes together, set-by-all
 #     with more than one set, and set-by-set with more than two.

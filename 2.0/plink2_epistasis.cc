@@ -92,7 +92,8 @@ static uint32_t FepiBoostPCa(const uint32_t* counts, const double* recip_cache, 
 // Returns 1 when the table is too degenerate to test.
 // *screen_ptr receives the value used for BEST_CHISQ and for --epi2 counting:
 // the screening statistic when the pair does not clear --epi1, and otherwise
-// the fitted one, floored at the screening threshold.  (PLINK 1.x mixes the
+// the fitted one, floored at the screening threshold (or at zero, when
+// --epi1 is 1 and nothing is screened out).  (PLINK 1.x mixes the
 // two this way, and the summary is only comparable if this does too.)
 // *stat_ptr receives the fitted statistic, and *do_report_ptr whether the pair
 // cleared the screening threshold and so is reported at all.  (The fitted
@@ -243,7 +244,7 @@ static uint32_t FepiBoost(const uint32_t* counts, const double* recip_cache, con
   }
   fit_stat = (fit_stat + log(tau)) * u31tod(2 * obs_ct);
   *stat_ptr = fit_stat;
-  *screen_ptr = MAXV(fit_stat, alpha1sq[df_adj]);
+  *screen_ptr = MAXV(fit_stat, MAXV(alpha1sq[df_adj], 0.0));
   *do_report_ptr = 1;
   return 0;
 }
@@ -990,7 +991,19 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     alpha1sq[1] = LnPToChisq(ln_alpha1, 2);
     alpha1sq[2] = LnPToChisq(ln_alpha1, 1);
     alpha2sq[0] = LnPToChisq(epi_ip->ln_epi2, 4);
-    if (alpha1sq[0] == alpha2sq[0]) {
+    // A p-value threshold of 1 must not filter anything out, but its
+    // chi-square quantile of 0 would drop a pair whose statistic is zero up to
+    // rounding noise, depending on the sign of the noise.
+    if (ln_alpha1 == 0.0) {
+      alpha1sq[0] = -DBL_MAX;
+      alpha1sq[1] = -DBL_MAX;
+      alpha1sq[2] = -DBL_MAX;
+    }
+    if (epi_ip->ln_epi2 == 0.0) {
+      alpha2sq[0] = -DBL_MAX;
+      alpha2sq[1] = -DBL_MAX;
+      alpha2sq[2] = -DBL_MAX;
+    } else if (alpha1sq[0] == alpha2sq[0]) {
       // --epi1 and --epi2 agree: count the pairs that clear the fit rather
       // than the ones that cleared the screen.
       alpha2sq[0] *= 1 + kSmallEpsilon;
