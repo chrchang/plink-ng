@@ -223,12 +223,19 @@ ALLOBJL = $(COBJL) $(ZCOBJL) $(ZSOBJL) $(CCOBJL) plink2_cpu.o pgen_compress.o
 # The compiler flags are recorded in .build_config, and every object depends on
 # it, so a change of configuration (e.g. NO_UNALIGNED=1 after a default build)
 # recompiles everything instead of relinking objects built for the other one.
-# The file is only rewritten when the flags differ, so a repeat make with the
-# same configuration leaves it, and the objects, alone.
-BUILD_CONFIG := $(CC) $(CFLAGS) | $(ZCFLAGS) | $(CXX) $(CXXFLAGS) | $(CPUCHECK_FLAGS)
-ifneq ($(BUILD_CONFIG),$(shell cat .build_config 2>/dev/null))
-  $(shell echo '$(BUILD_CONFIG)' > .build_config)
-endif
+# The rule runs on every make but only rewrites the file when the flags differ,
+# so a repeat make with the same configuration leaves it, and the objects,
+# alone.  It is a rule rather than something done while the Makefile is read
+# so that "make clean all" works: clean removes the file, the rule recreates
+# it.  The "+" runs it even under "make -n", so a dry run reports what a real
+# run would rebuild (a dry run with other flags therefore records them).
+BUILD_CONFIG = $(CC) $(CFLAGS) | $(ZCFLAGS) | $(CXX) $(CXXFLAGS) | $(CPUCHECK_FLAGS)
+
+.build_config: FORCE
+	+@echo '$(BUILD_CONFIG)' | cmp -s - $@ 2>/dev/null || echo '$(BUILD_CONFIG)' > $@
+
+.PHONY: FORCE
+FORCE:
 
 # Header dependencies are coarse: a change to any plink2, libdeflate or zstd
 # header rebuilds every object.
