@@ -12115,7 +12115,8 @@ int main(int argc, char** argv) {
             }
           }
           if (!allow_normalize_with_split) {
-            if (unlikely(make_plink2_flags & (kfMakePlink2MSplitAll | kfMakePlink2MSplitSnps))) {
+            // multiallelics=+snps and +any reuse the split bits, with MJoin set.
+            if (unlikely((make_plink2_flags & (kfMakePlink2MSplitAll | kfMakePlink2MSplitSnps)) && (!(make_plink2_flags & kfMakePlink2MJoin)))) {
               logerrputs("Error: --normalize specified with a variant-split operation.  This probably\ndoesn't do what you want, since left-normalization occurs before variant-split\nin the " PROG_NAME_STR " order of operations.  Instead, you probably want to split first,\nand then left-normalize in a subsequent " PROG_NAME_STR " run.\nUse --allow-normalize-with-split to suppress this error.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }

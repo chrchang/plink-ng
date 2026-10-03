@@ -53,6 +53,39 @@ if $1/plink2 $2 $3 --vcf bad.vcf --fa ref.fa --normalize indel-join --make-pgen 
 fi
 grep -q "Variants 'd1' and 'd2' have the same position" tmp_bad.log
 
+# Overlapping deletions at different positions are joined when
+# left-normalization moves them to the same position (o1/o2, the example from
+# the #584 review); bcftools norm -f ref2.fa -m +any gives the same alleles and
+# genotypes, with the ALTs in the other order.  n1/n2 overlap but stay at
+# different positions, so neither tool joins them.  This also checks that
+# --normalize is accepted with multiallelics=+snps and +any.
+printf '>1\nGGTAAAAGGCTACGCAGG\n' > ref2.fa
+
+cat > in2.vcf << 'EOF2'
+##fileformat=VCFv4.2
+##contig=<ID=1,length=18>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2
+1	3	o1	TAAAA	T	.	.	.	GT	0/0	0/1
+1	5	o2	AAA	A	.	.	.	GT	1/1	0/1
+1	11	n1	TACGC	T	.	.	.	GT	0/1	0/0
+1	13	n2	CGC	C	.	.	.	GT	0/0	0/1
+EOF2
+
+cat > expected2.txt << 'EOF2'
+1 3 o2;o1 TAAAA TAA,T 1/1 1/2
+1 11 n1 TACGC T 0/1 0/0
+1 12 n2 ACG A 0/0 0/1
+EOF2
+
+for mode in both any; do
+    $1/plink2 $2 $3 --vcf in2.vcf --fa ref2.fa --normalize indel-join --make-pgen multiallelics=+$mode varid-join --out tmp_ovl_$mode
+    $1/plink2 $2 $3 --pfile tmp_ovl_$mode --export vcf --out tmp_ovl_$mode
+    grep -v '^#' tmp_ovl_$mode.vcf | cut -f 1-5,10- | tr '\t' ' ' > tmp_got.txt
+    diff expected2.txt tmp_got.txt
+done
+$1/plink2 $2 $3 --vcf in2.vcf --fa ref2.fa --normalize indel-join --make-pgen multiallelics=+snps --out tmp_ovl_snps
+
 # Flag checks.
 if $1/plink2 $2 $3 --vcf in.vcf --indel-join-max-ref-len 3 --make-pgen --out tmp_flag1; then
     exit 1
