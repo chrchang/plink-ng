@@ -383,4 +383,9 @@ cd TEST_LGEN
 cd ..
 echo "TEST_LGEN passed."
 
+cd TEST_VARIANT_JOIN
+./run_tests.sh $d $2 $3 > TEST_VARIANT_JOIN.log
+cd ..
+echo "TEST_VARIANT_JOIN passed."
+
 echo "All tests passed."
