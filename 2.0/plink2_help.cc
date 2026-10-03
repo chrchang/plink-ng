@@ -3457,7 +3457,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            'known' reference allele; add the 'force' modifier\n"
 "                            to permit that.\n"
                );
-    HelpPrint("normalize\0norm\0fa\0indel-join-max-ref-len\0", &help_ctrl, 0,
+    HelpPrint("normalize\0norm\0fa\0", &help_ctrl, 0,
 "  --normalize ['list'] ['adjust-overlapping-deletions'] [{left | indel-join}]\n"
 "    (alias: --norm)\n"
 "    Left-normalize all variants, using the --fa file.  (Assumes no differences\n"
@@ -3472,9 +3472,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      with --make-pgen 'multiallelics=+', this joins overlapping deletions\n"
 "      like 'bcftools norm -m +' does.  If left-normalization leaves the\n"
 "      positions unsorted, the join errors out; sort in a separate run first.\n"
-"  --indel-join-max-ref-len <len> : Make --normalize indel-join skip positions\n"
-"                                   where the extended REF allele would be\n"
-"                                   longer than this (default: no limit).\n"
+"      Deletions which still start at different positions after\n"
+"      left-normalization are not joined, even when they end at the same\n"
+"      position (e.g. CAGATGAAAT->C and, five bases later, GAAAT->G).  Contact\n"
+"      us if you want a normalization mode which covers this case.\n"
               );
     HelpPrint("indiv-sort\0pmerge\0pmerge-list\0", &help_ctrl, 0,
 "  --indiv-sort <mode> [f] : Specify sample ID sort order for merge and\n"
