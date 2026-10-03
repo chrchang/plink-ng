@@ -223,16 +223,26 @@ ALLOBJL = $(COBJL) $(ZCOBJL) $(ZSOBJL) $(CCOBJL) plink2_cpu.o pgen_compress.o
 # The compiler flags are recorded in .build_config, and every object depends on
 # it, so a change of configuration (e.g. NO_UNALIGNED=1 after a default build)
 # recompiles everything instead of relinking objects built for the other one.
-# The rule runs on every make but only rewrites the file when the flags differ,
-# so a repeat make with the same configuration leaves it, and the objects,
-# alone.  It is a rule rather than something done while the Makefile is read
-# so that "make clean all" works: clean removes the file, the rule recreates
-# it.  The "+" runs it even under "make -n", so a dry run reports what a real
-# run would rebuild (a dry run with other flags therefore records them).
+# Whether the recorded flags still match is decided while the Makefile is
+# read, but the file is only written by its rule: "make -n" and "make -q" then
+# report a rebuild without recording anything, and "make clean all" works,
+# since the rule recreates the file after clean has removed it.  The quoting
+# is git's (see GIT-CFLAGS in its Makefile), so that flags containing quotes
+# or backslashes are recorded as they are.
 BUILD_CONFIG = $(CC) $(CFLAGS) | $(ZCFLAGS) | $(CXX) $(CXXFLAGS) | $(CPUCHECK_FLAGS)
 
-.build_config: FORCE
-	+@echo '$(BUILD_CONFIG)' | cmp -s - $@ 2>/dev/null || echo '$(BUILD_CONFIG)' > $@
+ifneq ($(BUILD_CONFIG),$(shell cat .build_config 2>/dev/null))
+  BUILD_CONFIG_STALE = FORCE
+endif
+# In "make -j clean all", make may look at the objects before clean deletes
+# them, and then rebuilds them only because .build_config is remade after
+# clean (see the order-only prerequisite below), so remake it then too.
+ifeq ($(firstword $(MAKECMDGOALS)),clean)
+  BUILD_CONFIG_STALE = FORCE
+endif
+
+.build_config: $(BUILD_CONFIG_STALE)
+	@printf '%s\n' '$(subst ','\'',$(BUILD_CONFIG))' > $@
 
 .PHONY: FORCE
 FORCE:
@@ -270,11 +280,14 @@ plink2$(SFX): $(OBJL) plink2_cpu.o
 pgen_compress$(SFX): $(PGENLIB_OBJL) pgen_compress.o
 	$(CXX) $(CXXFLAGS) $(PGENLIB_OBJL) pgen_compress.o -o $@
 
-pgenlib.a: $(PGENLIB_CCSRC2)
+# These compile into the same object files as plink2, so they record their
+# flags in .build_config too; otherwise "make pgenlib.a NO_UNALIGNED=1" and
+# then "make" would link plink2 from a mix of both configurations.
+pgenlib.a: $(PGENLIB_CCSRC2) .build_config
 	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
 	$(LIBTOOL) $(STATIC) -o $@ $(PGENLIB_OBJL)
 
-plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2)
+plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2) .build_config
 	$(CC) $(CFLAGS) $(CSRC2) -c
 	$(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(PLINK2LIB_CCSRC2) -c
