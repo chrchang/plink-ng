@@ -189,6 +189,9 @@ $1/plink2 $2 $3 --dummy 800 20 0.5 --seed 1 --epistasis-boost --epi1 1 --out pli
 
 # 20. The set modes, which PLINK 1.9 also has, so they are checked against it.
 #     setA is 40 variants on the first chromosome, setB 30 on the second.
+#     With --epi1 1 every pair tested is reported, including one whose
+#     statistic is zero up to rounding noise of either sign (seed 1791033820
+#     once left such a pair out of set-by-all).
 {
     printf 'setA\n'
     awk 'NR <= 40 {print $2}' tmp_data.bim
