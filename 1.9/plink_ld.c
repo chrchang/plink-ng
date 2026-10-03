@@ -3746,6 +3746,11 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
       }
     }
     interaction_measure = (interaction_measure + log(tau)) * ((int32_t)(sum * 2));
+    if (interaction_measure < 0.0) {
+      // rounding error when the no-interaction fit is exact; a negative
+      // statistic would otherwise be reported with P = 0
+      interaction_measure = 0.0;
+    }
     memcpy(ularr, &interaction_measure, sizeof(double));
     // save df_adj in low two bits
     ularr[0] &= ~(3 * ONELU);
