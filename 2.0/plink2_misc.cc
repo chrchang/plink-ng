@@ -11791,7 +11791,6 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     CopyBitarrSubset(sex_male, sample_include, sample_ct, male_collapsed);
-    ZeroTrailingBits(sample_ct, male_collapsed);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
 
@@ -12416,9 +12415,7 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     CopyBitarrSubset(cc_pheno_col->data.cc, sample_include, sample_ct, case_collapsed);
-    ZeroTrailingBits(sample_ct, case_collapsed);
     CopyBitarrSubset(sex_male, sample_include, sample_ct, male_collapsed);
-    ZeroTrailingBits(sample_ct, male_collapsed);
     const uint32_t case_ct = PopcountWords(case_collapsed, sample_ctl);
     const uint32_t ctrl_ct = sample_ct - case_ct;
     if (unlikely((!case_ct) || (!ctrl_ct))) {

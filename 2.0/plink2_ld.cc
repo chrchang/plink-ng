@@ -3131,7 +3131,6 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
     CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
-    ZeroTrailingBits(founder_ct, founder_male_collapsed);
 
     // One task per chromosome.  PLINK 1.9 restarts window start offsets at
     // each chromosome boundary, so this is also the finest split that leaves
@@ -16242,18 +16241,6 @@ PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uin
   return reterr;
 }
 
-// PLINK 1.x treats a male heterozygous call on chrX as missing.
-static void FlipScanSetMaleHetMissing(const uintptr_t* male_collapsed, uint32_t sample_ct, uintptr_t* genovec) {
-  const uint32_t word_ct = NypCtToWordCt(sample_ct);
-  const Halfword* male_alias = R_CAST(const Halfword*, male_collapsed);
-  for (uint32_t widx = 0; widx != word_ct; ++widx) {
-    const uintptr_t geno_word = genovec[widx];
-    const uintptr_t het_word = geno_word & (~(geno_word >> 1)) & kMask5555;
-    const uintptr_t male_word = UnpackHalfwordToWord(male_alias[widx]);
-    genovec[widx] = geno_word | ((het_word & male_word) << 1);
-  }
-}
-
 // --flip-scan: for each variant, compare its LD with each nearby variant
 // between cases and controls, and report the neighbors whose correlation
 // changes sign.  A sign flip is the signature of a strand-ambiguous variant
@@ -16305,9 +16292,8 @@ typedef struct FlipScanCtxStruct {
   VariantAggs* vaggs_write[2];
   uintptr_t* genovec_subs[3];       // per-thread scratch: base, control, case
   const uintptr_t* subset_collapsed[2];
-  const uintptr_t* male_collapsed;
+  const uintptr_t* male_collapsed_interleaved;
   uint32_t base_ct;
-  uint32_t base_ctl2;
   uint32_t subset_ctl[2];
   uint32_t is_x;
   uint32_t is_fully_haploid;
@@ -16404,21 +16390,23 @@ static double FlipScanDprime(const uintptr_t* first_genobuf, const uintptr_t* se
 // kernel consumes.  Per-sample work, hence a worker phase.
 static void FlipScanRecodeRange(FlipScanCtx* ctx, uintptr_t tidx, uint32_t start, uint32_t end) {
   const uint32_t base_ct = ctx->base_ct;
-  const uint32_t base_ctl2 = ctx->base_ctl2;
+  const uint32_t base_ctv2 = NypCtToVecCt(base_ct);
+  const uint32_t base_ctaw2 = base_ctv2 * kWordsPerVec;
   const uint32_t base_word_ct = NypCtToWordCt(base_ct);
-  uintptr_t* scratch = &(ctx->genovec_subs[0][tidx * S_CAST(uintptr_t, base_ctl2)]);
+  uintptr_t* scratch = &(ctx->genovec_subs[0][tidx * S_CAST(uintptr_t, base_ctaw2)]);
   // PLINK 1.x treats heterozygous haploid calls as missing.  That is the only
   // reason to touch the raw genotypes at all, so on a diploid chromosome they
   // are read in place.
   const uint32_t needs_hh_fix = ctx->is_fully_haploid || ctx->is_x;
   for (uint32_t li = start; li != end; ++li) {
-    const uintptr_t* genovec_base = &(ctx->raw_genovecs[S_CAST(uintptr_t, li) * base_ctl2]);
+    const uintptr_t* genovec_base = &(ctx->raw_genovecs[S_CAST(uintptr_t, li) * base_ctaw2]);
     if (needs_hh_fix) {
-      memcpy(scratch, genovec_base, base_ctl2 * sizeof(intptr_t));
+      memcpy(scratch, genovec_base, base_ctaw2 * sizeof(intptr_t));
       if (ctx->is_fully_haploid) {
         SetHetMissing(base_word_ct, scratch);
       } else {
-        FlipScanSetMaleHetMissing(ctx->male_collapsed, base_ct, scratch);
+        // PLINK 1.x treats a male heterozygous call on chrX as missing.
+        SetMaleHetMissing(ctx->male_collapsed_interleaved, base_ctv2, scratch);
       }
       genovec_base = scratch;
     }
@@ -17346,16 +17334,19 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     const uint32_t use_dprime = (ldip->flipscan_flags / kfFlipScanDprime) & 1;
 
     const uint32_t base_ctl = BitCtToWordCt(base_ct);
-    const uint32_t base_ctl2 = NypCtToAlignedWordCt(base_ct);
+    const uint32_t base_ctv = BitCtToVecCt(base_ct);
+    const uint32_t base_ctaw2 = NypCtToAlignedWordCt(base_ct);
     uint32_t* base_cumulative_popcounts;
     uintptr_t* subset_collapsed[2];
-    uintptr_t* male_collapsed;
+    uintptr_t* male_collapsed_interleaved;
     uintptr_t* genovec_base;
+    uintptr_t* male_collapsed_tmp;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &base_cumulative_popcounts) ||
                  bigstack_alloc_w(base_ctl, &(subset_collapsed[0])) ||
                  bigstack_alloc_w(base_ctl, &(subset_collapsed[1])) ||
-                 bigstack_alloc_w(base_ctl, &male_collapsed) ||
-                 bigstack_alloc_w(base_ctl2, &genovec_base))) {
+                 bigstack_alloc_w(base_ctv * kWordsPerVec, &male_collapsed_interleaved) ||
+                 bigstack_alloc_w(base_ctaw2, &genovec_base) ||
+                 bigstack_alloc_w(base_ctl, &male_collapsed_tmp))) {
       goto FlipScan_ret_NOMEM;
     }
     FillCumulativePopcounts(base_include, raw_sample_ctl, base_cumulative_popcounts);
@@ -17363,8 +17354,10 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       CopyBitarrSubset(subset_include[is_case], base_include, base_ct, subset_collapsed[is_case]);
       ZeroTrailingBits(base_ct, subset_collapsed[is_case]);
     }
-    CopyBitarrSubset(sex_male, base_include, base_ct, male_collapsed);
-    ZeroTrailingBits(base_ct, male_collapsed);
+    CopyBitarrSubset(sex_male, base_include, base_ct, male_collapsed_tmp);
+    ZeroTrailingWords(base_ctl, male_collapsed_tmp);
+    FillInterleavedMaskVec(male_collapsed_tmp, base_ctv, male_collapsed_interleaved);
+    BigstackReset(male_collapsed_tmp);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(base_cumulative_popcounts, simple_pgrp, &pssi);
 
@@ -17427,15 +17420,14 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
                  bigstack_alloc_u32(max_local_ct, &local_uidxs) ||
                  BIGSTACK_ALLOC_X(FlipScanResult, block_size, &results) ||
                  bigstack_alloc_u32(S_CAST(uintptr_t, block_size) * max_neg_ct, &neg_locals) ||
-                 bigstack_alloc_w(S_CAST(uintptr_t, max_local_ct) * base_ctl2, &raw_genovecs) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, max_local_ct) * base_ctaw2, &raw_genovecs) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, max_local_ct) * (window_size - 1), &(ctx.r_cache[0])) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, max_local_ct) * (window_size - 1), &(ctx.r_cache[1])))) {
       goto FlipScan_ret_NOMEM;
     }
     ctx.raw_genovecs = raw_genovecs;
     ctx.base_ct = base_ct;
-    ctx.base_ctl2 = base_ctl2;
-    ctx.male_collapsed = male_collapsed;
+    ctx.male_collapsed_interleaved = male_collapsed_interleaved;
     for (uint32_t is_case = 0; is_case != 2; ++is_case) {
       ctx.genobufs_write[is_case] = genobufs[is_case];
       ctx.vaggs_write[is_case] = vaggs[is_case];
@@ -17467,7 +17459,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     uint32_t* local_starts;
     if (unlikely(bigstack_alloc_u32(calc_thread_ct + 1, &thread_starts) ||
                  bigstack_alloc_u32(calc_thread_ct + 1, &local_starts) ||
-                 bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * base_ctl2, &(ctx.genovec_subs[0])) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * base_ctaw2, &(ctx.genovec_subs[0])) ||
                  bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * NypCtToAlignedWordCt(subset_ct[0]), &(ctx.genovec_subs[1])) ||
                  bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * NypCtToAlignedWordCt(subset_ct[1]), &(ctx.genovec_subs[2])))) {
       goto FlipScan_ret_NOMEM;
@@ -17645,7 +17637,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           if (maj_alleles) {
             maj_allele_idx = maj_alleles[variant_uidx];
           }
-          uintptr_t* cur_raw = &(raw_genovecs[S_CAST(uintptr_t, li) * base_ctl2]);
+          uintptr_t* cur_raw = &(raw_genovecs[S_CAST(uintptr_t, li) * base_ctaw2]);
           reterr = PgrGetInv1(base_include, pssi, base_ct, variant_uidx, maj_allele_idx, simple_pgrp, cur_raw);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
