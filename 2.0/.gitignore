@@ -1,6 +1,7 @@
 /**/pgen_compress
 /build_dynamic/plink2
 /build_san/plink2
+/build_san/.build_config
 /Python/Pgenlib.egg-info/
 /Python/dist/
 *.o

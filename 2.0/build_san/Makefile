@@ -135,12 +135,10 @@ else
   LINKFLAGS += -lz
 endif
 
-SKIP_STATIC_ZSTD =
 ifndef STATIC_ZSTD
   BASEFLAGS += -DIGNORE_BUNDLED_ZSTD
   ZCSRC2 =
   ZSSRC2 =
-  SKIP_STATIC_ZSTD = echo
   OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
   OBJL = $(notdir $(OBJ))
   LINKFLAGS += -lzstd
@@ -210,15 +208,56 @@ SFX ?= ""
 
 all: plink2$(SFX) pgen_compress$(SFX)
 
-plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
-	$(CC) $(CFLAGS) $(CSRC2) -c
-	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
-	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
-	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
+# Each source file gets its own compiler invocation, so "make -j" can run them
+# in parallel.
+vpath %.c $(sort $(dir $(CSRC2) $(ZCSRC2)))
+vpath %.S $(sort $(dir $(ZSSRC2)))
+vpath %.cc $(sort $(dir $(CCSRC2)))
+
+COBJL = $(notdir $(CSRC:.c=.o))
+ZCOBJL = $(notdir $(ZCSRC:.c=.o))
+ZSOBJL = $(notdir $(ZSSRC:.S=.o))
+CCOBJL = $(notdir $(CCSRC:.cc=.o))
+ALLOBJL = $(COBJL) $(ZCOBJL) $(ZSOBJL) $(CCOBJL) plink2_cpu.o pgen_compress.o
+
+# The compiler flags are recorded in .build_config, and every object depends on
+# it, so a change of configuration (e.g. NO_UNALIGNED=1 after a default build)
+# recompiles everything instead of relinking objects built for the other one.
+# The file is only rewritten when the flags differ, so a repeat make with the
+# same configuration leaves it, and the objects, alone.
+BUILD_CONFIG := $(CC) $(CFLAGS) | $(ZCFLAGS) | $(CXX) $(CXXFLAGS) | $(CPUCHECK_FLAGS)
+ifneq ($(BUILD_CONFIG),$(shell cat .build_config 2>/dev/null))
+  $(shell echo '$(BUILD_CONFIG)' > .build_config)
+endif
+
+# Header dependencies are coarse: a change to any plink2, libdeflate or zstd
+# header rebuilds every object.
+HEADERS = $(wildcard ../*.h ../include/*.h ../libdeflate/*.h ../libdeflate/lib/*.h ../libdeflate/lib/*/*.h ../zstd/lib/*.h ../zstd/lib/*/*.h)
+
+$(ALLOBJL): .build_config $(HEADERS)
+
+$(COBJL): %.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ZCOBJL): %.o: %.c
+	$(CC) $(ZCFLAGS) -c $< -o $@
+
+$(ZSOBJL): %.o: %.S
+	$(CC) $(ZCFLAGS) -c $< -o $@
+
+$(CCOBJL) pgen_compress.o: %.o: %.cc
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+plink2_cpu.o: ../plink2_cpu.cc
+	$(CXX) $(CPUCHECK_FLAGS) -c $< -o $@
+
+plink2$(SFX): $(OBJL) plink2_cpu.o
 	$(CXX) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
 
-pgen_compress$(SFX): $(PGCSRC2)
-	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
+# pgen_compress shares the pgenlib objects with plink2, so a repeat make only
+# relinks it.
+pgen_compress$(SFX): $(PGENLIB_OBJL) pgen_compress.o
+	$(CXX) $(CXXFLAGS) $(PGENLIB_OBJL) pgen_compress.o -o $@
 
 pgenlib.a: $(PGENLIB_CCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
@@ -238,7 +277,7 @@ static_plink2lib_test: plink2lib.a ../pgen_compress.cc
 
 .PHONY: clean
 clean:
-	rm -f *.o
+	rm -f *.o .build_config
 	rm -f plink2
 	rm -f pgen_compress
 	rm -f pgenlib.a
