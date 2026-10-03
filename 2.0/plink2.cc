@@ -11700,7 +11700,10 @@ int main(int argc, char** argv) {
             pmerge_info.merge_filter_mode = kMergeFilterModeNmFirst;
           } else if (strequal_k(cur_modif, "first", cur_modif_slen)) {
             pmerge_info.merge_filter_mode = kMergeFilterModeFirst;
-          } else if (unlikely(!strequal_k(cur_modif, "np-union", cur_modif_slen))) {
+          } else if (likely(strequal_k(cur_modif, "np-union", cur_modif_slen))) {
+            // bugfix (3 Oct 2026): this was ignored.
+            pmerge_info.merge_filter_mode = kMergeFilterModeNonpassUnion;
+          } else {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-filter-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
