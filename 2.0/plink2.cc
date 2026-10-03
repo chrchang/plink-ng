@@ -1058,7 +1058,7 @@ void UpdateSampleSubsets(const uintptr_t* sample_include, uint32_t raw_sample_ct
 
 // command_flags2 will probably be needed before we're done
 static_assert(kPglMaxAlleleCt == 255, "Plink2Core() --maj-ref needs to be updated.");
-PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, ChrInfo* cip, sfmt_t* sfmtp) {
+PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, const PmergeInfo* pmip, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, ChrInfo* cip, sfmt_t* sfmtp) {
   ObligMissingData oblig_missing_data;
   PreinitObligMissingData(&oblig_missing_data);
   PhenoCol* pheno_cols = nullptr;
@@ -3386,7 +3386,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
               }
             }
-            reterr = MakePlink2NoVsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, allele_freqs, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, &(pcp->flip_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, allele_freqs, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, &(pcp->flip_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pmip->merge_qual_mode, pmip->merge_filter_mode, pmip->merge_info_mode, pmip->merge_cm_mode, (pcp->mendel_info.flags / kfMendelDuos) & 1, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -4940,6 +4940,8 @@ int main(int argc, char** argv) {
 #endif
     uint32_t randmem = 0;
     uint32_t pmerge_required = 0;
+    // --merge-{qual,filter,info,cm}-mode also apply to variant-join.
+    uint32_t merge_col_mode_required = 0;
     uint32_t allow_misleading_out_arg = 0;
     uint32_t allow_normalize_with_split = 0;
     uint32_t import_max_allele_ct = 0x7ffffffe;
@@ -11683,7 +11685,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-qual-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          pmerge_required = 1;
+          merge_col_mode_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "erge-filter-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -11702,7 +11704,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-filter-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          pmerge_required = 1;
+          merge_col_mode_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "erge-info-mode") ||
                    strequal_k_unsafe(flagname_p2, "erge-cm-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -11723,7 +11725,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          pmerge_required = 1;
+          merge_col_mode_required = 1;
           if (flagname_p2[5] == 'i') {
             pmerge_info.merge_info_mode = mode;
           } else {
@@ -15718,15 +15720,21 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
+    if (unlikely(merge_col_mode_required && (!(pc.command_flags1 & kfCommand1Pmerge)) && (!((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePlink2MJoin))))) {
+      if (pmerge_info.merge_cm_mode != kMergeInfoCmModeNmFirst) {
+        logerrputs("Error: --merge-cm-mode must be used with --pmerge[-list] or variant-join\n(--make-pgen multiallelics=+...).\n");
+      } else if (pmerge_info.merge_filter_mode != kMergeFilterModeNmFirst) {
+        logerrputs("Error: --merge-filter-mode must be used with --pmerge[-list] or variant-join\n(--make-pgen multiallelics=+...).\n");
+      } else if (pmerge_info.merge_info_mode != kMergeInfoCmModeNmFirst) {
+        logerrputs("Error: --merge-info-mode must be used with --pmerge[-list] or variant-join\n(--make-pgen multiallelics=+...).\n");
+      } else {
+        logerrputs("Error: --merge-qual-mode must be used with --pmerge[-list] or variant-join\n(--make-pgen multiallelics=+...).\n");
+      }
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (unlikely(pmerge_required && (!(pc.command_flags1 & kfCommand1Pmerge)))) {
       if (delete_pmerge_result) {
         logerrputs("Error: --delete-pmerge-result must be used with --pmerge[-list].\n");
-      } else if (pmerge_info.merge_cm_mode != kMergeInfoCmModeNmFirst) {
-        logerrputs("Error: --merge-cm-mode must be used with --pmerge[-list].\n");
-      } else if (pmerge_info.merge_filter_mode != kMergeFilterModeNmFirst) {
-        logerrputs("Error: --merge-filter-mode must be used with --pmerge[-list].\n");
-      } else if (pmerge_info.merge_info_mode != kMergeInfoCmModeNmFirst) {
-        logerrputs("Error: --merge-info-mode must be used with --pmerge[-list].\n");
       } else if (pmerge_info.merge_info_sort != kSortNone) {
         logerrputs("Error: --merge-info-sort must be used with --pmerge[-list].\n");
       } else if (pmerge_info.max_allele_ct != 0) {
@@ -15739,8 +15747,6 @@ int main(int argc, char** argv) {
         logerrputs("Error: --merge-pheno-mode must be used with --pmerge[-list].\n");
       } else if (pmerge_info.merge_pheno_sort != kSortNone) {
         logerrputs("Error: --merge-pheno-sort must be used with --pmerge[-list].\n");
-      } else if (pmerge_info.merge_qual_mode != kMergeQualModeMin) {
-        logerrputs("Error: --merge-qual-mode must be used with --pmerge[-list].\n");
       } else if (pmerge_info.flags & kfPmergeSids) {
         logerrputs("Error: --merge-sids must be used with --pmerge[-list].\n");
       } else if (pmerge_info.merge_xheader_mode != kMergeXheaderModeFirst) {
@@ -16095,7 +16101,7 @@ int main(int argc, char** argv) {
         goto main_ret_1;
       }
       BLAS_SET_NUM_THREADS(1);
-      reterr = Plink2Core(&pc, make_plink2_flags, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info, &main_sfmt);
+      reterr = Plink2Core(&pc, make_plink2_flags, &pmerge_info, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info, &main_sfmt);
     }
   }
   while (0) {

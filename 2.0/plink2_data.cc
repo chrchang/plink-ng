@@ -5396,13 +5396,26 @@ uint32_t InfoValueCt(const char* start, const char* end) {
   return ct;
 }
 
+// A lone '.', or a list of '.'s for a key with a fixed value count.
+uint32_t InfoValueIsMissing(const char* start, const char* end) {
+  for (; start != end; start = &(start[2])) {
+    if ((start[0] != '.') || ((&(start[1]) != end) && (start[1] != ','))) {
+      return 0;
+    }
+    if (&(start[1]) == end) {
+      break;
+    }
+  }
+  return 1;
+}
+
 typedef struct JoinInfoValStruct {
   const char* start;
   const char* end;
   uint32_t stamp;
 } JoinInfoVal;
 
-PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* contig_lens, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, uint32_t write_info, uint32_t write_info_pr, uint32_t thread_ct, char* xheader) {
+PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* contig_lens, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, MergeQualMode merge_qual_mode, MergeFilterMode merge_filter_mode, MergeInfoCmMode merge_info_mode, MergeInfoCmMode merge_cm_mode, uint32_t write_info, uint32_t write_info_pr, uint32_t thread_ct, char* xheader) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   uint32_t variant_uidx = 0;
@@ -5412,6 +5425,13 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
   PreinitCstream(&css);
   PreinitTextStream(&pvar_reload_txs);
   {
+    // --merge-{qual,filter,info,cm}-mode apply to join groups the way they
+    // apply to --pmerge[-list]; 'erase' removes the column.
+    if (merge_info_mode == kMergeInfoCmModeErase) {
+      pvar_info_reload = nullptr;
+      write_info = 0;
+      write_info_pr = 0;
+    }
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     // includes trailing tab
     char* chr_buf;
@@ -5466,6 +5486,9 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     } else if ((pvar_psam_flags & kfPvarColMaybefilter) && filter_present) {
       write_filter = !IntersectionIsEmpty(variant_include, filter_present, raw_variant_ctl);
     }
+    if (merge_filter_mode == kMergeFilterModeErase) {
+      write_filter = 0;
+    }
     uint32_t info_col_idx = 0;  // could save this during first load instead
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     if (pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader)) {
@@ -5483,6 +5506,9 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
       write_qual = 1;
     } else if ((pvar_psam_flags & kfPvarColMaybequal) && qual_present) {
       write_qual = !IntersectionIsEmpty(variant_include, qual_present, raw_variant_ctl);
+    }
+    if (merge_qual_mode == kMergeQualModeErase) {
+      write_qual = 0;
     }
     if (write_qual) {
       cswritep = strcpya_k(cswritep, "\tQUAL");
@@ -5515,6 +5541,9 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
           }
         }
       }
+    }
+    if (merge_cm_mode == kMergeInfoCmModeErase) {
+      write_cm = 0;
     }
     if (write_cm) {
       cswritep = strcpya_k(cswritep, "\tCM");
@@ -5801,44 +5830,107 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
           }
         }
 
-        // QUAL: minimum of the nonmissing values.
+        // QUAL, following --merge-qual-mode.
         if (write_qual) {
           *cswritep++ = '\t';
-          float min_qual = 0.0;
+          float cur_qual = 0.0;
           uint32_t qual_found = 0;
           if (qual_present) {
-            for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
-              const uint32_t cur_uidx = block_uidxs[members[member_idx]];
-              if (IsSet(qual_present, cur_uidx)) {
-                if ((!qual_found) || (quals[cur_uidx] < min_qual)) {
-                  min_qual = quals[cur_uidx];
+            if (merge_qual_mode == kMergeQualModeFirst) {
+              qual_found = IsSet(qual_present, variant_uidx);
+              cur_qual = quals[variant_uidx];
+            } else {
+              uint32_t nm_qual_ct = 0;
+              for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
+                const uint32_t cur_uidx = block_uidxs[members[member_idx]];
+                if (!IsSet(qual_present, cur_uidx)) {
+                  continue;
                 }
-                qual_found = 1;
+                const float member_qual = quals[cur_uidx];
+                if (!nm_qual_ct) {
+                  cur_qual = member_qual;
+                  if (merge_qual_mode == kMergeQualModeNmFirst) {
+                    nm_qual_ct = 1;
+                    break;
+                  }
+                } else if (merge_qual_mode == kMergeQualModeMin) {
+                  if (member_qual < cur_qual) {
+                    cur_qual = member_qual;
+                  }
+                } else if (member_qual != cur_qual) {
+                  // 'nm-match' conflict
+                  nm_qual_ct = 0;
+                  break;
+                }
+                ++nm_qual_ct;
               }
+              // 'min' requires every value to be present.
+              qual_found = nm_qual_ct && ((merge_qual_mode != kMergeQualModeMin) || (nm_qual_ct == member_ct));
             }
           }
           if (qual_found) {
-            cswritep = ftoa_g(min_qual, cswritep);
+            cswritep = ftoa_g(cur_qual, cswritep);
           } else {
             *cswritep++ = '.';
           }
         }
 
-        // FILTER: natural-sorted union of the non-PASS values.  PASS if
-        // there are none, unless every value was missing.
+        // FILTER, following --merge-filter-mode.  'np-union' writes the
+        // natural-sorted union of the non-PASS values, or PASS if there are
+        // none, unless every value was missing.  'nm-match' compares values
+        // as sets of tokens, with PASS a value of its own.
         if (write_filter) {
           *cswritep++ = '\t';
           uint32_t filter_found = 0;
           uint32_t filter_token_ct = 0;
           if (filter_present) {
             char* filter_buf_iter = filter_buf;
+            uint32_t nm_member_ct = 0;
+            uint32_t pass_found = 0;
             for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
               const uint32_t cur_uidx = block_uidxs[members[member_idx]];
               if (!IsSet(filter_present, cur_uidx)) {
+                if (merge_filter_mode == kMergeFilterModeFirst) {
+                  break;
+                }
                 continue;
               }
               filter_found = 1;
+              ++nm_member_ct;
               if (!IsSet(filter_npass, cur_uidx)) {
+                pass_found = 1;
+                if ((merge_filter_mode == kMergeFilterModeFirst) || (merge_filter_mode == kMergeFilterModeNmFirst)) {
+                  break;
+                }
+                continue;
+              }
+              if ((merge_filter_mode == kMergeFilterModeNmMatch) && (nm_member_ct > 1)) {
+                // Compare the token set with the first nonmissing value's.
+                uint32_t cur_token_ct = 0;
+                const char* token_start = filter_storage[cur_uidx];
+                while (1) {
+                  const char* token_end = Strchrnul(token_start, ';');
+                  const uint32_t token_slen = token_end - token_start;
+                  uint32_t token_idx = 0;
+                  for (; token_idx != filter_token_ct; ++token_idx) {
+                    if (strequal_unsafe(filter_tokens[token_idx], token_start, token_slen)) {
+                      break;
+                    }
+                  }
+                  if (token_idx == filter_token_ct) {
+                    cur_token_ct = UINT32_MAX;
+                    break;
+                  }
+                  ++cur_token_ct;
+                  if (!(*token_end)) {
+                    break;
+                  }
+                  token_start = &(token_end[1]);
+                }
+                if (cur_token_ct != filter_token_ct) {
+                  filter_found = 0;
+                  break;
+                }
                 continue;
               }
               const char* token_start = filter_storage[cur_uidx];
@@ -5860,6 +5952,12 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                 }
                 token_start = &(token_end[1]);
               }
+              if ((merge_filter_mode == kMergeFilterModeFirst) || (merge_filter_mode == kMergeFilterModeNmFirst)) {
+                break;
+              }
+            }
+            if ((merge_filter_mode == kMergeFilterModeNmMatch) && pass_found && filter_token_ct) {
+              filter_found = 0;
             }
           }
           if (!filter_found) {
@@ -5879,10 +5977,16 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
 
         if (write_info) {
           *cswritep++ = '\t';
+          // As with --pmerge, INFO/PR is only set when every member's REF
+          // allele is provisional.
           uint32_t is_pr = all_nonref;
           if (nonref_flags) {
+            is_pr = 1;
             for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
-              is_pr |= IsSet(nonref_flags, block_uidxs[members[member_idx]]);
+              if (!IsSet(nonref_flags, block_uidxs[members[member_idx]])) {
+                is_pr = 0;
+                break;
+              }
             }
           }
           uint32_t cur_key_ct = 0;
@@ -5952,7 +6056,12 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
               }
               *cswritep++ = '=';
               if (!IsInfoVtypeARSkip(knum)) {
-                // Keep the value iff all members which have it agree.
+                // Follow --merge-info-mode.  'first' keeps the value of the
+                // first member which has the key, 'nm-first' keeps the first
+                // nonmissing value, and 'nm-match' keeps the nonmissing value
+                // iff the members agree on it.  INFO/END values must always
+                // agree.
+                const MergeInfoCmMode key_mode = (kidx == info_end_key_idx)? kMergeInfoCmModeNmMatch : merge_info_mode;
                 const JoinInfoVal* first_val = nullptr;
                 uint32_t mismatch = 0;
                 for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
@@ -5960,14 +6069,27 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                   if (cur_val->stamp != info_stamp) {
                     continue;
                   }
+                  if (key_mode == kMergeInfoCmModeFirst) {
+                    first_val = cur_val;
+                    break;
+                  }
+                  if (InfoValueIsMissing(cur_val->start, cur_val->end)) {
+                    continue;
+                  }
                   if (!first_val) {
                     first_val = cur_val;
+                    if (key_mode == kMergeInfoCmModeNmFirst) {
+                      break;
+                    }
                   } else if (((cur_val->end - cur_val->start) != (first_val->end - first_val->start)) || (!memequal(cur_val->start, first_val->start, cur_val->end - cur_val->start))) {
                     mismatch = 1;
                     break;
                   }
                 }
-                if (!mismatch) {
+                if (!first_val) {
+                  // Every value is missing.
+                  *cswritep++ = '.';
+                } else if (!mismatch) {
                   cswritep = memcpya(cswritep, first_val->start, first_val->end - first_val->start);
                 } else {
                   if (unlikely(kidx == info_end_key_idx)) {
@@ -5994,7 +6116,8 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                 }
                 const uint32_t aidx_start = knum - kInfoVtypeR;
                 if (!aidx_start) {
-                  // REF value: kept iff all members which have it agree.
+                  // REF value: the only one which can come from more than one
+                  // member.  Follow --merge-info-mode, as above.
                   const char* ref_val_start = nullptr;
                   const char* ref_val_end = nullptr;
                   uint32_t mismatch = 0;
@@ -6005,15 +6128,28 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                     }
                     const char* cur_end;
                     const char* cur_start = NthInfoValue(cur_val->start, cur_val->end, 0, &cur_end);
+                    if (merge_info_mode == kMergeInfoCmModeFirst) {
+                      ref_val_start = cur_start;
+                      ref_val_end = cur_end;
+                      break;
+                    }
+                    if ((cur_end == &(cur_start[1])) && (cur_start[0] == '.')) {
+                      continue;
+                    }
                     if (!ref_val_start) {
                       ref_val_start = cur_start;
                       ref_val_end = cur_end;
+                      if (merge_info_mode == kMergeInfoCmModeNmFirst) {
+                        break;
+                      }
                     } else if (((cur_end - cur_start) != (ref_val_end - ref_val_start)) || (!memequal(cur_start, ref_val_start, cur_end - cur_start))) {
                       mismatch = 1;
                       break;
                     }
                   }
-                  if (!mismatch) {
+                  if (!ref_val_start) {
+                    *cswritep++ = '.';
+                  } else if (!mismatch) {
                     cswritep = memcpya(cswritep, ref_val_start, ref_val_end - ref_val_start);
                   } else {
                     *cswritep++ = '.';
@@ -6054,12 +6190,36 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
           }
         }
 
+        // CM, following --merge-cm-mode, with 0 treated as missing.
         if (write_cm) {
           *cswritep++ = '\t';
-          if (!variant_cms) {
+          double cur_cm = 0.0;
+          if (variant_cms) {
+            if (merge_cm_mode == kMergeInfoCmModeFirst) {
+              cur_cm = variant_cms[variant_uidx];
+            } else {
+              for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
+                const double member_cm = variant_cms[block_uidxs[members[member_idx]]];
+                if (member_cm == 0.0) {
+                  continue;
+                }
+                if (cur_cm == 0.0) {
+                  cur_cm = member_cm;
+                  if (merge_cm_mode == kMergeInfoCmModeNmFirst) {
+                    break;
+                  }
+                } else if (member_cm != cur_cm) {
+                  // 'nm-match' conflict
+                  cur_cm = 0.0;
+                  break;
+                }
+              }
+            }
+          }
+          if (cur_cm == 0.0) {
             *cswritep++ = '0';
           } else {
-            cswritep = dtoa_g_p8(variant_cms[variant_uidx], cswritep);
+            cswritep = dtoa_g_p8(cur_cm, cswritep);
           }
         }
         AppendBinaryEoln(&cswritep);
@@ -9006,7 +9166,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   return reterr;
 }
 
-PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const double* allele_freqs, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* writer_ver, const char* zero_cluster_fname, const char* zero_cluster_phenoname, const FlipInfo* flip_info_ptr, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uint32_t mendel_duos, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const double* allele_freqs, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* writer_ver, const char* zero_cluster_fname, const char* zero_cluster_phenoname, const FlipInfo* flip_info_ptr, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, MergeQualMode merge_qual_mode, MergeFilterMode merge_filter_mode, MergeInfoCmMode merge_info_mode, MergeInfoCmMode merge_cm_mode, uint32_t mendel_duos, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
@@ -9170,7 +9330,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         if (write_variant_ct > variant_ct) {
           reterr = WritePvarSplit(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, contig_lens, varid_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, new_variant_id_max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_key_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, output_missing_geno_char, write_info, write_info_pr, max_thread_ct, xheader);
         } else {
-          reterr = WritePvarJoin(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, contig_lens, varid_template_str, varid_multi_template_str, varid_multi_nonsnp_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_key_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, output_missing_geno_char, write_info, write_info_pr, max_thread_ct, xheader);
+          reterr = WritePvarJoin(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, contig_lens, varid_template_str, varid_multi_template_str, varid_multi_nonsnp_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_key_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, output_missing_geno_char, merge_qual_mode, merge_filter_mode, merge_info_mode, merge_cm_mode, write_info, write_info_pr, max_thread_ct, xheader);
         }
       }
       if (unlikely(reterr)) {
