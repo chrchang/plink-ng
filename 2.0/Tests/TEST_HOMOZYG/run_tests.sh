@@ -31,11 +31,11 @@ compare_hom() {
         }
         /^#/ { next }
         {
-            # FID IID CHROM ID1 ID2 POS1 POS2 KB NSNP DENSITY PHOM PHET
+            # FID IID CHROM POS1 POS2 ID1 ID2 KB NSNP DENSITY PHOM PHET
             ++n2;
-            key = $1 "_" $2 "_" $4;
+            key = $1 "_" $2 "_" $6;
             if (!(key in seen)) { print "run not found in PLINK 1.9 output: " key; failed = 1; exit 1 }
-            if (snp2[key] != $5 || pos1[key] != $6 || pos2[key] != $7 || nsnp[key] != $9) {
+            if (snp2[key] != $7 || pos1[key] != $4 || pos2[key] != $5 || nsnp[key] != $9) {
                 print "boundary mismatch on " key; failed = 1; exit 1
             }
             if (!close_enough(kb[key], $8) || !close_enough(density[key], $10) ||
@@ -153,7 +153,7 @@ diff -q plink2.hom plink2_zs.hom
 
 # 7. cols= drops the columns it doesn't name.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=chrom,pos,nsnp --homozyg-min-af 0 --out plink2_cols
-head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	ID1	ID2	POS1	POS2	NSNP'
+head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	POS1	POS2	ID1	ID2	NSNP'
 # cols= named no .hom.indiv column, so only IID survives there.
 head -n 1 plink2_cols.hom.indiv | grep -qx '#IID'
 

@@ -12050,10 +12050,10 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       if (col_chrom) {
         write_iter = strcpya_k(write_iter, "\tCHROM");
       }
-      write_iter = strcpya_k(write_iter, "\tID1\tID2");
       if (col_pos) {
         write_iter = strcpya_k(write_iter, "\tPOS1\tPOS2");
       }
+      write_iter = strcpya_k(write_iter, "\tID1\tID2");
       if (col_kb) {
         write_iter = strcpya_k(write_iter, "\tKB");
       }
@@ -12121,14 +12121,14 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
           *write_iter++ = '\t';
           write_iter = chrtoa(cip, cur_chr_idx, write_iter);
         }
-        *write_iter++ = '\t';
-        write_iter = strcpyax(write_iter, variant_ids[cur_rec->start_uidx], '\t');
-        write_iter = strcpya(write_iter, variant_ids[cur_rec->end_uidx]);
         if (col_pos) {
           *write_iter++ = '\t';
           write_iter = u32toa_x(variant_bps[cur_rec->start_uidx], '\t', write_iter);
           write_iter = u32toa(variant_bps[cur_rec->end_uidx], write_iter);
         }
+        *write_iter++ = '\t';
+        write_iter = strcpyax(write_iter, variant_ids[cur_rec->start_uidx], '\t');
+        write_iter = strcpya(write_iter, variant_ids[cur_rec->end_uidx]);
         const double kb = u31tod(variant_bps[cur_rec->end_uidx] + is_new_lengths - variant_bps[cur_rec->start_uidx]) / (1000.0 - kRohEpsilon);
         kb_tot += kb;
         if (cur_chr_idx != x_code) {
