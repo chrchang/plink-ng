@@ -231,6 +231,7 @@ ALLOBJL = $(COBJL) $(ZCOBJL) $(ZSOBJL) $(CCOBJL) plink2_cpu.o pgen_compress.o
 # or backslashes are recorded as they are.
 BUILD_CONFIG = $(CC) $(CFLAGS) | $(ZCFLAGS) | $(CXX) $(CXXFLAGS) | $(CPUCHECK_FLAGS)
 
+BUILD_CONFIG_STALE :=
 ifneq ($(BUILD_CONFIG),$(shell cat .build_config 2>/dev/null))
   BUILD_CONFIG_STALE = FORCE
 endif
