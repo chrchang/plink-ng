@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.12-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (2 Oct 2026)";
+  " (3 Oct 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -13048,7 +13048,7 @@ int main(int argc, char** argv) {
         logerrputs("Error: --delete-pmerge-result must be used with --pmerge[-list].\n");
       } else if (pmerge_info.merge_cm_mode != kMergeInfoCmModeNmFirst) {
         logerrputs("Error: --merge-cm-mode must be used with --pmerge[-list].\n");
-      } else if (pmerge_info.merge_filter_mode != kMergeFilterModeNmFirst) {
+      } else if (pmerge_info.merge_filter_mode != kMergeFilterModeNonpassUnion) {
         logerrputs("Error: --merge-filter-mode must be used with --pmerge[-list].\n");
       } else if (pmerge_info.merge_info_mode != kMergeInfoCmModeNmFirst) {
         logerrputs("Error: --merge-info-mode must be used with --pmerge[-list].\n");

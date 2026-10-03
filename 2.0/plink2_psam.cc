@@ -1561,6 +1561,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         logerrputs("Warning: Phenotype/covariate value in [-8, -9) or (-9, -10] present, when -9\nis treated as missing.  Use --no-input-missing-phenotype to treat -9 as a\nnumeric value (missing values can be indicated by 'NA'), or\n--neg9-pheno-really-missing to suppress this warning.\n");
       }
     }
+    free_cond(*pheno_names_ptr);
     *pheno_names_ptr = pheno_names;
     *max_pheno_name_blen_ptr = max_pheno_name_blen;
   }
