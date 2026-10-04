@@ -53,6 +53,11 @@ cd TEST_EXPORT_OPTIONS
 cd ..
 echo "TEST_EXPORT_OPTIONS passed."
 
+cd TEST_EXPORT_VCF_INFO
+./run_tests.sh $d $2 $3 > TEST_EXPORT_VCF_INFO.log
+cd ..
+echo "TEST_EXPORT_VCF_INFO passed."
+
 cd TEST_ONE_WAY_EXPORT
 ./run_tests.sh $d $2 $3 > TEST_ONE_WAY_EXPORT.log
 cd ..
