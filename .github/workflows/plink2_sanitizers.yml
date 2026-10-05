@@ -78,18 +78,68 @@ jobs:
           2.0/build_san/plink2 --version
 
       - name: Run 2.0/Tests
+        id: tests
         working-directory: 2.0/Tests
         env:
           # Leak detection is on by default on Linux, but say so; halt_on_error
           # makes UBSan reports fatal instead of just printed.
-          ASAN_OPTIONS: detect_leaks=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ./run_tests.sh "$GITHUB_WORKSPACE/2.0/build_san"
+          #
+          # Tests that expect plink2 to fail accept any non-zero exit status, so
+          # reports go to files and "Fail on sanitizer reports" checks them.
+          # With ASan, GCC's UBSan ignores log_path; abort_on_error plus
+          # handle_abort turns each UBSan report into an ASan one in the files.
+          # UBSan's log_path is still needed, or it sends ASan's output to stderr.
+          ASAN_OPTIONS: detect_leaks=1:handle_abort=1:log_path=${{ github.workspace }}/2.0/Tests/sanitizer-reports/asan
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1:abort_on_error=1:log_path=${{ github.workspace }}/2.0/Tests/sanitizer-reports/ubsan
+        run: |
+          mkdir -p sanitizer-reports sanitizer-canary
+          # Check that reports reach the files on this runner: a leak and a
+          # signed overflow (which only UBSan reports) must each leave one.
+          printf '%s\n' '#include <stdlib.h>' \
+            'int main(int argc, char** argv) {' \
+            '  volatile int big = 2147483647;' \
+            '  if (argc > 1) return malloc(16) == 0;' \
+            '  return big + argc;' \
+            '}' > sanitizer-canary/canary.c
+          gcc -O0 -g -fsanitize=address,undefined -fno-sanitize=alignment -o sanitizer-canary/canary sanitizer-canary/canary.c
+          for mode in leak ubsan; do
+            mkdir -p "sanitizer-canary/$mode"
+            args=()
+            if [ "$mode" = leak ]; then args=(leak); fi
+            ASAN_OPTIONS="${ASAN_OPTIONS//sanitizer-reports/sanitizer-canary/$mode}" \
+            UBSAN_OPTIONS="${UBSAN_OPTIONS//sanitizer-reports/sanitizer-canary/$mode}" \
+              ./sanitizer-canary/canary "${args[@]}" 2> "sanitizer-canary/$mode.stderr" || true
+            if [ -z "$(ls -A "sanitizer-canary/$mode")" ]; then
+              echo "::error::A sanitizer report ($mode) did not reach a report file, so the report check would miss it."
+              cat "sanitizer-canary/$mode.stderr"
+              exit 1
+            fi
+          done
+          ./run_tests.sh "$GITHUB_WORKSPACE/2.0/build_san"
+
+      - name: Fail on sanitizer reports
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        working-directory: 2.0/Tests
+        run: |
+          shopt -s nullglob
+          reports=(sanitizer-reports/*)
+          for f in "${reports[@]}"; do
+            echo "::group::$f"
+            cat "$f"
+            echo "::endgroup::"
+          done
+          if (( ${#reports[@]} )); then
+            echo "::error::${#reports[@]} sanitizer report(s); see above."
+            exit 1
+          fi
 
       - name: Upload test logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: plink2-sanitizer-logs
-          path: 2.0/Tests/**/*.log
+          path: |
+            2.0/Tests/**/*.log
+            2.0/Tests/sanitizer-reports/
+            2.0/Tests/sanitizer-canary/
           if-no-files-found: ignore
