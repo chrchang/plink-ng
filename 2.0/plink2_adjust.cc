@@ -53,6 +53,7 @@ void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_pt
 }
 
 void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
+  free_cond(adjust_file_info_ptr->test_name);
   free_cond(adjust_file_info_ptr->a1_field);
   free_cond(adjust_file_info_ptr->alt_field);
   free_cond(adjust_file_info_ptr->chr_field);
