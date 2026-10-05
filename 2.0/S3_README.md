@@ -83,16 +83,23 @@ key pair:
 
 1. `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`
 2. `~/.aws/credentials` (or `AWS_SHARED_CREDENTIALS_FILE`)
-3. `~/.aws/config` (or `AWS_CONFIG_FILE`)
-4. ECS/EKS container endpoint (`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
+3. `credential_process` of the active profile, from either file. The command
+   is run directly (no shell; quoting is split like a POSIX word list) with
+   stdin at `/dev/null`, a 60-second timeout and a 64 KiB output cap, and
+   must print `{"Version": 1, "AccessKeyId": ..., "SecretAccessKey": ...}`
+   with optional `SessionToken` and `Expiration`. On Windows the command line
+   is passed to `CreateProcess` as written.
+4. `~/.aws/config` (or `AWS_CONFIG_FILE`)
+5. ECS/EKS container endpoint (`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
    or `AWS_CONTAINER_CREDENTIALS_FULL_URI`)
-5. EC2 instance metadata, IMDSv2
-6. unsigned
+6. EC2 instance metadata, IMDSv2
+7. unsigned
 
 `AWS_PROFILE` selects the profile; non-default profiles may be written either
-`[name]` or `[profile name]`. Container and instance-metadata credentials
-carry an expiry and are re-read automatically before they lapse, so runs
-longer than the token lifetime are fine.
+`[name]` or `[profile name]`. `credential_process`, container and
+instance-metadata credentials carry an expiry and are re-read automatically
+before they lapse, so runs longer than the token lifetime are fine. A `credential_process` that omits
+`Expiration` is re-run only after S3 answers `ExpiredToken`.
 
 If S3 answers `ExpiredToken` anyway, the credential chain is re-read once and
 the request retried. That picks up a `~/.aws/credentials` refreshed out of
@@ -277,12 +284,18 @@ of this change.
 Supporting these would require substantially more machinery than the
 workaround costs, so they are out of scope:
 
-- **SSO** (`aws sso login`), **`credential_process`**, **`role_arn`/
+- **SSO** (`aws sso login`), **`role_arn`/
   `source_profile` AssumeRole chaining**, and **web identity / IRSA**.
-  For all of these, obtain credentials with the AWS CLI and export them:
+  For all of these, obtain credentials with the AWS CLI and export them, or
+  wrap the CLI in a `credential_process`:
 
   ```sh
   eval "$(aws configure export-credentials --format env)"
+  ```
+
+  ```ini
+  [profile sso-wrapped]
+  credential_process = aws configure export-credentials --profile my-sso --format process
   ```
 
   On EKS specifically, the node's instance role is picked up via IMDSv2
