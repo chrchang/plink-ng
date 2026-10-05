@@ -352,6 +352,19 @@ run_freq "AWS_SHARED_CREDENTIALS_FILE" alt_creds_file \
     "AWS_SHARED_CREDENTIALS_FILE=$WORK/alt_credentials" \
     "AWS_PROFILE=plink2-named"
 
+cat > "$WORK/cred_helper.sh" <<EOF
+#!/bin/sh
+printf '{"Version":1,"AccessKeyId":"$RO_USER","SecretAccessKey":"$RO_SECRET"}'
+EOF
+chmod +x "$WORK/cred_helper.sh"
+cat > "$WORK/alt_config" <<EOF
+[profile proc]
+credential_process = $WORK/cred_helper.sh
+EOF
+run_freq "credential_process in AWS_CONFIG_FILE" cred_process \
+    "s3://$PRIVATE_BUCKET/data/ref" \
+    "AWS_CONFIG_FILE=$WORK/alt_config" "AWS_PROFILE=proc"
+
 ###########################################################################
 echo "=== auth: anonymous ==="
 ###########################################################################

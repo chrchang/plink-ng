@@ -65,7 +65,7 @@ struct Credentials {
   std::string secret_key;
   std::string session_token;
   /* Unix time at which these stop working, or 0 when they do not expire.
-   * Only container/IMDS credentials carry an expiry. */
+   * Only credential_process, container and IMDS credentials carry an expiry. */
   int64_t expires_at;
 
   Credentials() : expires_at(0) {}

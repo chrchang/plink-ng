@@ -81,11 +81,13 @@ int s3stream_set_expected_bucket_owner(const char* account_id);
  * S3 credentials come from the standard chain, in order:
  *   1. AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
  *   2. AWS_SHARED_CREDENTIALS_FILE, else ~/.aws/credentials
- *   3. ~/.aws/config (or AWS_CONFIG_FILE)
- *   4. ECS/EKS container endpoint (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
+ *   3. credential_process of the active profile, in either file (run
+ *      without a shell; must print Version 1 JSON)
+ *   4. ~/.aws/config (or AWS_CONFIG_FILE)
+ *   5. ECS/EKS container endpoint (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
  *      or _FULL_URI)
- *   5. EC2 instance metadata (IMDSv2)
- *   6. unsigned, if nothing above yields credentials
+ *   6. EC2 instance metadata (IMDSv2)
+ *   7. unsigned, if nothing above yields credentials
  * The profile is selected by AWS_PROFILE (default "default").
  *
  * Returns NULL on failure; s3stream_last_error() explains why. */

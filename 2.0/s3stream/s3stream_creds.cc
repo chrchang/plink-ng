@@ -1,12 +1,12 @@
-/* Credential resolution for s3stream: environment, shared config files, ECS
- * container endpoint, EC2 instance metadata.
+/* Credential resolution for s3stream: environment, shared config files,
+ * credential_process, ECS container endpoint, EC2 instance metadata.
  *
  * Deliberately unsupported, because each needs a substantial amount of
  * machinery for a case that has a one-line workaround (run the AWS CLI and
- * export the result):
+ * export the result, or point credential_process at
+ * `aws configure export-credentials`):
  *   - SSO (`aws sso login`)
  *   - role_arn / source_profile AssumeRole chaining
- *   - credential_process
  *   - web identity / IRSA
  */
 
@@ -20,6 +20,29 @@
 #include <time.h>
 
 #include <curl/curl.h>
+
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#else
+#  include <errno.h>
+#  include <fcntl.h>
+#  include <poll.h>
+#  include <signal.h>
+#  include <spawn.h>
+#  include <sys/wait.h>
+#  include <unistd.h>
+#  ifdef __APPLE__
+#    include <crt_externs.h>
+#  else
+extern char** environ;
+#  endif
+#endif
 
 namespace s3stream {
 
@@ -267,6 +290,311 @@ bool CredentialsFromFile(const std::string& path, Credentials* out) {
   return !out->Empty();
 }
 
+/* A credential_process helper may legitimately prompt or contact an identity
+ * provider, so this is far longer than the metadata-endpoint timeout. */
+const int kProcessTimeoutSeconds = 60;
+
+#ifndef _WIN32
+/* Splits like a POSIX shell word list (whitespace, '...', "...", backslash)
+ * but performs no expansion; the command is exec'd directly, never through a
+ * shell. */
+bool SplitCommand(const std::string& command,
+                  std::vector<std::string>* args) {
+  std::string current;
+  bool have = false;
+  char quote = 0;
+  for (size_t i = 0; i < command.size(); ++i) {
+    const char c = command[i];
+    if (quote == '\'') {
+      if (c == '\'') {
+        quote = 0;
+      } else {
+        current += c;
+      }
+    } else if (quote == '"') {
+      if (c == '"') {
+        quote = 0;
+      } else if ((c == '\\') && (i + 1 < command.size()) &&
+                 ((command[i + 1] == '"') || (command[i + 1] == '\\'))) {
+        current += command[++i];
+      } else {
+        current += c;
+      }
+    } else if ((c == '\'') || (c == '"')) {
+      quote = c;
+      have = true;
+    } else if ((c == '\\') && (i + 1 < command.size())) {
+      current += command[++i];
+      have = true;
+    } else if ((c == ' ') || (c == '\t')) {
+      if (have) {
+        args->push_back(current);
+        current.clear();
+        have = false;
+      }
+    } else {
+      current += c;
+      have = true;
+    }
+  }
+  if (quote) {
+    return false;
+  }
+  if (have) {
+    args->push_back(current);
+  }
+  return !args->empty();
+}
+
+/* Runs `command` with stdin at /dev/null and stderr inherited, capturing
+ * stdout.  True only for a clean exit status 0 within the timeout and size
+ * cap. */
+bool RunProcess(const std::string& command, std::string* out) {
+  std::vector<std::string> args;
+  if (!SplitCommand(command, &args)) {
+    return false;
+  }
+  std::vector<char*> argv;
+  for (size_t i = 0; i < args.size(); ++i) {
+    argv.push_back(const_cast<char*>(args[i].c_str()));
+  }
+  argv.push_back(nullptr);
+
+  int fds[2];
+  if (pipe(fds) != 0) {
+    return false;
+  }
+  fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+  fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+
+  posix_spawn_file_actions_t actions;
+  if (posix_spawn_file_actions_init(&actions) != 0) {
+    close(fds[0]);
+    close(fds[1]);
+    return false;
+  }
+  posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO);
+  posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null",
+                                   O_RDONLY, 0);
+#ifdef __APPLE__
+  char** const env = *_NSGetEnviron();
+#else
+  char** const env = environ;
+#endif
+  pid_t pid = 0;
+  const int rc = posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(),
+                              env);
+  posix_spawn_file_actions_destroy(&actions);
+  close(fds[1]);
+  if (rc != 0) {
+    close(fds[0]);
+    return false;
+  }
+
+  const time_t deadline = time(nullptr) + kProcessTimeoutSeconds;
+  bool ok = true;
+  for (;;) {
+    const time_t remaining = deadline - time(nullptr);
+    if (remaining <= 0) {
+      ok = false;
+      break;
+    }
+    struct pollfd pfd;
+    pfd.fd = fds[0];
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    const int ready = poll(&pfd, 1, static_cast<int>(remaining * 1000));
+    if (ready < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      ok = false;
+      break;
+    }
+    if (ready == 0) {
+      continue;
+    }
+    char buffer[4096];
+    const ssize_t got = read(fds[0], buffer, sizeof(buffer));
+    if (got < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      ok = false;
+      break;
+    }
+    if (got == 0) {
+      break;
+    }
+    if (out->size() + static_cast<size_t>(got) > kMaxMetadataBytes) {
+      ok = false;
+      break;
+    }
+    out->append(buffer, static_cast<size_t>(got));
+  }
+  close(fds[0]);
+  if (!ok) {
+    kill(pid, SIGKILL);
+  }
+  int wstatus = 0;
+  while ((waitpid(pid, &wstatus, 0) < 0) && (errno == EINTR)) {
+  }
+  return ok && WIFEXITED(wstatus) && (WEXITSTATUS(wstatus) == 0);
+}
+#else  /* _WIN32 */
+/* The command line is handed to CreateProcess as written, as the AWS SDKs do
+ * on Windows. */
+bool RunProcess(const std::string& command, std::string* out) {
+  SECURITY_ATTRIBUTES sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+  HANDLE read_end = nullptr;
+  HANDLE write_end = nullptr;
+  if (!CreatePipe(&read_end, &write_end, &sa, 0)) {
+    return false;
+  }
+  SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
+  HANDLE nul = CreateFileA("NUL", GENERIC_READ,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                           OPEN_EXISTING, 0, nullptr);
+
+  STARTUPINFOA si;
+  memset(&si, 0, sizeof(si));
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdInput = nul;
+  si.hStdOutput = write_end;
+  si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+  PROCESS_INFORMATION pi;
+  memset(&pi, 0, sizeof(pi));
+  std::vector<char> line(command.begin(), command.end());
+  line.push_back('\0');
+  const BOOL created =
+      CreateProcessA(nullptr, line.data(), nullptr, nullptr, TRUE,
+                     CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+  CloseHandle(write_end);
+  if (nul != INVALID_HANDLE_VALUE) {
+    CloseHandle(nul);
+  }
+  if (!created) {
+    CloseHandle(read_end);
+    return false;
+  }
+
+  const ULONGLONG deadline =
+      GetTickCount64() + static_cast<ULONGLONG>(kProcessTimeoutSeconds) * 1000;
+  bool ok = true;
+  bool exited = false;
+  for (;;) {
+    DWORD available = 0;
+    if (!PeekNamedPipe(read_end, nullptr, 0, nullptr, &available, nullptr)) {
+      break;  /* all write ends closed */
+    }
+    if (available == 0) {
+      if (exited) {
+        break;
+      }
+      if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0) {
+        exited = true;  /* drain anything written just before exit */
+        continue;
+      }
+      if (GetTickCount64() >= deadline) {
+        ok = false;
+        break;
+      }
+      Sleep(20);
+      continue;
+    }
+    char buffer[4096];
+    DWORD want = available < sizeof(buffer) ? available : sizeof(buffer);
+    DWORD got = 0;
+    if (!ReadFile(read_end, buffer, want, &got, nullptr) || (got == 0)) {
+      break;
+    }
+    if (out->size() + got > kMaxMetadataBytes) {
+      ok = false;
+      break;
+    }
+    out->append(buffer, got);
+  }
+  CloseHandle(read_end);
+  if (!ok) {
+    TerminateProcess(pi.hProcess, 1);
+  }
+  DWORD code = 1;
+  if (WaitForSingleObject(pi.hProcess, ok ? 5000 : INFINITE) ==
+      WAIT_OBJECT_0) {
+    GetExitCodeProcess(pi.hProcess, &code);
+  } else {
+    TerminateProcess(pi.hProcess, 1);
+  }
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
+  return ok && (code == 0);
+}
+#endif
+
+/* Reads an integer field, or -1 when absent/unparseable. */
+long JsonInt(const std::string& json, const char* key) {
+  const std::string needle = std::string("\"") + key + "\"";
+  size_t pos = json.find(needle);
+  if (pos == std::string::npos) {
+    return -1;
+  }
+  pos = json.find(':', pos + needle.size());
+  if (pos == std::string::npos) {
+    return -1;
+  }
+  ++pos;
+  while ((pos < json.size()) && ((json[pos] == ' ') || (json[pos] == '\t') ||
+                                 (json[pos] == '\r') || (json[pos] == '\n'))) {
+    ++pos;
+  }
+  char* end = nullptr;
+  const long value = strtol(json.c_str() + pos, &end, 10);
+  return (end == json.c_str() + pos) ? -1 : value;
+}
+
+/* Runs a credential_process command and parses its Version 1 JSON document
+ * (AccessKeyId, SecretAccessKey, optional SessionToken and Expiration). */
+bool CredentialsFromCommand(const std::string& command, Credentials* out) {
+  std::string body;
+  const bool ran = RunProcess(command, &body);
+  const bool valid = ran && (JsonInt(body, "Version") == 1);
+  if (valid) {
+    out->access_key = JsonString(body, "AccessKeyId");
+    out->secret_key = JsonString(body, "SecretAccessKey");
+    out->session_token = JsonString(body, "SessionToken");
+    out->expires_at = ParseIso8601(JsonString(body, "Expiration"));
+  }
+  SecureZero(&body);
+  return valid && !out->Empty();
+}
+
+/* credential_process may sit in either the credentials file or the config
+ * file of the active profile. */
+bool CredentialsFromProcess(Credentials* out) {
+  const std::string paths[2] = {SharedCredentialsPath(), ConfigPath()};
+  for (int i = 0; i < 2; ++i) {
+    if (paths[i].empty()) {
+      continue;
+    }
+    const std::map<std::string, std::string> values =
+        ReadIniSection(paths[i], ActiveProfile());
+    const std::map<std::string, std::string>::const_iterator it =
+        values.find("credential_process");
+    if ((it == values.end()) || it->second.empty()) {
+      continue;
+    }
+    if (CredentialsFromCommand(it->second, out)) {
+      return true;
+    }
+    *out = Credentials();
+  }
+  return false;
+}
+
 /* ECS tasks and EKS pods with the credential-provider sidecar expose
  * credentials over a plain HTTP endpoint named by the environment. */
 bool CredentialsFromContainer(Credentials* out) {
@@ -421,6 +749,10 @@ bool ResolveCredentials(Credentials* out) {
   }
   *out = Credentials();
   if (CredentialsFromFile(SharedCredentialsPath(), out)) {
+    return true;
+  }
+  *out = Credentials();
+  if (CredentialsFromProcess(out)) {
     return true;
   }
   *out = Credentials();

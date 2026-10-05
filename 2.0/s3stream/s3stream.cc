@@ -273,7 +273,8 @@ Request MakeRequest(const StreamState* state) {
 }
 
 /* Re-reads the credential chain when the current ones have lapsed.  Only
- * meaningful for container/IMDS credentials, which are the ones that expire. */
+ * meaningful for sources that carry an expiry: credential_process, container
+ * and IMDS credentials. */
 void RefreshIfExpired(StreamState* state) {
   if (state->explicit_creds || !state->sign || !state->creds.Expired()) {
     return;
@@ -307,7 +308,7 @@ void DescribeHttpFailure(const StreamState* state, const Response& response) {
 
 /* Performs `req`.  If S3 reports the credentials as expired, re-reads the
  * ambient chain -- which picks up a ~/.aws/credentials refreshed out of band,
- * or a fresh container/IMDS token -- and retries once.  Environment-variable
+ * or a fresh credential_process/container/IMDS token -- and retries once.  Environment-variable
  * credentials cannot change inside a running process, so for those this only
  * turns a bare HTTP 403 into an actionable message. */
 bool PerformWithRefresh(StreamState* state, const Request& req,
