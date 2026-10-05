@@ -4506,6 +4506,7 @@ int main(int argc, char** argv) {
   InitMendel(&pc.mendel_info);
   InitPermConfig(&pc.perm_config);
   InitFlip(&pc.flip_info);
+  InitHomozyg(&pc.homozyg_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
@@ -4842,7 +4843,6 @@ int main(int argc, char** argv) {
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
     pc.het_flags = kfHet0;
-    InitHomozyg(&pc.homozyg_info);
     pc.test_missing_flags = kfTestMissing0;
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
