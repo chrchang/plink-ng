@@ -110,7 +110,7 @@ jobs:
           plink2 --version
           plink2 --dummy 20 50 --make-pgen --out dummy
           plink2 --pfile dummy --freq --out dummy
-          plink2 --pfile dummy --read-freq dummy.afreq --pca 3 --out dummy
+          plink2 --pfile dummy --read-freq dummy.afreq --maf 0.05 --pca 3 --out dummy
 
   macos:
     name: Build macOS ${{ matrix.arch }}
@@ -160,7 +160,7 @@ jobs:
           ./plink2 --version
           ./plink2 --dummy 20 50 --make-pgen --out dummy
           ./plink2 --pfile dummy --freq --out dummy
-          ./plink2 --pfile dummy --read-freq dummy.afreq --pca 3 --out dummy
+          ./plink2 --pfile dummy --read-freq dummy.afreq --maf 0.05 --pca 3 --out dummy
 
       - name: Package
         working-directory: ./2.0

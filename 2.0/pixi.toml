@@ -33,5 +33,12 @@ r-rcpp = "*"
 r-testthat = ">=3.3.1,<4"
 r-devtools = ">=2.5.0,<3"
 
+# MinIO server and client for Tests/TEST_S3; quay.io/minio/minio is no longer
+# pullable and dl.min.io serves no binaries.
+[feature.s3test.dependencies]
+minio-server = "*"
+minio-client = "*"
+
 [environments]
 r = ["r"]
+s3test = ["s3test"]
