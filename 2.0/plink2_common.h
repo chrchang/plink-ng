@@ -1293,6 +1293,8 @@ uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat
 
 uint32_t RemoveExcludedCats(const uint32_t* data_cat, const uintptr_t* cat_keep_bitarr, uint32_t raw_sample_ct, uint32_t in_sample_ct, uintptr_t* sample_include);
 
+BoolErr CatFromBinaryPheno(uint32_t raw_sample_ct, const PhenoCol** pheno_col_pp);
+
 // pheno_names is also allocated on the heap, but it can be handled with a
 // simple free_cond().
 void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols);

@@ -78,6 +78,27 @@ compare_indiv() {
 compare_summary() {
     awk '
         FNR == NR {
+            if (FNR > 1) { rohct[$2] = $5; ++n1 }
+            next
+        }
+        /^#/ { next }
+        {
+            ++n2;
+            if (rohct[$3] != $4) {
+                print "summary mismatch on " $3; failed = 1; exit 1
+            }
+        }
+        END {
+            if (failed) { exit 1 }
+            if (n1 != n2) { print "variant count mismatch: " n1 " vs " n2; exit 1 }
+            print n1 " variants matched"
+        }
+    ' "$1" "$2"
+}
+
+compare_summary_cc() {
+    awk '
+        FNR == NR {
             if (FNR > 1) { aff[$2] = $4; unaff[$2] = $5; ++n1 }
             next
         }

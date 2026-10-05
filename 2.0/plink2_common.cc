@@ -3744,6 +3744,40 @@ void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {
   }
 }
 
+const char g_cc_cat_names[2][8] = {"CONTROL", "CASE"};
+
+BoolErr CatFromBinaryPheno(uint32_t raw_sample_ct, const PhenoCol** pheno_col_pp) {
+  const PhenoCol* orig_pheno_col = *pheno_col_pp;
+  assert(orig_pheno_col->type_code == kPhenoDtypeCc);
+  PhenoCol* synthetic_pheno_col;
+  uint32_t* cat_tmp;
+  const char** category_names;
+  if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, 1, &synthetic_pheno_col) ||
+               bigstack_end_calloc_u32(raw_sample_ct, &cat_tmp) ||
+               bigstack_end_alloc_kcp(3, &category_names))) {
+    return 1;
+  }
+  const uintptr_t* raw_pheno_nm = orig_pheno_col->nonmiss;
+  const uintptr_t* pheno_cc = orig_pheno_col->data.cc;
+  for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+    if (!IsSet(raw_pheno_nm, sample_uidx)) {
+      continue;
+    }
+    // 'CASE' is lexicographically before 'CONTROL'
+    cat_tmp[sample_uidx] = 2 - IsSet(pheno_cc, sample_uidx);
+  }
+  category_names[0] = nullptr;
+  category_names[1] = g_cc_cat_names[1];
+  category_names[2] = g_cc_cat_names[0];
+  synthetic_pheno_col->category_names = category_names;
+  synthetic_pheno_col->nonmiss = orig_pheno_col->nonmiss;
+  synthetic_pheno_col->data.cat = cat_tmp;
+  synthetic_pheno_col->type_code = kPhenoDtypeCat;
+  synthetic_pheno_col->nonnull_category_ct = 2;
+  *pheno_col_pp = synthetic_pheno_col;
+  return 0;
+}
+
 PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t prohibit_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask) {
   PglErr reterr = kPglRetSuccess;
   {
