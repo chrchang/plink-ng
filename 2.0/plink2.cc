@@ -91,7 +91,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (5 Oct 2026)";
+  " (6 Oct 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -732,6 +732,7 @@ typedef struct Plink2CmdlineStruct {
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
   char* perm_pheno_name;
+  char* test_missing_pheno_name;
   uint32_t perm_pheno_ct;
   uint32_t write_var_range_ct;
   InfoColsInfo info_cols_info;
@@ -3669,7 +3670,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1TestMissing) {
-        reterr = TestMissingReport(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->test_missing_flags, &simple_pgr, outname, outname_end);
+        reterr = TestMissingReport(sample_include, sex_male, pheno_cols, pheno_names, pcp->test_missing_pheno_name, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->test_missing_flags, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -4459,6 +4460,7 @@ int main(int argc, char** argv) {
   pc.update_name_flag = nullptr;
   pc.perm_pheno_name = nullptr;
   pc.perm_pheno_ct = 0;
+  pc.test_missing_pheno_name = nullptr;
   pc.update_sample_ids_fname = nullptr;
   pc.update_parental_ids_fname = nullptr;
   pc.recover_var_ids_fname = nullptr;
@@ -14637,7 +14639,7 @@ int main(int argc, char** argv) {
           memcpy(pgenname, fname, slen + 1);
           xload = kfXloadTped;
         } else if (strequal_k_unsafe(flagname_p2, "est-missing")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_cols = 0;
@@ -14650,6 +14652,15 @@ int main(int argc, char** argv) {
               pc.test_missing_flags |= kfTestMissingDosage;
             } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.test_missing_flags |= kfTestMissingZs;
+            } else if (StrStartsWith(cur_modif, "pheno=", cur_modif_slen)) {
+              if (unlikely(pc.test_missing_pheno_name)) {
+                logerrputs("Error: Multiple --test-missing pheno= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = CmdlineAllocString(&(cur_modif[strlen("pheno=")]), argvk[arg_idx], kMaxIdSlen, &pc.test_missing_pheno_name);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
               reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0nmissa\0nobsa\0fmissa\0nmissu\0nobsu\0fmissu\0p\0", "test-missing", kfTestMissingColChrom, kfTestMissingColDefault, 0, &pc.test_missing_flags);
               if (unlikely(reterr)) {
@@ -16201,6 +16212,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
+  free_cond(pc.test_missing_pheno_name);
   free_cond(pc.perm_pheno_name);
   CleanupMeta(&meta_info);
   CleanupInfoCols(&pc.info_cols_info);

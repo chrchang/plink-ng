@@ -937,10 +937,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("test-missing\0", &help_ctrl, 1,
 "  --test-missing ['midp'] ['dosage'] ['zs'] ['cols='<column set descriptor>]\n"
+"                 ['pheno='<pheno name>]\n"
 "    Check for association between missingness and case/control status, using\n"
 "    Fisher's exact test.  As in PLINK 1.x, heterozygous haploid calls are\n"
 "    treated as missing, chrY is restricted to males, and variants with no\n"
 "    missing calls (or nothing but missing calls) are omitted.\n"
+"    * If exactly one case/control phenotype is defined, it is used.  Otherwise,\n"
+"      you can specify it with \"pheno=<pheno name>\".\n"
 "    * The 'midp' modifier applies Lancaster's mid-p adjustment.\n"
 "    * By default a call is missing when it has no hardcall.  The 'dosage'\n"
 "      modifier counts it as missing only when it has no dosage either, which\n"

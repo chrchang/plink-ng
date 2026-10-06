@@ -12452,7 +12452,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
 // controls?  The 2x2 table is (missing, nonmissing) x (case, control), and the
 // test is Fisher's exact, as in PLINK 1.x.  Heterozygous haploid calls count
 // as missing.
-PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const char* test_missing_pheno_name, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -12460,15 +12460,40 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
   PglErr reterr = kPglRetSuccess;
   {
     const PhenoCol* cc_pheno_col = nullptr;
-    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
-        cc_pheno_col = &(pheno_cols[pheno_idx]);
-        break;
+    if (test_missing_pheno_name) {
+      const uint32_t test_missing_pheno_name_blen = 1 + strlen(test_missing_pheno_name);
+      if (test_missing_pheno_name_blen <= max_pheno_name_blen) {
+        const char* pheno_names_iter = pheno_names;
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+          if (memequal(test_missing_pheno_name, pheno_names_iter, test_missing_pheno_name_blen)) {
+            cc_pheno_col = &(pheno_cols[pheno_idx]);
+            if (unlikely(cc_pheno_col->type_code != kPhenoDtypeCc)) {
+              logerrputs("Error: --test-missing pheno= specified a quantitative or categorical phenotype;\na binary phenotype is required.\n");
+              goto TestMissingReport_ret_INCONSISTENT_INPUT;
+            }
+            break;
+          }
+          pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
+        }
       }
-    }
-    if (unlikely(!cc_pheno_col)) {
-      logerrputs("Error: --test-missing requires a case/control phenotype.\n");
-      goto TestMissingReport_ret_INCONSISTENT_INPUT;
+      if (unlikely(!cc_pheno_col)) {
+        logerrputs("Error: --test-missing pheno= argument does not correspond to a loaded\nphenotype.\n");
+        goto TestMissingReport_ret_INCONSISTENT_INPUT;
+      }
+    } else {
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+          if (unlikely(cc_pheno_col)) {
+            logerrputs("Error: --test-missing: Multiple binary phenotypes are defined.  You can use\n\"pheno=<pheno name>\" to specify the one you want --test-missing to look at.\n");
+            goto TestMissingReport_ret_INCONSISTENT_INPUT;
+          }
+          cc_pheno_col = &(pheno_cols[pheno_idx]);
+        }
+      }
+      if (unlikely(!cc_pheno_col)) {
+        logerrputs("Error: --test-missing requires a binary phenotype.\n");
+        goto TestMissingReport_ret_INCONSISTENT_INPUT;
+      }
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* sample_include;

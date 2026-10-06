@@ -95,7 +95,7 @@ diff -q <(tail -n +2 plink2.missing | cut -f 3,6) <(tail -n +2 plink2_p.missing)
 #    where the two notions differ: 'dosage-freq=1' gives every call a dosage,
 #    and a strict --hard-call-threshold then erases most of the hardcalls
 #    without touching the dosages.
-$1/plink2 $2 $3 --dummy 400 200 0.05 dosage-freq=1 --seed 7 --hard-call-threshold 0.1 --make-pgen --out tmp_dose
+$1/plink2 $2 $3 --dummy 400 200 0.05 dosage-freq=1 pheno-ct=0 --seed 7 --hard-call-threshold 0.1 --make-pgen --out tmp_dose
 awk 'NR == 1 {print "#IID\tCC"; next} {print $1 "\t" (NR % 2? 2 : 1)}' tmp_dose.psam > tmp_dose_pheno.txt
 $1/plink2 $2 $3 --pfile tmp_dose --pheno tmp_dose_pheno.txt --test-missing cols=chrom,pos,nmissa,nobsa,nmissu,nobsu --out plink2_hc
 $1/plink2 $2 $3 --pfile tmp_dose --pheno tmp_dose_pheno.txt --test-missing dosage cols=chrom,pos,nmissa,nobsa,nmissu,nobsu --out plink2_dos
