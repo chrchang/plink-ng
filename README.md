@@ -8,8 +8,8 @@
 
 [![Homebrew plink1](https://img.shields.io/homebrew/v/plink1?label=brew%20plink1&logo=homebrew)](https://formulae.brew.sh/formula/plink1)
 [![Homebrew plink-ng](https://img.shields.io/homebrew/v/plink-ng?label=brew%20plink-ng&logo=homebrew)](https://formulae.brew.sh/formula/plink-ng)
-[![Bioconda plink](https://img.shields.io/conda/vn/bioconda/plink?label=bioconda%20plink&logo=anaconda)](https://anaconda.org/bioconda/plink)
-[![Bioconda plink2](https://img.shields.io/conda/vn/bioconda/plink2?label=bioconda%20plink2&logo=anaconda)](https://anaconda.org/bioconda/plink2)
+[![Bioconda plink](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fanaconda.org%2Fbioconda%2Fplink%2Fbadges%2Fversion.svg&query=%28%2F%2F*%5Blocal-name%28%29%3D%27text%27%5D%29%5Blast%28%29%5D&prefix=v&label=bioconda%20plink&logo=anaconda&color=blue)](https://anaconda.org/bioconda/plink)
+[![Bioconda plink2](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fanaconda.org%2Fbioconda%2Fplink2%2Fbadges%2Fversion.svg&query=%28%2F%2F*%5Blocal-name%28%29%3D%27text%27%5D%29%5Blast%28%29%5D&prefix=v&label=bioconda%20plink2&logo=anaconda&color=blue)](https://anaconda.org/bioconda/plink2)
 [![PyPI pgenlib](https://img.shields.io/pypi/v/pgenlib?label=pypi%20pgenlib&logo=python&logoColor=white)](https://pypi.org/project/pgenlib/)
 [![CRAN pgenlibr](https://img.shields.io/cran/v/pgenlibr?label=CRAN%20pgenlibr&logo=r)](https://CRAN.R-project.org/package=pgenlibr)
 
