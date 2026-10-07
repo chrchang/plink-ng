@@ -14481,6 +14481,11 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
       logerrputs("Warning: Skipping --blocks, since there are less than two founders.\n");
       goto HaploviewBlocks_ret_1;
     }
+    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent) {
+      logerrputs("Error: --blocks calculation for already-phased data is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto HaploviewBlocks_ret_1;
+    }
     const uint32_t no_small_max_span = (bip->flags / kfBlocksNoSmallMaxSpan) & 1;
     const uint32_t max_window_bp = bip->max_bp;
     const uint32_t max_window_bp1 = no_small_max_span? 0x7fffffff : 20000;
@@ -15856,6 +15861,11 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     }
     if (sample_ct < 2) {
       logerrputs("Warning: Skipping --test-mishap, since there are less than two samples.\n");
+      goto TestMishap_ret_1;
+    }
+    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent) {
+      logerrputs("Error: --test-mishap calculation for already-phased data is under development.\n");
+      reterr = kPglRetNotYetSupported;
       goto TestMishap_ret_1;
     }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
