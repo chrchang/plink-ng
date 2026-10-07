@@ -16938,6 +16938,7 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
   panel_cip.chr_mask = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
+    // Not fully functional yet.  Needs windowing logic, dprime, verbose.
     uint32_t panel_raw_sample_ct = 0;
     reterr = CountPsamSamples(ldip->flipscan_ref_psam_fname, max_thread_ct, &panel_raw_sample_ct);
     if (unlikely(reterr)) {

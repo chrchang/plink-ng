@@ -7866,6 +7866,10 @@ int main(int argc, char** argv) {
           }
           pc.ld_info.flipscan_max_maj_freq = dxx;
         } else if (strequal_k_unsafe(flagname_p2, "lip-scan-ref-freq") || strequal_k_unsafe(flagname_p2, "lipscan-ref-freq")) {
+          if (unlikely(pc.ld_info.flipscan_flags & kfFlipScanVerbose)) {
+            logerrputs("Error: --flip-scan-ref-freq cannot be used with \"--flip-scan verbose\".\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
