@@ -29,14 +29,14 @@ mv tmp_ped.fam tmp_data.fam
 
 compare() {
     plink --bfile tmp_data --maf 0.05 --flip-scan $1 --out plink19
-    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan $1 cols=chrom,pos,ref,alt,altfreq,posct,rpos,negct,rneg,negids $COMPAT --out plink2
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan $1 cols=chrom,pos,a1,freqbase,posct,rpos,negct,rneg,negids $COMPAT --out plink2
     awk -f compare.awk plink19.flipscan plink2.flipscan
 }
 
 # 1. Defaults, and each window/threshold flag.
 compare ""
 plink --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-window 5 --out plink19_w5
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,ref,alt,altfreq,posct,rpos,negct,rneg,negids $COMPAT --flip-scan-window 5 --out plink2_w5
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,a1,freqbase,posct,rpos,negct,rneg,negids $COMPAT --flip-scan-window 5 --out plink2_w5
 awk -f compare.awk plink19_w5.flipscan plink2_w5.flipscan
 
 # --flip-scan-window-kb values large enough to hold the whole variant-count
@@ -44,16 +44,16 @@ awk -f compare.awk plink19_w5.flipscan plink2_w5.flipscan
 # neighbors at all at 40 kb and below, while plink2 truncates the window and
 # keeps going, so only the larger values are compared here.
 plink --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-window-kb 100 --out plink19_kb
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,ref,alt,altfreq,posct,rpos,negct,rneg,negids $COMPAT --flip-scan-window-kb 100 --out plink2_kb
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,a1,freqbase,posct,rpos,negct,rneg,negids $COMPAT --flip-scan-window-kb 100 --out plink2_kb
 awk -f compare.awk plink19_kb.flipscan plink2_kb.flipscan
 
 plink --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-threshold 0.2 --out plink19_thr
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,ref,alt,altfreq,posct,rpos,negct,rneg,negids $COMPAT --flip-scan-threshold 0.2 --out plink2_thr
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,a1,freqbase,posct,rpos,negct,rneg,negids $COMPAT --flip-scan-threshold 0.2 --out plink2_thr
 awk -f compare.awk plink19_thr.flipscan plink2_thr.flipscan
 
 # 2. 'verbose' adds one line per above-threshold neighbor pair.
 plink --bfile tmp_data --maf 0.05 --flip-scan verbose --out plink19_v
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan verbose cols=chrom,pos,ref,alt,altfreq,posct,rpos,negct,rneg,negids $COMPAT --out plink2_v
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan verbose cols=chrom,pos,a1,freqbase,posct,rpos,negct,rneg,negids $COMPAT --out plink2_v
 awk -f compare.awk plink19_v.flipscan plink2_v.flipscan
 awk -f compare_verbose.awk plink19_v.flipscan.verbose plink2_v.flipscan.verbose
 
@@ -64,41 +64,40 @@ test "$(grep -vc '^#' plink2.flipscan)" -gt 20
 # 4. The result must not depend on --threads.
 for t in 1 3 8
 do
-    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,ref,alt,altfreq,posct,rpos,negct,rneg,negids $COMPAT --threads $t --out plink2_t$t
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan cols=chrom,pos,a1,freqbase,posct,rpos,negct,rneg,negids $COMPAT --threads $t --out plink2_t$t
     diff -q plink2.flipscan plink2_t$t.flipscan
 done
 
 # 5. 'zs' is the same report, compressed.
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan zs cols=chrom,pos,ref,alt,altfreq,posct,rpos,negct,rneg,negids $COMPAT --out plink2_zs
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan zs cols=chrom,pos,a1,freqbase,posct,rpos,negct,rneg,negids $COMPAT --out plink2_zs
 $BUILD/plink2 $EXTRA1 $EXTRA2 --zst-decompress plink2_zs.flipscan.zst > plink2_zs.flipscan
 diff -q plink2.flipscan plink2_zs.flipscan
 
 # 6. The redesign, which PLINK 1.9 has no equivalent of.
 #    The default report carries the two group frequencies and a PROBLEM call.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --out plink2_new
-head -n 1 plink2_new.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	CASE_MAJ_FREQ	CTRL_MAJ_FREQ	POS_CT	R_POS	NEG_CT	R_NEG	PROBLEM	NEG_IDS'
+head -n 1 plink2_new.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	PROVISIONAL_REF?	A1	CASE_A1_FREQ	CTRL_A1_FREQ	POS_CT	R_POS	NEG_CT	R_NEG	PROBLEM	NEG_IDS'
 # Both frequencies are for the same allele, so they are on the same side of
 # 0.5 unless the variant is one of the planted flips.
-awk -F '\t' 'NR > 1 && $6 != "NA" && $7 != "NA" && $6 < 0.5 && $7 < 0.5 {print "both group frequencies below 0.5 on " $3; exit 1}' plink2_new.flipscan
+awk -F '\t' 'NR > 1 && $8 != "NA" && $9 != "NA" && $8 < 0.5 && $9 < 0.5 {print "both group frequencies below 0.5 on " $3; exit 1}' plink2_new.flipscan
 
-# 'ref-allele-based' renames the columns and reports REF instead of MAJ.
+# 'ref-allele-based' sets A1=REF instead of MAJ.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan ref-allele-based --out plink2_ref
-head -n 1 plink2_ref.flipscan | grep -q 'CASE_REF_FREQ	CTRL_REF_FREQ'
-# Everything except the two frequency columns is unchanged by it.
-diff -q <(cut -f 1-5,8- plink2_new.flipscan) <(cut -f 1-5,8- plink2_ref.flipscan)
+# Everything except the allele and frequency columns is unchanged by it.
+diff -q <(cut -f 1-6,10- plink2_new.flipscan) <(cut -f 1-6,10- plink2_ref.flipscan)
 
 # A frequency difference past the threshold flags a variant on its own, with
 # no LD scan involved: at a threshold of 0 every variant is flagged.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-freq-diff 0 --out plink2_fd0
-test "$(awk -F '\t' 'NR > 1 && $12 == "Y"' plink2_fd0.flipscan | wc -l)" -eq "$(($(wc -l < plink2_fd0.flipscan) - 1))"
+test "$(awk -F '\t' 'NR > 1 && $14 == "Y"' plink2_fd0.flipscan | wc -l)" -eq "$(($(wc -l < plink2_fd0.flipscan) - 1))"
 # ...and those variants drop out of the LD scan entirely.
-awk -F '\t' 'NR > 1 && ($8 != 0 || $10 != 0) {print "flagged variant still scanned: " $3; exit 1}' plink2_fd0.flipscan
+awk -F '\t' 'NR > 1 && ($10 != 0 || $12 != 0) {print "flagged variant still scanned: " $3; exit 1}' plink2_fd0.flipscan
 
 # Requiring two sign-flipped neighbors instead of one can only reduce the
 # number of problem calls.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-min-neg 1 --out plink2_mn1
-n2=$(awk -F '\t' 'NR > 1 && $12 == "Y"' plink2_new.flipscan | wc -l)
-n1=$(awk -F '\t' 'NR > 1 && $12 == "Y"' plink2_mn1.flipscan | wc -l)
+n2=$(awk -F '\t' 'NR > 1 && $14 == "Y"' plink2_new.flipscan | wc -l)
+n1=$(awk -F '\t' 'NR > 1 && $14 == "Y"' plink2_mn1.flipscan | wc -l)
 test "$n2" -le "$n1"
 
 # The LD scan needs 50 founders per group unless --bad-ld says otherwise.
@@ -113,9 +112,9 @@ $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --keep tmp_few.txt --bad-freqs --
 #    file, with no case/control split and no LD scan.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --freq --out tmp_panel
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_panel.afreq --out plink2_rf
-head -n 1 plink2_rf.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	MAJ_FREQ	PANEL_MAJ_FREQ	PROBLEM'
+head -n 1 plink2_rf.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	PROVISIONAL_REF?	A1	CUR_A1_FREQ	PANEL_A1_FREQ	PROBLEM'
 # Against its own frequencies nothing can differ.
-awk -F '\t' 'NR > 1 && $8 != "N" {print "unexpected call on " $3; exit 1}' plink2_rf.flipscan
+awk -F '\t' 'NR > 1 && $10 != "N" {print "unexpected call on " $3; exit 1}' plink2_rf.flipscan
 # One row per scanned variant, same set the LD-mode report covers.
 diff -q <(cut -f 3 plink2_rf.flipscan | tail -n +2) <(cut -f 3 plink2_new.flipscan | tail -n +2)
 
@@ -128,23 +127,23 @@ awk 'BEGIN{OFS="\t"} NR == 1 {for (i = 1; i <= NF; ++i) {if ($i == "ALT_FREQS") 
      {if (NR % 5 == 0) {$c = ($c <= 0.5)? ($c + 0.3) : ($c - 0.3); ids[$2] = 1}; print}
      END {for (id in ids) {print id > "tmp_shifted_ids.txt"}}' tmp_panel.afreq > tmp_flipped.afreq
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_flipped.afreq --out plink2_rff
-test "$(awk -F '\t' 'NR > 1 && $8 == "Y"' plink2_rff.flipscan | wc -l)" -gt 0
+test "$(awk -F '\t' 'NR > 1 && $10 == "Y"' plink2_rff.flipscan | wc -l)" -gt 0
 # Every call is a shifted variant, and every shifted variant that survived
 # --maf is called.
 awk -F '\t' '
     FNR == NR {shifted[$1] = 1; next}
     FNR > 1 {
-        d = $6 - $7; if (d < 0) {d = -d}
-        if (($8 == "Y") != (d > 0.2)) {print "call disagrees with the difference at " $3; exit 1}
-        if (($8 == "Y") && !($3 in shifted)) {print "called an unshifted variant: " $3; exit 1}
-        if (($8 == "N") && ($3 in shifted)) {print "missed a shifted variant: " $3; exit 1}
+        d = $8 - $9; if (d < 0) {d = -d}
+        if (($10 == "Y") != (d > 0.2)) {print "call disagrees with the difference at " $3; exit 1}
+        if (($10 == "Y") && !($3 in shifted)) {print "called an unshifted variant: " $3; exit 1}
+        if (($10 == "N") && ($3 in shifted)) {print "missed a shifted variant: " $3; exit 1}
     }' tmp_shifted_ids.txt plink2_rff.flipscan
 
 # A variant absent from the file is NA rather than a call.
 head -n 40 tmp_panel.afreq > tmp_partial.afreq
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_partial.afreq --out plink2_rfp
-test "$(awk -F '\t' 'NR > 1 && $8 == "NA"' plink2_rfp.flipscan | wc -l)" -gt 0
-awk -F '\t' 'NR > 1 && $8 == "NA" && $7 != "NA" {print "panel frequency present for an NA row: " $3; exit 1}' plink2_rfp.flipscan
+test "$(awk -F '\t' 'NR > 1 && $10 == "NA"' plink2_rfp.flipscan | wc -l)" -gt 0
+awk -F '\t' 'NR > 1 && $10 == "NA" && $9 != "NA" {print "panel frequency present for an NA row: " $3; exit 1}' plink2_rfp.flipscan
 
 # This mode needs neither a phenotype nor sorted coordinates, so it works on
 # the same fileset with the phenotype column blanked out.
@@ -152,7 +151,7 @@ awk 'BEGIN{OFS=" "} {$6 = -9; print}' tmp_data.fam > tmp_nopheno.fam
 cp tmp_data.bed tmp_nopheno.bed
 cp tmp_data.bim tmp_nopheno.bim
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_nopheno --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_panel.afreq --out plink2_rfnp
-diff -q <(cut -f 1-5 plink2_rf.flipscan) <(cut -f 1-5 plink2_rfnp.flipscan)
+diff -q <(cut -f 1-7 plink2_rf.flipscan) <(cut -f 1-7 plink2_rfnp.flipscan)
 
 # --flip-scan-ref-freq without --flip-scan is an error.
 if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --flip-scan-ref-freq tmp_panel.afreq --freq --out plink2_bad > /dev/null 2>&1; then
@@ -211,8 +210,8 @@ awk 'BEGIN{OFS=" "} {print $1, $2, 0, 0, (NR % 2) + 1, (NR > 200)? 2 : 1}' tmp_d
 mv tmp_dp_ped.fam tmp_dp.fam
 
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime verbose --out plink2_dp
-head -n 1 plink2_dp.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	CASE_MAJ_FREQ	CTRL_MAJ_FREQ	POS_CT	DPRIME_POS	NEG_CT	DPRIME_NEG	PROBLEM	NEG_IDS'
-head -n 1 plink2_dp.flipscan.verbose | grep -qx '#CHROM	ID_INDEX	POS_INDEX	ALT_INDEX	ID_PAIR	POS_PAIR	ALT_PAIR	D_PRIME_A	D_PRIME_U'
+head -n 1 plink2_dp.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	PROVISIONAL_REF?	A1	CASE_A1_FREQ	CTRL_A1_FREQ	POS_CT	DPRIME_POS	NEG_CT	DPRIME_NEG	PROBLEM	NEG_IDS'
+head -n 1 plink2_dp.flipscan.verbose | grep -qx '#CHROM	POS_INDEX	ID_INDEX	A1_INDEX	POS_PAIR	ID_PAIR	A1_PAIR	D_PRIME_A	D_PRIME_U'
 
 # Every D' value against an independent computation: dprime_oracle.py fits
 # the haplotype frequencies by a direct likelihood search instead of plink2's
@@ -230,7 +229,7 @@ $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --keep tmp_dp_cases.txt 
 awk -F '\t' '
     FNR == NR {if (FNR > 1) {d = $8; if (d < 0) {d = -d}; dp[$3 "|" $6] = d; dp[$6 "|" $3] = d}; next}
     FNR > 1 {
-        key = $2 "|" $5
+        key = $3 "|" $6
         if (!(key in dp)) {next}
         d = $8; if (d < 0) {d = -d}
         diff = d - dp[key]; if (diff < 0) {diff = -diff}
@@ -242,18 +241,18 @@ awk -F '\t' '
 # In D' mode a pair counts only when both groups reach the threshold, so every
 # verbose line does, and each variant's NEG_CT is the number of its verbose
 # lines with opposite signs.
-awk -F '\t' 'NR > 1 {a = ($8 < 0)? -$8 : $8; u = ($9 < 0)? -$9 : $9; if (a < 0.5 || u < 0.5) {print "below-threshold pair " $2 " " $5; exit 1}}' plink2_dp.flipscan.verbose
+awk -F '\t' 'NR > 1 {a = ($8 < 0)? -$8 : $8; u = ($9 < 0)? -$9 : $9; if (a < 0.5 || u < 0.5) {print "below-threshold pair " $3 " " $6; exit 1}}' plink2_dp.flipscan.verbose
 awk -F '\t' '
-    FNR == NR {if (FNR > 1 && $8 * $9 < 0) {neg[$2]++}; next}
-    FNR > 1 && $10 > 0 {if (neg[$3] != $10) {print "NEG_CT " $10 " but " neg[$3] + 0 " sign-flipped verbose lines for " $3; exit 1}}' plink2_dp.flipscan.verbose plink2_dp.flipscan
+    FNR == NR {if (FNR > 1 && $8 * $9 < 0) {neg[$3]++}; next}
+    FNR > 1 && $12 > 0 {if (neg[$3] != $12) {print "NEG_CT " $12 " but " neg[$3] + 0 " sign-flipped verbose lines for " $3; exit 1}}' plink2_dp.flipscan.verbose plink2_dp.flipscan
 
 # The planted flips (every 9th variant; index = block * 12 + position) are all
 # found.
-awk -F '\t' 'NR > 1 {split(substr($3, 2), bv, "v"); idx = bv[1] * 12 + bv[2]; if (idx % 9 == 0 && $12 != "Y") {print "missed planted flip " $3; exit 1}}' plink2_dp.flipscan
+awk -F '\t' 'NR > 1 {split(substr($3, 2), bv, "v"); idx = bv[1] * 12 + bv[2]; if (idx % 9 == 0 && $14 != "Y") {print "missed planted flip " $3; exit 1}}' plink2_dp.flipscan
 
 # 'dprime' changes the statistic columns and nothing before them.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan --out plink2_dp_r
-diff -q <(cut -f 1-7 plink2_dp_r.flipscan) <(cut -f 1-7 plink2_dp.flipscan)
+diff -q <(cut -f 1-9 plink2_dp_r.flipscan) <(cut -f 1-9 plink2_dp.flipscan)
 
 # Independent of --threads.
 for t in 1 3 8

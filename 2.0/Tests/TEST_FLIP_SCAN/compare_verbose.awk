@@ -1,7 +1,7 @@
 # Compares the .flipscan.verbose files.  Both list one line per
 # above-threshold neighbor pair of a flagged variant; the allele columns use
-# PLINK 1.9's A1 and plink2's ALT.  Recoding one variant of a pair flips the
-# sign of both correlations, so what is comparable is their magnitudes and
+# PLINK 1.9's minor and plink2's major.  Recoding one variant of a pair flips
+# the sign of both correlations, so what is comparable is their magnitudes and
 # whether they agree in sign, which is the quantity the scan is about.
 function abs(x) { return (x < 0)? -x : x }
 function same_value(a, b) { return abs(a - b) <= 1e-3 + 1e-3 * abs(a) }
@@ -13,7 +13,7 @@ FNR == NR {
 /^#/ { next }
 {
     ++n2;
-    key = $2 "|" $5;
+    key = $3 "|" $6;
     if (!(key in rcase)) { print "pair missing from the PLINK 1.9 report: " key; failed = 1; exit 1 }
     if (!same_value(abs(rcase[key]), abs($8)) || !same_value(abs(rctrl[key]), abs($9)) ||
         (sgn(rcase[key]) * sgn(rctrl[key]) != sgn($8) * sgn($9))) {

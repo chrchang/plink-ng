@@ -12545,14 +12545,7 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
     const uint32_t alt1_col = flags & kfTestMissingColAlt1;
     const uint32_t alt_col = flags & kfTestMissingColAlt;
     const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
-    uint32_t provref_col = 0;
-    if (ref_col) {
-      if (flags & kfTestMissingColProvref) {
-        provref_col = 1;
-      } else if (flags & kfTestMissingColMaybeprovref) {
-        provref_col = all_nonref || (nonref_flags && (!IntersectionRangeIsEmpty(variant_include, nonref_flags, 0, raw_variant_ct)));
-      }
-    }
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, flags / kfTestMissingColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t nmissa_col = flags & kfTestMissingColNmissa;
     const uint32_t nobsa_col = flags & kfTestMissingColNobsa;
     const uint32_t fmissa_col = flags & kfTestMissingColFmissa;

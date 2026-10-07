@@ -109,23 +109,27 @@ FLAGSET_DEF_START()
   kfFlipScanZs = (1 << 1),
   // Report REF frequencies rather than major-allele frequencies, and name the
   // columns accordingly.
-  kfFlipScanRefBased = (1 << 14),
+  kfFlipScanRefBased = (1 << 2),
   // Compare signed D' between cases and controls instead of r.
-  kfFlipScanDprime = (1 << 15),
+  kfFlipScanDprime = (1 << 3),
 
-  kfFlipScanColChrom = (1 << 2),
-  kfFlipScanColPos = (1 << 3),
-  kfFlipScanColRef = (1 << 4),
-  kfFlipScanColAlt = (1 << 5),
-  kfFlipScanColAltfreq = (1 << 6),
-  kfFlipScanColPosct = (1 << 7),
-  kfFlipScanColRpos = (1 << 8),
-  kfFlipScanColNegct = (1 << 9),
-  kfFlipScanColRneg = (1 << 10),
-  kfFlipScanColNegids = (1 << 11),
-  kfFlipScanColMajfreq = (1 << 12),
-  kfFlipScanColProblem = (1 << 13),
-  kfFlipScanColDefault = (kfFlipScanColChrom | kfFlipScanColPos | kfFlipScanColRef | kfFlipScanColAlt | kfFlipScanColMajfreq | kfFlipScanColPosct | kfFlipScanColRpos | kfFlipScanColNegct | kfFlipScanColRneg | kfFlipScanColProblem | kfFlipScanColNegids),
+  kfFlipScanColChrom = (1 << 4),
+  kfFlipScanColPos = (1 << 5),
+  kfFlipScanColRef = (1 << 6),
+  kfFlipScanColAlt = (1 << 7),
+  kfFlipScanColMaybeprovref = (1 << 8),
+  kfFlipScanColProvref = (1 << 9),
+  kfFlipScanColA1 = (1 << 10),
+  // Add kfFlipScanColAx (all alleles except A1, see --glm) if anyone wants it.
+  kfFlipScanColFreqbase = (1 << 11),
+  kfFlipScanColFreqs = (1 << 12),
+  kfFlipScanColPosct = (1 << 13),
+  kfFlipScanColRpos = (1 << 14),
+  kfFlipScanColNegct = (1 << 15),
+  kfFlipScanColRneg = (1 << 16),
+  kfFlipScanColNegids = (1 << 17),
+  kfFlipScanColProblem = (1 << 18),
+  kfFlipScanColDefault = (kfFlipScanColChrom | kfFlipScanColPos | kfFlipScanColRef | kfFlipScanColAlt | kfFlipScanColMaybeprovref | kfFlipScanColA1 | kfFlipScanColFreqs | kfFlipScanColPosct | kfFlipScanColRpos | kfFlipScanColNegct | kfFlipScanColRneg | kfFlipScanColProblem | kfFlipScanColNegids),
   kfFlipScanColAll = ((kfFlipScanColProblem * 2) - kfFlipScanColChrom)
 FLAGSET_DEF_END(FlipScanFlags);
 
@@ -291,11 +295,11 @@ void InitVcor(VcorInfo* vcip);
 
 void CleanupVcor(VcorInfo* vcip);
 
-PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, PgenGlobalFlags gflags, uint32_t max_thread_ct, char* outname, char* outname_end);
 
-PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end);
 
-PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

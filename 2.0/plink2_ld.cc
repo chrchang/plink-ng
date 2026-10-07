@@ -16579,76 +16579,77 @@ THREAD_FUNC_DECL FlipScanThread(void* raw_arg) {
 }
 
 
-// Opens the reference fileset and maps this dataset's variants onto it by ID.
-// ref_uidxs[] is filled with each variant's index in the reference, or
-// UINT32_MAX when there is no usable match; ref_flips[] records the ones whose
-// REF/ALT are the other way round there.
-PglErr FlipScanMatchRefVariants(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* const* ref_variant_ids, const uintptr_t* ref_allele_idx_offsets, const char* const* ref_allele_storage, const uintptr_t* ref_variant_include, uint32_t variant_ct, uint32_t ref_variant_ct, uint32_t max_thread_ct, uint32_t* ref_uidxs, uintptr_t* ref_flips, uint32_t* matched_ct_ptr, uint32_t* allele_mismatch_ct_ptr) {
+// Opens the panel fileset and maps this dataset's variants onto it by ID.
+// panel_uidxs[] is filled with each variant's index in the panel, or
+// UINT32_MAX when there is no usable match; panel_a1_idxs[] (indexed by
+// *main*-dataset variant_uidx) records which allele to use for each variant.
+PglErr FlipScanMatchPanelVariants(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const char* const* panel_variant_ids, const uintptr_t* panel_allele_idx_offsets, const char* const* panel_allele_storage, const uintptr_t* panel_variant_include, uint32_t variant_ct, uint32_t panel_variant_ct, uint32_t max_thread_ct, uint32_t* panel_uidxs, AlleleCode* panel_a1_idxs, uint32_t* matched_ct_ptr, uint32_t* allele_mismatch_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
     uint32_t* id_htable;
     uint32_t id_htable_size;
     uint32_t dup_found;
-    reterr = AllocAndPopulateNondupHtableMt(g_bigstack_end, ref_variant_include, ref_variant_ids, ref_variant_ct, max_thread_ct, &g_bigstack_base, &id_htable, &id_htable_size, &dup_found);
+    reterr = AllocAndPopulateNondupHtableMt(g_bigstack_end, panel_variant_include, panel_variant_ids, panel_variant_ct, max_thread_ct, &g_bigstack_base, &id_htable, &id_htable_size, &dup_found);
     if (unlikely(reterr)) {
-      goto FlipScanMatchRefVariants_ret_1;
+      goto FlipScanMatchPanelVariants_ret_1;
     }
     if (unlikely(dup_found)) {
       logerrputs("Error: --flip-scan reference fileset contains duplicate variant IDs.\n");
       reterr = kPglRetInconsistentInput;
-      goto FlipScanMatchRefVariants_ret_1;
+      goto FlipScanMatchPanelVariants_ret_1;
     }
     uint32_t matched_ct = 0;
     uint32_t allele_mismatch_ct = 0;
+    uint32_t a1_allele_idx = 0;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-      ref_uidxs[variant_uidx] = UINT32_MAX;
+      panel_uidxs[variant_uidx] = UINT32_MAX;
       const char* cur_id = variant_ids[variant_uidx];
-      const uint32_t ref_uidx = IdHtableFindNnt(cur_id, ref_variant_ids, id_htable, strlen(cur_id), id_htable_size);
-      if (ref_uidx == UINT32_MAX) {
+      const uint32_t panel_uidx = IdHtableFindNnt(cur_id, panel_variant_ids, id_htable, strlen(cur_id), id_htable_size);
+      if (panel_uidx == UINT32_MAX) {
         continue;
       }
-      // Both sides have to be biallelic with the same allele pair, in either
-      // order.  A swap is one of the things this command exists to find, so it
-      // is recorded rather than rejected.
+      // Only the A1 (default major, becomes REF if 'ref-allele-based'
+      // specified) allele must exist in both variants.
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
-      uint32_t allele_ct = 2;
+      // uint32_t allele_ct = 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        // allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      uintptr_t ref_allele_idx_offset_base = ref_uidx * 2;
-      uint32_t ref_allele_ct = 2;
-      if (ref_allele_idx_offsets) {
-        ref_allele_idx_offset_base = ref_allele_idx_offsets[ref_uidx];
-        ref_allele_ct = ref_allele_idx_offsets[ref_uidx + 1] - ref_allele_idx_offset_base;
+      if (maj_alleles) {
+        a1_allele_idx = maj_alleles[variant_uidx];
       }
-      if ((allele_ct != 2) || (ref_allele_ct != 2)) {
+      const char* cur_a1 = allele_storage[allele_idx_offset_base + a1_allele_idx];
+      const uint32_t cur_a1_blen = 1 + strlen(cur_a1);
+
+      uintptr_t panel_allele_idx_offset_base = panel_uidx * 2;
+      uint32_t panel_allele_ct = 2;
+      if (panel_allele_idx_offsets) {
+        panel_allele_idx_offset_base = panel_allele_idx_offsets[panel_uidx];
+        panel_allele_ct = panel_allele_idx_offsets[panel_uidx + 1] - panel_allele_idx_offset_base;
+      }
+      const char* const* cur_panel_alleles = &(panel_allele_storage[panel_allele_idx_offset_base]);
+      uint32_t panel_allele_idx = 0;
+      for (; panel_allele_idx != panel_allele_ct; ++panel_allele_idx) {
+        if (memequal(cur_a1, cur_panel_alleles[panel_allele_idx], cur_a1_blen)) {
+          break;
+        }
+      }
+      if (panel_allele_idx == panel_allele_ct) {
         ++allele_mismatch_ct;
         continue;
       }
-      const char* a0 = allele_storage[allele_idx_offset_base];
-      const char* a1 = allele_storage[allele_idx_offset_base + 1];
-      const char* r0 = ref_allele_storage[ref_allele_idx_offset_base];
-      const char* r1 = ref_allele_storage[ref_allele_idx_offset_base + 1];
-      if (strequal_overread(a0, r0) && strequal_overread(a1, r1)) {
-        ref_uidxs[variant_uidx] = ref_uidx;
-      } else if (strequal_overread(a0, r1) && strequal_overread(a1, r0)) {
-        ref_uidxs[variant_uidx] = ref_uidx;
-        SetBit(variant_uidx, ref_flips);
-      } else {
-        ++allele_mismatch_ct;
-        continue;
-      }
+      panel_a1_idxs[variant_uidx] = panel_allele_idx;
       ++matched_ct;
     }
     *matched_ct_ptr = matched_ct;
     *allele_mismatch_ct_ptr = allele_mismatch_ct;
   }
- FlipScanMatchRefVariants_ret_1:
+ FlipScanMatchPanelVariants_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -16660,7 +16661,7 @@ PglErr FlipScanMatchRefVariants(const uintptr_t* variant_include, const char* co
 // time what a user actually has is a frequency table, and a plain frequency
 // comparison catches the easy half of the problem, so this mode skips the LD
 // scan entirely and reports the frequency difference on its own.
-PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, PgenGlobalFlags gflags, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -16698,7 +16699,10 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
     const uint32_t col_pos = (flipscan_flags / kfFlipScanColPos) & 1;
     const uint32_t col_ref = (flipscan_flags / kfFlipScanColRef) & 1;
     const uint32_t col_alt = (flipscan_flags / kfFlipScanColAlt) & 1;
-    const uint32_t col_majfreq = (flipscan_flags / kfFlipScanColMajfreq) & 1;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t col_provref = col_ref && ProvrefCol(variant_include, nonref_flags, flipscan_flags / kfFlipScanColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t col_a1 = (flipscan_flags / kfFlipScanColA1) & 1;
+    const uint32_t col_freqs = (flipscan_flags / kfFlipScanColFreqs) & 1;
     const uint32_t col_problem = (flipscan_flags / kfFlipScanColProblem) & 1;
 
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
@@ -16726,12 +16730,14 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
     if (col_alt) {
       cswritep = strcpya_k(cswritep, "\tALT");
     }
-    if (col_majfreq) {
-      if (ref_allele_based) {
-        cswritep = strcpya_k(cswritep, "\tREF_FREQ\tPANEL_REF_FREQ");
-      } else {
-        cswritep = strcpya_k(cswritep, "\tMAJ_FREQ\tPANEL_MAJ_FREQ");
-      }
+    if (col_provref) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (col_a1) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (col_freqs) {
+      cswritep = strcpya_k(cswritep, "\tCUR_A1_FREQ\tPANEL_A1_FREQ");
     }
     if (col_problem) {
       cswritep = strcpya_k(cswritep, "\tPROBLEM");
@@ -16743,7 +16749,7 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
     uint32_t chr_blen = 0;
     uint32_t problem_ct = 0;
     uint32_t missing_ct = 0;
-    uint32_t maj_allele_idx = 0;
+    uint32_t a1_allele_idx = 0;
     uint32_t cur_allele_ct = 2;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -16765,16 +16771,16 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       if (maj_alleles) {
-        maj_allele_idx = maj_alleles[variant_uidx];
+        a1_allele_idx = maj_alleles[variant_uidx];
       }
-      const double dataset_maj_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
+      const double dataset_a1_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
       // Both sides report the same allele, chosen from this dataset.
       const uint32_t have_panel = !IsSet(not_found, variant_uidx);
-      double panel_maj_freq = 0.0 / 0.0;
+      double panel_a1_freq = 0.0 / 0.0;
       uint32_t is_problem = 0;
       if (have_panel) {
-        panel_maj_freq = GetAlleleFreq(&(ref_allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
-        is_problem = (fabs(dataset_maj_freq - panel_maj_freq) > freq_diff_thresh);
+        panel_a1_freq = GetAlleleFreq(&(ref_allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
+        is_problem = (fabs(dataset_a1_freq - panel_a1_freq) > freq_diff_thresh);
         problem_ct += is_problem;
       } else {
         ++missing_ct;
@@ -16787,20 +16793,36 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
         cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       }
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       if (col_ref) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base]);
+        cswritep = strcpya(cswritep, cur_alleles[0]);
       }
       if (col_alt) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + 1]);
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto FlipScanRefFreq_ret_WRITE_FAIL;
+          }
+          cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+          *cswritep++ = ',';
+        }
+        --cswritep;
       }
-      if (col_majfreq) {
+      if (col_provref) {
         *cswritep++ = '\t';
-        cswritep = dtoa_g(dataset_maj_freq, cswritep);
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
+      if (col_a1) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+      }
+      if (col_freqs) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dataset_a1_freq, cswritep);
         *cswritep++ = '\t';
         if (have_panel) {
-          cswritep = dtoa_g(panel_maj_freq, cswritep);
+          cswritep = dtoa_g(panel_a1_freq, cswritep);
         } else {
           cswritep = strcpya_k(cswritep, "NA");
         }
@@ -16903,82 +16925,86 @@ PglErr CountPsamSamples(const char* psamname, uint32_t max_thread_ct, uint32_t* 
 // rather than a frequency table is what lets the allele reconciliation happen
 // here, which is in turn what makes a REF/ALT swap between the two visible
 // instead of silently changing the answer.
-PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
-  PgenFileInfo ref_pgfi;
-  PgenReader ref_pgr;
-  ChrInfo ref_cip;
+  PgenFileInfo panel_pgfi;
+  PgenReader panel_pgr;
+  ChrInfo panel_cip;
   PreinitCstream(&css);
-  PreinitPgfi(&ref_pgfi);
-  PreinitPgr(&ref_pgr);
-  ref_cip.chr_mask = nullptr;
+  PreinitPgfi(&panel_pgfi);
+  PreinitPgr(&panel_pgr);
+  panel_cip.chr_mask = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
-    uint32_t ref_raw_sample_ct = 0;
-    reterr = CountPsamSamples(ldip->flipscan_ref_psam_fname, max_thread_ct, &ref_raw_sample_ct);
+    uint32_t panel_raw_sample_ct = 0;
+    reterr = CountPsamSamples(ldip->flipscan_ref_psam_fname, max_thread_ct, &panel_raw_sample_ct);
     if (unlikely(reterr)) {
       goto FlipScanRefDataset_ret_1;
     }
-    if (unlikely(!ref_raw_sample_ct)) {
+    if (unlikely(!panel_raw_sample_ct)) {
       logerrputs("Error: --flip-scan reference fileset contains no samples.\n");
       goto FlipScanRefDataset_ret_INCONSISTENT_INPUT;
     }
 
-    if (unlikely(InitChrInfo(&ref_cip))) {
+    if (unlikely(InitChrInfo(&panel_cip))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
-    FinalizeChrset(load_filter_log_flags, &ref_cip);
-    uint32_t ref_raw_variant_ct = 0;
-    uint32_t ref_variant_ct = 0;
-    uintptr_t* ref_variant_include = nullptr;
-    char** ref_variant_ids_mutable = nullptr;
-    uintptr_t* ref_allele_idx_offsets = nullptr;
-    const char** ref_allele_storage = nullptr;
-    uint32_t ref_max_allele_ct = 2;
+    FinalizeChrset(load_filter_log_flags, &panel_cip);
+    uint32_t panel_raw_variant_ct = 0;
+    uint32_t panel_variant_ct = 0;
+    uintptr_t* panel_variant_include = nullptr;
+    char** panel_variant_ids_mutable = nullptr;
+    uintptr_t* panel_allele_idx_offsets = nullptr;
+    const char** panel_allele_storage = nullptr;
+    uint32_t panel_max_allele_ct = 2;
     {
-      uint32_t ref_max_variant_id_slen = 1;
+      uint32_t panel_max_variant_id_slen = 1;
       uint32_t info_reload_slen = 0;
       UnsortedVar vpos_sortstatus = kfUnsortedVar0;
       char* xheader = nullptr;
-      uint32_t* ref_variant_bps = nullptr;
+      uint32_t* panel_variant_bps = nullptr;
       uintptr_t* qual_present = nullptr;
       float* quals = nullptr;
       uintptr_t* filter_present = nullptr;
       uintptr_t* filter_npass = nullptr;
       char** filter_storage = nullptr;
-      uintptr_t* nonref_flags = nullptr;
+      uintptr_t* panel_nonref_flags = nullptr;
       double* variant_cms = nullptr;
       ChrIdx* chr_idxs = nullptr;
       uint32_t neg_bp_seen = 0;
-      uint32_t ref_max_allele_slen = 1;
+      uint32_t panel_max_allele_slen = 1;
       uintptr_t xheader_blen = 0;
       InfoFlags info_flags = kfInfo0;
       uint32_t max_filter_slen = 0;
       CmpExpr null_expr;
       null_expr.etype = kCmpExprTypeNull;
-      reterr = LoadPvar(ldip->flipscan_ref_pvar_fname, nullptr, nullptr, nullptr, nullptr, ".", nullptr, nullptr, &null_expr, &null_expr, kfMisc0, kfPvarPsam0, load_filter_log_flags, 0, 0, -1.0, 0, 0, 0, 0, 1, 0, 0x7fffffff, input_missing_geno_char, max_thread_ct, &ref_cip, &ref_max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &ref_variant_include, &ref_variant_bps, &ref_variant_ids_mutable, &ref_allele_idx_offsets, &ref_allele_storage, &qual_present, &quals, &filter_present, &filter_npass, &filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &ref_raw_variant_ct, &ref_variant_ct, &neg_bp_seen, &ref_max_allele_ct, &ref_max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      reterr = LoadPvar(ldip->flipscan_ref_pvar_fname, nullptr, nullptr, nullptr, nullptr, ".", nullptr, nullptr, &null_expr, &null_expr, kfMisc0, kfPvarPsam0, load_filter_log_flags, 0, 0, -1.0, 0, 0, 0, 0, 1, 0, 0x7fffffff, input_missing_geno_char, max_thread_ct, &panel_cip, &panel_max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &panel_variant_include, &panel_variant_bps, &panel_variant_ids_mutable, &panel_allele_idx_offsets, &panel_allele_storage, &qual_present, &quals, &filter_present, &filter_npass, &filter_storage, &panel_nonref_flags, &variant_cms, &chr_idxs, &panel_raw_variant_ct, &panel_variant_ct, &neg_bp_seen, &panel_max_allele_ct, &panel_max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto FlipScanRefDataset_ret_1;
       }
     }
-    if (unlikely(!ref_variant_ct)) {
+    if (unlikely(!panel_variant_ct)) {
       logerrputs("Error: --flip-scan reference fileset contains no variants.\n");
       goto FlipScanRefDataset_ret_INCONSISTENT_INPUT;
     }
-    const char* const* ref_variant_ids = TO_CONSTCPCONSTP(ref_variant_ids_mutable);
+    const char* const* panel_variant_ids = TO_CONSTCPCONSTP(panel_variant_ids_mutable);
 
-    uint32_t* ref_uidxs;
-    uintptr_t* ref_flips;
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    if (unlikely(bigstack_alloc_u32(raw_variant_ct, &ref_uidxs) ||
-                 bigstack_calloc_w(raw_variant_ctl, &ref_flips))) {
+    uint32_t* panel_uidxs;
+    AlleleCode* panel_a1_idxs;
+    if (unlikely(bigstack_alloc_u32(raw_variant_ct, &panel_uidxs) ||
+                 bigstack_alloc_ac(raw_variant_ct, &panel_a1_idxs))) {
       goto FlipScanRefDataset_ret_NOMEM;
+    }
+    const FlipScanFlags flipscan_flags = ldip->flipscan_flags;
+    const uint32_t ref_allele_based = (flipscan_flags / kfFlipScanRefBased) & 1;
+    if (ref_allele_based) {
+      maj_alleles = nullptr;
     }
     uint32_t matched_ct = 0;
     uint32_t allele_mismatch_ct = 0;
-    reterr = FlipScanMatchRefVariants(variant_include, variant_ids, allele_idx_offsets, allele_storage, ref_variant_ids, ref_allele_idx_offsets, ref_allele_storage, ref_variant_include, variant_ct, ref_variant_ct, max_thread_ct, ref_uidxs, ref_flips, &matched_ct, &allele_mismatch_ct);
+    reterr = FlipScanMatchPanelVariants(variant_include, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, panel_variant_ids, panel_allele_idx_offsets, panel_allele_storage, panel_variant_include, variant_ct, panel_variant_ct, max_thread_ct, panel_uidxs, panel_a1_idxs, &matched_ct, &allele_mismatch_ct);
     if (unlikely(reterr)) {
       goto FlipScanRefDataset_ret_1;
     }
@@ -16989,29 +17015,30 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
 
     PgenHeaderCtrl header_ctrl;
     uintptr_t pgfi_alloc_cacheline_ct;
-    reterr = PgfiInitPhase1(ldip->flipscan_ref_pgen_fname, nullptr, ref_raw_variant_ct, ref_raw_sample_ct, &header_ctrl, &ref_pgfi, &pgfi_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase1(ldip->flipscan_ref_pgen_fname, nullptr, panel_raw_variant_ct, panel_raw_sample_ct, &header_ctrl, &panel_pgfi, &pgfi_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
       WordWrapB(0);
       logerrputsb();
       goto FlipScanRefDataset_ret_1;
     }
-    ref_pgfi.allele_idx_offsets = ref_allele_idx_offsets;
-    ref_pgfi.max_allele_ct = ref_max_allele_ct;
+    panel_pgfi.allele_idx_offsets = panel_allele_idx_offsets;
+    panel_pgfi.max_allele_ct = panel_max_allele_ct;
     unsigned char* pgfi_alloc;
     if (unlikely(bigstack_alloc_uc(pgfi_alloc_cacheline_ct * kCacheline, &pgfi_alloc))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
-    const uint32_t ref_raw_variant_ctl = BitCtToWordCt(ref_raw_variant_ct);
+    const uint32_t panel_raw_variant_ctl = BitCtToWordCt(panel_raw_variant_ct);
     if ((header_ctrl & 192) == 192) {
-      uintptr_t* ref_nonref_flags;
-      if (unlikely(bigstack_alloc_w(ref_raw_variant_ctl, &ref_nonref_flags))) {
+      // todo: sync with earlier panel_nonref_flags definition
+      uintptr_t* panel_nonref_flags;
+      if (unlikely(bigstack_alloc_w(panel_raw_variant_ctl, &panel_nonref_flags))) {
         goto FlipScanRefDataset_ret_NOMEM;
       }
-      ref_pgfi.nonref_flags = ref_nonref_flags;
+      panel_pgfi.nonref_flags = panel_nonref_flags;
     }
     uintptr_t pgr_alloc_cacheline_ct;
     uint32_t max_vrec_width;
-    reterr = PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, ref_raw_variant_ct, &max_vrec_width, &ref_pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, panel_raw_variant_ct, &max_vrec_width, &panel_pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
       WordWrapB(0);
       logerrputsb();
@@ -17021,56 +17048,48 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     if (unlikely(bigstack_alloc_uc((pgr_alloc_cacheline_ct + DivUp(max_vrec_width, kCacheline)) * kCacheline, &pgr_alloc))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
-    reterr = PgrInit(ldip->flipscan_ref_pgen_fname, max_vrec_width, &ref_pgfi, &ref_pgr, pgr_alloc);
+    reterr = PgrInit(ldip->flipscan_ref_pgen_fname, max_vrec_width, &panel_pgfi, &panel_pgr, pgr_alloc);
     if (unlikely(reterr)) {
       goto FlipScanRefDataset_ret_1;
     }
-    uintptr_t* ref_genovec;
-    double* ref_ref_freqs;
-    if (unlikely(bigstack_alloc_w(NypCtToAlignedWordCt(ref_raw_sample_ct), &ref_genovec) ||
-                 bigstack_alloc_d(raw_variant_ct, &ref_ref_freqs))) {
+    uintptr_t* panel_genovec;
+    double* panel_a1_freqs;
+    if (unlikely(bigstack_alloc_w(NypCtToAlignedWordCt(panel_raw_sample_ct), &panel_genovec) ||
+                 bigstack_alloc_d(raw_variant_ct, &panel_a1_freqs))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
     PgrSampleSubsetIndex null_pssi;
-    PgrSetSampleSubsetIndex(nullptr, &ref_pgr, &null_pssi);
+    PgrSetSampleSubsetIndex(nullptr, &panel_pgr, &null_pssi);
     {
       uintptr_t variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        ref_ref_freqs[variant_uidx] = 0.0 / 0.0;
-        const uint32_t ref_uidx = ref_uidxs[variant_uidx];
-        if (ref_uidx == UINT32_MAX) {
+        panel_a1_freqs[variant_uidx] = 0.0 / 0.0;
+        const uint32_t panel_uidx = panel_uidxs[variant_uidx];
+        if (panel_uidx == UINT32_MAX) {
           continue;
         }
-        reterr = PgrGet(nullptr, null_pssi, ref_raw_sample_ct, ref_uidx, &ref_pgr, ref_genovec);
+        reterr = PgrGetInv1(nullptr, null_pssi, panel_raw_sample_ct, panel_uidx, panel_a1_idxs[variant_uidx], &panel_pgr, panel_genovec);
         if (unlikely(reterr)) {
-          PgenErrPrintNV(reterr, ref_uidx);
+          PgenErrPrintNV(reterr, panel_uidx);
           goto FlipScanRefDataset_ret_1;
         }
-        ZeroTrailingNyps(ref_raw_sample_ct, ref_genovec);
+        ZeroTrailingNyps(panel_raw_sample_ct, panel_genovec);
         STD_ARRAY_DECL(uint32_t, 4, genocounts);
-        GenoarrCountFreqsUnsafe(ref_genovec, ref_raw_sample_ct, genocounts);
+        GenoarrCountFreqsUnsafe(panel_genovec, panel_raw_sample_ct, genocounts);
         const uint32_t obs_ct = genocounts[0] + genocounts[1] + genocounts[2];
         if (!obs_ct) {
           continue;
         }
         // genotype 0 is hom-REF in the reference's own orientation, so a
         // flipped match has to be turned around to be comparable.
-        const uint32_t ref_allele_ct = 2 * genocounts[0] + genocounts[1];
-        double cur_freq = u31tod(ref_allele_ct) / u31tod(2 * obs_ct);
-        if (IsSet(ref_flips, variant_uidx)) {
-          cur_freq = 1.0 - cur_freq;
-        }
-        ref_ref_freqs[variant_uidx] = cur_freq;
+        const uint32_t panel_a1_allele_ct = 2 * genocounts[0] + genocounts[1];
+        double cur_freq = u31tod(panel_a1_allele_ct) / u31tod(2 * obs_ct);
+        panel_a1_freqs[variant_uidx] = cur_freq;
       }
     }
 
-    const FlipScanFlags flipscan_flags = ldip->flipscan_flags;
-    const uint32_t ref_allele_based = (flipscan_flags / kfFlipScanRefBased) & 1;
-    if (ref_allele_based) {
-      maj_alleles = nullptr;
-    }
     const uint32_t output_zst = (flipscan_flags / kfFlipScanZs) & 1;
     double freq_diff_thresh = ldip->flipscan_freq_diff;
     if (freq_diff_thresh < 0.0) {
@@ -17081,7 +17100,10 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     const uint32_t col_pos = (flipscan_flags / kfFlipScanColPos) & 1;
     const uint32_t col_ref = (flipscan_flags / kfFlipScanColRef) & 1;
     const uint32_t col_alt = (flipscan_flags / kfFlipScanColAlt) & 1;
-    const uint32_t col_majfreq = (flipscan_flags / kfFlipScanColMajfreq) & 1;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t col_provref = col_ref && ProvrefCol(variant_include, nonref_flags, flipscan_flags / kfFlipScanColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t col_a1 = (flipscan_flags / kfFlipScanColA1) & 1;
+    const uint32_t col_freqs = (flipscan_flags / kfFlipScanColFreqs) & 1;
     const uint32_t col_problem = (flipscan_flags / kfFlipScanColProblem) & 1;
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     char* chr_buf;
@@ -17108,12 +17130,14 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     if (col_alt) {
       cswritep = strcpya_k(cswritep, "\tALT");
     }
-    if (col_majfreq) {
-      if (ref_allele_based) {
-        cswritep = strcpya_k(cswritep, "\tREF_FREQ\tPANEL_REF_FREQ");
-      } else {
-        cswritep = strcpya_k(cswritep, "\tMAJ_FREQ\tPANEL_MAJ_FREQ");
-      }
+    if (col_provref) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (col_a1) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (col_freqs) {
+      cswritep = strcpya_k(cswritep, "\tCUR_A1_FREQ\tPANEL_A1_FREQ");
     }
     if (col_problem) {
       cswritep = strcpya_k(cswritep, "\tPROBLEM");
@@ -17124,8 +17148,8 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     uint32_t chr_end = 0;
     uint32_t chr_blen = 0;
     uint32_t problem_ct = 0;
-    uint32_t flip_ct = 0;
-    uint32_t maj_allele_idx = 0;
+    uint32_t allele_rotate_ct = 0;
+    uint32_t a1_allele_idx = 0;
     uint32_t cur_allele_ct = 2;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -17147,27 +17171,19 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       if (maj_alleles) {
-        maj_allele_idx = maj_alleles[variant_uidx];
+        a1_allele_idx = maj_alleles[variant_uidx];
       }
       // Same allele on both sides, chosen from this dataset, as in
-      // FlipScanRefFreq().  A multiallelic variant never gets a panel
-      // frequency (both sides must be biallelic with the same allele pair),
-      // but its MAJ_FREQ is still reported, so the major allele has to be
-      // looked up against the real allele count rather than assumed to be
-      // REF or ALT1.
-      const double dataset_maj_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
-      const double panel_ref_freq = ref_ref_freqs[variant_uidx];
-      const uint32_t have_panel = (panel_ref_freq == panel_ref_freq);
-      double panel_maj_freq = 0.0 / 0.0;
+      // FlipScanRefFreq().
+      const double dataset_a1_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
+      const double panel_a1_freq = panel_a1_freqs[variant_uidx];
+      const uint32_t have_panel = (panel_a1_freq == panel_a1_freq);
       uint32_t is_problem = 0;
       if (have_panel) {
-        // have_panel implies both sides are biallelic with the same allele
-        // pair, so maj_allele_idx is 0 or 1 here.
-        panel_maj_freq = maj_allele_idx? (1.0 - panel_ref_freq) : panel_ref_freq;
-        if (IsSet(ref_flips, variant_uidx)) {
-          ++flip_ct;
+        if (a1_allele_idx != panel_a1_idxs[variant_uidx]) {
+          ++allele_rotate_ct;
         }
-        is_problem = (fabs(dataset_maj_freq - panel_maj_freq) > freq_diff_thresh);
+        is_problem = (fabs(dataset_a1_freq - panel_a1_freq) > freq_diff_thresh);
         if (is_problem) {
           ++problem_ct;
         }
@@ -17179,20 +17195,36 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
         cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       }
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       if (col_ref) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base]);
+        cswritep = strcpya(cswritep, cur_alleles[0]);
       }
       if (col_alt) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + 1]);
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto FlipScanRefDataset_ret_WRITE_FAIL;
+          }
+          cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+          *cswritep++ = ',';
+        }
+        --cswritep;
       }
-      if (col_majfreq) {
+      if (col_provref) {
         *cswritep++ = '\t';
-        cswritep = dtoa_g(dataset_maj_freq, cswritep);
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
+      if (col_a1) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+      }
+      if (col_freqs) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dataset_a1_freq, cswritep);
         *cswritep++ = '\t';
         if (have_panel) {
-          cswritep = dtoa_g(panel_maj_freq, cswritep);
+          cswritep = dtoa_g(panel_a1_freq, cswritep);
         } else {
           cswritep = strcpya_k(cswritep, "NA");
         }
@@ -17213,9 +17245,9 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto FlipScanRefDataset_ret_WRITE_FAIL;
     }
-    logprintfww("--flip-scan: %u variant%s matched the reference fileset by ID and allele pair (%u with REF and ALT the other way round).\n", matched_ct, (matched_ct == 1)? "" : "s", flip_ct);
+    logprintfww("--flip-scan: %u variant%s matched the reference fileset by ID and alleles (%u with allele order difference(s)).\n", matched_ct, (matched_ct == 1)? "" : "s", allele_rotate_ct);
     if (allele_mismatch_ct) {
-      logprintfww("Warning: %u variant%s matched the --flip-scan reference fileset by ID but not by allele pair, and %s skipped.\n", allele_mismatch_ct, (allele_mismatch_ct == 1)? "" : "s", (allele_mismatch_ct == 1)? "was" : "were");
+      logprintfww("Warning: %u variant%s matched the --flip-scan reference fileset by ID but not by main allele, and %s skipped.\n", allele_mismatch_ct, (allele_mismatch_ct == 1)? "" : "s", (allele_mismatch_ct == 1)? "was" : "were");
     }
     logprintf("--flip-scan: %u problem variant%s.\n", problem_ct, (problem_ct == 1)? "" : "s");
     logprintfww("--flip-scan report written to %s .\n", outname);
@@ -17233,14 +17265,14 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
   }
  FlipScanRefDataset_ret_1:
   CswriteCloseCond(&css, cswritep);
-  CleanupPgr2("--flip-scan reference .pgen file", &ref_pgr, &reterr);
-  CleanupPgfi2("--flip-scan reference .pgen file", &ref_pgfi, &reterr);
-  CleanupChrInfo(&ref_cip);
+  CleanupPgr2("--flip-scan reference .pgen file", &panel_pgr, &reterr);
+  CleanupPgfi2("--flip-scan reference .pgen file", &panel_pgfi, &reterr);
+  CleanupChrInfo(&panel_cip);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritep_verbose = nullptr;
@@ -17483,13 +17515,18 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     const uint32_t col_pos = (flipscan_flags / kfFlipScanColPos) & 1;
     const uint32_t col_ref = (flipscan_flags / kfFlipScanColRef) & 1;
     const uint32_t col_alt = (flipscan_flags / kfFlipScanColAlt) & 1;
-    const uint32_t col_altfreq = (flipscan_flags / kfFlipScanColAltfreq) & 1;
+    const uint32_t all_nonref = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref) && (!nonref_flags);
+    // possible todo: resolve inconsistency with 1-variant-chromosome skipping
+    // logic below
+    const uint32_t col_provref = col_ref && ProvrefCol(variant_include, nonref_flags, flipscan_flags / kfFlipScanColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t col_a1 = (flipscan_flags / kfFlipScanColA1) & 1;
+    const uint32_t col_freqbase = (flipscan_flags / kfFlipScanColFreqbase) & 1;
+    const uint32_t col_freqs = (flipscan_flags / kfFlipScanColFreqs) & 1;
     const uint32_t col_posct = (flipscan_flags / kfFlipScanColPosct) & 1;
     const uint32_t col_rpos = (flipscan_flags / kfFlipScanColRpos) & 1;
     const uint32_t col_negct = (flipscan_flags / kfFlipScanColNegct) & 1;
     const uint32_t col_rneg = (flipscan_flags / kfFlipScanColRneg) & 1;
     const uint32_t col_negids = (flipscan_flags / kfFlipScanColNegids) & 1;
-    const uint32_t col_majfreq = (flipscan_flags / kfFlipScanColMajfreq) & 1;
     const uint32_t col_problem = (flipscan_flags / kfFlipScanColProblem) & 1;
     const uint32_t min_neg_ct = ldip->flipscan_min_neg_ct;
     *cswritep++ = '#';
@@ -17506,15 +17543,17 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     if (col_alt) {
       cswritep = strcpya_k(cswritep, "\tALT");
     }
-    if (col_altfreq) {
-      cswritep = strcpya_k(cswritep, "\tALT_FREQ");
+    if (col_provref) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
     }
-    if (col_majfreq) {
-      if (ref_allele_based) {
-        cswritep = strcpya_k(cswritep, "\tCASE_REF_FREQ\tCTRL_REF_FREQ");
-      } else {
-        cswritep = strcpya_k(cswritep, "\tCASE_MAJ_FREQ\tCTRL_MAJ_FREQ");
-      }
+    if (col_a1) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (col_freqbase) {
+      cswritep = strcpya_k(cswritep, "\tBASE_A1_FREQ");
+    }
+    if (col_freqs) {
+      cswritep = strcpya_k(cswritep, "\tCASE_A1_FREQ\tCTRL_A1_FREQ");
     }
     if (col_posct) {
       cswritep = strcpya_k(cswritep, "\tPOS_CT");
@@ -17555,19 +17594,19 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       if (col_chrom) {
         cswritep_verbose = strcpya_k(cswritep_verbose, "CHROM\t");
       }
-      cswritep_verbose = strcpya_k(cswritep_verbose, "ID_INDEX");
       if (col_pos) {
-        cswritep_verbose = strcpya_k(cswritep_verbose, "\tPOS_INDEX");
+        cswritep_verbose = strcpya_k(cswritep_verbose, "POS_INDEX\t");
       }
-      if (col_alt) {
-        cswritep_verbose = strcpya_k(cswritep_verbose, "\tALT_INDEX");
+      cswritep_verbose = strcpya_k(cswritep_verbose, "ID_INDEX");
+      if (col_a1) {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tA1_INDEX");
       }
-      cswritep_verbose = strcpya_k(cswritep_verbose, "\tID_PAIR");
       if (col_pos) {
         cswritep_verbose = strcpya_k(cswritep_verbose, "\tPOS_PAIR");
       }
-      if (col_alt) {
-        cswritep_verbose = strcpya_k(cswritep_verbose, "\tALT_PAIR");
+      cswritep_verbose = strcpya_k(cswritep_verbose, "\tID_PAIR");
+      if (col_a1) {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tA1_PAIR");
       }
       if (use_dprime) {
         cswritep_verbose = strcpya_k(cswritep_verbose, "\tD_PRIME_A\tD_PRIME_U");
@@ -17595,7 +17634,9 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     uint32_t problem_ct = 0;
     const uint32_t chr_ct = cip->chr_ct;
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
-    AlleleCode maj_allele_idx = 0;
+    uint32_t cur_allele_ct = 2;
+    AlleleCode a1_allele_idx = 0;
+    AlleleCode other_allele_idx = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
       const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
       const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
@@ -17635,10 +17676,10 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           // Which allele is "major" is settled once, from the whole dataset,
           // so both groups report the same allele's frequency.
           if (maj_alleles) {
-            maj_allele_idx = maj_alleles[variant_uidx];
+            a1_allele_idx = maj_alleles[variant_uidx];
           }
           uintptr_t* cur_raw = &(raw_genovecs[S_CAST(uintptr_t, li) * base_ctaw2]);
-          reterr = PgrGetInv1(base_include, pssi, base_ct, variant_uidx, maj_allele_idx, simple_pgrp, cur_raw);
+          reterr = PgrGetInv1(base_include, pssi, base_ct, variant_uidx, a1_allele_idx, simple_pgrp, cur_raw);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto FlipScan_ret_1;
@@ -17675,9 +17716,12 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           uintptr_t allele_idx_offset_base = variant_uidx * 2;
           if (allele_idx_offsets) {
             allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+            cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
           }
-          const char* ref_allele = allele_storage[allele_idx_offset_base];
-          const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+          if (maj_alleles) {
+            a1_allele_idx = maj_alleles[variant_uidx];
+          }
           if (col_chrom) {
             cswritep = memcpyax(cswritep, chr_buf, chr_name_slen, '\t');
           }
@@ -17687,26 +17731,42 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
           if (col_ref) {
             *cswritep++ = '\t';
-            cswritep = strcpya(cswritep, ref_allele);
+            cswritep = strcpya(cswritep, cur_alleles[0]);
           }
           if (col_alt) {
             *cswritep++ = '\t';
-            cswritep = strcpya(cswritep, alt_allele);
+            for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+              cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto FlipScan_ret_WRITE_FAIL;
+              }
+              *cswritep++ = ',';
+            }
+            --cswritep;
           }
-          if (col_altfreq) {
+          if (col_provref) {
             *cswritep++ = '\t';
-            cswritep = dtoa_g(1.0 - allele_freqs[allele_idx_offset_base - variant_uidx], cswritep);
+            *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
           }
-          if (col_majfreq) {
+          if (col_a1) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+          }
+          if (col_freqbase) {
+            *cswritep++ = '\t';
+            const double a1_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
+            cswritep = dtoa_g(a1_freq, cswritep);
+          }
+          if (col_freqs) {
             // Cases first, matching the CASE/CTRL column order.
             for (uint32_t uii = 0; uii != 2; ++uii) {
               const uint32_t is_case = 1 - uii;
               *cswritep++ = '\t';
-              const double maj_freq = ctx.local_group_freqs[is_case][li];
-              if (maj_freq != maj_freq) {
+              const double a1_freq = ctx.local_group_freqs[is_case][li];
+              if (a1_freq != a1_freq) {
                 cswritep = strcpya_k(cswritep, "NA");
               } else {
-                cswritep = dtoa_g(maj_freq, cswritep);
+                cswritep = dtoa_g(a1_freq, cswritep);
               }
             }
           }
@@ -17797,27 +17857,27 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
               if (allele_idx_offsets) {
                 other_allele_idx_offset_base = allele_idx_offsets[other_uidx];
               }
+              if (maj_alleles) {
+                other_allele_idx = maj_alleles[other_uidx];
+              }
               if (col_chrom) {
                 cswritep_verbose = memcpyax(cswritep_verbose, chr_buf, chr_name_slen, '\t');
               }
-              cswritep_verbose = strcpya(cswritep_verbose, variant_ids[variant_uidx]);
               if (col_pos) {
-                *cswritep_verbose++ = '\t';
                 cswritep_verbose = u32toa(variant_bps[variant_uidx], cswritep_verbose);
-              }
-              if (col_alt) {
                 *cswritep_verbose++ = '\t';
-                cswritep_verbose = strcpya(cswritep_verbose, alt_allele);
               }
-              *cswritep_verbose++ = '\t';
-              cswritep_verbose = strcpya(cswritep_verbose, variant_ids[other_uidx]);
+              cswritep_verbose = strcpyax(cswritep_verbose, variant_ids[variant_uidx], '\t');
+              if (col_a1) {
+                cswritep_verbose = strcpyax(cswritep_verbose, cur_alleles[a1_allele_idx], '\t');
+              }
               if (col_pos) {
-                *cswritep_verbose++ = '\t';
-                cswritep_verbose = u32toa(variant_bps[other_uidx], cswritep_verbose);
+                cswritep_verbose = u32toa_x(variant_bps[other_uidx], '\t', cswritep_verbose);
               }
-              if (col_alt) {
+              cswritep_verbose = strcpya(cswritep_verbose, variant_ids[other_uidx]);
+              if (col_a1) {
                 *cswritep_verbose++ = '\t';
-                cswritep_verbose = strcpya(cswritep_verbose, allele_storage[other_allele_idx_offset_base + 1]);
+                cswritep_verbose = strcpya(cswritep_verbose, allele_storage[other_allele_idx_offset_base + other_allele_idx]);
               }
               *cswritep_verbose++ = '\t';
               cswritep_verbose = dtoa_g(rr[1], cswritep_verbose);
