@@ -17609,7 +17609,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
         cswritep_verbose = strcpya_k(cswritep_verbose, "\tA1_PAIR");
       }
       if (use_dprime) {
-        cswritep_verbose = strcpya_k(cswritep_verbose, "\tD_PRIME_A\tD_PRIME_U");
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tD_PRIME_CASE\tD_PRIME_CTRL");
       } else {
         cswritep_verbose = strcpya_k(cswritep_verbose, "\tR_CASE\tR_CTRL");
       }

@@ -211,7 +211,7 @@ mv tmp_dp_ped.fam tmp_dp.fam
 
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime verbose --out plink2_dp
 head -n 1 plink2_dp.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	PROVISIONAL_REF?	A1	CASE_A1_FREQ	CTRL_A1_FREQ	POS_CT	DPRIME_POS	NEG_CT	DPRIME_NEG	PROBLEM	NEG_IDS'
-head -n 1 plink2_dp.flipscan.verbose | grep -qx '#CHROM	POS_INDEX	ID_INDEX	A1_INDEX	POS_PAIR	ID_PAIR	A1_PAIR	D_PRIME_A	D_PRIME_U'
+head -n 1 plink2_dp.flipscan.verbose | grep -qx '#CHROM	POS_INDEX	ID_INDEX	A1_INDEX	POS_PAIR	ID_PAIR	A1_PAIR	D_PRIME_CASE	D_PRIME_CTRL'
 
 # Every D' value against an independent computation: dprime_oracle.py fits
 # the haplotype frequencies by a direct likelihood search instead of plink2's

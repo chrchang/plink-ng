@@ -125,8 +125,8 @@ def main():
         vheader = f.readline().lstrip("#").rstrip("\n").split("\t")
         ci = vheader.index("ID_INDEX")
         cp = vheader.index("ID_PAIR")
-        ca = vheader.index("D_PRIME_A")
-        cu = vheader.index("D_PRIME_U")
+        ca = vheader.index("D_PRIME_CASE")
+        cu = vheader.index("D_PRIME_CTRL")
         checked = 0
         worst = 0.0
         for line in f:
