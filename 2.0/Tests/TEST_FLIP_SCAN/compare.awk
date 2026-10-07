@@ -1,6 +1,6 @@
 # Compares a PLINK 1.9 .flipscan report against a plink2 one.
 #   1.9:     CHR SNP BP A1 A2 F POS R_POS NEG R_NEG NEGSNPS
-#   plink2:  #CHROM POS ID A1 A1_FREQ POS_CT R_POS NEG_CT R_NEG NEG_IDS
+#   plink2:  #CHROM POS ID A1 BASE_A1_FREQ POS_CT R_POS NEG_CT R_NEG NEG_IDS
 # PLINK 1.9's F defaults to the minor allele frequency, while plink2
 # --flip-scan defaults to major.
 function abs(x) { return (x < 0)? -x : x }
