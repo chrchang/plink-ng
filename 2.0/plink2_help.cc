@@ -1911,7 +1911,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      is not supported here yet, so the shuffle is unrestricted.\n\n"
                );
     HelpPrint("write-var-ranges\0", &help_ctrl, 1,
-"  --write-var-ranges <block ct> ['zs'] ['allow-dups']\n"
+"  --write-var-ranges <block ct> ['allow-dups']\n"
 "    Divide the variants that pass your filters into the given number of\n"
 "    equal-size blocks, and write the first and last variant ID of each to\n"
 "    <output prefix>.var.ranges.  Handy with --snps for splitting a job across\n"

@@ -176,9 +176,8 @@ FLAGSET64_DEF_START()
   kfMiscMakePermPhenoZs = (1LLU << 51),
   kfMiscList23IndelsZs = (1LLU << 52),
   kfMiscList23IndelsAllowDups = (1LLU << 53),
-  kfMiscWriteVarRangesZs = (1LLU << 54),
-  kfMiscWriteVarRangesAllowDups = (1LLU << 55),
-  kfMiscTuccVzs = (1LLU << 56)
+  kfMiscWriteVarRangesAllowDups = (1LLU << 54),
+  kfMiscTuccVzs = (1LLU << 55)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()

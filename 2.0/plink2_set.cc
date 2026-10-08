@@ -1403,7 +1403,7 @@ PglErr WriteSetTable(const VariantSets* vsp, const uintptr_t* variant_include, c
                  bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WriteSetTable_ret_NOMEM;
     }
-    cswritep = strcpya_k(cswritep, "SNP\tCHR\tBP");
+    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID");
     for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
       *cswritep++ = '\t';
       cswritep = strcpya(cswritep, &(vsp->set_names[set_idx * max_set_name_blen]));
@@ -1428,11 +1428,10 @@ PglErr WriteSetTable(const VariantSets* vsp, const uintptr_t* variant_include, c
         char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
         chr_buf_blen = chr_name_end - chr_buf;
       }
-      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
-      *cswritep++ = '\t';
       cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
       *cswritep++ = '\t';
-      cswritep = u32toa(variant_bps[variant_uidx], cswritep);
+      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
       for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
         if (next_change_idxs[set_idx] == variant_idx) {
           cur_vals[set_idx] = SetdefMembershipRun(vsp->setdefs[set_idx], variant_ct, variant_idx, &(range_idxs[set_idx]), &(next_change_idxs[set_idx]));

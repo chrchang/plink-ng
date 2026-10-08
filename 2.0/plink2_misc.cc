@@ -14866,11 +14866,10 @@ PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       pheno_col = &(pheno_cols[0]);
     }
     const uint32_t is_cc = (pheno_col->type_code == kPhenoDtypeCc);
-    if (unlikely((!is_cc) && (pheno_col->type_code != kPhenoDtypeQt))) {
-      // Categorical phenotypes may be worth supporting later.  But reasonable
-      // to wait until at least one PLINK 2 command (multinomial logistic
-      // regression?) can analyze them.
-      logerrputs("Error: --make-perm-pheno's phenotype currently must be case/control or\nquantitative.\n");
+    if ((!is_cc) && (pheno_col->type_code != kPhenoDtypeQt)) {
+      // Now that multinomial logistic regression is implemented, this should
+      // be as well.
+      logerrputs("Error: --make-perm-pheno categorical-phenotype handling is under development.\n");
       reterr = kPglRetNotYetSupported;
       goto MakePermPheno_ret_1;
     }
@@ -15001,8 +15000,9 @@ PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   return reterr;
 }
 
-PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  // todo: just use FILE*
   char* cswritep = nullptr;
   CompressStreamState css;
   PreinitCstream(&css);
@@ -15026,9 +15026,9 @@ PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* varia
         goto WriteVarRanges_ret_INCONSISTENT_INPUT;
       }
     }
-    OutnameZstSet(".var.ranges", output_zst, outname_end);
+    OutnameZstSet(".var.ranges", 0, outname_end);
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * max_variant_id_slen + 64;
-    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    reterr = InitCstreamAlloc(outname, 0, 0, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteVarRanges_ret_1;
     }
@@ -15057,7 +15057,7 @@ PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* varia
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WriteVarRanges_ret_WRITE_FAIL;
     }
-    logprintfww("--write-var-ranges%s%s: %u block boundar%s written to %s .\n", output_zst? " zs" : "", allow_dups? " allow-dups" : "", block_ct, (block_ct == 1)? "y" : "ies", outname);
+    logprintfww("--write-var-ranges%s: %u block boundar%s written to %s .\n", allow_dups? " allow-dups" : "", block_ct, (block_ct == 1)? "y" : "ies", outname);
   }
   while (0) {
   WriteVarRanges_ret_WRITE_FAIL:

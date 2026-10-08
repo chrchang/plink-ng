@@ -130,11 +130,16 @@ diff -q tmp_c_geneb_expected.txt tmp_c_geneb.txt
 # C_geneC is the complement of an empty set, so it is every variant.
 test "$(awk '/^C_geneC$/{flag=1; next} /^END$/{flag=0} flag' plink2_setcomp.set | wc -l)" -eq 30
 
-# 11. --set-table writes the variant-by-set membership table 1.9 writes.
+# 11. --set-table writes the variant-by-set membership table 1.9 writes, except
+#     with standardized ordering of first 3 columns.
 for set_flags in "--set tmp_sets.txt" "--make-set tmp_ranges.txt" "--make-set tmp_ranges.txt --complement-sets"; do
     $1/plink2 $2 $3 --bfile tmp_data $set_flags --set-table --out plink2_tbl
     plink --bfile tmp_data $set_flags --set-table --out plink19_tbl > /dev/null
-    diff -q plink19_tbl.set.table plink2_tbl.set.table
+    echo $'#CHROM\tPOS\tID' > plink19_tbl_reordered_first3.tsv
+    awk '{print $2"\t"$3"\t"$1}' plink19_tbl.set.table | tail -n +2 >> plink19_tbl_reordered_first3.tsv
+    cut -f 4- plink19_tbl.set.table > plink19_tbl_reordered_from4.tsv
+    paste plink19_tbl_reordered_first3.tsv plink19_tbl_reordered_from4.tsv > plink19_tbl_reordered.set.table
+    diff -q plink19_tbl_reordered.set.table plink2_tbl.set.table
 done
 $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-table zs --out plink2_tbl_zs
 $1/plink2 $2 $3 --zst-decompress plink2_tbl_zs.set.table.zst > plink2_tbl_zs.set.table
