@@ -11843,6 +11843,7 @@ PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample
       goto ExportMgf_ret_1;
     }
     logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
     fflush(stdout);
     // The mean genotype file has no header.
     char* write_iter = writebuf;
