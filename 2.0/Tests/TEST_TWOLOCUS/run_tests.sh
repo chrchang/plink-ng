@@ -22,7 +22,7 @@ mv tmp_ped.fam tmp_data.fam
 compare_pair() {
     plink --bfile tmp_data --twolocus "$1" "$2" --out plink19
     $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --twolocus "$1" "$2" --out plink2
-    awk -v id1="$1" -v id2="$2" -f compare.awk plink19.twolocus plink2.twolocus
+    awk -v id1="$1" -v id2="$2" -f compare.awk plink19.twolocus plink2.genopairs
 }
 
 # 1. A pair inside one haplotype block, a pair spanning two, and a pair
@@ -37,13 +37,13 @@ awk 'BEGIN{OFS=" "} {print $1, $2, 0, 0, (NR % 2) + 1, -9}' tmp_data.fam > tmp_n
 cp tmp_data.bed tmp_nopheno.bed
 cp tmp_data.bim tmp_nopheno.bim
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_nopheno --twolocus b0v0 b0v3 --out plink2_nopheno
-test "$(awk '!/^#/ {print $1}' plink2_nopheno.twolocus | sort -u | tr -d '\n')" = "ALL"
+test "$(awk '!/^#/ {print $1}' plink2_nopheno.genopairs | sort -u | tr -d '\n')" = "ALL"
 # ...including when a case/control phenotype happens to be loaded.
-test "$(awk '!/^#/ {print $1}' plink2.twolocus | sort -u | tr -d '\n')" = "ALL"
+test "$(awk '!/^#/ {print $1}' plink2.genopairs | sort -u | tr -d '\n')" = "ALL"
 
 # 3. Every cell count is present, so the marginals PLINK 1.9 prints can be
 #    recovered: the ALL group has to sum to the sample count.
-test "$(awk '!/^#/ && $1 == "ALL" {s += $6} END {print s}' plink2.twolocus)" -eq "$(wc -l < tmp_data.fam)"
+test "$(awk '!/^#/ && $1 == "ALL" {s += $6} END {print s}' plink2.genopairs)" -eq "$(wc -l < tmp_data.fam)"
 
 # 4. A duplicate or unknown variant ID is an error rather than a wrong report.
 if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --twolocus b0v0 nosuchvariant --out plink2_bad 2> tmp_bad_err.txt; then
@@ -63,15 +63,15 @@ EOF
 $BUILD/plink2 $EXTRA1 $EXTRA2 --vcf tmp_multi.vcf --make-pgen --out tmp_multi
 $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_multi --twolocus mv1 mv2 --out plink2_multi
 # 3 alleles give 6 genotypes plus a missing cell; 2 alleles give 3 plus one.
-test "$(grep -c '^ALL' plink2_multi.twolocus)" -eq 28
+test "$(grep -c '^ALL' plink2_multi.genopairs)" -eq 28
 # Every genotype the file contains has to appear, and each sample lands in
 # exactly one cell.
 for gt in 'A/A' 'A/G' 'G/G' 'A/T' 'G/T' 'T/T'; do
-    grep -q "	$gt	" plink2_multi.twolocus
+    grep -q "	$gt	" plink2_multi.genopairs
 done
-test "$(awk '$1 == "ALL" {n += $6} END {print n}' plink2_multi.twolocus)" -eq 6
+test "$(awk '$1 == "ALL" {n += $6} END {print n}' plink2_multi.genopairs)" -eq 6
 # The six samples are one per cell, on the diagonal of the pairing above.
-test "$(awk '$1 == "ALL" && $6 == 1' plink2_multi.twolocus | wc -l)" -eq 6
+test "$(awk '$1 == "ALL" && $6 == 1' plink2_multi.genopairs | wc -l)" -eq 6
 
 # 6. 'zs' is gone: the report is one row per joint genotype cell, so it was
 #    never large enough to be worth compressing.
@@ -86,19 +86,19 @@ awk '{print $1, $2, ((NR % 3)? 2 : 1), ("grp" (NR % 3)), (NR % 7)}' OFS='\t' tmp
 
 # Binary: CASE/CONTROL, as PLINK 1.x reports but only when asked.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 CC --out plink2_cc
-test "$(awk '!/^#/ {print $1}' plink2_cc.twolocus | sort -u | tr -d '\n')" = "ALLCASECONTROL"
+test "$(awk '!/^#/ {print $1}' plink2_cc.genopairs | sort -u | tr -d '\n')" = "ALLCASECONTROL"
 
 # Categorical: one table per observed category.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 CAT --out plink2_cat
-test "$(awk '!/^#/ {print $1}' plink2_cat.twolocus | sort -u | tr -d '\n')" = "ALLgrp0grp1grp2"
+test "$(awk '!/^#/ {print $1}' plink2_cat.genopairs | sort -u | tr -d '\n')" = "ALLgrp0grp1grp2"
 
 # The category tables partition ALL, so their counts have to add back up.
 awk '!/^#/ {s[$1] += $6}
      END {if (s["ALL"] != s["grp0"] + s["grp1"] + s["grp2"]) {
-            print "category counts do not sum to ALL"; exit 1}}' plink2_cat.twolocus
+            print "category counts do not sum to ALL"; exit 1}}' plink2_cat.genopairs
 # ...and the ALL table is the same one the no-phenotype run produces.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 --out plink2_noph
-diff -q <(awk '!/^#/ && $1 == "ALL"' plink2_cat.twolocus) <(awk '!/^#/ && $1 == "ALL"' plink2_noph.twolocus)
+diff -q <(awk '!/^#/ && $1 == "ALL"' plink2_cat.genopairs) <(awk '!/^#/ && $1 == "ALL"' plink2_noph.genopairs)
 
 # 10. A quantitative phenotype has no categories, and an unknown name is not
 #     silently ignored.

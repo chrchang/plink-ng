@@ -15666,7 +15666,7 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
       allele_idx_offsets? allele_idx_offsets[variant_uidxs[1]] : (variant_uidxs[1] * 2)
     };
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 4 * kMaxIdSlen + 4 * S_CAST(uintptr_t, max_allele_slen) + 256;
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".twolocus");
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".genopairs");
     reterr = InitCstreamAlloc(outname, 0, 0, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto TwolocusReport_ret_1;
