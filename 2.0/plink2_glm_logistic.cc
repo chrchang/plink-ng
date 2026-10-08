@@ -5333,7 +5333,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, glm_cols / kfGlmColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
-    const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t a1_ct_cc_col = glm_cols & kfGlmColA1countcc;
@@ -5373,9 +5372,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     cswritep = strcpya_k(cswritep, "\tA1");
     if (omitted_col) {
       cswritep = strcpya_k(cswritep, "\tOMITTED");
-    }
-    if (ax_col) {
-      cswritep = strcpya_k(cswritep, "\tAX");
     }
     if (a1_ct_col) {
       cswritep = strcpya_k(cswritep, "\tA1_CT");
@@ -5709,26 +5705,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 if (omitted_col) {
                   *cswritep++ = '\t';
                   cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                }
-                if (ax_col) {
-                  *cswritep++ = '\t';
-                  if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
-                    if (unlikely(Cswrite(&css, &cswritep))) {
-                      goto GlmLogistic_ret_WRITE_FAIL;
-                    }
-                    cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                  } else {
-                    for (uint32_t tmp_allele_idx = 0; tmp_allele_idx != allele_ct; ++tmp_allele_idx) {
-                      if (tmp_allele_idx == a1_allele_idx) {
-                        continue;
-                      }
-                      if (unlikely(Cswrite(&css, &cswritep))) {
-                        goto GlmLogistic_ret_WRITE_FAIL;
-                      }
-                      cswritep = strcpyax(cswritep, cur_alleles[tmp_allele_idx], ',');
-                    }
-                    --cswritep;
-                  }
                 }
                 if (a1_ct_col) {
                   *cswritep++ = '\t';

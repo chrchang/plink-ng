@@ -120,7 +120,8 @@ FLAGSET_DEF_START()
   kfFlipScanColMaybeprovref = (1 << 8),
   kfFlipScanColProvref = (1 << 9),
   kfFlipScanColA1 = (1 << 10),
-  // Add kfFlipScanColAx (all alleles except A1, see --glm) if anyone wants it.
+  // Add kfFlipScanColAx (all alleles except A1, see --hardy) if anyone wants
+  // it.
   kfFlipScanColFreqbase = (1 << 11),
   kfFlipScanColFreqs = (1 << 12),
   kfFlipScanColPosct = (1 << 13),

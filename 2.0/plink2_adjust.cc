@@ -738,12 +738,12 @@ int32_t MetaGroupCmp(const void* aa, const void* bb) {
 // Fills col_skips/col_types for one input file; shared by both passes so the
 // two cannot disagree about which columns they are reading.
 static PglErr MetaSetupCols(const MetaInfo* mip, const char* header_start, const char* fname, uint32_t no_map, uint32_t no_allele, uint32_t input_is_beta, uint32_t weighted_z, uint32_t* col_skips, uint32_t* col_types, uint32_t* relevant_col_ct_ptr, uint32_t* has_a2_ptr) {
-  // [0] CHR, [1] SNP, [2] BP, [3] A1, [4] A2, [5] effect, [6] SE, [7] P,
-  // [8] effective sample size
+  // [0] CHROM/CHR, [1] ID/SNP, [2] POS/BP, [3] A1, [4] A2, [5] effect, [6] SE,
+  // [7] P, [8] effective sample size
   const char* col_search_order[9];
-  col_search_order[0] = no_map? "" : (mip->chr_field? mip->chr_field : "CHR\0CHROM\0");
-  col_search_order[1] = mip->snp_field? mip->snp_field : "SNP\0ID\0";
-  col_search_order[2] = no_map? "" : (mip->bp_field? mip->bp_field : "BP\0POS\0");
+  col_search_order[0] = no_map? "" : (mip->chr_field? mip->chr_field : "CHROM\0CHR\0");
+  col_search_order[1] = mip->snp_field? mip->snp_field : "ID\0SNP\0";
+  col_search_order[2] = no_map? "" : (mip->bp_field? mip->bp_field : "POS\0BP\0");
   col_search_order[3] = no_allele? "" : (mip->a1_field? mip->a1_field : "A1\0");
   col_search_order[4] = no_allele? "" : (mip->a2_field? mip->a2_field : "A2\0");
   col_search_order[5] = input_is_beta? "BETA\0" : "OR\0";

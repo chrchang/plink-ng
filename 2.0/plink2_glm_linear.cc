@@ -2016,7 +2016,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, glm_cols / kfGlmColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
-    const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t a1_freq_col = glm_cols & kfGlmColA1freq;
@@ -2051,9 +2050,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     cswritep = strcpya_k(cswritep, "\tA1");
     if (omitted_col) {
       cswritep = strcpya_k(cswritep, "\tOMITTED");
-    }
-    if (ax_col) {
-      cswritep = strcpya_k(cswritep, "\tAX");
     }
     if (a1_ct_col) {
       cswritep = strcpya_k(cswritep, "\tA1_CT");
@@ -2363,26 +2359,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                 if (omitted_col) {
                   *cswritep++ = '\t';
                   cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                }
-                if (ax_col) {
-                  *cswritep++ = '\t';
-                  if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
-                    if (unlikely(Cswrite(&css, &cswritep))) {
-                      goto GlmLinear_ret_WRITE_FAIL;
-                    }
-                    cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                  } else {
-                    for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-                      if (allele_idx == a1_allele_idx) {
-                        continue;
-                      }
-                      if (unlikely(Cswrite(&css, &cswritep))) {
-                        goto GlmLinear_ret_WRITE_FAIL;
-                      }
-                      cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
-                    }
-                    --cswritep;
-                  }
                 }
                 if (a1_ct_col) {
                   *cswritep++ = '\t';
@@ -4458,7 +4434,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, glm_cols / kfGlmColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
-    const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t a1_freq_col = glm_cols & kfGlmColA1freq;
@@ -4526,9 +4501,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         cswritep = strcpya_k(cswritep, "\tA1");
         if (omitted_col) {
           cswritep = strcpya_k(cswritep, "\tOMITTED");
-        }
-        if (ax_col) {
-          cswritep = strcpya_k(cswritep, "\tAX");
         }
         if (a1_ct_col) {
           cswritep = strcpya_k(cswritep, "\tA1_CT");
@@ -4874,28 +4846,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                     if (omitted_col) {
                       *cswritep++ = '\t';
                       cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                    }
-                    if (ax_col) {
-                      *cswritep++ = '\t';
-                      if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
-                        if (unlikely(Cswrite(&(css_arr[fidx]), &cswritep))) {
-                          cswritep_arr[fidx] = cswritep;
-                          goto GlmLinearBatch_ret_WRITE_FAIL;
-                        }
-                        cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                      } else {
-                        for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-                          if (allele_idx == a1_allele_idx) {
-                            continue;
-                          }
-                          if (unlikely(Cswrite(&(css_arr[fidx]), &cswritep))) {
-                            cswritep_arr[fidx] = cswritep;
-                            goto GlmLinearBatch_ret_WRITE_FAIL;
-                          }
-                          cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
-                        }
-                        --cswritep;
-                      }
                     }
                     if (a1_ct_col) {
                       *cswritep++ = '\t';
