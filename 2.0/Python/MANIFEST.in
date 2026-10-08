@@ -1,3 +1,4 @@
 include src/pgenlib/pgenlib.pyx
+include src/pgenlib/pystream.h
 exclude src/pgenlib/pgenlib.cpp
 graft src/plink2
