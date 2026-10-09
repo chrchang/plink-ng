@@ -14,6 +14,7 @@
  * callable but reject remote URLs with an error, so callers need no #ifdefs.
  */
 
+#include <stdint.h>
 #include <stdio.h>
 
 #ifdef __cplusplus
@@ -73,6 +74,16 @@ void s3stream_set_requester_pays(int requester_pays);
  * it.  Returns 0 on success, -1 (see s3stream_last_error()) if `account_id`
  * is not 12 digits. */
 int s3stream_set_expected_bucket_owner(const char* account_id);
+
+/* Read-ahead size in bytes: one range request fetches this much, and reads
+ * inside it are served from memory.  Larger suits sequential scans (fewer
+ * requests); smaller suits sparse access (less over-read).  Applies to streams
+ * opened afterwards; clamped to 256 KiB..512 MiB.  Default 8 MiB, or the
+ * S3STREAM_CHUNK_SIZE environment variable (bytes) if set. */
+void s3stream_set_chunk_size(int64_t bytes);
+
+/* Returns the current process-wide default. */
+int64_t s3stream_get_chunk_size(void);
 
 /* Opens a path for reading.  s3:// URIs and http(s):// URLs are streamed;
  * anything else is passed to fopen(path, "rb"), so this is a drop-in

@@ -177,7 +177,7 @@ else
 fi
 
 for _ in $(seq 1 60); do
-    if curl -fs -o /dev/null "${ADMIN_ENDPOINT}/minio/health/live"; then
+    if curl -fs -m 2 -o /dev/null "${ADMIN_ENDPOINT}/minio/health/live"; then
         break
     fi
     # Bail out immediately if the server we started has already died, rather
@@ -190,7 +190,7 @@ for _ in $(seq 1 60); do
     fi
     sleep 1
 done
-curl -fs -o /dev/null "${ADMIN_ENDPOINT}/minio/health/live" || fail "MinIO did not become healthy"
+curl -fs -m 5 -o /dev/null "${ADMIN_ENDPOINT}/minio/health/live" || fail "MinIO did not become healthy"
 if [[ $MODE == native ]] && ! kill -0 "$MINIO_PID" 2> /dev/null; then
     fail "port ${MINIO_PORT} is served by another process; set MINIO_PORT"
 fi
@@ -422,6 +422,14 @@ plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
     fail "multi-chunk read: plink2 exited nonzero"
 diff -q local_big.afreq s3_big.afreq > /dev/null || fail "multi-chunk read: output mismatch"
 pass "multi-chunk range reads (10 MB .pgen)"
+
+# 256 KiB is the floor, so the ~10 MB file needs ~40 range requests.
+plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
+    "S3STREAM_CHUNK_SIZE=1" \
+    "$PLINK2" --pfile "s3://$PRIVATE_BUCKET/data/big" --freq --out s3_big_small --silent > /dev/null ||
+    fail "small chunk size: plink2 exited nonzero"
+diff -q local_big.afreq s3_big_small.afreq > /dev/null || fail "small chunk size: output mismatch"
+pass "S3STREAM_CHUNK_SIZE (clamped to the 256 KiB floor)"
 
 plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
     "$PLINK2" --pfile "s3://$PRIVATE_BUCKET/data/big" --make-pgen --out s3_roundtrip --silent > /dev/null ||

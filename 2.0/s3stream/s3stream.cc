@@ -11,6 +11,7 @@
 
 #ifdef S3STREAM_ENABLE
 #  include <inttypes.h>
+#  include <atomic>
 #  include <mutex>
 #  include <curl/curl.h>
 #  if defined(_MSC_VER) && !defined(_SSIZE_T_DEFINED)
@@ -83,6 +84,10 @@ extern "C" int s3stream_set_expected_bucket_owner(const char* account_id) {
   return 0;
 }
 
+extern "C" void s3stream_set_chunk_size(int64_t bytes) { (void)bytes; }
+
+extern "C" int64_t s3stream_get_chunk_size(void) { return 8 * 1024 * 1024; }
+
 extern "C" FILE* s3stream_open(const char* path) {
   if (s3stream_is_remote(path)) {
     s3stream::SetError(
@@ -106,9 +111,36 @@ namespace s3stream {
 
 namespace {
 
-/* Sized to amortize per-request latency over large sequential reads without
- * making a small read of a large object expensive. */
-const int64_t kChunkSize = 8 * 1024 * 1024;
+/* The default amortizes per-request latency over large sequential reads
+ * without making a small read of a large object expensive.  The floor keeps
+ * a misconfiguration from turning a scan into millions of GET requests. */
+const int64_t kChunkSizeDefault = 8 * 1024 * 1024;
+const int64_t kChunkSizeMin = 256 * 1024;
+const int64_t kChunkSizeMax = 512 * 1024 * 1024;
+
+int64_t ClampChunkSize(int64_t bytes) {
+  if (bytes < kChunkSizeMin) return kChunkSizeMin;
+  if (bytes > kChunkSizeMax) return kChunkSizeMax;
+  return bytes;
+}
+
+std::atomic<int64_t> g_chunk_size(kChunkSizeDefault);
+std::once_flag g_chunk_size_once;
+
+/* Applies S3STREAM_CHUNK_SIZE once, before the first read of the default. */
+int64_t DefaultChunkSize() {
+  std::call_once(g_chunk_size_once, [] {
+    const std::string v = GetEnv("S3STREAM_CHUNK_SIZE");
+    if (v.empty()) return;
+    errno = 0;
+    char* end = nullptr;
+    const long long parsed = strtoll(v.c_str(), &end, 10);
+    if ((errno == 0) && end && (*end == '\0') && (parsed > 0)) {
+      g_chunk_size.store(ClampChunkSize(parsed), std::memory_order_relaxed);
+    }
+  });
+  return g_chunk_size.load(std::memory_order_relaxed);
+}
 
 std::once_flag g_init_once;
 CURLcode g_init_result = CURLE_OK;
@@ -251,13 +283,16 @@ struct StreamState {
   int64_t buf_start;
   int64_t buf_end;
 
+  int64_t chunk_size;
+
   StreamState()
       : sign(true),
         explicit_creds(false),
         file_size(-1),
         pos(0),
         buf_start(0),
-        buf_end(0) {}
+        buf_end(0),
+        chunk_size(DefaultChunkSize()) {}
 };
 
 Request MakeRequest(const StreamState* state) {
@@ -345,7 +380,7 @@ bool FetchChunk(StreamState* state, int64_t offset) {
     return true;
   }
 
-  int64_t fetch_end = offset + kChunkSize - 1;
+  int64_t fetch_end = offset + state->chunk_size - 1;
   if ((state->file_size >= 0) && (fetch_end >= state->file_size)) {
     fetch_end = state->file_size - 1;
   }
@@ -873,6 +908,16 @@ extern "C" void s3stream_set_no_sign_request(int no_sign) {
 
 extern "C" void s3stream_set_requester_pays(int requester_pays) {
   s3stream::g_requester_pays = (requester_pays != 0);
+}
+
+extern "C" void s3stream_set_chunk_size(int64_t bytes) {
+  s3stream::DefaultChunkSize();  // let an env override settle first
+  s3stream::g_chunk_size.store(s3stream::ClampChunkSize(bytes),
+                               std::memory_order_relaxed);
+}
+
+extern "C" int64_t s3stream_get_chunk_size(void) {
+  return s3stream::DefaultChunkSize();
 }
 
 extern "C" int s3stream_set_expected_bucket_owner(const char* account_id) {

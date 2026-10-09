@@ -197,6 +197,13 @@ hint in the error response is followed automatically.
 **Reads are sequential-friendly.** Data is fetched in 8 MiB chunks. `fseek`
 within the current chunk is free; seeking outside it costs one request.
 
+**Tuning the chunk size (advanced).** Set `S3STREAM_CHUNK_SIZE` (bytes,
+clamped to 256 KiB..512 MiB) to change the chunk. Each chunk is one serial
+round trip, billed as one GET request, so a smaller chunk means more latency
+and request fees on sequential scans, while a larger one over-reads (and
+increases egress) on sparse access such as `--extract` of a few variants.
+The default suits full scans.
+
 ## Security
 
 S3 support is built so that it does not change what plink2 trusts, and adds
