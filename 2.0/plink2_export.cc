@@ -11794,9 +11794,6 @@ PglErr ExportEigTgeno(const char* outname, const uintptr_t* orig_sample_include,
   return reterr;
 }
 
-// close enough to .tped that this borrows that function's structure.  The
-// format only has room for single-character alleles, so multiallelic variants
-// and multi-character alleles are rejected rather than silently mangled.
 PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uint32_t variant_ct, char exportf_delim, uint32_t output_bgz, uint32_t max_thread_ct, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
