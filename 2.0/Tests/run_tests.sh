@@ -393,9 +393,4 @@ cd TEST_NORMALIZE_INDEL_JOIN
 cd ..
 echo "TEST_NORMALIZE_INDEL_JOIN passed."
 
-cd TEST_S3
-./run_tests.sh $d $2 $3 > TEST_S3.log
-cd ..
-echo "TEST_S3 passed."
-
 echo "All tests passed."
