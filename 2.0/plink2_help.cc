@@ -2495,6 +2495,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --silent            : Suppress regular output to console.  (Error-output is\n"
 "                        not suppressed.)\n"
                );
+    HelpPrint("s3-no-sign-request\0", &help_ctrl, 0,
+"  --s3-no-sign-request : Read s3:// inputs without signing requests, for public\n"
+"                        buckets.  Can also be set with AWS_NO_SIGN_REQUEST=1.\n"
+               );
+    HelpPrint("s3-requester-pays\0", &help_ctrl, 0,
+"  --s3-requester-pays : Send 'x-amz-request-payer: requester' with s3:// requests,\n"
+"                        which requester-pays buckets require.\n"
+               );
+    HelpPrint("s3-expected-bucket-owner\0", &help_ctrl, 0,
+"  --s3-expected-bucket-owner [ID] : Fail s3:// requests unless the bucket is owned\n"
+"                        by this 12-digit AWS account ID.\n"
+               );
     HelpPrint("vcf\0bcf\0bgen\0double-id\0const-fid\0id-delim\0", &help_ctrl, 0,
 "  --double-id         : When importing single-part sample IDs, set both FID and\n"
 "                        IID to the original ID.\n"

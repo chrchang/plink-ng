@@ -16,6 +16,7 @@
 
 
 #include "plink2_cmdline.h"
+#include "plink2_s3.h"
 
 #include <errno.h>
 #include <fcntl.h>  // open()
@@ -105,11 +106,19 @@ void logerrputsb() {
 }
 
 uint32_t FileExists(const char* fname) {
+  // S3 objects can't be stat()ed cheaply; let the actual open report the
+  // error instead of rejecting the URI here.
+  if (IsS3Uri(fname)) {
+    return 1;
+  }
   struct stat statbuf;
   return (stat(fname, &statbuf) == 0);
 }
 
 PglErr ForceNonFifo(const char* fname) {
+  if (IsS3Uri(fname)) {
+    return kPglRetSuccess;
+  }
   int32_t file_handle = open(fname, O_RDONLY);
   if (unlikely(file_handle < 0)) {
     return kPglRetOpenFail;
@@ -3389,6 +3398,11 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
             fflush(stdout);
             fputs("Error: --out argument too long.\n", stderr);
             goto CmdlineParsePhase2_ret_OPEN_FAIL;
+          }
+          if (unlikely(IsS3Uri(argvk[arg_idx + 1]))) {
+            fflush(stdout);
+            fputs("Error: Writing output to S3 or HTTP(S) is not yet implemented; --out must be a\nlocal path prefix.\n", stderr);
+            goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
           }
           const uint32_t slen = strlen(argvk[arg_idx + 1]);
           memcpy(outname, argvk[arg_idx + 1], slen + 1);

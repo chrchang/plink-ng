@@ -11,4 +11,6 @@ pgen_spec/pgen_spec.toc
 /test_data/
 /results/
 /venv/
+2.0/bin/
 2.0/build_dynamic/CI-SCRIPTS/results/
+.vscode/

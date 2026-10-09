@@ -29,6 +29,10 @@ ZSTD		?=
 BLASFLAGS64	?= -llapack -lf77blas -latlas
 ARCH32		?=
 
+# S3 support: set USE_S3=1 to enable.  Requires libcurl >= 7.75.0 with HTTPS
+# (e.g. 'apt install libcurl4-openssl-dev' or 'brew install curl').
+USE_S3		?=
+
 # Mandatory flags added to defaults or env settings
 CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
 CXXFLAGS	+= -std=c++17 $(BASEFLAGS) $(CXXWARN) $(CXXINCLUDE)
@@ -51,6 +55,14 @@ ifeq ($(UNAME), Darwin)
   LDFLAGS=-ldl -lpthread -lz -lzstd -flto -L/opt/homebrew/lib -L/usr/local/lib
 endif
 
+# Must come after the platform blocks above: they assign LDFLAGS outright
+# rather than appending, so an earlier -lcurl would be dropped.
+ifdef USE_S3
+  CXXFLAGS	+= -DUSE_S3 -DS3STREAM_ENABLE
+  LDFLAGS	+= -lcurl
+  S3LDFLAGS	= -lcurl
+endif
+
 %.o: %.c
 	$(CC) -c $(CFLAGS) $(ARCH32) -o $@ $<
 
@@ -70,7 +82,7 @@ plink2: $(OBJ)
 pgen_compress: $(PGCOBJ)
 	$(MKDIR) -p bin
 	$(CXX) $(PGCOBJ) \
-		-o bin/pgen_compress
+		-o bin/pgen_compress $(S3LDFLAGS)
 
 .PHONY: install-strip install clean
 

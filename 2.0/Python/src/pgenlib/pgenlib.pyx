@@ -5,11 +5,119 @@ from libc.string cimport memcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from cpython.view cimport array as cvarray
 from cython.parallel import prange
+import os
 import numpy as np
 cimport numpy as cnp
 import sys
 
 __version__ = "0.95.1"
+
+cdef extern from "../plink2/plink2_s3.h" namespace "plink2":
+    uint32_t IsS3Uri(const char* path)
+    void EnsureS3Ready()
+    void S3SetNoSignRequest(uint32_t no_sign)
+
+    cdef struct S3Credentials:
+        const char* access_key_id
+        const char* secret_access_key
+        const char* session_token
+        const char* endpoint_url
+        const char* region
+        uint32_t no_sign_request
+        uint32_t force_path_style
+        uint32_t requester_pays
+        const char* expected_bucket_owner
+
+# Accepts a plain path (bytes/str/os.PathLike), or a cloud-storage path object
+# such as fsspec/universal_pathlib's UPath, which is not os.PathLike since it
+# doesn't refer to a local file.  A UPath-like object is recognized by duck
+# typing (.protocol/.path/.storage_options) rather than an import, so this
+# works without universal_pathlib installed.
+cdef bytes _resolve_pgenlib_path(object filename):
+    if isinstance(filename, bytes):
+        return filename
+    if isinstance(filename, str):
+        return filename.encode('utf-8')
+    protocol = getattr(filename, 'protocol', None)
+    if protocol in ('s3', 's3a'):
+        return str(filename).encode('utf-8')
+    # os.fspath covers pathlib.Path and any other local os.PathLike object.
+    return os.fspath(filename).encode('utf-8')
+
+# Populates `creds` (and appends the byte-string objects backing its char*
+# fields to `keepalive`, so they outlive this call) from a UPath-like
+# object's .storage_options.  Each object is opened with exactly these
+# credentials and nothing else -- unlike environment variables, this has zero
+# effect on any other object opened in the same process, so multiple files
+# with different accounts/buckets work in one process.
+# Returns whether any credential field was actually found.
+cdef bint _populate_s3_credentials(object opts, S3Credentials* creds, list keepalive):
+    creds.access_key_id = NULL
+    creds.secret_access_key = NULL
+    creds.session_token = NULL
+    creds.endpoint_url = NULL
+    creds.region = NULL
+    creds.no_sign_request = 0
+    creds.force_path_style = 0
+    creds.requester_pays = 0
+    creds.expected_bucket_owner = NULL
+    cdef bytes b
+    found = False
+    if opts.get('key'):
+        b = opts['key'].encode('utf-8')
+        keepalive.append(b)
+        creds.access_key_id = <const char*>b
+        found = True
+    if opts.get('secret'):
+        b = opts['secret'].encode('utf-8')
+        keepalive.append(b)
+        creds.secret_access_key = <const char*>b
+        found = True
+    if opts.get('token'):
+        b = opts['token'].encode('utf-8')
+        keepalive.append(b)
+        creds.session_token = <const char*>b
+        found = True
+    if opts.get('endpoint_url'):
+        b = opts['endpoint_url'].encode('utf-8')
+        keepalive.append(b)
+        creds.endpoint_url = <const char*>b
+        found = True
+    region = (opts.get('client_kwargs') or {}).get('region_name')
+    if region:
+        b = region.encode('utf-8')
+        keepalive.append(b)
+        creds.region = <const char*>b
+        found = True
+    if opts.get('anon'):
+        creds.no_sign_request = 1
+        found = True
+    if opts.get('requester_pays'):
+        creds.requester_pays = 1
+        found = True
+    if opts.get('expected_bucket_owner'):
+        b = str(opts['expected_bucket_owner']).encode('utf-8')
+        keepalive.append(b)
+        creds.expected_bucket_owner = <const char*>b
+        found = True
+    return found
+
+# If `filename` names a remote object, ensures S3 support is ready and, when
+# it's a UPath-like object with embedded credentials, populates `creds` for an
+# open scoped to this file only.  Returns whether `creds` was populated
+# (callers should pass NULL instead of &creds otherwise, to resolve
+# credentials from the ambient chain via OpenMaybeS3()).
+cdef bint _prepare_s3_open(object filename, const char* fname, S3Credentials* creds, list keepalive):
+    if not IsS3Uri(fname):
+        return False
+    # libcurl's global init must run before any request is built, including on
+    # the explicit-credentials path.
+    EnsureS3Ready()
+    protocol = getattr(filename, 'protocol', None)
+    if protocol in ('s3', 's3a'):
+        storage_options = getattr(filename, 'storage_options', None) or {}
+        return _populate_s3_credentials(storage_options, creds, keepalive)
+    return False
 
 cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     ctypedef uint32_t BoolErr
@@ -157,7 +265,7 @@ cdef extern from "../plink2/include/pvar_ffi_support.h" namespace "plink2":
         uint32_t max_allele_ct
 
     void PreinitMinimalPvar(MinimalPvarStruct* mpp)
-    PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalPvarStruct* mpp, char* errstr_buf)
+    PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalPvarStruct* mpp, char* errstr_buf, const S3Credentials* s3_creds)
     void CleanupMinimalPvar(MinimalPvarStruct* mpp)
 
 
@@ -198,7 +306,7 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     void PreinitPgfi(PgenFileInfo* pgfip)
 
-    PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
+    PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf, const S3Credentials* s3_creds)
 
     PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf)
 
@@ -283,17 +391,23 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
 cdef class PvarReader:
     cdef MinimalPvarStruct _mp
 
-    def __cinit__(self, bytes filename, bint omit_chrom = False,
+    def __cinit__(self, object filename, bint omit_chrom = False,
                   bint omit_pos = False):
         PreinitMinimalPvar(&self._mp)
-        cdef const char* fname = <const char*>filename
+        cdef bytes filename_b = _resolve_pgenlib_path(filename)
+        cdef const char* fname = <const char*>filename_b
+        cdef S3Credentials creds
+        cdef list s3_keepalive = []
+        cdef S3Credentials* creds_ptr = NULL
+        if _prepare_s3_open(filename, fname, &creds, s3_keepalive):
+            creds_ptr = &creds
         cdef char errstr_buf[kPglErrstrBufBlen]
         cdef LoadMinimalPvarFlags load_flags = kfLoadMinimalPvar0
         if omit_chrom:
             load_flags |= kfLoadMinimalPvarOmitChrom
         if omit_pos:
             load_flags |= kfLoadMinimalPvarOmitPos
-        if LoadMinimalPvarEx(fname, load_flags, &self._mp, errstr_buf) != kPglRetSuccess:
+        if LoadMinimalPvarEx(fname, load_flags, &self._mp, errstr_buf, creds_ptr) != kPglRetSuccess:
             raise RuntimeError(errstr_buf[7:])
         return
 
@@ -465,7 +579,7 @@ cdef class PgenReader:
         return
 
 
-    def __cinit__(self, bytes filename, object raw_sample_ct = None,
+    def __cinit__(self, object filename, object raw_sample_ct = None,
                   object variant_ct = None, object sample_subset = None,
                   object allele_idx_offsets = None, object pvar = None):
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
@@ -491,11 +605,17 @@ cdef class PgenReader:
                 allele_idx_offsets = pr.get_allele_idx_offsets()
         if variant_ct is not None:
             cur_variant_ct = variant_ct
-        cdef const char* fname = <const char*>filename
+        cdef bytes filename_b = _resolve_pgenlib_path(filename)
+        cdef const char* fname = <const char*>filename_b
+        cdef S3Credentials creds
+        cdef list s3_keepalive = []
+        cdef S3Credentials* creds_ptr = NULL
+        if _prepare_s3_open(filename, fname, &creds, s3_keepalive):
+            creds_ptr = &creds
         cdef PgenHeaderCtrl header_ctrl
         cdef uintptr_t pgfi_alloc_cacheline_ct
         cdef char errstr_buf[kPglErrstrBufBlen]
-        if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
+        if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf, creds_ptr) != kPglRetSuccess:
             raise RuntimeError(errstr_buf[7:])
         cdef uint32_t file_variant_ct = self._info_ptr[0].raw_variant_ct
         if allele_idx_offsets is not None:
