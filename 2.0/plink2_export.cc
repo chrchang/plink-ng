@@ -11822,7 +11822,16 @@ PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample
     }
     // ",0.000" per sample in the dosage case, ",XY" otherwise.
     const uintptr_t per_sample_blen = dosage_present_in_file? 8 : 4;
-    const uintptr_t writebuf_blen = kMaxMediumLine + per_sample_blen * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 64;
+    uintptr_t writebuf_blen = per_sample_blen * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 64;
+    uint32_t noncat_pheno_ct = 0;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      noncat_pheno_ct += (pheno_cols[pheno_idx].type_code != kPhenoDtypeCat);
+    }
+    // we're using the same buffer for .pheno.txt
+    if (writebuf_blen < noncat_pheno_ct * (kMaxDoubleGSlen + 1) + 16) {
+      writebuf_blen = noncat_pheno_ct * (kMaxDoubleGSlen + 1) + 16;
+    }
+    writebuf_blen += kMaxMediumLine;
     char* writebuf;
     if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
       goto ExportMgf_ret_NOMEM;
@@ -11944,15 +11953,10 @@ PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample
     }
     fputs("\b\bdone.\n", stdout);
 
-    // .pheno.txt: one row per sample, one column per loaded quantitative
-    // phenotype, which is what GEMMA's -n selects between.  Written only when
-    // there is at least one such phenotype; case/control and categorical
-    // phenotypes have no place in this format.
-    uint32_t qt_pheno_ct = 0;
-    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-      qt_pheno_ct += (pheno_cols[pheno_idx].type_code == kPhenoDtypeQt);
-    }
-    if (qt_pheno_ct) {
+    // .pheno.txt: one row per sample, one column per loaded
+    // binary/quantitative phenotype, which is what GEMMA's -n selects between.
+    // Written only when there is at least one such phenotype.
+    if (noncat_pheno_ct) {
       fname_end = strcpya_k(outname_end, ".pheno.txt");
       *fname_end = '\0';
       if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
@@ -11967,20 +11971,14 @@ PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample
         uintptr_t sample_include_bits = sample_include[0];
         for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
           const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
-          if (!pheno_ct) {
-            write_iter = memcpya(write_iter, legacy_output_missing_pheno, lomp_slen);
-          } else {
-            uint32_t written = 0;
-            for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-              if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
-                continue;
-              }
-              if (written++) {
-                *write_iter++ = exportf_delim;
-              }
-              write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
+          for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+            if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCat) {
+              continue;
             }
+            write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
+            *write_iter++ = exportf_delim;
           }
+          --write_iter;
           AppendBinaryEoln(&write_iter);
           if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
             goto ExportMgf_ret_WRITE_FAIL;
