@@ -884,6 +884,10 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
         alloc_base = &(alloc_base[colold_blen]);
         memcpyx(variant_ids[variant_uidx], colnew_ptr, colnew_slen, '\0');
       } else {
+        if (unlikely(colnew_slen > kMaxIdSlen)) {
+          logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+          goto UpdateVarNames_ret_MALFORMED_INPUT;
+        }
         if (colnew_slen > max_variant_id_slen) {
           max_variant_id_slen = colnew_slen;
         }
@@ -911,6 +915,9 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     break;
   UpdateVarNames_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--update-name file", &txs);
+    break;
+  UpdateVarNames_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
     break;
   UpdateVarNames_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
