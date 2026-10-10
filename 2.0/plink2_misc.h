@@ -168,7 +168,7 @@ FLAGSET_DEF_START()
   kfMissingRptScolFmiss = (1 << 15),
   kfMissingRptScolFmissHh = (1 << 16),
   kfMissingRptScolDefault = (kfMissingRptScolMaybefid | kfMissingRptScolMaybesid | kfMissingRptScolMissphenos | kfMissingRptScolNmiss | kfMissingRptScolNobs | kfMissingRptScolFmiss),
-  kfMissingRptScolAll = ((kfMissingRptScolFmissHh * 2) - kfMissingRptScolMaybesid),
+  kfMissingRptScolAll = ((kfMissingRptScolFmissHh * 2) - kfMissingRptScolMaybefid),
 
   kfMissingRptVcolChrom = (1 << 17),
   kfMissingRptVcolPos = (1 << 18),
