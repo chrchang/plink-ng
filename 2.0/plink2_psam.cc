@@ -407,7 +407,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
       // phenotypes
       if (!raw_sample_ct) {
         for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-          if (IsCategoricalPhenostrNocsv(token_ptrs[pheno_idx + 5])) {
+          if ((!no_categorical) && IsCategoricalPhenostrNocsv(token_ptrs[pheno_idx + 5])) {
             SetBit(pheno_idx, categorical_phenos);
           }
         }
