@@ -1620,7 +1620,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    hethet/ibs0/ibs1 values are proportions unless the 'counts' modifier is\n"
 "    present.  If id is omitted, a .kin0.id file is also written.\n"
 "    * Parent/offspring pairs cannot be told apart from full siblings by\n"
-"      kinship coefficient alone; both are 0.25.  The ibs0 column is what\n"
+"      kinship coefficient alone; both are ~0.25.  The ibs0 column is what\n"
 "      separates them: it should be much closer to zero for a parent/offspring\n"
 "      pair, since a parent and child normally share an allele.\n\n"
                );
