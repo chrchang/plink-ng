@@ -2424,7 +2424,15 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
   }
   // 0 <= small_r2 < small_q3_x4; no risk of qq < 0 or sqrt_q * qq == 0.
   const double sqrt_q = sqrt(qq);
-  const double ratio = rr / (sqrt_q * qq);
+  double ratio = rr / (sqrt_q * qq);
+  // bugfix (10 Oct 2026): when small_r2 is only barely below small_q3_x4,
+  // rounding error can push |ratio| a ulp or so past 1, and acos() would then
+  // return NaN.
+  if (ratio > 1.0) {
+    ratio = 1.0;
+  } else if (ratio < -1.0) {
+    ratio = -1.0;
+  }
   const double theta_div3 = acos(ratio) * (1.0 / 3.0);
   const double norm = -2 * sqrt_q;
   double sol0 = prefer_fma(norm, cos(theta_div3), -coef_a_div3);
