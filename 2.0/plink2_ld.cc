@@ -1941,8 +1941,9 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
       tvidx_batch_size = 65536;
     }
     // tvidx_batch_size = max_load;  // temporary debugging
-    if (tvidx_batch_size * loader_single_variant_byte_ct > bigstack_avail_per_thread) {
-      tvidx_batch_size = bigstack_avail_per_thread / loader_single_variant_byte_ct;
+    // the two loader buffers are each rounded up to a cacheline multiple
+    if (tvidx_batch_size * loader_single_variant_byte_ct + 2 * kCacheline > bigstack_avail_per_thread) {
+      tvidx_batch_size = (bigstack_avail_per_thread - 2 * kCacheline) / loader_single_variant_byte_ct;
     }
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       ctx.hap_then_nm_vecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_vec_alloc));
@@ -1959,8 +1960,8 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
       if (ctx.first_unchecked_tvidx) {
         ctx.first_unchecked_tvidx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
       }
-      ctx.loader_hap_then_nm_vecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
-      ctx.loader_hap_then_nm_vecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
+      ctx.loader_hap_then_nm_vecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
+      ctx.loader_hap_then_nm_vecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
     }
     ctx.cip = cip;
     ctx.subcontig_info = subcontig_info;
