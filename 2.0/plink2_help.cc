@@ -1006,7 +1006,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "              ['max-female-ycount='<z>] ['min-male-ycount='<w>]\n"
 "              ['max-female-yrate='<v>] ['min-male-yrate='<u>]\n"
 "              ['cols='<column set descriptor>]\n"
-"  --impute-sex ['max-female-fadj='<x>] ['min-male-fadj='<y>]\n"
+"  --impute-sex ['max-female-xf='<x>] ['min-male-xf='<y>]\n"
 "               ['max-female-ycount='<z>] ['min-male-ycount='<w>]\n"
 "               ['max-female-yrate='<v>] ['min-male-yrate='<u>]\n"
 "               ['cols='<column set descriptor>]\n"
