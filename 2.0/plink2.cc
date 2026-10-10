@@ -6875,9 +6875,13 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --epistasis cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0maybea1\0a1\0beta\0orbeta\0se\0stat\0df\0p\0nsig\0ntot\0prop\0", "epistasis", kfEpiColChrom, kfEpiColDefault, 1, &pc.epi_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0maybea1\0a1\0beta\0orbeta\0se\0stat\0df\0p\0nsig\0ntot\0prop\0", "epistasis", kfEpiColChrom, S_CAST(EpiFlags, kfEpiColDefault & (~kfEpiColDf)), 1, &pc.epi_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
+              }
+              if (unlikely(pc.epi_info.flags & kfEpiColDf)) {
+                logerrputs("Error: --epistasis does not support the 'df' column (only --epistasis-boost\ndoes).\n");
+                goto main_ret_INVALID_CMDLINE;
               }
               explicit_cols = 1;
             } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
@@ -6897,7 +6901,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           if (!explicit_cols) {
-            pc.epi_info.flags |= kfEpiColDefault;
+            pc.epi_info.flags |= S_CAST(EpiFlags, kfEpiColDefault & (~kfEpiColDf));
           }
           pc.epi_info.flags |= kfEpiRegress;
           pc.command_flags1 |= kfCommand1Epi;
