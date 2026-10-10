@@ -14277,7 +14277,7 @@ int main(int argc, char** argv) {
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.sample_counts_flags |= kfSampleCountsZs;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
-              if (unlikely(pc.sample_counts_flags & kfGenoCountsColAll)) {
+              if (unlikely(pc.sample_counts_flags & kfSampleCountsColAll)) {
                 logerrputs("Error: Multiple --sample-counts cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
