@@ -174,7 +174,8 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (unlikely(*valp >= 10)) {
+    // must be an unsigned comparison: ' ', '\t', '\n', etc. are below '0'
+    if (unlikely(S_CAST(uint32_t, *valp) >= 10)) {
       return 1;
     }
   }
