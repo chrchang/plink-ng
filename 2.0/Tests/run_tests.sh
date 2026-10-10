@@ -398,4 +398,9 @@ cd TEST_SPLIT_PAR_ALL_PAR1
 cd ..
 echo "TEST_SPLIT_PAR_ALL_PAR1 passed."
 
+cd TEST_DUP_ALLELE
+./run_tests.sh $d $2 $3 > TEST_DUP_ALLELE.log
+cd ..
+echo "TEST_DUP_ALLELE passed."
+
 echo "All tests passed."

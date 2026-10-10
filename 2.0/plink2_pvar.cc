@@ -2127,6 +2127,22 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         if (unlikely(missing_allele_ct && extra_alt_ct)) {
           goto LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE;
         }
+        if (!missing_allele_ct) {
+          // REF == ALT, or a repeated ALT, would make the genotype codes
+          // ambiguous.  allele_ct is almost always 2, so the quadratic loop
+          // is fine.
+          const char* const* cur_alleles = &(allele_storage_iter[-S_CAST(intptr_t, extra_alt_ct + 1)]);
+          const uint32_t allele_ct = extra_alt_ct + 2;
+          for (uint32_t allele_idx_hi = 1; allele_idx_hi != allele_ct; ++allele_idx_hi) {
+            const char* cur_allele = cur_alleles[allele_idx_hi];
+            for (uint32_t allele_idx_lo = 0; allele_idx_lo != allele_idx_hi; ++allele_idx_lo) {
+              if (unlikely(!strcmp(cur_allele, cur_alleles[allele_idx_lo]))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code '%s' on line %" PRIuPTR " of %s.\n", cur_allele, line_idx, pvarname);
+                goto LoadPvar_ret_MALFORMED_INPUT_WW;
+              }
+            }
+          }
+        }
         ++allele_storage_iter;
 
         // CM
