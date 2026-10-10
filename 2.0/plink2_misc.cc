@@ -12298,7 +12298,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         const uint32_t nonnull_category_ct = pheno_col->nonnull_category_ct;
         for (uint32_t cidx = 1; cidx <= nonnull_category_ct; ++cidx) {
           *cswritep++ = '\t';
-          cswritep = strcpya(cswritep, pheno_col->category_names);
+          cswritep = strcpya(cswritep, pheno_col->category_names[cidx]);
         }
       }
       AppendBinaryEoln(&cswritep);

@@ -225,3 +225,18 @@ awk '
 # 9. cols= without froh drops the column.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=nseg,kbtot --homozyg-min-af 0 --out plink2_nofroh
 head -n 1 plink2_nofroh.hom.indiv | grep -qx '#IID	NSEG	KB'
+
+# 10. pheno= stratifies the .hom.summary ROH_CT column by category, with the
+#     category names in the header; the counts must add up to the unstratified
+#     ROH_CT (every sample has a binary phenotype value here).
+awk '{print $1 "\t" $2 "\t" (NR % 2? 2 : 1)}' tmp_data.fam > tmp_pheno.txt
+$1/plink2 $2 $3 --bfile tmp_data --pheno tmp_pheno.txt --homozyg pheno=PHENO1 --homozyg-min-af 0 --out plink2_pheno
+head -n 1 plink2_pheno.hom.summary | grep -qx '#CHROM	POS	ID	CASE	CONTROL'
+awk '
+    FNR == NR { if (FNR > 1) { tot[$3] = $4 } next }
+    FNR > 1 {
+        if ($4 + $5 != tot[$3]) { print "stratified counts do not sum to ROH_CT at " $3; exit 1 }
+        if ($4 > 0 || $5 > 0) { nonzero = 1 }
+    }
+    END { if (!nonzero) { print "every stratified count is zero"; exit 1 } }
+' plink2.hom.summary plink2_pheno.hom.summary
