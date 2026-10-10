@@ -3684,6 +3684,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // g_thread_wkspaces (tune this fraction later).
       // Probable todo: factor out common parts with bgen-1.3 initialization
       // into separate function(s).
+      if (unlikely((gparse_flags & kfGparseDosage) && (max_allele_ct > 2))) {
+        // The per-line check above only sees multiallelic dosage when the same
+        // record has both; a dosage field elsewhere plus any multiallelic
+        // variant ends up here.
+        putc_unlocked('\n', stdout);
+        logerrputs("Error: --vcf multiallelic dosage import is under development.\n");
+        reterr = kPglRetNotYetSupported;
+        goto VcfToPgen_ret_1;
+      }
       uint64_t max_write_byte_ct = GparseWriteByteCt(sample_ct, max_allele_ct, gparse_flags);
       // always allocate tmp_dphase_delta for now
       uint64_t thread_wkspace_cl_ct = DivUp(max_write_byte_ct + sample_ct * sizeof(SDosage), kCacheline);
@@ -8853,6 +8862,15 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       // g_thread_wkspaces (tune this fraction later).
       // Probable todo: factor out common parts with bgen-1.3 initialization
       // into separate function(s).
+      if (unlikely((gparse_flags & kfGparseDosage) && (max_allele_ct > 2))) {
+        // The per-line check above only sees multiallelic dosage when the same
+        // record has both; a dosage field elsewhere plus any multiallelic
+        // variant ends up here.
+        putc_unlocked('\n', stdout);
+        logerrputs("Error: --bcf multiallelic dosage import is under development.\n");
+        reterr = kPglRetNotYetSupported;
+        goto BcfToPgen_ret_1;
+      }
       uint64_t max_write_byte_ct = GparseWriteByteCt(sample_ct, max_allele_ct, gparse_flags);
       // always allocate tmp_dphase_delta for now
       uint64_t thread_wkspace_cl_ct = DivUp(max_write_byte_ct + sample_ct * sizeof(SDosage), kCacheline);
