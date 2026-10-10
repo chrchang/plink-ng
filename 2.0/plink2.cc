@@ -8113,7 +8113,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
               if (unlikely((pc.geno_counts_flags & kfGenoCountsColPairex) == kfGenoCountsColPairex)) {
-                logerrputs("Error: --geno-counts's hapaltx and hapx columns are mutually exclusive.\n");
+                logerrputs("Error: --geno-counts's hapalt and hap columns are mutually exclusive.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               const uint32_t mutually_exclusive_cols = pc.geno_counts_flags & kfGenoCountsColMutex;
@@ -8785,7 +8785,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
               if (unlikely((pc.hardy_flags & (kfHardyColGcounts | kfHardyColGcount1col)) == (kfHardyColGcounts | kfHardyColGcount1col))) {
-                logerrputs("Error: --hardy's gcounts and gcounts1col column sets are mutually exclusive.\n");
+                logerrputs("Error: --hardy's gcounts and gcount1col column sets are mutually exclusive.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
