@@ -2282,10 +2282,6 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
           }
         }
         const uint64_t tot_prob_bit_ct = sample_ct * 2 * S_CAST(uint64_t, bit_precision);
-        for (uint64_t ullii = 0; ullii < tot_prob_bit_ct / CHAR_BIT; ++ullii) {
-          printf("%u ", bgen_geno_buf_iter[ullii]);
-        }
-        printf("\n");
         bgen_geno_buf_iter = &(bgen_geno_buf_iter[tot_prob_bit_ct / CHAR_BIT]);
         const uint32_t remainder = tot_prob_bit_ct % 8;
         if (remainder) {
