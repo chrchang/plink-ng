@@ -100,3 +100,14 @@ if cmp -s plink2_rt.bed plink2_ovr.bed; then
     echo "the overriding missing calls had no effect"
     exit 1
 fi
+
+# 10. Multicharacter alleles named in the --reference file.  The allele strings
+#     are stored at the end of bigstack, as is the bitarray of variants the
+#     reference names; the strings used to be written over that bitarray, so
+#     enough long alleles made the import report a bogus third allele.
+printf 'A\tS1\t0\t0\t1\t-9\nB\tS2\t0\t0\t2\t-9\n' > tmp_long.fam
+awk 'BEGIN { for (i = 1; i <= 8; ++i) printf "1\tv%d\t0\t%d\n", i, i * 100 }' > tmp_long.map
+awk 'BEGIN { for (i = 1; i <= 8; ++i) { printf "A\tS1\tv%d\tT\tAGGTGGCGCGGG\n", i; printf "B\tS2\tv%d\tT\tT\n", i } }' > tmp_long.lgen
+awk 'BEGIN { for (i = 1; i <= 8; ++i) printf "v%d\tAGGTGGCGCGGG\tT\n", i }' > tmp_long.ref
+$BUILD/plink2 $EXTRA1 $EXTRA2 --lfile tmp_long --reference tmp_long.ref --make-pgen --out plink2_long
+test "$(grep -v '^#' plink2_long.pvar | cut -f4,5 | sort -u | tr '\n\t' ' ')" = "AGGTGGCGCGGG T "

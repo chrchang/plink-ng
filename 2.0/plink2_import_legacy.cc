@@ -2109,17 +2109,22 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     for (uintptr_t ulii = 0; ulii != 2 * S_CAST(uintptr_t, variant_ct); ++ulii) {
       allele_codes[ulii] = null_str;
     }
+    // The ref_seen bitarray is also an end-of-bigstack allocation, so it has
+    // to exist before tmp_alloc_end is taken; otherwise the allele strings
+    // stored downward from tmp_alloc_end overwrite it.
+    uintptr_t* ref_seen = nullptr;
+    if (refname) {
+      if (unlikely(bigstack_end_calloc_w(BitCtToWordCt(variant_ct), &ref_seen))) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+    }
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
     uint32_t max_allele_slen = 1;
 
     // 4. Optional --reference file: <variant ID> <ref allele> [alt allele].
     //    Every call not present in the .lgen is then homozygous-reference.
-    uintptr_t* ref_seen = nullptr;
     if (refname) {
-      if (unlikely(bigstack_end_calloc_w(BitCtToWordCt(variant_ct), &ref_seen))) {
-        goto LgenToPgen_ret_NOMEM;
-      }
       cur_fname = refname;
       reterr = SizeAndInitTextStream(refname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
       if (unlikely(reterr)) {
