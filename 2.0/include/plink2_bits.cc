@@ -1968,6 +1968,13 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 #endif
 }
 
+// Per-lane 16-bit addition.  A plain word addition would let a lane whose sum
+// overflows (e.g. incr == 0xffff and a set bit) carry into the next lane.
+static inline uintptr_t AddU16Lanes(uintptr_t xx, uintptr_t yy) {
+  const uintptr_t low15 = kMask0001 * 0x7fff;
+  return ((xx & low15) + (yy & low15)) ^ ((xx ^ yy) & (~low15));
+}
+
 void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
 #if defined(USE_SHUFFLE8) && (!(defined(USE_AVX2) && defined(NO_UNALIGNED)))
@@ -2009,13 +2016,13 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     const uintptr_t input_byte_scatter = input_byte * 0x200040008001LLU;
     const uintptr_t write0 = input_byte_scatter & kMask0001;
     const uintptr_t write1 = (input_byte_scatter >> 4) & kMask0001;
-    dst_w[2 * byte_idx] = incr_word + write0;
-    dst_w[2 * byte_idx + 1] = incr_word + write1;
+    dst_w[2 * byte_idx] = AddU16Lanes(incr_word, write0);
+    dst_w[2 * byte_idx + 1] = AddU16Lanes(incr_word, write1);
   }
   if (input_nybble_ct % 2) {
     const uintptr_t input_byte = bytearr_uc[byte_idx];
     const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
-    dst_w[input_nybble_ct - 1] = incr_word + write0;
+    dst_w[input_nybble_ct - 1] = AddU16Lanes(incr_word, write0);
   }
 #else // (!USE_SHUFFLE8) || (NO_UNALIGNED && USE_AVX2)
   const uintptr_t incr_word = incr * kMask0001;
@@ -2028,23 +2035,23 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     const uintptr_t input_byte_scatter = input_byte * 0x200040008001LLU;
     const uintptr_t write0 = input_byte_scatter & kMask0001;
     const uintptr_t write1 = (input_byte_scatter >> 4) & kMask0001;
-    dst_w[2 * uii] = incr_word + write0;
-    dst_w[2 * uii + 1] = incr_word + write1;
+    dst_w[2 * uii] = AddU16Lanes(incr_word, write0);
+    dst_w[2 * uii + 1] = AddU16Lanes(incr_word, write1);
   }
   if (input_nybble_ct % 2) {
     const uintptr_t input_byte = bytearr_uc[fullbyte_ct];
     const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
-    dst_w[input_nybble_ct - 1] = incr_word + write0;
+    dst_w[input_nybble_ct - 1] = AddU16Lanes(incr_word, write0);
   }
 #  else // !__LP64__
   const uint32_t fullbyte_ct = input_bit_ct / 8;
   for (uint32_t uii = 0; uii != fullbyte_ct; ++uii) {
     uintptr_t input_byte = bytearr_uc[uii];
     const uintptr_t input_byte_scatter = input_byte * 0x8001;
-    dst_w[4 * uii] = (input_byte_scatter & kMask0001) + incr_word;
-    dst_w[4 * uii + 1] = ((input_byte_scatter >> 2) & kMask0001) + incr_word;
-    dst_w[4 * uii + 2] = ((input_byte_scatter >> 4) & kMask0001) + incr_word;
-    dst_w[4 * uii + 3] = ((input_byte_scatter >> 6) & kMask0001) + incr_word;
+    dst_w[4 * uii] = AddU16Lanes(input_byte_scatter & kMask0001, incr_word);
+    dst_w[4 * uii + 1] = AddU16Lanes((input_byte_scatter >> 2) & kMask0001, incr_word);
+    dst_w[4 * uii + 2] = AddU16Lanes((input_byte_scatter >> 4) & kMask0001, incr_word);
+    dst_w[4 * uii + 3] = AddU16Lanes((input_byte_scatter >> 6) & kMask0001, incr_word);
   }
   const uint32_t remainder = input_bit_ct % 8;
   if (remainder) {
