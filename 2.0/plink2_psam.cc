@@ -1338,6 +1338,10 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
               logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &(pheno_names[(old_pheno_ct + new_pheno_idx) * max_pheno_name_blen]), line_idx, pheno_fname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
               goto LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS;
             }
+            if (unlikely(slen > kMaxIdSlen)) {
+              logerrputs("Error: Categorical phenotypes are limited to " MAX_ID_SLEN_STR " characters.\n");
+              goto LoadPhenos_ret_MALFORMED_INPUT;
+            }
             uint32_t hashval;
             hashval = Hashceil(cur_phenostr, slen, kCatHtableSize) + cat_pheno_idx;
             if (hashval >= kCatHtableSize) {
