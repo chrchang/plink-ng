@@ -1175,8 +1175,8 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
   return reterr;
 }
 
-// Same idea as --export list, but the homozygous-A2 class is dropped, which is
-// what makes it a "rare genotype" list, and empty classes are omitted.
+// Same idea as --export list, but the major-allele homozygote class is dropped,
+// which is what makes it a "rare genotype" list, and empty classes are omitted.
 PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -1229,11 +1229,13 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
       }
       ZeroTrailingNyps(sample_ct, genovec);
       GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
-      const char* ref_allele = allele_storage[allele_idx_offset_base];
-      const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
       // PLINK 1.x emits HET, then the minor homozygote, then the missing
-      // class; the major homozygote is the omitted one.
-      const uint32_t geno_order[3] = {1, 2, 3};
+      // class; the major homozygote is the omitted one.  REF is not
+      // necessarily the major allele here, so check the counts.
+      const uint32_t ref_is_minor = (genocounts[0] < genocounts[2]);
+      const char* minor_allele = allele_storage[allele_idx_offset_base + 1 - ref_is_minor];
+      const char* major_allele = allele_storage[allele_idx_offset_base + ref_is_minor];
+      const uint32_t geno_order[3] = {1, 2 - ref_is_minor * 2, 3};
       const char* class_names[3] = {"HET", "HOM", "NIL"};
       for (uint32_t class_idx = 0; class_idx != 3; ++class_idx) {
         const uint32_t cur_geno = geno_order[class_idx];
@@ -1246,12 +1248,12 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
           *write_iter++ = legacy_output_missing_geno_char;
           *write_iter++ = exportf_delim;
           *write_iter++ = legacy_output_missing_geno_char;
-        } else if (cur_geno == 2) {
-          write_iter = strcpyax(write_iter, alt_allele, exportf_delim);
-          write_iter = strcpya(write_iter, alt_allele);
+        } else if (class_idx == 1) {
+          write_iter = strcpyax(write_iter, minor_allele, exportf_delim);
+          write_iter = strcpya(write_iter, minor_allele);
         } else {
-          write_iter = strcpyax(write_iter, alt_allele, exportf_delim);
-          write_iter = strcpya(write_iter, ref_allele);
+          write_iter = strcpyax(write_iter, minor_allele, exportf_delim);
+          write_iter = strcpya(write_iter, major_allele);
         }
         uint32_t sample_idx = 0;
         for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
