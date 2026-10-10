@@ -770,7 +770,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      pos: Base-pair coordinate.\n"
 "      (ID is always present, and positioned here.)\n"
 "      ref: Reference allele.\n"
-"      alt1: Alternate allele 1.\n"
 "      alt: All alternate alleles, comma-separated.\n"
 "      maybeprovref: Reports whether REF allele is marked as known or\n"
 "                    provisional, when at least one of the latter is present,\n"
