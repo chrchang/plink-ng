@@ -393,4 +393,9 @@ cd TEST_NORMALIZE_INDEL_JOIN
 cd ..
 echo "TEST_NORMALIZE_INDEL_JOIN passed."
 
+cd TEST_SPLIT_PAR_ALL_PAR1
+./run_tests.sh $d $2 $3 > TEST_SPLIT_PAR_ALL_PAR1.log
+cd ..
+echo "TEST_SPLIT_PAR_ALL_PAR1 passed."
+
 echo "All tests passed."
