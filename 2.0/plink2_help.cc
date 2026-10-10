@@ -3764,8 +3764,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("meta-analysis-chr-field\0meta-analysis-snp-field\0meta-analysis-bp-field\0meta-analysis-a1-field\0meta-analysis-a2-field\0meta-analysis-se-field\0meta-analysis-p-field\0meta-analysis-ess-field\0meta-analysis\0", &help_ctrl, 0,
 "  --meta-analysis-chr-field <n...> : Set --meta-analysis chromosome (default\n"
-"  --meta-analysis-snp-field <n...>   'CHR CHROM'), variant ID (default 'SNP\n"
-"  --meta-analysis-bp-field <n...>    ID'), position (default 'BP POS'), A1\n"
+"  --meta-analysis-snp-field <n...>   'CHROM CHR'), variant ID (default 'ID\n"
+"  --meta-analysis-bp-field <n...>    SNP'), position (default 'POS BP'), A1\n"
 "  --meta-analysis-a1-field <n...>    allele (default 'A1'), A2 allele (default\n"
 "  --meta-analysis-a2-field <n...>    'A2'), standard error (default 'SE'),\n"
 "  --meta-analysis-se-field <n...>    p-value (default 'P'), and effective\n"
