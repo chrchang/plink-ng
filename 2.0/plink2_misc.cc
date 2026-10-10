@@ -5078,7 +5078,10 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
                   ++male_patch_01_ct;
                 }
               }
-              missing_ct += male_patch_01_ct;
+              // bugfix (10 Oct 2026): all male ref/alt hets (0/1 as well as
+              // 0/x with x > 1) are heterozygous haploid calls, which are
+              // treated as missing.
+              missing_ct += cur_male_geno_cts[1];
               diploid_pair_cts[1] -= cur_male_geno_cts[1] - male_patch_01_ct;
               sample_widx = 0;
               cur_patch_bits = pgv.patch_10_set[0];
