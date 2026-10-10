@@ -463,7 +463,9 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      // allele_storage is null in the --adjust-file case where no allele
+      // columns were requested; avoid pointer arithmetic on it.
+      const char* const* cur_alleles = allele_storage? &(allele_storage[allele_idx_offset_base]) : nullptr;
       if (ref_col) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cur_alleles[0]);
