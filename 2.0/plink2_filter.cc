@@ -2299,7 +2299,11 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     const uint32_t selected_cat_ct = PopcountWords(cat_include, cat_ctl);
     if (!selected_cat_ct) {
       logerrprintf("Warning: No matching --%s-cat-names category names.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
-    } else {
+    }
+    // --keep-cats/--keep-cat-names excludes every sample outside the named
+    // categories, so an empty selection must remove everyone rather than be
+    // skipped.  (An empty --remove-cats selection removes no one.)
+    if (selected_cat_ct || (!is_remove)) {
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
       uintptr_t sample_uidx_base = 0;
       uintptr_t cur_bits = sample_include[0];
