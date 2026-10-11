@@ -1988,7 +1988,11 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     const uint32_t selected_cat_ct = PopcountWords(cat_include, cat_ctl);
     if (!selected_cat_ct) {
       logerrprintf("Warning: No matching --%s-cat-names category names.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
-    } else {
+    }
+    // --keep-cats/--keep-cat-names excludes every sample outside the named
+    // categories, so an empty selection must remove everyone rather than be
+    // skipped.  (An empty --remove-cats selection removes no one.)
+    if (selected_cat_ct || (!is_remove)) {
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
       uintptr_t sample_uidx_base = 0;
       uintptr_t cur_bits = sample_include[0];
@@ -3934,7 +3938,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
     }
   }
   if (S_CAST(uint64_t, max_obs) * 9 > S_CAST(uint64_t, min_obs) * 10) {
-    logerrputs("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
+    logerrputs("Warning: --hwe observation counts vary by more than 10%%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
   }
   logprintfww("--hwe%s%s: %u variant%s removed due to Hardy-Weinberg exact test (%s).\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "", removed_ct, (removed_ct == 1)? "" : "s", nonfounders? "all samples" : "founders only");
   *variant_ct_ptr -= removed_ct;

@@ -355,6 +355,10 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
         variant_ids[variant_uidx] = alloc_end;
       }
     }
+    if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
+      logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+      goto UpdateVarNames_ret_MALFORMED_INPUT;
+    }
     BigstackEndSet(alloc_end);
     if (miss_ct) {
       snprintf(g_logbuf, kLogbufSize, "--update-name: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
@@ -370,6 +374,9 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     break;
   UpdateVarNames_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--update-name file", &txs);
+    break;
+  UpdateVarNames_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
     break;
   UpdateVarNames_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
@@ -3966,11 +3973,13 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
                   ++male_patch_01_ct;
                 }
               }
-              missing_ct += male_patch_01_ct;
+              // bugfix (10 Oct 2026): all male ref/alt hets (0/1 as well as
+              // 0/x with x > 1) are heterozygous haploid calls, which are
+              // treated as missing.
+              missing_ct += cur_male_geno_cts[1];
               diploid_pair_cts[1] -= cur_male_geno_cts[1] - male_patch_01_ct;
               sample_widx = 0;
               cur_patch_bits = pgv.patch_10_set[0];
-              uint32_t* hap_cts_offset1 = &(hap_cts[1]);
               uint32_t male_patch_10_ct = 0;
               for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t lowbit = BitIter1y(pgv.patch_10_set, &sample_widx, &cur_patch_bits);
@@ -3980,7 +3989,10 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
                   diploid_pair_cts[lo_code * allele_ct + hi_code] -= 1;
                   ++male_patch_10_ct;
                   if (lo_code == hi_code) {
-                    hap_cts_offset1[lo_code] += 1;
+                    // bugfix (10 Oct 2026): was indexed from hap_cts[1], which
+                    // put altx hom calls in the altx+1 slot (and past the end
+                    // of the array for the last ALT allele).
+                    hap_cts[lo_code] += 1;
                   }
                 }
               }

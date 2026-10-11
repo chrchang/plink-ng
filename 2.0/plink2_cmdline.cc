@@ -2624,7 +2624,15 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
   if (r2 < q3) {
     // three real roots
     sq = sqrt(qq);
-    dxx = acos(rr / (qq * sq)) * (1.0 / 3.0);
+    double ratio = rr / (qq * sq);
+    // bugfix (10 Oct 2026): rounding error can push |ratio| a ulp or so past
+    // 1, and acos() would then return NaN.
+    if (ratio > 1.0) {
+      ratio = 1.0;
+    } else if (ratio < -1.0) {
+      ratio = -1.0;
+    }
+    dxx = acos(ratio) * (1.0 / 3.0);
     sq *= -2;
     solutions[0] = sq * cos(dxx) - adiv3;
     solutions[1] = sq * cos(dxx + (2.0 * kPi / 3.0)) - adiv3;
