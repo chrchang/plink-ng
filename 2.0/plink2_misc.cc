@@ -14761,7 +14761,7 @@ void CheckAlleleUniquenessMain(uint32_t tidx, uint32_t thread_ct, AlleleUniquene
           UpdateU32IfSmaller(variant_uidx, &(ctx->dup_vidx));
           return;
         }
-        cur_allele = prev_allele;
+        prev_allele = cur_allele;
       }
     }
   }
