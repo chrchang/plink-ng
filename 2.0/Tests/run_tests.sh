@@ -403,4 +403,9 @@ cd TEST_VALIDATE_DUP_ALLELE
 cd ..
 echo "TEST_VALIDATE_DUP_ALLELE passed."
 
+cd TEST_ALLELE_UNIQUENESS
+./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
+cd ..
+echo "TEST_ALLELE_UNIQUENESS passed."
+
 echo "All tests passed."
