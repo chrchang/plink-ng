@@ -398,6 +398,11 @@ cd TEST_SPLIT_PAR_ALL_PAR1
 cd ..
 echo "TEST_SPLIT_PAR_ALL_PAR1 passed."
 
+cd TEST_VALIDATE_DUP_ALLELE
+./run_tests.sh $d $2 $3 > TEST_VALIDATE_DUP_ALLELE.log
+cd ..
+echo "TEST_VALIDATE_DUP_ALLELE passed."
+
 cd TEST_ALLELE_UNIQUENESS
 ./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
 cd ..

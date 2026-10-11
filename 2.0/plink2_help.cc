@@ -2463,7 +2463,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("validate\0", &help_ctrl, 1,
 "  --validate\n"
-"    Validates all variant records in a .pgen file.\n\n"
+"    Validates all variant records in a .pgen file, and checks that no variant\n"
+"    repeats an allele code (e.g. REF equal to an ALT allele).\n\n"
                );
     HelpPrint("zst-decompress\0zd\0", &help_ctrl, 1,
 "  --zst-decompress <.zst file> [output filename]\n"
