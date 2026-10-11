@@ -462,7 +462,9 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      // allele_storage is null in the --adjust-file case where no allele
+      // columns were requested; avoid pointer arithmetic on it.
+      const char* const* cur_alleles = allele_storage? &(allele_storage[allele_idx_offset_base]) : nullptr;
       if (ref_col) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -589,7 +591,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     if (aidx == valid_allele_ct) {
       logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
     } else {
-      logprintfww("%" PRIuPTR " --adjust%s record%s (%" PRIuPTR " test%s, %" PRIuPTR " excluded by --pfilter) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", valid_allele_ct, (valid_allele_ct == 1)? "" : "s", valid_allele_ct - aidx, outname);
+      logprintfww("%" PRIuPTR " --adjust%s record%s (%" PRIuPTR " test%s, %" PRIuPTR " excluded by --pfilter) written to %s .\n", aidx, cip? "" : "-file", (aidx == 1)? "" : "s", valid_allele_ct, (valid_allele_ct == 1)? "" : "s", valid_allele_ct - aidx, outname);
     }
   }
   while (0) {
