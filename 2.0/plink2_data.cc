@@ -3682,17 +3682,13 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
 // - Don't need to do anything different when chr:pos only appears once in a
 //   biallelic variant, or in a multiallelic variant in "+any" mode.  For
 //   multiallelic variants in +both/+snps mode, error out if the variant is
-//   mixed SNP/non-SNP.  In +both case, also error out if the variant is mixed
-//   symbolic/non-symbolic, or it's symbolic and does not satisfy the REF or
-//   INFO/END constraints.
+//   mixed SNP/non-SNP.
+// - Variants with a symbolic ALT allele are never joined, in any mode.
+//   (bcftools norm -m + only joins SNPs and indels.)
 // - When multiple variants have the same chr:pos:
 //   - In +snps mode, also don't need to do anything different for non-SNPs.
-//   - Otherwise, create up to three linked lists of input variant records
-//     (need to distinguish SNPs from non-SNPs in +both mode, and within the
-//     non-SNP category, symbolic alleles are separate from non-symbolic).
-//     The variant with symbolic alleles has additional constraints: a warning
-//     is printed if INFO/END isn't defined, and an error occurs if either REF
-//     is multi-character, or there's an INFO/END mismatch.
+//   - Otherwise, create up to two linked lists of input variant records
+//     (need to distinguish SNPs from non-SNPs in +both mode).
 //   - Error out if any ALT allele is duplicated (note that --pmerge must
 //     support this).
 //   - Final ALT allele order is based on allele frequency (highest first),
@@ -3771,23 +3767,24 @@ ENUM_U31_DEF_END(JoinVtype);
 typedef struct JoinCountsStruct {
   uintptr_t snp_ct;
   uintptr_t nonsnp_ct;
-  uintptr_t symbolic_ct;
   uint32_t missalt_snp_ct;
   uint32_t missalt_nonsnp_ct;
 } JoinCounts;
 
 JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCounts* jcp) {
   jcp->snp_ct = 0;
-  jcp->symbolic_ct = 0;
+  jcp->nonsnp_ct = 0;
   jcp->missalt_snp_ct = 0;
   jcp->missalt_nonsnp_ct = 0;
+  for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+    if (cur_alleles[allele_idx][0] == '<') {
+      return kJoinVtypeSymbolic;
+    }
+  }
   if (cur_alleles[0][1] == '\0') {
-    jcp->nonsnp_ct = 0;
     for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
       const char* cur_allele = cur_alleles[allele_idx];
-      if (cur_allele[0] == '<') {
-        jcp->symbolic_ct += 1;
-      } else if (cur_allele[1] == '\0') {
+      if (cur_allele[1] == '\0') {
         if (cur_allele[0] == '.') {
           if (allele_ct == 2) {
             jcp->missalt_snp_ct = 1;
@@ -3800,9 +3797,6 @@ JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCou
         jcp->nonsnp_ct += 1;
       }
     }
-    if (jcp->symbolic_ct) {
-      return (jcp->symbolic_ct == allele_ct - 1)? kJoinVtypeSymbolic : kJoinVtypeError;
-    }
     if (jcp->nonsnp_ct) {
       return jcp->snp_ct? kJoinVtypeMixedSnpNonsnp : kJoinVtypeNonsnp;
     }
@@ -3810,12 +3804,8 @@ JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCou
   }
   for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
     const char* cur_allele = cur_alleles[allele_idx];
-    if (cur_allele[0] == '<') {
-      return kJoinVtypeError;
-    }
     if (strequal_k_unsafe(cur_allele, ".")) {
       if (allele_ct == 2) {
-        jcp->nonsnp_ct = 0;
         jcp->missalt_nonsnp_ct = 1;
         return kJoinVtypeNonsnp;
       }
@@ -3917,7 +3907,6 @@ uint32_t JoinMaxBlockSize(const uintptr_t* variant_include, const ChrInfo* cip, 
 ENUM_U31_DEF_START()
   kJoinClassSnp,
   kJoinClassNonsnp,
-  kJoinClassSymbolic,
   // Never joined with anything else.
   kJoinClassNone
 ENUM_U31_DEF_END(JoinClass);
@@ -3928,11 +3917,8 @@ JoinClass GetJoinClass(JoinVtype jvt, MakePlink2Flags join_mode) {
   if (jvt == kJoinVtypeSnp) {
     return kJoinClassSnp;
   }
-  if (join_mode == kfMakePlink2MJoinSnps) {
+  if ((join_mode == kfMakePlink2MJoinSnps) || (jvt == kJoinVtypeSymbolic)) {
     return kJoinClassNone;
-  }
-  if (jvt == kJoinVtypeSymbolic) {
-    return kJoinClassSymbolic;
   }
   // In +any mode, SNPs and non-SNPs with the same REF allele are joined.
   return (join_mode == kfMakePlink2MJoinAny)? kJoinClassSnp : kJoinClassNonsnp;
@@ -4069,7 +4055,7 @@ PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip
         JoinCounts jc;
         const JoinVtype jvt = JoinCount(cur_alleles, allele_ct, &jc);
         if (unlikely(jvt == kJoinVtypeError)) {
-          goto PlanMultiallelicJoin_ret_MIXED_SYMBOLIC;
+          goto PlanMultiallelicJoin_ret_MULTIALLELIC_MISSING_ALT;
         }
         if (unlikely((join_mode != kfMakePlink2MJoinAny) && (jvt == kJoinVtypeMixedSnpNonsnp))) {
           logerrprintfww("Error: Variant '%s' is mixed SNP/non-SNP; multiallelics=+both and +snps don't permit this.\n", variant_ids[variant_uidx]);
@@ -4151,8 +4137,8 @@ PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip
   PlanMultiallelicJoin_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  PlanMultiallelicJoin_ret_MIXED_SYMBOLIC:
-    logerrprintfww("Error: Variant '%s' mixes symbolic and non-symbolic alleles in an unsupported manner.\n", variant_ids[variant_uidx]);
+  PlanMultiallelicJoin_ret_MULTIALLELIC_MISSING_ALT:
+    logerrprintfww("Error: Variant '%s' is multiallelic with a missing ALT allele; variant-join doesn't permit this.\n", variant_ids[variant_uidx]);
   PlanMultiallelicJoin_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -5609,16 +5595,18 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     fputs("0%", stdout);
     fflush(stdout);
     while (1) {
+      // Index of the block's first variant; jbi.variant_idx is past the block
+      // after JoinNextBlock(), and would print '100%' on the last one.
+      const uint32_t block_start_variant_idx = jbi.variant_idx;
       const uint32_t block_size = JoinNextBlock(&jbi, block_uidxs);
       if (!block_size) {
         break;
       }
-      // Position here since we don't want to print '100%'
-      if (jbi.variant_idx >= next_print_variant_idx) {
+      if (block_start_variant_idx >= next_print_variant_idx) {
         if (pct > 10) {
           putc_unlocked('\b', stdout);
         }
-        pct = (jbi.variant_idx * 100LLU) / variant_ct;
+        pct = (block_start_variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
@@ -6044,6 +6032,11 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
               }
             }
             for (uint32_t key_pos = 0; key_pos != cur_key_ct; ++key_pos) {
+              // Flush before, not after, each key: the trailing ';' is
+              // removed below, so it must still be in the buffer then.
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto WritePvarJoin_ret_WRITE_FAIL;
+              }
               const uint32_t kidx = info_key_order[key_pos];
               const char* cur_key_str = info_keys[kidx];
               const int32_t knum = const_container_of(cur_key_str, InfoVtype, key)->num;
@@ -6171,9 +6164,6 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                 --cswritep;
               }
               *cswritep++ = ';';
-              if (unlikely(Cswrite(&css, &cswritep))) {
-                goto WritePvarJoin_ret_WRITE_FAIL;
-              }
             }
           }
           if (!cur_key_ct) {
