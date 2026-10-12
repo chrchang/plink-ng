@@ -5613,6 +5613,16 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
       if (!block_size) {
         break;
       }
+      // Position here since we don't want to print '100%'
+      if (jbi.variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (jbi.variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+      }
       if (jbi.chr_fo_idx != chr_fo_idx) {
         chr_fo_idx = jbi.chr_fo_idx;
         char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
@@ -6218,15 +6228,6 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
       }
       if (unlikely(Cswrite(&css, &cswritep))) {
         goto WritePvarJoin_ret_WRITE_FAIL;
-      }
-      if (jbi.variant_idx >= next_print_variant_idx) {
-        if (pct > 10) {
-          putc_unlocked('\b', stdout);
-        }
-        pct = (jbi.variant_idx * 100LLU) / variant_ct;
-        printf("\b\b%u%%", pct++);
-        fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -9401,6 +9402,15 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
       if (!block_size) {
         break;
       }
+      if (write_variant_idx >= next_print_write_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (write_variant_idx * 100LLU) / write_variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct) + 99) / 100;
+      }
       uint32_t group_ct = 1;
       group_members[0] = 0;
       group_starts[0] = 0;
@@ -9549,15 +9559,6 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
         if (unlikely(reterr)) {
           goto MakePgenJoin_ret_1;
         }
-      }
-      if (write_variant_idx >= next_print_write_variant_idx) {
-        if (pct > 10) {
-          putc_unlocked('\b', stdout);
-        }
-        pct = (write_variant_idx * 100LLU) / write_variant_ct;
-        printf("\b\b%u%%", pct++);
-        fflush(stdout);
-        next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct) + 99) / 100;
       }
     }
     assert(write_variant_idx == write_variant_ct);
