@@ -884,10 +884,6 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
         alloc_base = &(alloc_base[colold_blen]);
         memcpyx(variant_ids[variant_uidx], colnew_ptr, colnew_slen, '\0');
       } else {
-        if (unlikely(colnew_slen > kMaxIdSlen)) {
-          logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-          goto UpdateVarNames_ret_MALFORMED_INPUT;
-        }
         if (colnew_slen > max_variant_id_slen) {
           max_variant_id_slen = colnew_slen;
         }
@@ -899,6 +895,10 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
         memcpyx(alloc_end, colnew_ptr, colnew_slen, '\0');
         variant_ids[variant_uidx] = alloc_end;
       }
+    }
+    if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
+      logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+      goto UpdateVarNames_ret_MALFORMED_INPUT;
     }
     BigstackEndSet(alloc_end);
     if (miss_ct) {
