@@ -13658,7 +13658,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
           // allele, so the minor allele frequency is (1 - mean) / 2.
           if (nm_ct) {
             const double mean = S_CAST(double, vaggs[slot_idx].sum) / u31tod(nm_ct);
-            const uint32_t is_common = (0.5 * (1.0 - mean) > 0.05);
+            // const uint32_t is_common = (0.5 * (1.0 - mean) > 0.05);
+            const uint32_t is_common = ((0.9 - kSmallEpsilon) > mean);
             if (!annots) {
               m_totals[0] += 1.0;
               m_common[0] += S_CAST(double, is_common);

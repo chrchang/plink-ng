@@ -751,7 +751,7 @@ static PglErr MetaSetupCols(const MetaInfo* mip, const char* header_start, const
   col_search_order[5] = input_is_beta? "BETA\0" : "OR\0";
   col_search_order[6] = mip->se_field? mip->se_field : "SE\0";
   col_search_order[7] = weighted_z? (mip->p_field? mip->p_field : "P\0") : "";
-  col_search_order[8] = weighted_z? (mip->ess_field? mip->ess_field : "NMISS\0OBS_CT\0") : "";
+  col_search_order[8] = weighted_z? (mip->ess_field? mip->ess_field : "OBS_CT\0NMISS\0") : "";
   uint32_t found_type_bitset;
   PglErr reterr = SearchHeaderLine(header_start, col_search_order, "--meta-analysis", 9, relevant_col_ct_ptr, &found_type_bitset, col_skips, col_types);
   if (unlikely(reterr)) {

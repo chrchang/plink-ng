@@ -6947,7 +6947,7 @@ PglErr CalcNeighbour(const uintptr_t* sample_include, const SampleIdInfo* siip, 
 
     const NeighbourFlags flags = neighbour_ip->flags;
     const uint32_t output_zst = (flags / kfNeighbourZs) & 1;
-    OutnameZstSet(".nearest", output_zst, outname_end);
+    OutnameZstSet(".neighbour", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
     if (unlikely(reterr)) {
       goto CalcNeighbour_ret_1;
