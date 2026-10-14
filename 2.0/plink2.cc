@@ -3641,7 +3641,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1Epi) {
         if (pcp->epi_info.flags & kfEpiRegress) {
-          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), &variant_sets, raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         } else {
           reterr = CalcEpiBoost(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, &(pcp->epi_info), &variant_sets, raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         }
@@ -6892,10 +6892,10 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_cols = 1;
-            } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
-              logerrprintf("Error: --epistasis's '%s' modifier is not implemented yet.\n", cur_modif);
-              reterr = kPglRetNotYetSupported;
-              goto main_ret_1;
+            } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiSetBySet;
+            } else if (strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiSetByAll;
             } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
               logerrputs("Error: --epistasis: 'nop' modifier is retired.  Use e.g. 'cols=-p' instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -6906,6 +6906,10 @@ int main(int argc, char** argv) {
           }
           if (unlikely(explicit_firth_fallback && (pc.epi_info.flags & kfEpiNoFirth))) {
             logerrputs("Error: --epistasis: 'no-firth' and 'firth-fallback' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely((pc.epi_info.flags & (kfEpiSetBySet | kfEpiSetByAll)) == (kfEpiSetBySet | kfEpiSetByAll))) {
+            logerrputs("Error: --epistasis: 'set-by-set' and 'set-by-all' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (!explicit_cols) {
