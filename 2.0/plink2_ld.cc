@@ -15850,6 +15850,27 @@ void TestMishapAlleleNames(const uintptr_t* allele_idx_offsets, const char* cons
   *a2_ptr = allele_storage[allele_idx_offset_base + maj_aidx];
 }
 
+// Loads one variant into the --test-mishap ring.  phasebuf, when non-null and
+// vector-aligned, receives phasepresent followed by (phaseinfo &
+// phasepresent), each BitCtToAlignedWordCt(sample_ct) words long; the
+// reader inverts phaseinfo in place, which needs the alignment.
+static PglErr TestMishapLoad(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t variant_uidx, AlleleCode maj_allele, PgenReader* simple_pgrp, uintptr_t* genovec, uintptr_t* phasebuf) {
+  if (!phasebuf) {
+    return PgrGetInv1(sample_include, pssi, sample_ct, variant_uidx, maj_allele, simple_pgrp, genovec);
+  }
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  uintptr_t* phasepresent = phasebuf;
+  uintptr_t* phaseinfo = &(phasebuf[BitCtToAlignedWordCt(sample_ct)]);
+  uint32_t phasepresent_ct;
+  PglErr reterr = PgrGetInv1P(sample_include, pssi, sample_ct, variant_uidx, maj_allele, simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
+  if (!phasepresent_ct) {
+    ZeroWArr(sample_ctl, phasepresent);
+  }
+  // phaseinfo bits are not guaranteed clear where phasepresent is
+  BitvecAnd(phasepresent, sample_ctl, phaseinfo);
+  return reterr;
+}
+
 PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* sample_include, TestMishapFlags flags, double min_maf, double output_min_ln, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -15863,11 +15884,6 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     }
     if (sample_ct < 2) {
       logerrputs("Warning: Skipping --test-mishap, since there are less than two samples.\n");
-      goto TestMishap_ret_1;
-    }
-    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent) {
-      logerrputs("Error: --test-mishap calculation for already-phased data is under development.\n");
-      reterr = kPglRetNotYetSupported;
       goto TestMishap_ret_1;
     }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
@@ -15911,6 +15927,18 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
                  bigstack_alloc_u32(kept_variant_ct, &chr_variant_uidxs))) {
       goto TestMishap_ret_NOMEM;
     }
+    // Known phase resolves the flanking double-hets the same way it does for
+    // --r2-phased: a sample phased at both flanks contributes a known pair of
+    // haplotypes, and only the rest are split by the EM estimate.
+    const uint32_t phase_present = (PgrGetGflags(simple_pgrp) / kfPgenGlobalHardcallPhasePresent) & 1;
+    // ring of (phasepresent, phaseinfo) pairs, parallel to genobufs
+    const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+    uintptr_t* phasebufs = nullptr;
+    if (phase_present) {
+      if (unlikely(bigstack_calloc_w(6 * S_CAST(uintptr_t, sample_ctaw), &phasebufs))) {
+        goto TestMishap_ret_NOMEM;
+      }
+    }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -15934,6 +15962,11 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       goto TestMishap_ret_NOMEM;
     }
     uint32_t counts[27];
+    // Double-hets phased at both flanks, cis and trans, for the
+    // central-call-missing and nonmissing classes.  The phased ones are
+    // still counted in counts[4] and counts[13].
+    uint32_t phased_cis_cts[2];
+    uint32_t phased_trans_cts[2];
     double hap_ct_table[10];
     uint32_t inspected_ct = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
@@ -15954,8 +15987,15 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       uintptr_t* prev_genovec = genobufs;
       uintptr_t* cur_genovec = &(genobufs[sample_ctaw2]);
       uintptr_t* next_genovec = &(genobufs[2 * S_CAST(uintptr_t, sample_ctaw2)]);
+      uintptr_t* prev_phasebuf = phasebufs;
+      uintptr_t* cur_phasebuf = nullptr;
+      uintptr_t* next_phasebuf = nullptr;
+      if (phase_present) {
+        cur_phasebuf = &(phasebufs[2 * S_CAST(uintptr_t, sample_ctaw)]);
+        next_phasebuf = &(phasebufs[4 * S_CAST(uintptr_t, sample_ctaw)]);
+      }
       FillAllHomAlt(sample_ct, prev_genovec);
-      reterr = PgrGetInv1(sample_include, pssi, sample_ct, chr_variant_uidxs[0], maj_alleles[chr_variant_uidxs[0]], simple_pgrp, cur_genovec);
+      reterr = TestMishapLoad(sample_include, pssi, sample_ct, chr_variant_uidxs[0], maj_alleles[chr_variant_uidxs[0]], simple_pgrp, cur_genovec, cur_phasebuf);
       if (unlikely(reterr)) {
         goto TestMishap_ret_PGR_FAIL;
       }
@@ -15969,7 +16009,7 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         uint32_t missing_ct_next = 0;
         if (have_next) {
           const uint32_t next_uidx_load = chr_variant_uidxs[cidx + 1];
-          reterr = PgrGetInv1(sample_include, pssi, sample_ct, next_uidx_load, maj_alleles[next_uidx_load], simple_pgrp, next_genovec);
+          reterr = TestMishapLoad(sample_include, pssi, sample_ct, next_uidx_load, maj_alleles[next_uidx_load], simple_pgrp, next_genovec, next_phasebuf);
           if (unlikely(reterr)) {
             goto TestMishap_ret_PGR_FAIL;
           }
@@ -15979,6 +16019,9 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
           missing_ct_next = next_genocounts[3];
         } else {
           FillAllHomAlt(sample_ct, next_genovec);
+          if (phase_present) {
+            ZeroWArr(sample_ctl, next_phasebuf);
+          }
         }
         if (missing_ct_cur >= 5) {
           // counts[9 * m + 3 * p + n]: m is 0 when the central call is
@@ -15991,6 +16034,23 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
               GenoarrMatchToBitvec(cur_genovec, sample_ct, 3, cur_class_mask);
             } else {
               GenoarrToNonmissing(cur_genovec, sample_ct, cur_class_mask);
+            }
+            phased_cis_cts[class_idx] = 0;
+            phased_trans_cts[class_idx] = 0;
+            if (phase_present) {
+              const uintptr_t* prev_phasepresent = prev_phasebuf;
+              const uintptr_t* prev_phaseinfo = &(prev_phasebuf[sample_ctaw]);
+              const uintptr_t* next_phasepresent = next_phasebuf;
+              const uintptr_t* next_phaseinfo = &(next_phasebuf[sample_ctaw]);
+              uint32_t both_phased_ct = 0;
+              uint32_t trans_ct = 0;
+              for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+                const uintptr_t both_phased = cur_class_mask[widx] & prev_phasepresent[widx] & next_phasepresent[widx];
+                both_phased_ct += PopcountWord(both_phased);
+                trans_ct += PopcountWord(both_phased & (prev_phaseinfo[widx] ^ next_phaseinfo[widx]));
+              }
+              phased_cis_cts[class_idx] = both_phased_ct - trans_ct;
+              phased_trans_cts[class_idx] = trans_ct;
             }
             for (uint32_t prev_idx = 0; prev_idx != 3; ++prev_idx) {
               GenoarrMatchToBitvec(prev_genovec, sample_ct, 2 - prev_idx, cell_mask);
@@ -16048,32 +16108,46 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
               hap_ct_table[7] = S_CAST(int32_t, 2 * counts[15] + counts[12] + counts[16]);
               hap_ct_table[8] = S_CAST(int32_t, 2 * counts[8] + counts[5] + counts[7]);
               hap_ct_table[9] = S_CAST(int32_t, 2 * counts[17] + counts[14] + counts[16]);
-              if (counts[4] + counts[13]) {
+              // A cis double-het is one 11 and one 22 haplotype, a trans one
+              // a 12 and a 21.
+              hap_ct_table[2] += S_CAST(int32_t, phased_cis_cts[0]);
+              hap_ct_table[3] += S_CAST(int32_t, phased_cis_cts[1]);
+              hap_ct_table[8] += S_CAST(int32_t, phased_cis_cts[0]);
+              hap_ct_table[9] += S_CAST(int32_t, phased_cis_cts[1]);
+              hap_ct_table[4] += S_CAST(int32_t, phased_trans_cts[0]);
+              hap_ct_table[5] += S_CAST(int32_t, phased_trans_cts[1]);
+              hap_ct_table[6] += S_CAST(int32_t, phased_trans_cts[0]);
+              hap_ct_table[7] += S_CAST(int32_t, phased_trans_cts[1]);
+              const uint32_t unknown_hethet_ct0 = counts[4] - phased_cis_cts[0] - phased_trans_cts[0];
+              const uint32_t unknown_hethet_ct1 = counts[13] - phased_cis_cts[1] - phased_trans_cts[1];
+              if (unknown_hethet_ct0 + unknown_hethet_ct1) {
                 for (uint32_t uii = 0; uii != 9; ++uii) {
                   counts[18 + uii] = counts[uii] + counts[9 + uii];
                 }
-                // Double-heterozygotes are split between the two phases in the
-                // proportion the EM estimate implies.
-                const double known11 = S_CAST(int32_t, 2 * counts[18] + counts[19] + counts[21]);
-                const double known12 = S_CAST(int32_t, 2 * counts[20] + counts[19] + counts[23]);
-                const double known21 = S_CAST(int32_t, 2 * counts[24] + counts[21] + counts[25]);
-                const double known22 = S_CAST(int32_t, 2 * counts[26] + counts[23] + counts[25]);
+                const uint32_t phased_cis_ct = phased_cis_cts[0] + phased_cis_cts[1];
+                const uint32_t phased_trans_ct = phased_trans_cts[0] + phased_trans_cts[1];
+                // Double-heterozygotes of unknown phase are split between the
+                // two phases in the proportion the EM estimate implies.
+                const double known11 = S_CAST(int32_t, 2 * counts[18] + counts[19] + counts[21] + phased_cis_ct);
+                const double known12 = S_CAST(int32_t, 2 * counts[20] + counts[19] + counts[23] + phased_trans_ct);
+                const double known21 = S_CAST(int32_t, 2 * counts[24] + counts[21] + counts[25] + phased_trans_ct);
+                const double known22 = S_CAST(int32_t, 2 * counts[26] + counts[23] + counts[25] + phased_cis_ct);
                 double freq1x;
                 double freq2x;
                 double freqx1;
                 double freqx2;
                 double freq11;
-                BlocksEmPhaseHethet(known11, known12, known21, known22, counts[22], &freq1x, &freq2x, &freqx1, &freqx2, &freq11, nullptr);
-                double dxx = (freq11 * tot_recip - (hap_ct_table[2] + hap_ct_table[3])) / S_CAST(int32_t, counts[4] + counts[13]);
-                double dyy = S_CAST(int32_t, counts[4]) * dxx;
-                double dzz = S_CAST(int32_t, counts[13]) * dxx;
+                BlocksEmPhaseHethet(known11, known12, known21, known22, unknown_hethet_ct0 + unknown_hethet_ct1, &freq1x, &freq2x, &freqx1, &freqx2, &freq11, nullptr);
+                double dxx = (freq11 * tot_recip - (hap_ct_table[2] + hap_ct_table[3])) / S_CAST(int32_t, unknown_hethet_ct0 + unknown_hethet_ct1);
+                double dyy = S_CAST(int32_t, unknown_hethet_ct0) * dxx;
+                double dzz = S_CAST(int32_t, unknown_hethet_ct1) * dxx;
                 hap_ct_table[2] += dyy;
                 hap_ct_table[3] += dzz;
                 hap_ct_table[8] += dyy;
                 hap_ct_table[9] += dzz;
                 dxx = 1.0 - dxx;
-                dyy = S_CAST(int32_t, counts[4]) * dxx;
-                dzz = S_CAST(int32_t, counts[13]) * dxx;
+                dyy = S_CAST(int32_t, unknown_hethet_ct0) * dxx;
+                dzz = S_CAST(int32_t, unknown_hethet_ct1) * dxx;
                 hap_ct_table[4] += dyy;
                 hap_ct_table[5] += dzz;
                 hap_ct_table[6] += dyy;
@@ -16195,6 +16269,10 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
           prev_genovec = cur_genovec;
           cur_genovec = next_genovec;
           next_genovec = tmp_genovec;
+          uintptr_t* tmp_phasebuf = prev_phasebuf;
+          prev_phasebuf = cur_phasebuf;
+          cur_phasebuf = next_phasebuf;
+          next_phasebuf = tmp_phasebuf;
         }
         missing_ct_cur = missing_ct_next;
         have_prev = 1;
