@@ -814,12 +814,10 @@ uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint
   }
   memcpy(ldbase_genovec, genovec, genovec_word_ct * sizeof(intptr_t));
   if (difflist_viable) {
-#ifdef FUTURE_ENCODER
     if ((!difflist_len) && (!most_common_geno)) {
       *vrtype_ptr = 5;
       return 0;
     }
-#endif
     *vrtype_ptr = 4 + most_common_geno;
     return SaveLdDifflist(genovec, nullptr, most_common_geno, difflist_len, pwcp);
   }

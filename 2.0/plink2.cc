@@ -91,7 +91,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (12 Oct 2026)";
+  " (14 Oct 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -12100,21 +12100,13 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t mode_seen = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "list", cur_modif_slen)) {
               pc.fa_flags |= kfFaNormalizeList;
-            } else if (strequal_k(cur_modif, "left", cur_modif_slen) || strequal_k(cur_modif, "indel-join", cur_modif_slen)) {
-              if (unlikely(mode_seen)) {
-                logerrputs("Error: --normalize 'left' and 'indel-join' modifiers are mutually exclusive.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              mode_seen = 1;
-              if (cur_modif[0] == 'i') {
-                pc.fa_flags |= kfFaNormalizeIndelJoin;
-              }
+            } else if (strequal_k(cur_modif, "indel-join", cur_modif_slen)) {
+              pc.fa_flags |= kfFaNormalizeIndelJoin;
             } else if (strequal_k(cur_modif, "shrink-overlapping-deletions", cur_modif_slen)) {
               logerrputs("Warning: 'shrink-overlapping-deletions' modifier has been renamed to\n'adjust-overlapping-deletions'.\n");
               pc.fa_flags |= kfFaNormalizeAdjustOverlappingDeletions;
