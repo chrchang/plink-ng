@@ -4654,6 +4654,13 @@ int main(int argc, char** argv) {
             goto main_flag_copy;
           }
           break;
+        case 'g':
+          if (strequal_k(flagname_p, "gene-report-snp-field", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "gene-report-id-field");
+          } else {
+            goto main_flag_copy;
+          }
+          break;
         case 'h':
           if (strequal_k(flagname_p, "hound", flag_slen)) {
             // the creature type should be Dog.

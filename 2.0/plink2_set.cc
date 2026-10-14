@@ -2044,10 +2044,10 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* ex
     if (dist_col) {
       cswritep = strcpya_k(cswritep, "\tDIST");
     }
-    cswritep = strcpya_k(cswritep, "\tID");
     if (pos_col) {
       cswritep = strcpya_k(cswritep, "\tPOS");
     }
+    cswritep = strcpya_k(cswritep, "\tID");
     if (p_col) {
       cswritep = strcpya_k(cswritep, "\tP");
     }
@@ -2103,12 +2103,12 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* ex
         *cswritep++ = '\t';
         cswritep = dtoa_g(S_CAST(double, S_CAST(int32_t, variant_bp) - S_CAST(int32_t, cur_gene_start)) * 0.001, cswritep);
       }
-      *cswritep++ = '\t';
-      cswritep = memcpya(cswritep, &(record[kGeneReportRecordHeaderSize]), id_slen);
       if (pos_col) {
         *cswritep++ = '\t';
         cswritep = u32toa(variant_bp, cswritep);
       }
+      *cswritep++ = '\t';
+      cswritep = memcpya(cswritep, &(record[kGeneReportRecordHeaderSize]), id_slen);
       if (p_col) {
         *cswritep++ = '\t';
         cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);

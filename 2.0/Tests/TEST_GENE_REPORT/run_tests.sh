@@ -41,7 +41,7 @@ printf 'GENE1\nGENE7\nGENE13\nGENE44\n' > subset.txt
 
 check() {
     awk -f flatten19.awk plink_gr.range.report > flat19.txt
-    awk 'NR > 1 {print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $7}' plink2_gr.gene.report > flat20.txt
+    awk 'NR > 1 {print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $8}' plink2_gr.gene.report > flat20.txt
     diff -q flat19.txt flat20.txt
     # Guard against a vacuous comparison.
     test $(wc -l < flat20.txt) -ge 100
@@ -96,9 +96,9 @@ sed -i.bak '1i\
 C POSITION VARIANT PVAL
 ' report_alt.txt
 $1/plink2 $2 $3 --gene-report report_alt.txt genes.txt --gene-report-chr-field C --gene-report-pos-field POSITION --gene-report-id-field VARIANT --gene-report-p-field PVAL --out plink2_alt
-awk 'NR > 1 {print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $7}' plink2_alt.gene.report > flat_alt.txt
+awk 'NR > 1 {print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $8}' plink2_alt.gene.report > flat_alt.txt
 $1/plink2 $2 $3 --gene-report report20.txt genes.txt --out plink2_gr
-awk 'NR > 1 {print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $7}' plink2_gr.gene.report > flat20.txt
+awk 'NR > 1 {print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $8}' plink2_gr.gene.report > flat20.txt
 diff -q flat_alt.txt flat20.txt
 
 awk '{print $1, $2 - 1, $3, $4}' genes.txt > genes0.txt
@@ -107,9 +107,9 @@ diff -q plink2_zero.gene.report plink2_gr.gene.report
 
 # Column subset, and Zstd output.
 $1/plink2 $2 $3 --gene-report report20.txt genes.txt cols=pos --out plink2_cols
-head -n 1 plink2_cols.gene.report | grep -qx '#GENE	ID	POS'
-awk 'NR > 1 {print $1 "\t" $2}' plink2_cols.gene.report > flat_cols.txt
-awk 'NR > 1 {print $1 "\t" $7}' plink2_gr.gene.report > flat_gid.txt
+head -n 1 plink2_cols.gene.report | grep -qx '#GENE	POS	ID'
+awk 'NR > 1 {print $1 "\t" $3}' plink2_cols.gene.report > flat_cols.txt
+awk 'NR > 1 {print $1 "\t" $8}' plink2_gr.gene.report > flat_gid.txt
 diff -q flat_cols.txt flat_gid.txt
 
 $1/plink2 $2 $3 --gene-report report20.txt genes.txt zs --out plink2_zs
