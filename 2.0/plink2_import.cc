@@ -173,6 +173,23 @@ uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags f
   return vec_ct * kBytesPerVec;
 }
 
+// Upper bound on the size of each of the two VCF/BCF genotype buffers.  Past
+// a few dozen records per thread, a larger block does not speed up parsing;
+// it just delays the start of the parse/write overlap and touches more memory.
+// (With 5000 samples and --memory 16000, spending the entire workspace here
+// raised peak RSS by ~1.5 GiB and slowed import down by ~15%.)
+CONSTI32(kGparseBufMinTargetByteCt, 64 * 1048576);
+CONSTI32(kGparseBufTargetRecordsPerThread, 64);
+
+static uintptr_t CapGparseBufCachelineCt(uintptr_t cacheline_ct, uint64_t max_bytes_req_per_variant, uint32_t calc_thread_ct) {
+  uint64_t target_byte_ct = max_bytes_req_per_variant * kGparseBufTargetRecordsPerThread * calc_thread_ct;
+  if (target_byte_ct < kGparseBufMinTargetByteCt) {
+    target_byte_ct = kGparseBufMinTargetByteCt;
+  }
+  const uint64_t target_cacheline_ct = DivUpU64(target_byte_ct, kCacheline);
+  return (cacheline_ct > target_cacheline_ct)? target_cacheline_ct : cacheline_ct;
+}
+
 typedef struct GparseWriteMetadataStruct {
   uint32_t patch_01_ct;
   uint32_t patch_10_ct;
@@ -3735,7 +3752,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       ctx.gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       ctx.gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       SetThreadFuncAndData(VcfGenoToPgenThread, &ctx, &tg);
-      cachelines_avail = bigstack_left() / (kCacheline * 2);
+      cachelines_avail = CapGparseBufCachelineCt(bigstack_left() / (kCacheline * 2), max_bytes_req_per_variant, calc_thread_ct);
       geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
       geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
       // This is only used for comparison purposes, so it is unnecessary to
@@ -8913,7 +8930,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       ctx.gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       ctx.gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       SetThreadFuncAndData(BcfGenoToPgenThread, &ctx, &tg);
-      cachelines_avail = bigstack_left() / (kCacheline * 2);
+      cachelines_avail = CapGparseBufCachelineCt(bigstack_left() / (kCacheline * 2), max_bytes_req_per_variant, calc_thread_ct);
       geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
       geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
       // This is only used for comparison purposes, so it is unnecessary to
