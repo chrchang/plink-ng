@@ -16288,6 +16288,10 @@ typedef struct FlipScanCtxStruct {
   uint32_t max_neg_ct;
   // 'dprime': the per-pair statistic is signed D' rather than r.
   uint32_t use_dprime;
+  // 'dprime' on a dataset with hardcall phase: per local variant and group,
+  // phasepresent followed by (phaseinfo & phasepresent), 2 * subset_ctl
+  // words.  nullptr otherwise.
+  uintptr_t* phasebufs[2];
 
   // Per-block work assignment.
   uint32_t phase;         // 0 = recode, 1 = correlate, 2 = tally
@@ -16300,6 +16304,10 @@ typedef struct FlipScanCtxStruct {
   // Raw genotypes for the block, filled by the reader; the workers split them
   // into the two subsets, since that is per-sample work.
   const uintptr_t* raw_genovecs;
+  // same layout as phasebufs[], over the base samples, but with a
+  // vector-aligned stride (2 * base_ctaw words), since the reader inverts
+  // phaseinfo in place
+  const uintptr_t* raw_phasebufs;
   uintptr_t* genobufs_write[2];
   VariantAggs* vaggs_write[2];
   uintptr_t* genovec_subs[3];       // per-thread scratch: base, control, case
@@ -16350,8 +16358,12 @@ static double FlipScanR(const uintptr_t* first_genobuf, const VariantAggs* first
 // Haplotype frequencies are estimated from the unphased genotypes exactly the
 // way --r2-phased does it: the double heterozygotes are the only ambiguous
 // observations, and PhasedLD() picks the maximum-likelihood split of them.
+// A double heterozygote phased at both variants is a known pair of
+// haplotypes instead, as in --r2-phased; first_phasebuf and second_phasebuf
+// (phasepresent, then phaseinfo & phasepresent) are nullptr when the dataset
+// has no phase.
 // The sign convention matches r's, so the same sign-flip test applies.
-static double FlipScanDprime(const uintptr_t* first_genobuf, const uintptr_t* second_genobuf, uint32_t subset_ctaw, uint32_t subset_ctl) {
+static double FlipScanDprime(const uintptr_t* first_genobuf, const uintptr_t* second_genobuf, const uintptr_t* first_phasebuf, const uintptr_t* second_phasebuf, uint32_t subset_ctaw, uint32_t subset_ctl) {
   const uintptr_t* hom0 = first_genobuf;
   const uintptr_t* ref2het0 = &(first_genobuf[subset_ctaw]);
   const uintptr_t* hom1 = second_genobuf;
@@ -16380,6 +16392,26 @@ static double FlipScanDprime(const uintptr_t* first_genobuf, const uintptr_t* se
     nalt_ct1 += PopcountWord(one_word1 & nm_word0) + 2 * PopcountWord(two_word1 & nm_word0);
     known_dotprod += PopcountWord((one_word0 & two_word1) | (one_word1 & two_word0)) + 2 * PopcountWord(two_word0 & two_word1);
     hethet_ct += PopcountWord(one_word0 & one_word1);
+  }
+  if (first_phasebuf && hethet_ct) {
+    // The het masks are part of the test because a haploid het has been set
+    // to missing above but keeps its phasepresent bit.
+    const uintptr_t* phasepresent0 = first_phasebuf;
+    const uintptr_t* phaseinfo0 = &(first_phasebuf[subset_ctl]);
+    const uintptr_t* phasepresent1 = second_phasebuf;
+    const uintptr_t* phaseinfo1 = &(second_phasebuf[subset_ctl]);
+    uint32_t both_phased_ct = 0;
+    uint32_t trans_ct = 0;
+    for (uint32_t widx = 0; widx != subset_ctl; ++widx) {
+      const uintptr_t one_word0 = ref2het0[widx] & (~hom0[widx]);
+      const uintptr_t one_word1 = ref2het1[widx] & (~hom1[widx]);
+      const uintptr_t both_phased = one_word0 & one_word1 & phasepresent0[widx] & phasepresent1[widx];
+      both_phased_ct += PopcountWord(both_phased);
+      trans_ct += PopcountWord(both_phased & (phaseinfo0[widx] ^ phaseinfo1[widx]));
+    }
+    // cis: one haplotype carries both counted alleles
+    known_dotprod += both_phased_ct - trans_ct;
+    hethet_ct -= both_phased_ct;
   }
   if (valid_obs_ct < 2) {
     return 0.0 / 0.0;
@@ -16430,6 +16462,14 @@ static void FlipScanRecodeRange(FlipScanCtx* ctx, uintptr_t tidx, uint32_t start
       uintptr_t* cur_hom = &(ctx->genobufs_write[is_case][S_CAST(uintptr_t, li) * 2 * cur_ctaw]);
       uintptr_t* cur_ref2het = &(cur_hom[cur_ctaw]);
       SplitHomRef2het(cur_genovec, cur_subset_ct, cur_hom, cur_ref2het);
+      if (ctx->raw_phasebufs) {
+        const uint32_t base_ctaw = BitCtToAlignedWordCt(base_ct);
+        const uint32_t cur_subset_ctl = ctx->subset_ctl[is_case];
+        const uintptr_t* raw_phasebuf = &(ctx->raw_phasebufs[S_CAST(uintptr_t, li) * 2 * base_ctaw]);
+        uintptr_t* cur_phasebuf = &(ctx->phasebufs[is_case][S_CAST(uintptr_t, li) * 2 * cur_subset_ctl]);
+        CopyBitarrSubset(raw_phasebuf, ctx->subset_collapsed[is_case], cur_subset_ct, cur_phasebuf);
+        CopyBitarrSubset(&(raw_phasebuf[base_ctaw]), ctx->subset_collapsed[is_case], cur_subset_ct, &(cur_phasebuf[cur_subset_ctl]));
+      }
       uint32_t nm_ct;
       uint32_t plusone_ct;
       uint32_t minusone_ct;
@@ -16490,7 +16530,14 @@ static void FlipScanCorrelateRange(FlipScanCtx* ctx, uint32_t start, uint32_t en
         const uintptr_t* first_genobuf = &(genobufs[S_CAST(uintptr_t, li) * 2 * cur_ctaw]);
         const uintptr_t* second_genobuf = &(genobufs[S_CAST(uintptr_t, lj) * 2 * cur_ctaw]);
         if (use_dprime) {
-          cur_cache[lj - li - 1] = FlipScanDprime(first_genobuf, second_genobuf, cur_ctaw, ctx->subset_ctl[is_case]);
+          const uintptr_t* first_phasebuf = nullptr;
+          const uintptr_t* second_phasebuf = nullptr;
+          if (ctx->phasebufs[is_case]) {
+            const uint32_t cur_subset_ctl = ctx->subset_ctl[is_case];
+            first_phasebuf = &(ctx->phasebufs[is_case][S_CAST(uintptr_t, li) * 2 * cur_subset_ctl]);
+            second_phasebuf = &(ctx->phasebufs[is_case][S_CAST(uintptr_t, lj) * 2 * cur_subset_ctl]);
+          }
+          cur_cache[lj - li - 1] = FlipScanDprime(first_genobuf, second_genobuf, first_phasebuf, second_phasebuf, cur_ctaw, ctx->subset_ctl[is_case]);
         } else {
           cur_cache[lj - li - 1] = FlipScanR(first_genobuf, &(vaggs[li]), second_genobuf, &(vaggs[lj]), ctx->subset_ct[is_case]);
         }
@@ -17471,6 +17518,20 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       goto FlipScan_ret_NOMEM;
     }
     ctx.raw_genovecs = raw_genovecs;
+    // Known phase only matters to D'; r is the genotype correlation, as in
+    // PLINK 1.x.
+    const uint32_t use_phase = use_dprime && (PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent);
+    uintptr_t* raw_phasebufs = nullptr;
+    ctx.phasebufs[0] = nullptr;
+    ctx.phasebufs[1] = nullptr;
+    if (use_phase) {
+      if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, max_local_ct) * 2 * BitCtToAlignedWordCt(base_ct), &raw_phasebufs) ||
+                   bigstack_alloc_w(S_CAST(uintptr_t, max_local_ct) * 2 * subset_ctl[0], &(ctx.phasebufs[0])) ||
+                   bigstack_alloc_w(S_CAST(uintptr_t, max_local_ct) * 2 * subset_ctl[1], &(ctx.phasebufs[1])))) {
+        goto FlipScan_ret_NOMEM;
+      }
+    }
+    ctx.raw_phasebufs = raw_phasebufs;
     ctx.base_ct = base_ct;
     ctx.male_collapsed_interleaved = male_collapsed_interleaved;
     for (uint32_t is_case = 0; is_case != 2; ++is_case) {
@@ -17692,7 +17753,19 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
             a1_allele_idx = maj_alleles[variant_uidx];
           }
           uintptr_t* cur_raw = &(raw_genovecs[S_CAST(uintptr_t, li) * base_ctaw2]);
-          reterr = PgrGetInv1(base_include, pssi, base_ct, variant_uidx, a1_allele_idx, simple_pgrp, cur_raw);
+          if (!raw_phasebufs) {
+            reterr = PgrGetInv1(base_include, pssi, base_ct, variant_uidx, a1_allele_idx, simple_pgrp, cur_raw);
+          } else {
+            uintptr_t* cur_phasepresent = &(raw_phasebufs[S_CAST(uintptr_t, li) * 2 * BitCtToAlignedWordCt(base_ct)]);
+            uintptr_t* cur_phaseinfo = &(cur_phasepresent[BitCtToAlignedWordCt(base_ct)]);
+            uint32_t phasepresent_ct;
+            reterr = PgrGetInv1P(base_include, pssi, base_ct, variant_uidx, a1_allele_idx, simple_pgrp, cur_raw, cur_phasepresent, cur_phaseinfo, &phasepresent_ct);
+            if (!phasepresent_ct) {
+              ZeroWArr(base_ctl, cur_phasepresent);
+            }
+            // phaseinfo bits are not guaranteed clear where phasepresent is
+            BitvecAnd(cur_phasepresent, base_ctl, cur_phaseinfo);
+          }
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto FlipScan_ret_1;

@@ -268,3 +268,31 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime --
     echo "'dprime' accepted with --flip-scan-ref-freq"
     exit 1
 fi
+
+# 11. 'dprime' with known phase.  A double-het phased at both variants is a
+#     known pair of haplotypes, as in --r2-phased, so a dataset with every
+#     sample written twice must give the same report as one with every
+#     haplotype written as a homozygous sample: both have the same haplotype
+#     counts and no double-hets of unknown phase.  Erasing the phase must
+#     change the D' values, or the check above proves nothing; the default
+#     r mode is the genotype correlation, which phase does not enter.
+for m in phased dup haphom
+do
+    awk -v mode=$m -f make_vcf_dprime.awk > tmp_dp_$m.vcf
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --vcf tmp_dp_$m.vcf --make-pgen --out tmp_dp_$m > /dev/null
+    # cases are the second half of the individuals, as in section 10
+    awk 'BEGIN {print "#IID\tPHENO1"} !/^#/ {s = substr($1, 2) + 0; print $1 "\t" ((s >= 200)? 2 : 1)}' tmp_dp_$m.psam > tmp_dp_$m.pheno
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dp_$m --pheno tmp_dp_$m.pheno --maf 0.05 --flip-scan dprime verbose --out plink2_dp_$m
+done
+diff -q plink2_dp_dup.flipscan plink2_dp_haphom.flipscan
+diff -q plink2_dp_dup.flipscan.verbose plink2_dp_haphom.flipscan.verbose
+test "$(wc -l < plink2_dp_dup.flipscan.verbose)" -gt 100
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dp_phased --make-pgen erase-phase --out tmp_dp_unphased > /dev/null
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dp_unphased --pheno tmp_dp_phased.pheno --maf 0.05 --flip-scan dprime verbose --out plink2_dp_unphased
+if diff -q plink2_dp_phased.flipscan.verbose plink2_dp_unphased.flipscan.verbose > /dev/null; then
+    echo "erasing phase did not change the D' values"
+    exit 1
+fi
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dp_phased --pheno tmp_dp_phased.pheno --maf 0.05 --flip-scan verbose --out plink2_dp_phased_r
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dp_unphased --pheno tmp_dp_phased.pheno --maf 0.05 --flip-scan verbose --out plink2_dp_unphased_r
+diff -q plink2_dp_phased_r.flipscan plink2_dp_unphased_r.flipscan
