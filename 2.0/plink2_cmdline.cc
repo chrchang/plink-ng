@@ -2424,7 +2424,15 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
   }
   // 0 <= small_r2 < small_q3_x4; no risk of qq < 0 or sqrt_q * qq == 0.
   const double sqrt_q = sqrt(qq);
-  const double ratio = rr / (sqrt_q * qq);
+  double ratio = rr / (sqrt_q * qq);
+  // bugfix (10 Oct 2026): when small_r2 is only barely below small_q3_x4,
+  // rounding error can push |ratio| a ulp or so past 1, and acos() would then
+  // return NaN.
+  if (ratio > 1.0) {
+    ratio = 1.0;
+  } else if (ratio < -1.0) {
+    ratio = -1.0;
+  }
   const double theta_div3 = acos(ratio) * (1.0 / 3.0);
   const double norm = -2 * sqrt_q;
   double sol0 = prefer_fma(norm, cos(theta_div3), -coef_a_div3);
@@ -2741,11 +2749,16 @@ PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t ma
     logerrprintf("Error: %s argument too long.\n", flag_name);
     return kPglRetInvalidCmdline;
   }
-  const uint32_t blen = slen + 1;
-  if (unlikely(pgl_malloc(blen, sbuf_ptr))) {
+  // Pad with kBytesPerVec-1 extra zero bytes: consumers may scan the string
+  // with Strchrnul()/strnul(), whose vectorized implementations read a whole
+  // aligned vector at a time and so touch up to kBytesPerVec-1 bytes past the
+  // terminator.  Those loads cannot fault, since an aligned vector never
+  // straddles a page boundary, but AddressSanitizer flags them.
+  if (unlikely(pgl_malloc(slen + kBytesPerVec, sbuf_ptr))) {
     return kPglRetNomem;
   }
-  memcpy(*sbuf_ptr, source, blen);
+  memcpy(*sbuf_ptr, source, slen);
+  memset(&((*sbuf_ptr)[slen]), 0, kBytesPerVec);
   return kPglRetSuccess;
 }
 
@@ -2846,7 +2859,7 @@ PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uin
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
   }
-  memset(buf_iter, 0, alloc_blen - (tot_blen - 1));
+  memset(buf_iter, 0, kBytesPerVec);
   return kPglRetSuccess;
 }
 

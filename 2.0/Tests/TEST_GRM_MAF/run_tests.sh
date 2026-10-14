@@ -60,6 +60,8 @@ diff -q plink2_maf.eigenval plink2_globalmaf.eigenval
 
 # 7. A threshold below the instability point needs 'yes-really'.
 fails $1/plink2 $2 $3 --bfile tmp_mix --pca 4 --grm-maf 0.001 --out plink2_bad
+# The error names the instability point, not the argument.
+grep -q 'below 0.0125,' plink2_bad.log
 $1/plink2 $2 $3 --bfile tmp_mix --pca 4 --grm-maf 0.001 yes-really --out plink2_yr
 test -s plink2_yr.eigenvec
 

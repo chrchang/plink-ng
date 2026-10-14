@@ -729,6 +729,7 @@ uint32_t CopyAndDedupSortedStrptrsToStrbox(const char* const* sorted_strptrs, ui
       memcpy(&(strbox[write_idx * max_str_blen]), cur_str, cur_slen + 1);
       ++write_idx;
       prev_str = cur_str;
+      prev_slen = cur_slen;
     }
   } while (sorted_strptrs_iter != sorted_strptrs_end);
   return write_idx;

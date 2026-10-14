@@ -28,7 +28,38 @@ namespace plink2 {
 #endif
 
 PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const char* pheno_name, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t perm_ct, uint32_t output_zst, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end);
-PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+FLAGSET_DEF_START()
+  kfInfoCols0,
+  kfInfoColsZs = (1 << 0),
+  kfInfoColsAll = (1 << 1),
+  // set when nothing else needs the variant file loaded, so it can be scanned
+  // directly
+  kfInfoColsStream = (1 << 2),
+
+  kfInfoColsColChrom = (1 << 3),
+  kfInfoColsColPos = (1 << 4),
+  kfInfoColsColRef = (1 << 5),
+  kfInfoColsColAlt = (1 << 6),
+  kfInfoColsColDefault = (kfInfoColsColChrom | kfInfoColsColPos | kfInfoColsColRef | kfInfoColsColAlt),
+  kfInfoColsColAll = ((kfInfoColsColAlt * 2) - kfInfoColsColChrom)
+FLAGSET_DEF_END(InfoColsFlags);
+
+typedef struct InfoColsInfoStruct {
+  NONCOPYABLE(InfoColsInfoStruct);
+  // \0-separated, \0\0-terminated; null when 'all' was given.
+  char* keys_flattened;
+  InfoColsFlags flags;
+} InfoColsInfo;
+
+void InitInfoCols(InfoColsInfo* icip);
+
+void CleanupInfoCols(InfoColsInfo* icip);
+
+PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlags misc_flags, char input_missing_geno_char, uint32_t max_thread_ct, ChrInfo* cip, char* outname, char* outname_end);
+
+PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* pvar_info_reload, const char* xheader, const InfoColsInfo* icip, uintptr_t xheader_blen, uint32_t variant_ct, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 FLAGSET_DEF_START()
   kfRecoverVarIds0,
@@ -137,7 +168,7 @@ FLAGSET_DEF_START()
   kfMissingRptScolFmiss = (1 << 15),
   kfMissingRptScolFmissHh = (1 << 16),
   kfMissingRptScolDefault = (kfMissingRptScolMaybefid | kfMissingRptScolMaybesid | kfMissingRptScolMissphenos | kfMissingRptScolNmiss | kfMissingRptScolNobs | kfMissingRptScolFmiss),
-  kfMissingRptScolAll = ((kfMissingRptScolFmissHh * 2) - kfMissingRptScolMaybesid),
+  kfMissingRptScolAll = ((kfMissingRptScolFmissHh * 2) - kfMissingRptScolMaybefid),
 
   kfMissingRptVcolChrom = (1 << 17),
   kfMissingRptVcolPos = (1 << 18),
@@ -260,13 +291,15 @@ FLAGSET_DEF_START()
   kfHomozygColKbtot = (1 << 16),
   kfHomozygColKbavg = (1 << 17),
   kfHomozygColFroh = (1 << 18),
-  kfHomozygColAff = (1 << 19),
-  kfHomozygColUnaff = (1 << 20),
-  kfHomozygColDefault = (kfHomozygColMaybefid | kfHomozygColMaybesid | kfHomozygColMaybepheno | kfHomozygColChrom | kfHomozygColPos | kfHomozygColKb | kfHomozygColNsnp | kfHomozygColDensity | kfHomozygColPhom | kfHomozygColPhet | kfHomozygColNseg | kfHomozygColKbtot | kfHomozygColKbavg | kfHomozygColFroh | kfHomozygColAff | kfHomozygColUnaff),
-  kfHomozygColAll = ((kfHomozygColUnaff * 2) - kfHomozygColMaybefid)
+  kfHomozygColMaybeRohCt = (1 << 19),
+  kfHomozygColRohCt = (1 << 20),
+  kfHomozygColStratRohCt = (1 << 21),
+  kfHomozygColDefault = (kfHomozygColMaybefid | kfHomozygColMaybesid | kfHomozygColMaybepheno | kfHomozygColChrom | kfHomozygColPos | kfHomozygColKb | kfHomozygColNsnp | kfHomozygColDensity | kfHomozygColPhom | kfHomozygColPhet | kfHomozygColNseg | kfHomozygColKbtot | kfHomozygColKbavg | kfHomozygColFroh | kfHomozygColMaybeRohCt | kfHomozygColStratRohCt),
+  kfHomozygColAll = ((kfHomozygColStratRohCt * 2) - kfHomozygColMaybefid)
 FLAGSET_DEF_END(HomozygFlags);
 
 typedef struct HomozygInfoStruct {
+  char* pheno_name;
   HomozygFlags flags;
   uint32_t min_snp;
   uint32_t min_bases;
@@ -279,10 +312,6 @@ typedef struct HomozygInfoStruct {
   uint32_t window_max_missing;
   double hit_threshold;
 } HomozygInfo;
-
-void InitHomozyg(HomozygInfo* homozyg_info_ptr);
-
-PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 typedef struct UpdateAllelesStruct {
   NONCOPYABLE(UpdateAllelesStruct);
@@ -478,6 +507,10 @@ void CleanupFst(FstInfo* fst_info_ptr);
 
 void InitCheckSex(CheckSexInfo* check_sex_info_ptr);
 
+void InitHomozyg(HomozygInfo* homozyg_info_ptr);
+
+void CleanupHomozyg(HomozygInfo* homozyg_info_ptr);
+
 PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const FlipInfo* flip_info_ptr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, char** allele_storage_mutable);
 
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t sort_vars_in_cmd, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp);
@@ -535,6 +568,8 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
 
 PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_thread_ct, char* outname, char* outname_end);
 
+PglErr List23Indels(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_thread_ct, char* outname, char* outname_end);
+
 PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end);
 
 FLAGSET_DEF_START()
@@ -561,9 +596,11 @@ FLAGSET_DEF_START()
   kfTestMissingColAll = ((kfTestMissingColP * 2) - kfTestMissingColChrom)
 FLAGSET_DEF_END(TestMissingFlags);
 
-PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const char* test_missing_pheno_name, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
+
+PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const CheckSexInfo* csip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t* sex_nm, uintptr_t* sex_male, PgenFileInfo* pgfip, char* outname, char* outname_end);
 

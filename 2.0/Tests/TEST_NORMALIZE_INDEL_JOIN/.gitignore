@@ -1,0 +1,6 @@
+bad.vcf
+expected*.txt
+in.vcf
+in2.vcf
+ref*.fa
+tmp_*

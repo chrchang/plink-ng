@@ -137,15 +137,6 @@ typedef struct STPgenWriterStruct {
   char* fname_buf;
 } STPgenWriter;
 
-typedef struct MTPgenWriterStruct {
-  MOVABLE_BUT_NONCOPYABLE(MTPgenWriterStruct);
-  FILE* pgen_outfile;
-  FILE* pgi_or_final_pgen_outfile;
-  char* fname_buf;
-  uint32_t thread_ct;
-  PgenWriterCommon* pwcs[];
-} MTPgenWriter;
-
 HEADER_INLINE uint32_t SpgwGetVariantCt(STPgenWriter* spgwp) {
   PgenWriterCommon* pwcp = &GET_PRIVATE(*spgwp, pwc);
   return pwcp->variant_ct_limit;
@@ -163,7 +154,8 @@ HEADER_INLINE uint32_t SpgwGetVidx(STPgenWriter* spgwp) {
 
 void PreinitSpgw(STPgenWriter* spgwp);
 
-void PreinitMpgw(MTPgenWriter* mpgwp);
+// only exported for MpgwInitPhase1()'s consumption
+PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct_limit, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_final_pgen_outfile_ptr, char** fname_buf_ptr);
 
 // phase_dosage_gflags zero vs. nonzero is most important: this determines size
 // of header.  Otherwise, setting more flags than necessary just increases
@@ -203,22 +195,10 @@ HEADER_INLINE PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_
   return SpgwInitPhase1Ex(fname, allele_idx_offsets, explicit_nonref_flags, nullptr, nullptr, variant_ct_limit, sample_ct, allele_ct_upper_bound, write_mode, phase_dosage_gflags, nonref_flags_storage, spgwp, alloc_cacheline_ct_ptr, max_vrec_len_ptr);
 }
 
+// only exported for MpgwInitPhase2()'s consumption
+void PwcInitPhase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, PgenWriterCommon** pwcs, unsigned char* pwc_alloc);
+
 void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* spgw_alloc);
-
-// moderately likely that there isn't enough memory to use the maximum number
-// of threads, so this returns per-thread memory requirements before forcing
-// the caller to specify thread count
-// (eventually should write code which falls back on STPgenWriter
-// when there isn't enough memory for even a single 64k variant block, at least
-// for the most commonly used plink 2.0 functions)
-void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uintptr_t* alloc_base_cacheline_ct_ptr, uint64_t* alloc_per_thread_cacheline_ct_ptr, uint32_t* vrec_len_byte_ct_ptr, uint64_t* vblock_cacheline_ct_ptr);
-
-// Caller is responsible for printing open-fail error message.
-PglErr MpgwInitPhase2Ex(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp);
-
-HEADER_INLINE PglErr MpgwInitPhase2(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp) {
-  return MpgwInitPhase2Ex(fname, explicit_nonref_flags, nullptr, nullptr, variant_ct, sample_ct, write_mode, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, vblock_cacheline_ct, thread_ct, mpgw_alloc, mpgwp);
-}
 
 
 // trailing bits of genovec must be zeroed out
@@ -371,25 +351,19 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
   return kPglRetSuccess;
 }
 
+// only exported for MpgwFlush()'s consumption
+PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_final_pgen_outfile_ptr, char** fname_buf_ptr);
+
 // Writes footer if present, backfills header, then closes the file.
 // Currently assumes variant_ct > 0.
 PglErr SpgwFinish(STPgenWriter* spgwp);
 
-// Last flush automatically writes footer if present, backfills header, and
-// closes the file.
-// (caller should set mpgwp = nullptr after that)
-PglErr MpgwFlush(MTPgenWriter* mpgwp);
 
-
-// these close the file if open, but do not free any memory
-// MpgwCleanup() handles mpgwp == nullptr, since it shouldn't be allocated on
-// the stack
+// this closes the file if open, but does not free any memory
 // error-return iff reterr was success and was changed to kPglRetWriteFail
 // (i.e. an error message should be printed), though this is not relevant for
 // plink2
 BoolErr CleanupSpgw(STPgenWriter* spgwp, PglErr* reterrp);
-
-BoolErr CleanupMpgw(MTPgenWriter* mpgwp, PglErr* reterrp);
 
 #ifdef __cplusplus
 }  // namespace plink2

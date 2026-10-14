@@ -734,12 +734,12 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
       }
       while (1) {
         linebuf_iter = FirstNonTspace(token_end);
-        token_end = CurTokenEnd(linebuf_iter);
-        token_slen = token_end - linebuf_iter;
+        token_slen = strlen_se(linebuf_iter);
         if (unlikely(!token_slen)) {
           logerrputs("Error: No kinship-coefficient column in --king-cutoff-table file.\n");
           goto KingCutoffBatchTable_ret_INCONSISTENT_INPUT;
         }
+        token_end = &(linebuf_iter[token_slen]);
         if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
           break;
         }
@@ -788,6 +788,9 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingCutoffBatchTable_ret_MISSING_TOKENS;
+      }
       uint32_t sample_idx2;
       if (SortedXidboxReadFind(sorted_xidbox, xid_cmap, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_idx2, idbuf)) {
         if (unlikely(!linebuf_iter)) {
@@ -2580,9 +2583,12 @@ PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const
               const uint32_t singleton_hom2_ct = singleton_hom_cts[sample_idx2];
               const uint32_t ibs0_ct = results_iter[kKingOffsetIbs0] + singleton_hom2_ct + singleton_hom1_ct;
               const uint32_t hethet_ct = results_iter[kKingOffsetHethet];
-              // '2' here refers to the larger index, so this is swapped
-              const uint32_t het2hom1_ct = results_iter[kKingOffsetHet2Hom1] + singleton_het1_ct;
-              const uint32_t het1hom2_ct = results_iter[kKingOffsetHet1Hom2] + singleton_het2_ct;
+              // '2' in the kKingOffset constants refers to the larger index,
+              // i.e. sample_idx1 (IID1) here, so this is swapped.
+              // bugfix (22 Sep 2026): the swap was missing, so the
+              // HET1_HOM2 and HET2_HOM1 columns were exchanged.
+              const uint32_t het2hom1_ct = results_iter[kKingOffsetHet1Hom2] + singleton_het2_ct;
+              const uint32_t het1hom2_ct = results_iter[kKingOffsetHet2Hom1] + singleton_het1_ct;
               const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
               const double kinship_coeff = 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
               if (kinship_table && (kinship_coeff > king_cutoff)) {
@@ -3093,6 +3099,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingTableSubsetLoad_ret_MISSING_TOKENS;
+      }
       if (rel_or_concordance_check) {
         // linebuf_iter must point to the start of the second FID, while
         // line_iter points to the start of the first.
@@ -3190,7 +3199,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
     reterr = kPglRetMalformedInput;
     break;
   KingTableSubsetLoad_ret_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    logerrprintfww("Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
   KingTableSubsetLoad_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -3752,12 +3763,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
         king_table_subset_thresh *= 1.0 - kSmallEpsilon;
         while (1) {
           linebuf_iter = FirstNonTspace(token_end);
-          token_end = CurTokenEnd(linebuf_iter);
-          token_slen = token_end - linebuf_iter;
+          token_slen = strlen_se(linebuf_iter);
           if (unlikely(!token_slen)) {
             logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
             goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
           }
+          token_end = &(linebuf_iter[token_slen]);
           if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
             break;
           }
@@ -5217,7 +5228,9 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
 // Hardy-Weinberg (which is what makes a missing call at a common variant cost
 // more than one at a rare variant).  'flat-missing' replaces that with a
 // plain nonmissing count.
-PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+//
+// TODO: Implement --make-king[-table]'s rare-variant optimization.
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadGroup tg;
   PglErr reterr = kPglRetSuccess;
@@ -5226,6 +5239,13 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: --distance requires at least 2 samples.\n");
       goto CalcDistance_ret_DEGENERATE_DATA;
+    }
+    // Every genotype is scored as diploid, so haploid chromosomes would
+    // double-count their differences; exclude them as PLINK 1.9 and the GRM
+    // code do.
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--distance", raw_variant_ct, &variant_include, &variant_ct);
+    if (unlikely(reterr)) {
+      goto CalcDistance_ret_1;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -5525,17 +5545,16 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   PreinitThreads(&tg);
   {
     assert(variant_ct);
-#if defined(__APPLE__) || defined(USE_MTBLAS)
     uint32_t calc_thread_ct = 1;
-#else
-    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    if (calc_thread_ct * parallel_tot > sample_ct / 32) {
-      calc_thread_ct = sample_ct / (32 * parallel_tot);
-      if (!calc_thread_ct) {
-        calc_thread_ct = 1;
+    if ((!BlasIsMultithreaded()) && (!BlasIsAccelerate())) {
+      calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+      if (calc_thread_ct * parallel_tot > sample_ct / 32) {
+        calc_thread_ct = sample_ct / (32 * parallel_tot);
+        if (!calc_thread_ct) {
+          calc_thread_ct = 1;
+        }
       }
     }
-#endif
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: GRM construction requires at least two samples.\n");
       goto CalcGrm_ret_DEGENERATE_DATA;
@@ -5639,10 +5658,9 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       ctx.normed_dosage_smaj_bufs[1] = nullptr;
       SetThreadFuncAndData(CalcGrmThread, &ctx, &tg);
     }
-#ifdef USE_MTBLAS
-    const uint32_t blas_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    BLAS_SET_NUM_THREADS(blas_thread_ct);
-#endif
+    if (BlasIsMultithreaded()) {
+      BLAS_SET_NUM_THREADS((max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct);
+    }
     // Main workflow:
     // 1. Set n=0, load batch 0
     //
@@ -6522,9 +6540,18 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
           var_wts_iter -= pc_ct;
         }
       } else {
+        // bugfix (22 Sep 2026): these weights must be on the same scale, and
+        // have the same sign convention, as the biallelic ones above, or
+        // --score variance-standardize projections stop being a multiple
+        // of the PCs as soon as a multiallelic variant is present.
+        // LoadMultiallelicCenteredVarmaj() divides each allele's centered
+        // dosage by sqrt(2 * <variance>) while --score divides by
+        // sqrt(<variance>), hence the 1/sqrt(2); and the biallelic weights
+        // above are negated relative to their ALT-oriented rows (REF gets
+        // +0.5), hence the minus sign.
         for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
           *cswritep++ = '\t';
-          cswritep = dtoa_g((*var_wts_iter++) * eigval_inv_sqrts[pc_idx], cswritep);
+          cswritep = dtoa_g((*var_wts_iter++) * (-1.0 / kSqrt2) * eigval_inv_sqrts[pc_idx], cswritep);
         }
       }
       AppendBinaryEoln(&cswritep);
@@ -6552,7 +6579,606 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
   return kPglRetSuccess;
 }
 
-PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
+#endif  // !NOLAPACK
+
+// --neighbour needs no LAPACK (it also runs on a --read-eigvec file), so it
+// lives outside the NOLAPACK block.
+//
+// --neighbour implements the outlier statistic from section 3.4 of Prive et
+// al. (2020), "Efficient toolkit implementing best practices for principal
+// component analysis of population genetic data": a simplified local outlier
+// factor over the PC scores, comparing each sample's mean distance to its K
+// nearest neighbours against those neighbours' own mean distances.  Points in
+// a sparse part of PC space score high; points merely sitting next to a dense
+// cluster do not, which is what the square root is for.
+//
+// The nearest-neighbour search runs over a k-d tree, as the nabor/libnabo
+// implementations the R-side tools use do, so the cost is O(sample_ct *
+// log(sample_ct)) rather than the O(sample_ct^2 * pc_ct) a direct scan would
+// need.  The tree is built once, single-threaded, and then queried read-only,
+// so the queries thread cleanly.
+
+// Ranges of this size or smaller become leaves, and are scanned directly.
+// Small enough that a leaf scan is cheap, large enough that the tree stays
+// shallow and the per-node overhead does not dominate.
+CONSTI32(kKdLeafMax, 16);
+
+typedef struct KdTreeStruct {
+  // Sample-major PC scores, pc_ct doubles per sample; not owned.
+  const double* coords;
+  uint32_t pc_ct;
+  // Sample indexes, reordered so that every node owns a contiguous range.
+  uint32_t* perm;
+  // Per node.  A leaf has child_left == UINT32_MAX.
+  uint32_t* lo;
+  uint32_t* hi;
+  uint32_t* child_left;  // UINT32_MAX in a leaf
+  uint32_t* child_right;
+  uint32_t* split_dim;
+  double* split_val;
+  uint32_t node_ct;
+} KdTree;
+
+HEADER_INLINE const double* KdCoords(const KdTree* tree, uint32_t sample_idx) {
+  return &(tree->coords[sample_idx * S_CAST(uintptr_t, tree->pc_ct)]);
+}
+
+// Partitions perm[lo..hi) around its median in dimension dim, so that
+// perm[mid] ends up where a full sort would have put it and everything below
+// mid is <= it.  Three-way partitioning, since duplicate samples (and any
+// dimension where a chunk of the data is constant) otherwise make this
+// quadratic.
+void KdSelectMedian(uint32_t lo, uint32_t hi, uint32_t mid, uint32_t dim, const double* coords, uint32_t pc_ct, uint32_t* perm) {
+  while (1) {
+    if (hi - lo <= 1) {
+      return;
+    }
+    // Median of first, middle and last, to keep already-sorted input from
+    // degenerating.
+    const uint32_t center = lo + ((hi - lo) / 2);
+    const double v0 = coords[perm[lo] * S_CAST(uintptr_t, pc_ct) + dim];
+    const double v1 = coords[perm[center] * S_CAST(uintptr_t, pc_ct) + dim];
+    const double v2 = coords[perm[hi - 1] * S_CAST(uintptr_t, pc_ct) + dim];
+    double pivot;
+    if (v0 < v1) {
+      pivot = (v1 < v2)? v1 : ((v0 < v2)? v2 : v0);
+    } else {
+      pivot = (v0 < v2)? v0 : ((v1 < v2)? v2 : v1);
+    }
+    uint32_t lt = lo;
+    uint32_t eq = lo;
+    uint32_t gt = hi;
+    while (eq < gt) {
+      const double cur_val = coords[perm[eq] * S_CAST(uintptr_t, pc_ct) + dim];
+      if (cur_val < pivot) {
+        const uint32_t tmp = perm[lt];
+        perm[lt] = perm[eq];
+        perm[eq] = tmp;
+        ++lt;
+        ++eq;
+      } else if (cur_val > pivot) {
+        --gt;
+        const uint32_t tmp = perm[gt];
+        perm[gt] = perm[eq];
+        perm[eq] = tmp;
+      } else {
+        ++eq;
+      }
+    }
+    if (mid < lt) {
+      hi = lt;
+    } else if (mid < gt) {
+      // mid landed in the run of pivot-valued entries, which are already in
+      // their final positions.
+      return;
+    } else {
+      lo = gt;
+    }
+  }
+}
+
+// Returns the index of the node covering perm[lo..hi).
+uint32_t KdBuildRecurse(uint32_t lo, uint32_t hi, KdTree* tree) {
+  const uint32_t node_idx = tree->node_ct++;
+  tree->lo[node_idx] = lo;
+  tree->hi[node_idx] = hi;
+  if (hi - lo <= S_CAST(uint32_t, kKdLeafMax)) {
+    tree->child_left[node_idx] = UINT32_MAX;
+    return node_idx;
+  }
+  // Split on the dimension the points are most spread out along, which is what
+  // keeps the cells close to cubes and the pruning effective.
+  const uint32_t pc_ct = tree->pc_ct;
+  const double* coords = tree->coords;
+  const uint32_t* perm = tree->perm;
+  uint32_t split_dim = 0;
+  double best_spread = -1.0;
+  for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+    double cur_min = DBL_MAX;
+    double cur_max = -DBL_MAX;
+    for (uint32_t ulii = lo; ulii != hi; ++ulii) {
+      const double cur_val = coords[perm[ulii] * S_CAST(uintptr_t, pc_ct) + pc_idx];
+      if (cur_val < cur_min) {
+        cur_min = cur_val;
+      }
+      if (cur_val > cur_max) {
+        cur_max = cur_val;
+      }
+    }
+    const double cur_spread = cur_max - cur_min;
+    if (cur_spread > best_spread) {
+      best_spread = cur_spread;
+      split_dim = pc_idx;
+    }
+  }
+  const uint32_t mid = lo + ((hi - lo) / 2);
+  if (best_spread == 0.0) {
+    // Every point in this range is at the same spot, so there is nothing to
+    // split on; the median split below still halves the range, which is all
+    // the search needs.
+    tree->split_dim[node_idx] = 0;
+    tree->split_val[node_idx] = coords[perm[mid] * S_CAST(uintptr_t, pc_ct)];
+  } else {
+    KdSelectMedian(lo, hi, mid, split_dim, coords, pc_ct, tree->perm);
+    tree->split_dim[node_idx] = split_dim;
+    tree->split_val[node_idx] = coords[tree->perm[mid] * S_CAST(uintptr_t, pc_ct) + split_dim];
+  }
+  tree->child_left[node_idx] = KdBuildRecurse(lo, mid, tree);
+  tree->child_right[node_idx] = KdBuildRecurse(mid, hi, tree);
+  return node_idx;
+}
+
+// Upper bound on the node count: every leaf covers more than kKdLeafMax / 2
+// entries, and a tree with L leaves has 2L - 1 nodes.
+HEADER_INLINE uintptr_t KdMaxNodeCt(uint32_t sample_ct) {
+  return 4 * ((sample_ct / S_CAST(uint32_t, kKdLeafMax)) + 1) + 1;
+}
+
+// Keeps the nn_ct smallest (squared distance, sample index) pairs seen so far,
+// ascending, ties broken by sample index so that the result does not depend on
+// the order the tree happens to visit the points in.  nn_ct is tiny, so a
+// sorted insert beats a heap.
+HEADER_INLINE void KdConsider(double d2, uint32_t other_idx, uint32_t nn_ct, double* best_d2, uint32_t* best_idxs) {
+  const uint32_t last_idx = nn_ct - 1;
+  const double worst_d2 = best_d2[last_idx];
+  if ((d2 > worst_d2) || ((d2 == worst_d2) && (other_idx > best_idxs[last_idx]))) {
+    return;
+  }
+  uint32_t insert_pos = last_idx;
+  while (insert_pos) {
+    const double prev_d2 = best_d2[insert_pos - 1];
+    if ((prev_d2 < d2) || ((prev_d2 == d2) && (best_idxs[insert_pos - 1] < other_idx))) {
+      break;
+    }
+    best_d2[insert_pos] = prev_d2;
+    best_idxs[insert_pos] = best_idxs[insert_pos - 1];
+    --insert_pos;
+  }
+  best_d2[insert_pos] = d2;
+  best_idxs[insert_pos] = other_idx;
+}
+
+// offsets[] holds, per dimension, how far outside this node's cell the query
+// point already is, and cell_d2 is the sum of their squares: the squared
+// distance from the query point to the cell, and thus a lower bound on its
+// distance to anything inside.  Carrying that bound down the tree (rather than
+// looking only at the current split) is what keeps the search from degenerating
+// into a full scan once there are more than a few PCs.
+void KdQueryRecurse(const KdTree* tree, uint32_t node_idx, const double* cur_coords, uint32_t sample_idx, uint32_t nn_ct, double cell_d2, double* offsets, double* best_d2, uint32_t* best_idxs) {
+  const uint32_t pc_ct = tree->pc_ct;
+  const uint32_t left_idx = tree->child_left[node_idx];
+  if (left_idx == UINT32_MAX) {
+    const uint32_t* perm = tree->perm;
+    const uint32_t hi = tree->hi[node_idx];
+    for (uint32_t ulii = tree->lo[node_idx]; ulii != hi; ++ulii) {
+      const uint32_t other_idx = perm[ulii];
+      if (other_idx == sample_idx) {
+        continue;
+      }
+      const double* other_coords = KdCoords(tree, other_idx);
+      // Partial distance: stop as soon as this candidate is out of the running.
+      // (">" rather than ">=", since an exact tie can still win on the index
+      // tiebreak below.)
+      const double worst_d2 = best_d2[nn_ct - 1];
+      double d2 = 0.0;
+      uint32_t pc_idx = 0;
+      for (; pc_idx != pc_ct; ++pc_idx) {
+        const double diff = cur_coords[pc_idx] - other_coords[pc_idx];
+        d2 += diff * diff;
+        if (d2 > worst_d2) {
+          break;
+        }
+      }
+      if (pc_idx == pc_ct) {
+        KdConsider(d2, other_idx, nn_ct, best_d2, best_idxs);
+      }
+    }
+    return;
+  }
+  const uint32_t right_idx = tree->child_right[node_idx];
+  const uint32_t split_dim = tree->split_dim[node_idx];
+  const double diff = cur_coords[split_dim] - tree->split_val[node_idx];
+  uint32_t near_idx = left_idx;
+  uint32_t far_idx = right_idx;
+  if (diff >= 0.0) {
+    near_idx = right_idx;
+    far_idx = left_idx;
+  }
+  KdQueryRecurse(tree, near_idx, cur_coords, sample_idx, nn_ct, cell_d2, offsets, best_d2, best_idxs);
+  const double old_offset = offsets[split_dim];
+  const double far_cell_d2 = cell_d2 - old_offset * old_offset + diff * diff;
+  if (far_cell_d2 <= best_d2[nn_ct - 1]) {
+    offsets[split_dim] = diff;
+    KdQueryRecurse(tree, far_idx, cur_coords, sample_idx, nn_ct, far_cell_d2, offsets, best_d2, best_idxs);
+    offsets[split_dim] = old_offset;
+  }
+}
+
+typedef struct CalcNeighbourCtxStruct {
+  const KdTree* tree;
+  uint32_t sample_ct;
+  uint32_t nn_ct;
+  uint32_t thread_ct;
+  double* dist_selves;
+  uint32_t* nn_idxs;
+  // thread_ct * nn_ct scratch slices, so the threads do not allocate
+  double* best_d2s;
+  uint32_t* best_idxs;
+  // thread_ct * pc_ct scratch, for KdQueryRecurse()'s per-dimension offsets
+  double* offsets;
+} CalcNeighbourCtx;
+
+THREAD_FUNC_DECL CalcNeighbourThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcNeighbourCtx* ctx = S_CAST(CalcNeighbourCtx*, arg->sharedp->context);
+
+  const KdTree* tree = ctx->tree;
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uint32_t nn_ct = ctx->nn_ct;
+  const uint32_t thread_ct = ctx->thread_ct;
+  double* dist_selves = ctx->dist_selves;
+  uint32_t* nn_idxs = ctx->nn_idxs;
+
+  const uint32_t pc_ct = tree->pc_ct;
+  double* best_d2 = &(ctx->best_d2s[tidx * S_CAST(uintptr_t, nn_ct)]);
+  uint32_t* best_idxs = &(ctx->best_idxs[tidx * S_CAST(uintptr_t, nn_ct)]);
+  double* offsets = &(ctx->offsets[tidx * S_CAST(uintptr_t, pc_ct)]);
+  for (uint32_t sample_idx = tidx; sample_idx < sample_ct; sample_idx += thread_ct) {
+    for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
+      best_d2[nn_idx] = DBL_MAX;
+      best_idxs[nn_idx] = UINT32_MAX;
+    }
+    ZeroDArr(pc_ct, offsets);
+    KdQueryRecurse(tree, 0, KdCoords(tree, sample_idx), sample_idx, nn_ct, 0.0, offsets, best_d2, best_idxs);
+    double dist_sum = 0.0;
+    uint32_t* cur_nn_idxs = &(nn_idxs[sample_idx * S_CAST(uintptr_t, nn_ct)]);
+    for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
+      dist_sum += sqrt(best_d2[nn_idx]);
+      cur_nn_idxs[nn_idx] = best_idxs[nn_idx];
+    }
+    dist_selves[sample_idx] = dist_sum / u31tod(nn_ct);
+  }
+  THREAD_RETURN;
+}
+
+void InitNeighbour(NeighbourInfo* neighbour_info_ptr) {
+  neighbour_info_ptr->flags = kfNeighbour0;
+  neighbour_info_ptr->nn_ct = 0;
+}
+
+PglErr CalcNeighbour(const uintptr_t* sample_include, const SampleIdInfo* siip, const double* eigvecs_smaj, const NeighbourInfo* neighbour_ip, uint32_t sample_ct, uint32_t pc_ct, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    const uint32_t nn_ct = neighbour_ip->nn_ct;
+    if (unlikely(nn_ct >= sample_ct)) {
+      logerrprintfww("Error: --neighbour's neighbor count (%u) must be smaller than the number of samples remaining after filtering (%u).\n", nn_ct, sample_ct);
+      goto CalcNeighbour_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t calc_thread_ct = MINV(max_thread_ct, sample_ct);
+    double* dist_selves;
+    double* dist_nns;
+    uint32_t* nn_idxs;
+    double* best_d2s;
+    uint32_t* best_idxs;
+    const uintptr_t max_node_ct = KdMaxNodeCt(sample_ct);
+    KdTree tree;
+    double* ctx_offsets;
+    if (unlikely(bigstack_alloc_d(sample_ct, &dist_selves) ||
+                 bigstack_alloc_d(sample_ct, &dist_nns) ||
+                 bigstack_alloc_u32(S_CAST(uintptr_t, sample_ct) * nn_ct, &nn_idxs) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, calc_thread_ct) * nn_ct, &best_d2s) ||
+                 bigstack_alloc_u32(S_CAST(uintptr_t, calc_thread_ct) * nn_ct, &best_idxs) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, calc_thread_ct) * pc_ct, &ctx_offsets) ||
+                 bigstack_alloc_u32(sample_ct, &tree.perm) ||
+                 bigstack_alloc_u32(max_node_ct, &tree.lo) ||
+                 bigstack_alloc_u32(max_node_ct, &tree.hi) ||
+                 bigstack_alloc_u32(max_node_ct, &tree.child_left) ||
+                 bigstack_alloc_u32(max_node_ct, &tree.child_right) ||
+                 bigstack_alloc_u32(max_node_ct, &tree.split_dim) ||
+                 bigstack_alloc_d(max_node_ct, &tree.split_val))) {
+      goto CalcNeighbour_ret_NOMEM;
+    }
+    tree.coords = eigvecs_smaj;
+    tree.pc_ct = pc_ct;
+    tree.node_ct = 0;
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      tree.perm[sample_idx] = sample_idx;
+    }
+    KdBuildRecurse(0, sample_ct, &tree);
+    assert(tree.node_ct <= max_node_ct);
+    CalcNeighbourCtx ctx;
+    ctx.tree = &tree;
+    ctx.sample_ct = sample_ct;
+    ctx.nn_ct = nn_ct;
+    ctx.thread_ct = calc_thread_ct;
+    ctx.dist_selves = dist_selves;
+    ctx.nn_idxs = nn_idxs;
+    ctx.best_d2s = best_d2s;
+    ctx.best_idxs = best_idxs;
+    ctx.offsets = ctx_offsets;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto CalcNeighbour_ret_NOMEM;
+    }
+    SetThreadFuncAndData(CalcNeighbourThread, &ctx, &tg);
+    DeclareLastThreadBlock(&tg);
+    if (unlikely(SpawnThreads(&tg))) {
+      goto CalcNeighbour_ret_THREAD_CREATE_FAIL;
+    }
+    JoinThreads(&tg);
+
+    // Second pass is O(sample_ct * nn_ct), and needs every dist_selves[] entry
+    // from the first, so it does not belong in the threads.
+    const double nn_ctd = u31tod(nn_ct);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uint32_t* cur_nn_idxs = &(nn_idxs[sample_idx * S_CAST(uintptr_t, nn_ct)]);
+      double dist_sum = 0.0;
+      for (uint32_t nn_idx = 0; nn_idx != nn_ct; ++nn_idx) {
+        dist_sum += dist_selves[cur_nn_idxs[nn_idx]];
+      }
+      dist_nns[sample_idx] = dist_sum / nn_ctd;
+    }
+
+    const NeighbourFlags flags = neighbour_ip->flags;
+    const uint32_t output_zst = (flags / kfNeighbourZs) & 1;
+    OutnameZstSet(".neighbour", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto CalcNeighbour_ret_1;
+    }
+    const uint32_t write_fid = FidColIsRequired(siip, flags / kfNeighbourColMaybefid);
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uint32_t write_sid = SidColIsRequired(sids, flags / kfNeighbourColMaybesid);
+    *cswritep++ = '#';
+    if (write_fid) {
+      cswritep = strcpya_k(cswritep, "FID\t");
+    }
+    cswritep = strcpya_k(cswritep, "IID");
+    if (write_sid) {
+      cswritep = strcpya_k(cswritep, "\tSID");
+    }
+    if (flags & kfNeighbourColDistSelf) {
+      cswritep = strcpya_k(cswritep, "\tDIST_SELF");
+    }
+    if (flags & kfNeighbourColDistNn) {
+      cswritep = strcpya_k(cswritep, "\tDIST_NN");
+    }
+    if (flags & kfNeighbourColStat) {
+      cswritep = strcpya_k(cswritep, "\tSTAT");
+    }
+    AppendBinaryEoln(&cswritep);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t sample_include_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+      cswritep = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
+      const double dist_self = dist_selves[sample_idx];
+      const double dist_nn = dist_nns[sample_idx];
+      if (flags & kfNeighbourColDistSelf) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dist_self, cswritep);
+      }
+      if (flags & kfNeighbourColDistNn) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dist_nn, cswritep);
+      }
+      if (flags & kfNeighbourColStat) {
+        *cswritep++ = '\t';
+        if (dist_nn == 0.0) {
+          // Every neighbour of this sample's neighbours sits on top of them,
+          // so the ratio says nothing; duplicate samples do this.
+          cswritep = strcpya_k(cswritep, "NA");
+        } else {
+          cswritep = dtoa_g(sqrt(dist_self / dist_nn), cswritep);
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto CalcNeighbour_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto CalcNeighbour_ret_WRITE_FAIL;
+    }
+    logprintfww("--neighbour: Outlier statistics (%u nearest neighbors, %u PC%s) written to %s .\n", nn_ct, pc_ct, (pc_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  CalcNeighbour_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  CalcNeighbour_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  CalcNeighbour_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  CalcNeighbour_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ CalcNeighbour_ret_1:
+  CleanupThreads(&tg);
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// --read-eigvec loads PC coordinates that were computed earlier, so that
+// --neighbour can be rerun (with a different K, say) without recomputing the
+// GRM.  Both PLINK 1.9's .eigenvec (headerless, FID then IID) and PLINK 2.0's
+// (#FID/#IID header line) are accepted; every column past the ID columns is
+// treated as a principal component.
+PglErr NeighbourFromEigvecFile(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* eigvec_fname, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = InitTextStream(eigvec_fname, kTextStreamBlenFast, 1, &txs);
+    if (unlikely(reterr)) {
+      goto NeighbourFromEigvecFile_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    XidMode xid_mode;
+    reterr = LoadXidHeader("read-eigvec", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --read-eigvec file.\n");
+        goto NeighbourFromEigvecFile_ret_MALFORMED_INPUT;
+      }
+      goto NeighbourFromEigvecFile_ret_TSTREAM_FAIL;
+    }
+    uint32_t* xid_map;
+    char* sorted_xidbox;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto NeighbourFromEigvecFile_ret_1;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    char* idbuf;
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_calloc_w(sample_ctl, &already_seen))) {
+      goto NeighbourFromEigvecFile_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    if (*line_start == '#') {
+      ++line_idx;
+      line_start = TextGet(&txs);
+    }
+    double* eigvecs_smaj = nullptr;
+    uint32_t pc_ct = 0;
+    uintptr_t loaded_ct = 0;
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      const char* linebuf_iter = line_start;
+      uint32_t sample_uidx;
+      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto NeighbourFromEigvecFile_ret_MISSING_TOKENS;
+        }
+        // Sample is not in the current fileset, or was filtered out.
+        continue;
+      }
+      if (!eigvecs_smaj) {
+        // Every remaining column is a PC; the first matching line fixes how
+        // many there are.
+        pc_ct = CountTokens(linebuf_iter);
+        if (unlikely(!pc_ct)) {
+          logerrputs("Error: No principal-component columns in --read-eigvec file.\n");
+          goto NeighbourFromEigvecFile_ret_MALFORMED_INPUT;
+        }
+        if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, sample_ct) * pc_ct, &eigvecs_smaj))) {
+          goto NeighbourFromEigvecFile_ret_NOMEM;
+        }
+      }
+      const uint32_t sample_idx = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, sample_uidx);
+      if (unlikely(IsSet(already_seen, sample_idx))) {
+        TabsToSpaces(idbuf);
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in --read-eigvec file.\n", idbuf);
+        goto NeighbourFromEigvecFile_ret_MALFORMED_INPUT_WW;
+      }
+      SetBit(sample_idx, already_seen);
+      double* cur_coords = &(eigvecs_smaj[sample_idx * S_CAST(uintptr_t, pc_ct)]);
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+        linebuf_iter = FirstNonTspace(linebuf_iter);
+        if (unlikely(IsEolnKns(*linebuf_iter))) {
+          goto NeighbourFromEigvecFile_ret_INCONSISTENT_PC_CT;
+        }
+        const char* val_end = ScanadvDouble(linebuf_iter, &(cur_coords[pc_idx]));
+        if (unlikely((!val_end) || (!IsSpaceOrEoln(*val_end)))) {
+          const char* token_end = CurTokenEnd(linebuf_iter);
+          char* write_iter = memcpya(g_logbuf, "Error: Invalid principal-component value '", 41);
+          write_iter = memcpya(write_iter, linebuf_iter, token_end - linebuf_iter);
+          snprintf(write_iter, kLogbufSize - S_CAST(uintptr_t, write_iter - g_logbuf), "' on line %" PRIuPTR " of --read-eigvec file.\n", line_idx);
+          goto NeighbourFromEigvecFile_ret_MALFORMED_INPUT_WW;
+        }
+        linebuf_iter = val_end;
+      }
+      if (unlikely(!IsEolnKns(*FirstNonTspace(linebuf_iter)))) {
+        goto NeighbourFromEigvecFile_ret_INCONSISTENT_PC_CT;
+      }
+      ++loaded_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto NeighbourFromEigvecFile_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(loaded_ct < sample_ct)) {
+      logerrprintfww("Error: %" PRIuPTR " of %u sample%s in the current fileset %s a --read-eigvec entry.\n", sample_ct - loaded_ct, sample_ct, (sample_ct == 1)? "" : "s", ((sample_ct - loaded_ct) == 1)? "lacks" : "lack");
+      goto NeighbourFromEigvecFile_ret_INCONSISTENT_INPUT;
+    }
+    logprintfww("--read-eigvec: %u principal component%s loaded for %u sample%s from %s .\n", pc_ct, (pc_ct == 1)? "" : "s", sample_ct, (sample_ct == 1)? "" : "s", eigvec_fname);
+    reterr = CalcNeighbour(sample_include, siip, eigvecs_smaj, neighbour_ip, sample_ct, pc_ct, max_thread_ct, outname, outname_end);
+    if (unlikely(reterr)) {
+      goto NeighbourFromEigvecFile_ret_1;
+    }
+  }
+  while (0) {
+  NeighbourFromEigvecFile_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  NeighbourFromEigvecFile_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--read-eigvec file", &txs);
+    break;
+  NeighbourFromEigvecFile_ret_MISSING_TOKENS:
+    logerrprintf("Error: Line %" PRIuPTR " of --read-eigvec file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  NeighbourFromEigvecFile_ret_INCONSISTENT_PC_CT:
+    logerrprintf("Error: Line %" PRIuPTR " of --read-eigvec file does not have the same number of principal-component columns as the first line.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  NeighbourFromEigvecFile_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  NeighbourFromEigvecFile_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  NeighbourFromEigvecFile_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ NeighbourFromEigvecFile_ret_1:
+  CleanupTextStream2("--read-eigvec file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+#ifndef NOLAPACK
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -6573,21 +7199,20 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (unlikely(reterr)) {
       goto CalcPca_ret_1;
     }
-#ifdef __APPLE__
-    // min OS X version is 10.7, so we can take Grand Central Dispatch dgemm
-    // for granted
+    const uint32_t blas_is_accelerate = BlasIsAccelerate();
+    // With Accelerate, we can take Grand Central Dispatch dgemm for granted.
     // (tried this with Linux MKL + OpenMP as well, but results were inferior)
     uint32_t calc_thread_ct = 1;
-#else
-    // I/O thread generally has <1/8 of workload
-    // TODO: recheck this, now that I/O thread is also responsible for fully
-    // expanding dosages.  Still shouldn't be a big deal, but we probably want
-    // sample_ct to affect the decision boundary now.
-    uint32_t calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
-    if ((calc_thread_ct - 1) * kPcaVariantBlockSize >= variant_ct) {
-      calc_thread_ct = 1 + (variant_ct - 1) / kPcaVariantBlockSize;
+    if (!blas_is_accelerate) {
+      // I/O thread generally has <1/8 of workload
+      // TODO: recheck this, now that I/O thread is also responsible for fully
+      // expanding dosages.  Still shouldn't be a big deal, but we probably
+      // want sample_ct to affect the decision boundary now.
+      calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
+      if ((calc_thread_ct - 1) * kPcaVariantBlockSize >= variant_ct) {
+        calc_thread_ct = 1 + (variant_ct - 1) / kPcaVariantBlockSize;
+      }
     }
-#endif
     if (unlikely(pc_ct > pca_sample_ct)) {
       // minor update (alpha 3): just error out here instead of trying to
       // auto-adjust PC count, number of .eigenvec output columns should be
@@ -6675,7 +7300,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // Simplest solution is to force the user to request fewer PCs, since the
       // final PCs wouldn't be accurate anyway.
       if (qq_col_ct > variant_ct) {
-        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%u required).\n", pc_ct, qq_col_ct);
+        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%" PRIuPTR " required).\n", pc_ct, qq_col_ct);
         goto CalcPca_ret_DEGENERATE_DATA;
       }
 #ifndef LAPACK_ILP64
@@ -6735,11 +7360,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       FillGaussianDArr(gg_size / 2, max_thread_ct, sfmtp, g1);
       ctx.g1 = g1;
-#ifdef __APPLE__
-      fputs("Projecting random vectors... ", stdout);
-#else
-      printf("Projecting random vectors (%u compute thread%s)... ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
-#endif
+      if (blas_is_accelerate) {
+        fputs("Projecting random vectors... ", stdout);
+      } else {
+        printf("Projecting random vectors (%u compute thread%s)... ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+      }
       fflush(stdout);
       for (uint32_t iter_idx = 0; iter_idx <= pc_ct; ++iter_idx) {
         // kjg_fpca_XTXA(), kjg_fpca_XA()
@@ -6807,11 +7432,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             g1[ulii] *= variant_ct_recip;
           }
         }
-#ifdef __APPLE__
-        printf("\rProjecting random vectors... %u/%u", iter_idx + 1, pc_ct + 1);
-#else
-        printf("\rProjecting random vectors (%u compute thread%s)... %u/%u", calc_thread_ct, (calc_thread_ct == 1)? "" : "s", iter_idx + 1, pc_ct + 1);
-#endif
+        if (blas_is_accelerate) {
+          printf("\rProjecting random vectors... %u/%u", iter_idx + 1, pc_ct + 1);
+        } else {
+          printf("\rProjecting random vectors (%u compute thread%s)... %u/%u", calc_thread_ct, (calc_thread_ct == 1)? "" : "s", iter_idx + 1, pc_ct + 1);
+        }
         fflush(stdout);
       }
       fputs(".\n", stdout);
@@ -7077,12 +7702,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // 7. Goto step 2 unless eof
       //
       // 8. Write results and update projection for last block
-#ifndef __APPLE__
       if (output_zst) {
         // compression is relatively expensive?
         calc_thread_ct = 1;
       }
-#endif
       uintptr_t var_wts_part_size;
       double* var_wts = qq;
       if (var_wts) {
@@ -7249,6 +7872,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     }
     *outname_end = '\0';
     logprintfww("--pca%s: Eigenvector%s written to %s.eigenvec , and eigenvalue%s written to %s.eigenval .\n", is_approx? " approx" : "", (pc_ct == 1)? "" : "s", outname, (pc_ct == 1)? "" : "s", outname);
+
+    if (neighbour_ip->nn_ct) {
+      // eigvecs_smaj is still live here, and holds exactly the scores that
+      // were just written to .eigenvec.
+      reterr = CalcNeighbour(sample_include, siip, eigvecs_smaj, neighbour_ip, sample_ct, pc_ct, max_thread_ct, outname, outname_end);
+      if (unlikely(reterr)) {
+        goto CalcPca_ret_1;
+      }
+    }
   }
   while (0) {
   CalcPca_ret_NOMEM:
@@ -7567,7 +8199,10 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   dosage_incr_lookup_table[2] = dosage_incr_lookup_table[1] + geno_incr;
                   dosage_incr_lookup_table[3] = 0.0;
                   if (!no_meanimpute) {
-                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope;
+                    // bugfix (22 Sep 2026): mean-imputed genotypes need
+                    // geno_intercept too, or 'center' and
+                    // 'variance-standardize' leave them uncentered.
+                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope + geno_intercept;
                   }
                   if (se_mode) {
                     for (uint32_t uii = 0; uii != 4; ++uii) {
@@ -7698,6 +8333,14 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
           cur_allele_freq = allele_freqs[vidx];
           geno_slope = geno_slopes[vidx];
           geno_intercept = geno_intercepts[vidx];
+          if (domrec) {
+            // bugfix (22 Sep 2026): a missing genotype is mean-imputed as
+            // cur_allele_freq * geno_slope here (ploidy 1), which is not the
+            // mean of the dominant/recessive-coded value.  Replace the
+            // frequency with the Hardy-Weinberg expectation of that value:
+            // 1 - (1-f)^2 for 'dominant', f^2 for 'recessive'.
+            cur_allele_freq *= model_dominant? (2.0 - cur_allele_freq) : cur_allele_freq;
+          }
         }
         if ((!shard_dosage_ct) && (!is_nonx_haploid) && (!is_relevant_x)) {
           // Fast path for common no-dosage case.
@@ -7720,7 +8363,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (!domrec) {
               missing_effect *= 2;
             }
-            lookup_table[6] = missing_effect;
+            lookup_table[6] = missing_effect + geno_intercept;
           }
           if (se_mode) {
             lookup_table[0] *= lookup_table[0];
@@ -7740,6 +8383,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (is_y) {
               ZeroDArr(sample_shard_size, dosages_vmaj_iter);
               if ((!no_meanimpute) && shard_nonfemale_ct) {
+                const double adj_missing_effect = missing_effect + geno_intercept;
                 for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                   uintptr_t cur_missing_nonfemale_bits = missing_nonfemale_bitvec_iter[shard_widx];
                   if (!cur_missing_nonfemale_bits) {
@@ -7748,7 +8392,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                   do {
                     const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonfemale_bits);
-                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                     cur_missing_nonfemale_bits &= cur_missing_nonfemale_bits - 1;
                   } while (cur_missing_nonfemale_bits);
                 }
@@ -7757,6 +8401,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
               ZeroDArr(sample_shard_size, dosages_vmaj_iter);
               if (!no_meanimpute) {
                 if (shard_male_ct) {
+                  const double adj_missing_effect = missing_effect + geno_intercept;
                   for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                     uintptr_t cur_missing_male_bits = missing_male_bitvec_iter[shard_widx];
                     if (!cur_missing_male_bits) {
@@ -7765,13 +8410,14 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_male_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                       cur_missing_male_bits &= cur_missing_male_bits - 1;
                     } while (cur_missing_male_bits);
                   }
                 }
                 if (shard_nonmale_ct) {
                   missing_effect *= 2;
+                  const double adj_missing_effect = missing_effect + geno_intercept;
                   for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                     uintptr_t cur_missing_nonmale_bits = missing_bitvec_iter[shard_widx] & shard_sex_nonmale_collapsed[shard_widx];
                     if (!cur_missing_nonmale_bits) {
@@ -7780,7 +8426,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonmale_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                       cur_missing_nonmale_bits &= cur_missing_nonmale_bits - 1;
                     } while (cur_missing_nonmale_bits);
                   }
@@ -7789,6 +8435,9 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             } else {
               const double ploidy_d = ploidy_m1s[vidx]? 2.0 : 1.0;
               missing_effect *= ploidy_d;
+              if (!no_meanimpute) {
+                missing_effect += geno_intercept;
+              }
               uintptr_t shard_sample_idx_base = 0;
               uintptr_t missing_bits = missing_bitvec_iter[0];
               for (uint32_t missing_idx = 0; missing_idx != shard_missing_ct; ++missing_idx) {
@@ -7965,8 +8614,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         const uint32_t name_slen = range_name_end - line_start;
-        if (name_slen > max_name_slen) {
+        if (unlikely(name_slen > max_name_slen)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Name too long on line %" PRIuPTR " of --q-score-range range file.\n", line_idx);
+          goto ScoreReport_ret_MALFORMED_INPUT_WW;
         }
         unsigned char* tmp_alloc_base = R_CAST(unsigned char*, &(parsed_qscore_ranges[qsr_ct]));
         if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= name_slen + sizeof(ParsedQscoreRange)) {
@@ -8977,8 +9627,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 } else {
                   GenoarrCountFreqsUnsafe(genovec_iter, sample_ct, genocounts);
                 }
-                if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: --score[-list] variance-standardize failure for variant '%s': estimated allele frequency is zero or NaN, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
+                // bugfix (22 Sep 2026): the scored allele may be fixed
+                // instead (e.g. the REF allele of a variant with no ALT
+                // call), in which case every genotype must carry two copies
+                // of it.
+                const uint32_t fixed_geno = (cur_allele_freq > 0.5)? 2 : 0;
+                if (unlikely(dosage_ct || genocounts[1] || genocounts[2 - fixed_geno])) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --score[-list] variance-standardize failure for variant '%s': estimated allele frequency is %s, but not all dosages are %s. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx], fixed_geno? "one" : "zero or NaN", fixed_geno? "two" : "zero");
                   goto ScoreReport_ret_DEGENERATE_DATA_WW;
                 }
                 geno_slope = 0.0;

@@ -1941,8 +1941,9 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
       tvidx_batch_size = 65536;
     }
     // tvidx_batch_size = max_load;  // temporary debugging
-    if (tvidx_batch_size * loader_single_variant_byte_ct > bigstack_avail_per_thread) {
-      tvidx_batch_size = bigstack_avail_per_thread / loader_single_variant_byte_ct;
+    // the two loader buffers are each rounded up to a cacheline multiple
+    if (tvidx_batch_size * loader_single_variant_byte_ct + 2 * kCacheline > bigstack_avail_per_thread) {
+      tvidx_batch_size = (bigstack_avail_per_thread - 2 * kCacheline) / loader_single_variant_byte_ct;
     }
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       ctx.hap_then_nm_vecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_vec_alloc));
@@ -1959,8 +1960,8 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
       if (ctx.first_unchecked_tvidx) {
         ctx.first_unchecked_tvidx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
       }
-      ctx.loader_hap_then_nm_vecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
-      ctx.loader_hap_then_nm_vecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
+      ctx.loader_hap_then_nm_vecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
+      ctx.loader_hap_then_nm_vecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
     }
     ctx.cip = cip;
     ctx.subcontig_info = subcontig_info;
@@ -3131,7 +3132,6 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
     CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
-    ZeroTrailingBits(founder_ct, founder_male_collapsed);
 
     // One task per chromosome.  PLINK 1.9 restarts window start offsets at
     // each chromosome boundary, so this is also the finest split that leaves
@@ -5498,7 +5498,7 @@ double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double
     lnlike = half_hethet_share * log(cross_sum);
   }
   if (adj_freq11 != 0.0) {
-    lnlike += prefer_fma(freq11, log(adj_freq11), lnlike);
+    lnlike = prefer_fma(freq11, log(adj_freq11), lnlike);
   }
   if (adj_freq12 != 0.0) {
     lnlike = prefer_fma(freq12, log(adj_freq12), lnlike);
@@ -13132,7 +13132,9 @@ PglErr LdScoreReadAnnot(const char* fname, const uintptr_t* variant_include, con
         }
         if ((annot_idx != annot_ct) && (col_idx == annot_col_idxs[annot_idx])) {
           double cur_val;
-          if (unlikely(!ScanadvDouble(iter, &cur_val))) {
+          // The whole token must parse ('1abc' is not 1), and the value must
+          // fit in the float it is stored as.
+          if (unlikely((ScanadvDouble(iter, &cur_val) != token_end) || (!(fabs(cur_val) <= FLT_MAX_D)))) {
             logerrprintfww("Error: Invalid annotation value on line %" PRIuPTR " of %s.\n", line_idx, fname);
             goto LdScoreReadAnnot_ret_MALFORMED_INPUT;
           }
@@ -13656,7 +13658,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
           // allele, so the minor allele frequency is (1 - mean) / 2.
           if (nm_ct) {
             const double mean = S_CAST(double, vaggs[slot_idx].sum) / u31tod(nm_ct);
-            const uint32_t is_common = (0.5 * (1.0 - mean) > 0.05);
+            // const uint32_t is_common = (0.5 * (1.0 - mean) > 0.05);
+            const uint32_t is_common = ((0.9 - kSmallEpsilon) > mean);
             if (!annots) {
               m_totals[0] += 1.0;
               m_common[0] += S_CAST(double, is_common);
@@ -14330,6 +14333,24 @@ typedef struct BlockCandidateStruct {
 #endif
 } BlockCandidate;
 
+#ifndef __cplusplus
+int32_t BlockCandidateCmp(const void* aa, const void* bb) {
+  const BlockCandidate* bc1 = S_CAST(const BlockCandidate*, aa);
+  const BlockCandidate* bc2 = S_CAST(const BlockCandidate*, bb);
+  const uint32_t span1 = bc1->span;
+  const uint32_t span2 = bc2->span;
+  if (span1 != span2) {
+    return (span1 > span2)? -1 : 1;
+  }
+  const uint32_t first_uidx1 = bc1->first_uidx;
+  const uint32_t first_uidx2 = bc2->first_uidx;
+  if (first_uidx1 != first_uidx2) {
+    return (first_uidx1 > first_uidx2)? -1 : 1;
+  }
+  return S_CAST(int32_t, bc2->last_uidx) - S_CAST(int32_t, bc1->last_uidx);
+}
+#endif
+
 // 3x3 genotype counts for a pair, in the (hom-A1, het, hom-A2) order
 // haploview_blocks_classify() expects.  A1 is ALT, so plink2's nyp codes map
 // to rows 2, 1, 0.
@@ -14462,6 +14483,11 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
       logerrputs("Warning: Skipping --blocks, since there are less than two founders.\n");
       goto HaploviewBlocks_ret_1;
     }
+    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent) {
+      logerrputs("Error: --blocks calculation for already-phased data is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto HaploviewBlocks_ret_1;
+    }
     const uint32_t no_small_max_span = (bip->flags / kfBlocksNoSmallMaxSpan) & 1;
     const uint32_t max_window_bp = bip->max_bp;
     const uint32_t max_window_bp1 = no_small_max_span? 0x7fffffff : 20000;
@@ -14556,7 +14582,9 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_cumulative_popcounts);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(founder_cumulative_popcounts, simple_pgrp, &pssi);
-    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
+    // vector-aligned, since PopcountWordsIntersect() requires each of the
+    // three per-genotype masks to start on a vector boundary
+    const uint32_t founder_ctl = BitCtToAlignedWordCt(founder_ct);
 
     // Ring buffer over the widest window, as in --ld-score.
     uint32_t max_block_size = 2;
@@ -15413,792 +15441,6 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
 // fixed-width output anywhere else, so this is a table instead, and the
 // marginals are left to the reader since every count that produces them is
 // present.
-void InitEpi(EpiInfo* epi_ip) {
-  epi_ip->flags = kfEpi0;
-  epi_ip->epi1 = 0.0;
-  epi_ip->epi2 = 0.01;
-}
-
-// --epistasis-boost: the two-stage test of Wan X et al. (2010) BOOST: A fast
-// approach to detecting gene-gene interactions in genome-wide case-control
-// studies.  Every pair is first scored with the Kirkwood superposition
-// approximation, which is closed-form; only the pairs clearing the --epi1
-// threshold are then fit properly, by iterative proportional fitting of the
-// homogeneous association model (all three two-way interactions, no three-way
-// term).  The reported statistic is the fitted one, so --epi1 is a screening
-// threshold here rather than a report filter, and a looser --epi1 changes
-// which pairs are fit rather than only which are printed.
-//
-// counts is the 2x3x3 table, laid out as [group * 9 + geno1 * 3 + geno2] with
-// group 0 the cases.  An empty genotype row or column costs two degrees of
-// freedom instead of dropping the pair, so df is 4, 2 or 1; a second empty row
-// (or column) leaves nothing to test.
-
-// p_bc[3 * group + geno2] = P(geno2 | group).
-static void FepiBoostPBc(const uint32_t* counts, const double* recip_cache, double* p_bc) {
-  for (uint32_t group_idx = 0; group_idx != 2; ++group_idx) {
-    const uint32_t* cur_counts = &(counts[group_idx * 9]);
-    uint32_t col_cts[3];
-    for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
-      col_cts[geno2] = cur_counts[geno2] + cur_counts[geno2 + 3] + cur_counts[geno2 + 6];
-    }
-    const double tot_recip = recip_cache[col_cts[0] + col_cts[1] + col_cts[2]];
-    for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
-      p_bc[group_idx * 3 + geno2] = u31tod(col_cts[geno2]) * tot_recip;
-    }
-  }
-}
-
-// p_ca[2 * geno1 + group] = P(group | geno1).  Returns the number of empty
-// genotype rows.
-static uint32_t FepiBoostPCa(const uint32_t* counts, const double* recip_cache, double* p_ca) {
-  uint32_t empty_row_ct = 0;
-  for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
-    const uint32_t* case_row = &(counts[geno1 * 3]);
-    const uint32_t* ctrl_row = &(counts[9 + geno1 * 3]);
-    const uint32_t case_row_ct = case_row[0] + case_row[1] + case_row[2];
-    const uint32_t ctrl_row_ct = ctrl_row[0] + ctrl_row[1] + ctrl_row[2];
-    const uint32_t row_ct = case_row_ct + ctrl_row_ct;
-    empty_row_ct += (row_ct == 0);
-    const double tot_recip = recip_cache[row_ct];
-    p_ca[geno1 * 2] = u31tod(case_row_ct) * tot_recip;
-    p_ca[geno1 * 2 + 1] = u31tod(ctrl_row_ct) * tot_recip;
-  }
-  return empty_row_ct;
-}
-
-// Returns 1 when the table is too degenerate to test.
-// *screen_ptr receives the value used for BEST_CHISQ and for --epi2 counting:
-// the screening statistic when the pair does not clear --epi1, and otherwise
-// the fitted one, floored at the screening threshold.  (PLINK 1.x mixes the
-// two this way, and the summary is only comparable if this does too.)
-// *stat_ptr receives the fitted statistic, and *do_report_ptr whether the pair
-// cleared the screening threshold and so is reported at all.  (The fitted
-// statistic of a perfect fit comes back as rounding noise which can be
-// negative, so its sign cannot double as that flag.)
-// *df_adj_ptr receives the degrees-of-freedom reduction: df is 4 >> df_adj.
-static uint32_t FepiBoost(const uint32_t* counts, const double* recip_cache, const double* alpha1sq, double* screen_ptr, double* stat_ptr, uint32_t* df_adj_ptr, uint32_t* do_report_ptr) {
-  double p_ca[6];
-  uint32_t df_adj = FepiBoostPCa(counts, recip_cache, p_ca);
-  if (df_adj > 1) {
-    return 1;
-  }
-  double p_bc[6];
-  FepiBoostPBc(counts, recip_cache, p_bc);
-
-  // p_ab[geno2 * 3 + geno1] = P(geno1 | geno2).
-  double p_ab[9];
-  uint32_t empty_col_ct = 0;
-  uint32_t obs_ct = 0;
-  for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
-    uint32_t row_cts[3];
-    for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
-      row_cts[geno1] = counts[geno1 * 3 + geno2] + counts[9 + geno1 * 3 + geno2];
-    }
-    const uint32_t col_ct = row_cts[0] + row_cts[1] + row_cts[2];
-    if (!col_ct) {
-      if (empty_col_ct) {
-        return 1;
-      }
-      empty_col_ct = 1;
-      ++df_adj;
-    }
-    obs_ct += col_ct;
-    const double tot_recip = recip_cache[col_ct];
-    for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
-      p_ab[geno2 * 3 + geno1] = u31tod(row_cts[geno1]) * tot_recip;
-    }
-  }
-  *df_adj_ptr = df_adj;
-
-  const double obs_ct_recip = recip_cache[obs_ct];
-  double tau = 0.0;
-  double screen_stat = 0.0;
-  {
-    const uint32_t* counts_iter = counts;
-    for (uint32_t group_idx = 0; group_idx != 2; ++group_idx) {
-      const double* cur_p_bc = &(p_bc[group_idx * 3]);
-      for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
-        const double cur_p_ca = p_ca[geno1 * 2 + group_idx];
-        for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
-          const double mu = p_ab[geno2 * 3 + geno1] * cur_p_bc[geno2] * cur_p_ca;
-          tau += mu;
-          const uint32_t obs = *counts_iter++;
-          if (obs) {
-            const double obs_d = u31tod(obs);
-            if (mu != 0.0) {
-              screen_stat -= obs_d * log(mu * recip_cache[obs]);
-            } else {
-              // An observed cell the approximation calls impossible would send
-              // the sum to infinity; PLINK 1.x scores it as if mu were 1.
-              screen_stat += obs_d * log(obs_d);
-            }
-          }
-        }
-      }
-    }
-  }
-  screen_stat = 2 * (screen_stat + u31tod(obs_ct) * log(tau * obs_ct_recip));
-  if (screen_stat <= alpha1sq[df_adj]) {
-    *screen_ptr = screen_stat;
-    *do_report_ptr = 0;
-    return 0;
-  }
-
-  // Iterative proportional fitting, cycling over the three two-way margins
-  // until the fitted table stops moving.  mu is [geno1 * 6 + geno2 * 2 +
-  // group].
-  double mu[18];
-  for (uint32_t cell_idx = 0; cell_idx != 18; ++cell_idx) {
-    mu[cell_idx] = 1.0;
-  }
-  double mu_err;
-  do {
-    double prev_mu[18];
-    memcpy(prev_mu, mu, 18 * sizeof(double));
-    for (uint32_t cell_idx = 0; cell_idx != 9; ++cell_idx) {
-      double* cur_mu = &(mu[cell_idx * 2]);
-      const double margin = cur_mu[0] + cur_mu[1];
-      double scale = 0.0;
-      if (margin != 0.0) {
-        scale = u31tod(counts[cell_idx] + counts[cell_idx + 9]) / margin;
-      }
-      cur_mu[0] *= scale;
-      cur_mu[1] *= scale;
-    }
-    for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
-      for (uint32_t group_idx = 0; group_idx != 2; ++group_idx) {
-        double* cur_mu = &(mu[geno1 * 6 + group_idx]);
-        const double margin = cur_mu[0] + cur_mu[2] + cur_mu[4];
-        double scale = 0.0;
-        if (margin != 0.0) {
-          const uint32_t* cur_counts = &(counts[group_idx * 9 + geno1 * 3]);
-          scale = u31tod(cur_counts[0] + cur_counts[1] + cur_counts[2]) / margin;
-        }
-        cur_mu[0] *= scale;
-        cur_mu[2] *= scale;
-        cur_mu[4] *= scale;
-      }
-    }
-    for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
-      for (uint32_t group_idx = 0; group_idx != 2; ++group_idx) {
-        double* cur_mu = &(mu[geno2 * 2 + group_idx]);
-        const double margin = cur_mu[0] + cur_mu[6] + cur_mu[12];
-        double scale = 0.0;
-        if (margin != 0.0) {
-          const uint32_t* cur_counts = &(counts[group_idx * 9 + geno2]);
-          scale = u31tod(cur_counts[0] + cur_counts[3] + cur_counts[6]) / margin;
-        }
-        cur_mu[0] *= scale;
-        cur_mu[6] *= scale;
-        cur_mu[12] *= scale;
-      }
-    }
-    mu_err = 0.0;
-    for (uint32_t cell_idx = 0; cell_idx != 18; ++cell_idx) {
-      mu_err += fabs(mu[cell_idx] - prev_mu[cell_idx]);
-    }
-  } while (mu_err > 0.001);
-
-  double fit_stat = 0.0;
-  tau = 0.0;
-  {
-    const uint32_t* counts_iter = counts;
-    for (uint32_t group_idx = 0; group_idx != 2; ++group_idx) {
-      for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
-        for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
-          const double obs_frac = u31tod(*counts_iter++) * obs_ct_recip;
-          const double fit_frac = mu[geno1 * 6 + geno2 * 2 + group_idx] * obs_ct_recip;
-          if (obs_frac != 0.0) {
-            fit_stat += obs_frac * ((fit_frac != 0.0)? log(obs_frac / fit_frac) : log(obs_frac));
-          }
-          tau += fit_frac;
-        }
-      }
-    }
-  }
-  fit_stat = (fit_stat + log(tau)) * u31tod(2 * obs_ct);
-  *stat_ptr = fit_stat;
-  *screen_ptr = MAXV(fit_stat, alpha1sq[df_adj]);
-  *do_report_ptr = 1;
-  return 0;
-}
-
-// Smallest chi-square statistic with an upper-tail p-value <= alpha.  plink2's
-// stats library has no chi-square quantile function, and this is called six
-// times per run, so bisect on ChisqToLnP().
-static double FepiChisqThresh(double alpha, uint32_t df) {
-  if (alpha >= 1.0) {
-    return 0.0;
-  }
-  const double ln_alpha = log(alpha);
-  double hi = 4.0;
-  while ((hi < 1e6) && (ChisqToLnP(hi, df) > ln_alpha)) {
-    hi *= 2;
-  }
-  double lo = 0.0;
-  for (uint32_t iter_idx = 0; iter_idx != 100; ++iter_idx) {
-    const double mid = 0.5 * (lo + hi);
-    if ((mid <= lo) || (mid >= hi)) {
-      break;
-    }
-    if (ChisqToLnP(mid, df) > ln_alpha) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-  }
-  return hi;
-}
-
-// Per-variant genotype bitvectors, one triple per group: index 0 is hom-REF,
-// 1 is het, 2 is hom-ALT, and a missing call is in none of them.  A 3x3 cell
-// count is then one PopcountWordsIntersect.
-static void GenovecToGenoBits(const uintptr_t* genovec, uint32_t sample_ct, uintptr_t* hom_buf, uintptr_t* ref2het_buf, uintptr_t* dst) {
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  SplitHomRef2het(genovec, sample_ct, hom_buf, ref2het_buf);
-  uintptr_t* hom_ref = dst;
-  uintptr_t* het = &(dst[sample_ctl]);
-  uintptr_t* hom_alt = &(dst[2 * sample_ctl]);
-  for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
-    const uintptr_t hom_word = hom_buf[widx];
-    const uintptr_t ref2het_word = ref2het_buf[widx];
-    hom_ref[widx] = hom_word & ref2het_word;
-    het[widx] = (~hom_word) & ref2het_word;
-    hom_alt[widx] = hom_word & (~ref2het_word);
-  }
-  ZeroTrailingBits(sample_ct, hom_ref);
-  ZeroTrailingBits(sample_ct, het);
-  ZeroTrailingBits(sample_ct, hom_alt);
-}
-
-typedef struct EpiSummaryEntryStruct {
-  uint32_t n_sig;
-  uint32_t n_tot;
-  double best_chisq;
-  uint32_t best_vidx;
-} EpiSummaryEntry;
-
-PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
-  unsigned char* bigstack_mark = g_bigstack_base;
-  char* cswritep = nullptr;
-  char* cswritetp = nullptr;
-  CompressStreamState css;
-  CompressStreamState csst;
-  PglErr reterr = kPglRetSuccess;
-  PreinitCstream(&css);
-  PreinitCstream(&csst);
-  {
-    const EpiFlags flags = epi_ip->flags;
-    const uint32_t no_p_value = (flags / kfEpiNoP) & 1;
-
-    // PLINK 1.x had a single phenotype.  Rather than guess which of several
-    // loaded case/control phenotypes an O(variant_ct^2) scan was meant for,
-    // ask.
-    uint32_t pheno_idx = UINT32_MAX;
-    uint32_t cc_pheno_ct = 0;
-    for (uint32_t uii = 0; uii != pheno_ct; ++uii) {
-      if (pheno_cols[uii].type_code == kPhenoDtypeCc) {
-        ++cc_pheno_ct;
-        if (pheno_idx == UINT32_MAX) {
-          pheno_idx = uii;
-        }
-      }
-    }
-    if (unlikely(!cc_pheno_ct)) {
-      logerrputs("Error: --epistasis-boost requires a case/control phenotype.\n");
-      goto CalcEpi_ret_INCONSISTENT_INPUT;
-    }
-    if (unlikely(cc_pheno_ct > 1)) {
-      logerrputs("Error: --epistasis-boost needs exactly one case/control phenotype; select one\nwith --pheno-name.\n");
-      goto CalcEpi_ret_INCONSISTENT_INPUT;
-    }
-    const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    uintptr_t* case_include;
-    uintptr_t* ctrl_include;
-    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &case_include) ||
-                 bigstack_alloc_w(raw_sample_ctl, &ctrl_include))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, ctrl_include);
-    BitvecAndCopy(ctrl_include, cur_pheno_col->data.cc, raw_sample_ctl, case_include);
-    BitvecInvmask(case_include, raw_sample_ctl, ctrl_include);
-    const uint32_t case_ct = PopcountWords(case_include, raw_sample_ctl);
-    const uint32_t ctrl_ct = PopcountWords(ctrl_include, raw_sample_ctl);
-    if (unlikely(case_ct < 2)) {
-      logerrputs("Error: --epistasis-boost requires at least 2 cases.\n");
-      goto CalcEpi_ret_DEGENERATE_DATA;
-    }
-    if (unlikely(ctrl_ct < 2)) {
-      logerrputs("Error: --epistasis-boost requires at least 2 controls.\n");
-      goto CalcEpi_ret_DEGENERATE_DATA;
-    }
-    const uint32_t group_ct = 2;
-    const uint32_t group_cts[2] = {case_ct, ctrl_ct};
-    const uintptr_t* group_includes[2] = {case_include, ctrl_include};
-    const uint32_t case_ctl = BitCtToWordCt(case_ct);
-    const uint32_t ctrl_ctl = BitCtToWordCt(ctrl_ct);
-    const uint32_t group_ctls[2] = {case_ctl, ctrl_ctl};
-    const uintptr_t words_per_variant = 3 * S_CAST(uintptr_t, case_ctl + ctrl_ctl);
-
-    // Non-autosomal variants are left out, as in PLINK 1.x.
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uintptr_t* variant_include;
-    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
-    const uint32_t chr_ct = cip->chr_ct;
-    uint32_t nonautosomal_ct = 0;
-    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
-      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-      if (!IsSet(cip->haploid_mask, chr_idx) && (chr_idx != S_CAST(uint32_t, cip->xymt_codes[kChrOffsetMT]))) {
-        continue;
-      }
-      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
-      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      nonautosomal_ct += PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
-      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
-    }
-    uint32_t variant_ct = orig_variant_ct - nonautosomal_ct;
-    if (unlikely(variant_ct < 2)) {
-      logerrputs("Error: --epistasis-boost requires at least 2 autosomal variants.\n");
-      goto CalcEpi_ret_DEGENERATE_DATA;
-    }
-
-    // Monomorphic variants are dropped up front, over the whole phenotyped
-    // set rather than group by group, as in PLINK 1.x.  An empty genotype row
-    // or column within a group is not degenerate here: it costs two degrees
-    // of freedom instead.
-    uintptr_t* analysis_include;
-    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &analysis_include))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, analysis_include);
-    const uint32_t analysis_ct = PopcountWords(analysis_include, raw_sample_ctl);
-    uint32_t* sample_include_cumulative_popcounts[3];
-    PgrSampleSubsetIndex pssis[3];
-    for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
-      if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &(sample_include_cumulative_popcounts[group_idx])))) {
-        goto CalcEpi_ret_NOMEM;
-      }
-      FillCumulativePopcounts(group_includes[group_idx], raw_sample_ctl, sample_include_cumulative_popcounts[group_idx]);
-    }
-    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &(sample_include_cumulative_popcounts[2])))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    FillCumulativePopcounts(analysis_include, raw_sample_ctl, sample_include_cumulative_popcounts[2]);
-    const uint32_t max_group_ct = MAXV(analysis_ct, MAXV(case_ct, ctrl_ct));
-    uintptr_t* genovec;
-    uintptr_t* hom_buf;
-    uintptr_t* ref2het_buf;
-    if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_group_ct), &genovec) ||
-                 bigstack_alloc_w(BitCtToWordCt(max_group_ct), &hom_buf) ||
-                 bigstack_alloc_w(BitCtToWordCt(max_group_ct), &ref2het_buf))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    {
-      uintptr_t variant_uidx_base = 0;
-      uintptr_t variant_include_bits = variant_include[0];
-      uint32_t skipped_ct = 0;
-      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[2], simple_pgrp, &(pssis[2]));
-      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
-        reterr = PgrGet(analysis_include, pssis[2], analysis_ct, variant_uidx, simple_pgrp, genovec);
-        if (unlikely(reterr)) {
-          PgenErrPrintNV(reterr, variant_uidx);
-          goto CalcEpi_ret_1;
-        }
-        // GenoarrCountFreqsUnsafe() counts whole words and derives the hom-REF
-        // count by subtraction, so the nyps past sample_ct have to be cleared
-        // first; PgrGet() leaves them alone.
-        ZeroTrailingNyps(analysis_ct, genovec);
-        STD_ARRAY_DECL(uint32_t, 4, genocounts);
-        GenoarrCountFreqsUnsafe(genovec, analysis_ct, genocounts);
-        const uint32_t nonmiss_ct = genocounts[0] + genocounts[1] + genocounts[2];
-        if ((genocounts[0] == nonmiss_ct) || (genocounts[1] == nonmiss_ct) || (genocounts[2] == nonmiss_ct)) {
-          ClearBit(variant_uidx, variant_include);
-          ++skipped_ct;
-        }
-      }
-      if (skipped_ct) {
-        variant_ct -= skipped_ct;
-        logprintf("--epistasis-boost: Skipping %u monomorphic variant%s.\n", skipped_ct, (skipped_ct == 1)? "" : "s");
-      }
-      if (unlikely(variant_ct < 2)) {
-        logerrputs("Error: --epistasis-boost has fewer than 2 usable variants left.\n");
-        goto CalcEpi_ret_DEGENERATE_DATA;
-      }
-    }
-    if (nonautosomal_ct) {
-      logprintf("--epistasis-boost: Skipping %u non-autosomal variant%s.\n", nonautosomal_ct, (nonautosomal_ct == 1)? "" : "s");
-    }
-
-    uint32_t* variant_uidxs;
-    uint32_t* variant_chr_fo_idxs;
-    if (unlikely(bigstack_alloc_u32(variant_ct, &variant_uidxs) ||
-                 bigstack_alloc_u32(variant_ct, &variant_chr_fo_idxs))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    {
-      uintptr_t variant_uidx_base = 0;
-      uintptr_t variant_include_bits = variant_include[0];
-      uint32_t chr_fo_idx = 0;
-      uint32_t chr_vidx_end = cip->chr_fo_vidx_start[1];
-      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
-        while (variant_uidx >= chr_vidx_end) {
-          ++chr_fo_idx;
-          chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-        }
-        variant_uidxs[variant_idx] = variant_uidx;
-        variant_chr_fo_idxs[variant_idx] = chr_fo_idx;
-      }
-    }
-
-    // Rows are split across --parallel jobs; every job still needs to reach
-    // every column to its right.
-    // ParallelBounds() splits a triangle whose row r carries r entries below
-    // it; this scan's row r carries variant_ct - 1 - r entries above it.  The
-    // two are mirror images, so the bounds come back in the mirrored index and
-    // get reflected here.
-    uint32_t mirror_start;
-    uint32_t mirror_end;
-    // The reflection also reverses the job order, so ask for the mirrored job
-    // index as well; job 1 then produces the first rows and concatenating the
-    // jobs in order reproduces a single run.
-    ParallelBounds(variant_ct, 1, parallel_tot - 1 - parallel_idx, parallel_tot, R_CAST(int32_t*, &mirror_start), R_CAST(int32_t*, &mirror_end));
-    const uint32_t row_start_idx = variant_ct - mirror_end;
-    const uint32_t row_end_idx = variant_ct - mirror_start;
-    if (row_start_idx == row_end_idx) {
-      logerrputs("Warning: This --parallel job has no rows to scan.\n");
-    }
-
-    // boost divides by cell and margin counts constantly, and there are only
-    // analysis_ct + 1 possible denominators.
-    double* recip_cache;
-    if (unlikely(bigstack_alloc_d(analysis_ct + 1, &recip_cache))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    recip_cache[0] = 0.0;
-    for (uint32_t uii = 1; uii <= analysis_ct; ++uii) {
-      recip_cache[uii] = 1.0 / u31tod(uii);
-    }
-
-    // Two variant blocks are held at once: the rows, and the columns they are
-    // being tested against.  Everything to the right of a row has to be
-    // reachable, so the column block sweeps the whole range each time the row
-    // block advances.
-    uintptr_t bytes_per_variant = words_per_variant * sizeof(intptr_t);
-    const uintptr_t max_slot_ct = (bigstack_left() / 2) / bytes_per_variant;
-    if (unlikely(max_slot_ct < 4)) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    // The report has to come out in row-major order, so that concatenating
-    // --parallel jobs reproduces a single run, as PLINK 1.x promises.  A row
-    // block only preserves that order while the whole column range fits in one
-    // block; when it does not, the row block drops to a single row, so its
-    // columns are still swept in order.  That costs a reread of the column
-    // range per row, but only in the case that was already going to be
-    // dominated by rereads.
-    uint32_t col_block_size;
-    uint32_t row_block_size;
-    if (max_slot_ct > variant_ct) {
-      col_block_size = variant_ct;
-      row_block_size = MINV(max_slot_ct - variant_ct, variant_ct);
-    } else {
-      col_block_size = max_slot_ct - 1;
-      row_block_size = 1;
-    }
-    uintptr_t* row_bits;
-    uintptr_t* col_bits;
-    if (unlikely(bigstack_alloc_w(row_block_size * words_per_variant, &row_bits) ||
-                 bigstack_alloc_w(col_block_size * words_per_variant, &col_bits))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-
-    EpiSummaryEntry* summary;
-    if (unlikely(BIGSTACK_ALLOC_X(EpiSummaryEntry, variant_ct, &summary))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-      summary[variant_idx].n_sig = 0;
-      summary[variant_idx].n_tot = 0;
-      summary[variant_idx].best_chisq = -1.0;
-      summary[variant_idx].best_vidx = UINT32_MAX;
-    }
-
-    // --epi1 is a screening threshold here, deciding which pairs are fit at
-    // all, so PLINK 1.x's default for it is much stricter than a report
-    // filter's.
-    double alpha1 = epi_ip->epi1;
-    if (alpha1 == 0.0) {
-      alpha1 = 0.000005;
-    }
-    // df varies from pair to pair, so the thresholds are chi-square quantiles
-    // at df 4, 2 and 1 rather than one p-value cutoff.
-    double alpha1sq[3];
-    double alpha2sq[3];
-    alpha1sq[0] = FepiChisqThresh(alpha1, 4);
-    alpha1sq[1] = FepiChisqThresh(alpha1, 2);
-    alpha1sq[2] = FepiChisqThresh(alpha1, 1);
-    alpha2sq[0] = FepiChisqThresh(epi_ip->epi2, 4);
-    if (alpha1sq[0] == alpha2sq[0]) {
-      // --epi1 and --epi2 agree: count the pairs that clear the fit rather
-      // than the ones that cleared the screen.
-      alpha2sq[0] *= 1 + kSmallEpsilon;
-      alpha2sq[1] = alpha1sq[1] * (1 + kSmallEpsilon);
-      alpha2sq[2] = alpha1sq[2] * (1 + kSmallEpsilon);
-    } else {
-      alpha2sq[1] = FepiChisqThresh(epi_ip->epi2, 2);
-      alpha2sq[2] = FepiChisqThresh(epi_ip->epi2, 1);
-    }
-    const uint32_t output_zst = (flags / kfEpiZs) & 1;
-    char* outname_end2 = strcpya_k(outname_end, ".epi.cc");
-    // Main report is <prefix>.epi.cc[.<job>], summary is
-    // <prefix>.epi.cc.summary[.<job>], as in PLINK 1.x.
-    char* main_end = outname_end2;
-    if (parallel_tot > 1) {
-      *main_end++ = '.';
-      main_end = u32toa(parallel_idx + 1, main_end);
-    }
-    if (output_zst) {
-      snprintf(main_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, main_end - outname_end), ".zst");
-    } else {
-      *main_end = '\0';
-    }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256;
-    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
-    if (unlikely(reterr)) {
-      goto CalcEpi_ret_1;
-    }
-    if (!parallel_idx) {
-      cswritep = strcpya_k(cswritep, "#CHROM1\tID1\tCHROM2\tID2\tSTAT\tDF");
-      if (!no_p_value) {
-        cswritep = strcpya_k(cswritep, "\tP");
-      }
-      AppendBinaryEoln(&cswritep);
-    }
-
-    // Loads variant_idxs [block_start, block_end) into dst.
-    // (Declared as a lambda-free helper loop to keep the reader in one place.)
-    uint32_t pairs_done = 0;
-    uint64_t pair_ct_total = 0;
-    for (uint32_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
-      pair_ct_total += variant_ct - row_idx - 1;
-    }
-    uint64_t pairs_reported = 0;
-    fputs("--epistasis-boost: 0%", stdout);
-    fflush(stdout);
-    uint64_t next_print_pair = pair_ct_total / 100;
-    uint32_t pct = 0;
-    uint64_t pairs_seen = 0;
-
-    for (uint32_t row_block_start = row_start_idx; row_block_start < row_end_idx; row_block_start += row_block_size) {
-      const uint32_t row_block_end = MINV(row_block_start + row_block_size, row_end_idx);
-      const uint32_t cur_row_ct = row_block_end - row_block_start;
-      for (uint32_t slot_idx = 0; slot_idx != cur_row_ct; ++slot_idx) {
-        uintptr_t* dst = &(row_bits[slot_idx * words_per_variant]);
-        for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
-          PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
-          reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[row_block_start + slot_idx], simple_pgrp, genovec);
-          if (unlikely(reterr)) {
-            PgenErrPrintNV(reterr, variant_uidxs[row_block_start + slot_idx]);
-            goto CalcEpi_ret_1;
-          }
-          GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
-          dst = &(dst[3 * group_ctls[group_idx]]);
-        }
-      }
-      for (uint32_t col_block_start = row_block_start; col_block_start < variant_ct; col_block_start += col_block_size) {
-        const uint32_t col_block_end = MINV(col_block_start + col_block_size, variant_ct);
-        const uint32_t cur_col_ct = col_block_end - col_block_start;
-        for (uint32_t slot_idx = 0; slot_idx != cur_col_ct; ++slot_idx) {
-          uintptr_t* dst = &(col_bits[slot_idx * words_per_variant]);
-          for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
-            PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
-            reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[col_block_start + slot_idx], simple_pgrp, genovec);
-            if (unlikely(reterr)) {
-              PgenErrPrintNV(reterr, variant_uidxs[col_block_start + slot_idx]);
-              goto CalcEpi_ret_1;
-            }
-            GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
-            dst = &(dst[3 * group_ctls[group_idx]]);
-          }
-        }
-        for (uint32_t row_idx = row_block_start; row_idx != row_block_end; ++row_idx) {
-          const uintptr_t* row_slot = &(row_bits[(row_idx - row_block_start) * words_per_variant]);
-          const uint32_t col_first = MAXV(col_block_start, row_idx + 1);
-          for (uint32_t col_idx = col_first; col_idx != col_block_end; ++col_idx) {
-            ++pairs_seen;
-            const uintptr_t* col_slot = &(col_bits[(col_idx - col_block_start) * words_per_variant]);
-            uint32_t counts[18];
-            {
-              const uintptr_t* row_iter = row_slot;
-              const uintptr_t* col_iter = col_slot;
-              for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
-                const uint32_t cur_ctl = group_ctls[group_idx];
-                uint32_t* cur_counts = &(counts[group_idx * 9]);
-                for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
-                  const uintptr_t* row_vec = &(row_iter[geno1 * cur_ctl]);
-                  for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
-                    cur_counts[geno1 * 3 + geno2] = PopcountWordsIntersect(row_vec, &(col_iter[geno2 * cur_ctl]), cur_ctl);
-                  }
-                }
-                row_iter = &(row_iter[3 * cur_ctl]);
-                col_iter = &(col_iter[3 * cur_ctl]);
-              }
-            }
-            // chisq is the screening statistic, which drives BEST_CHISQ and
-            // the --epi2 count; report_stat is the fitted one the report
-            // prints.
-            double chisq;
-            double report_stat = 0.0;
-            double ln_pval = 0.0;
-            uint32_t df_adj;
-            uint32_t do_report;
-            if (FepiBoost(counts, recip_cache, alpha1sq, &chisq, &report_stat, &df_adj, &do_report)) {
-              continue;
-            }
-            const uint32_t is_sig = (chisq >= alpha2sq[df_adj]);
-            const uint32_t report_df = 4 >> df_adj;
-            if (do_report) {
-              // A perfect fit lands on zero from either side; the p-value of a
-              // negative statistic is the p-value of zero.
-              ln_pval = ChisqToLnP(MAXV(report_stat, 0.0), report_df);
-            }
-            summary[row_idx].n_tot += 1;
-            summary[col_idx].n_tot += 1;
-            if (is_sig) {
-              summary[row_idx].n_sig += 1;
-              summary[col_idx].n_sig += 1;
-            }
-            if (chisq > summary[row_idx].best_chisq) {
-              summary[row_idx].best_chisq = chisq;
-              summary[row_idx].best_vidx = col_idx;
-            }
-            if (chisq > summary[col_idx].best_chisq) {
-              summary[col_idx].best_chisq = chisq;
-              summary[col_idx].best_vidx = row_idx;
-            }
-            if (do_report) {
-              ++pairs_reported;
-              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[row_idx]], cswritep);
-              *cswritep++ = '\t';
-              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[row_idx]], '\t');
-              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[col_idx]], cswritep);
-              *cswritep++ = '\t';
-              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[col_idx]], '\t');
-              cswritep = dtoa_g(report_stat, cswritep);
-              *cswritep++ = '\t';
-              cswritep = u32toa(report_df, cswritep);
-              if (!no_p_value) {
-                *cswritep++ = '\t';
-                cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
-              }
-              AppendBinaryEoln(&cswritep);
-              if (unlikely(Cswrite(&css, &cswritep))) {
-                goto CalcEpi_ret_WRITE_FAIL;
-              }
-            }
-          }
-          if (pairs_seen >= next_print_pair) {
-            if (pct > 9) {
-              putc_unlocked('\b', stdout);
-            }
-            pct = (pairs_seen * 100LLU) / pair_ct_total;
-            if (pct > 99) {
-              pct = 99;
-            }
-            printf("\b\b%u%%", pct);
-            fflush(stdout);
-            next_print_pair = ((pct + 1) * pair_ct_total) / 100;
-          }
-        }
-      }
-    }
-    if (unlikely(CswriteCloseNull(&css, cswritep))) {
-      goto CalcEpi_ret_WRITE_FAIL;
-    }
-    fputs("\b\b\b", stdout);
-    logprintf("--epistasis-boost: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
-    (void)pairs_done;
-
-    // Summary report: one row per variant with a tested pair.
-    char* summary_end = strcpya_k(outname_end2, ".summary");
-    if (parallel_tot > 1) {
-      *summary_end++ = '.';
-      summary_end = u32toa(parallel_idx + 1, summary_end);
-    }
-    if (output_zst) {
-      snprintf(summary_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, summary_end - outname_end), ".zst");
-    } else {
-      *summary_end = '\0';
-    }
-    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &csst, &cswritetp);
-    if (unlikely(reterr)) {
-      goto CalcEpi_ret_1;
-    }
-    cswritetp = strcpya_k(cswritetp, "#CHROM\tID\tN_SIG\tN_TOT");
-    if (parallel_tot == 1) {
-      cswritetp = strcpya_k(cswritetp, "\tPROP");
-    }
-    cswritetp = strcpya_k(cswritetp, "\tBEST_CHISQ\tBEST_CHROM\tBEST_ID");
-    AppendBinaryEoln(&cswritetp);
-    uint32_t summary_row_ct = 0;
-    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-      const EpiSummaryEntry* cur = &(summary[variant_idx]);
-      if (!cur->n_tot) {
-        continue;
-      }
-      ++summary_row_ct;
-      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[variant_idx]], cswritetp);
-      *cswritetp++ = '\t';
-      cswritetp = strcpyax(cswritetp, variant_ids[variant_uidxs[variant_idx]], '\t');
-      cswritetp = u32toa_x(cur->n_sig, '\t', cswritetp);
-      cswritetp = u32toa(cur->n_tot, cswritetp);
-      if (parallel_tot == 1) {
-        *cswritetp++ = '\t';
-        cswritetp = dtoa_g(S_CAST(double, cur->n_sig) / S_CAST(double, cur->n_tot), cswritetp);
-      }
-      *cswritetp++ = '\t';
-      cswritetp = dtoa_g(cur->best_chisq, cswritetp);
-      *cswritetp++ = '\t';
-      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[cur->best_vidx]], cswritetp);
-      *cswritetp++ = '\t';
-      cswritetp = strcpya(cswritetp, variant_ids[variant_uidxs[cur->best_vidx]]);
-      AppendBinaryEoln(&cswritetp);
-      if (unlikely(Cswrite(&csst, &cswritetp))) {
-        goto CalcEpi_ret_WRITE_FAIL;
-      }
-    }
-    if (unlikely(CswriteCloseNull(&csst, cswritetp))) {
-      goto CalcEpi_ret_WRITE_FAIL;
-    }
-    logprintfww("--epistasis-boost: Summary for %u variant%s written to %s .\n", summary_row_ct, (summary_row_ct == 1)? "" : "s", outname);
-  }
-  while (0) {
-  CalcEpi_ret_NOMEM:
-    reterr = kPglRetNomem;
-    break;
-  CalcEpi_ret_WRITE_FAIL:
-    reterr = kPglRetWriteFail;
-    break;
-  CalcEpi_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetInconsistentInput;
-    break;
-  CalcEpi_ret_DEGENERATE_DATA:
-    reterr = kPglRetDegenerateData;
-    break;
-  }
- CalcEpi_ret_1:
-  CswriteCloseCond(&css, cswritep);
-  CswriteCloseCond(&csst, cswritetp);
-  BigstackReset(bigstack_mark);
-  return reterr;
-}
-
 PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PhenoCol* pheno_cols, const char* pheno_names, const TwolocusInfo* tlip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -16426,7 +15668,7 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
       allele_idx_offsets? allele_idx_offsets[variant_uidxs[1]] : (variant_uidxs[1] * 2)
     };
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 4 * kMaxIdSlen + 4 * S_CAST(uintptr_t, max_allele_slen) + 256;
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".twolocus");
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".genopairs");
     reterr = InitCstreamAlloc(outname, 0, 0, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto TwolocusReport_ret_1;
@@ -16501,6 +15743,488 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
   return reterr;
 }
 
+// --test-mishap: PLINK 1.x's check for association between a variant's missing
+// calls and the flanking haplotypes.  A strong association usually means the
+// missingness is a genotyping artifact of the local haplotype background
+// rather than random dropout.
+// Sets bit i in dst iff genoarr's nyp i equals match_val.  Assumes trailing
+// genoarr bits are cleared.
+void GenoarrMatchToBitvec(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uint32_t match_val, uintptr_t* __restrict dst) {
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  const uintptr_t xor_word = ((match_val & 1)? kMask5555 : 0) | ((match_val & 2)? (kMask5555 * 2) : 0);
+  Halfword* __attribute__((may_alias)) dst_alias = DowncastWToHW(dst);
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+    const uintptr_t ww = genoarr[widx] ^ xor_word;
+    dst_alias[widx] = PackWordToHalfword((~(ww | (ww >> 1))) & kMask5555);
+  }
+  if (sample_ctl2 % 2) {
+    dst_alias[sample_ctl2] = 0;
+  }
+  ZeroTrailingBits(sample_ct, dst);
+}
+
+// PLINK 1.x zero-fills the absent flank, which in its encoding makes every
+// sample homozygous for A1.  A1 is the nonmajor allele, so nyp 2 is the
+// equivalent.
+static void FillAllHomAlt(uint32_t sample_ct, uintptr_t* genoarr) {
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+    genoarr[widx] = kMask5555 * 2;
+  }
+  ZeroTrailingNyps(sample_ct, genoarr);
+}
+
+static char* TestMishapWriteLine(const char* variant_id, const char* prev_aptr, const char* next_aptr, const double* total_cts, const double* curhap_cts, double tot_recip, double output_min_ln, const char* flankstr, char* cswritep) {
+  // total_cts[0] is the haplotype count on the central-call-missing side,
+  // total_cts[1] the nonmissing side; curhap_cts is the same split for the one
+  // haplotype this row is about.
+  const double casen_1 = total_cts[0] - curhap_cts[0];
+  const double ctrln_1 = total_cts[1] - curhap_cts[1];
+  cswritep = strcpyax(cswritep, variant_id, '\t');
+  if (prev_aptr) {
+    cswritep = strcpya(cswritep, prev_aptr);
+  }
+  if (next_aptr) {
+    cswritep = strcpya(cswritep, next_aptr);
+  }
+  *cswritep++ = '\t';
+  if (total_cts[0] > 0.0) {
+    cswritep = dtoa_g(curhap_cts[0] / total_cts[0], cswritep);
+  } else {
+    cswritep = strcpya_k(cswritep, "NA");
+  }
+  *cswritep++ = '\t';
+  if (total_cts[1] > 0.0) {
+    cswritep = dtoa_g(curhap_cts[1] / total_cts[1], cswritep);
+  } else {
+    cswritep = strcpya_k(cswritep, "NA");
+  }
+  *cswritep++ = '\t';
+  cswritep = dtoa_g(curhap_cts[0], cswritep);
+  *cswritep++ = '/';
+  cswritep = dtoa_g(curhap_cts[1], cswritep);
+  *cswritep++ = '\t';
+  cswritep = dtoa_g(casen_1, cswritep);
+  *cswritep++ = '/';
+  cswritep = dtoa_g(ctrln_1, cswritep);
+  *cswritep++ = '\t';
+  if ((curhap_cts[0] > 0.0) && (curhap_cts[1] > 0.0) && (casen_1 > 0.0) && (ctrln_1 > 0.0)) {
+    double row_mult = (curhap_cts[0] + curhap_cts[1]) * tot_recip;
+    double cur_expected = row_mult * total_cts[0];
+    double dxx = curhap_cts[0] - cur_expected;
+    double chisq = dxx * dxx / cur_expected;
+    cur_expected = row_mult * total_cts[1];
+    dxx = curhap_cts[1] - cur_expected;
+    chisq += dxx * dxx / cur_expected;
+    row_mult = (total_cts[0] + total_cts[1]) * tot_recip - row_mult;
+    cur_expected = row_mult * total_cts[0];
+    dxx = casen_1 - cur_expected;
+    chisq += dxx * dxx / cur_expected;
+    cur_expected = row_mult * total_cts[1];
+    dxx = ctrln_1 - cur_expected;
+    chisq += dxx * dxx / cur_expected;
+    cswritep = dtoa_g(chisq, cswritep);
+    *cswritep++ = '\t';
+    const double ln_pval = ChisqToLnP(chisq, 1);
+    cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+  } else {
+    cswritep = strcpya_k(cswritep, "NA\tNA");
+  }
+  *cswritep++ = '\t';
+  cswritep = strcpya(cswritep, flankstr);
+  AppendBinaryEoln(&cswritep);
+  return cswritep;
+}
+
+// PgrGetInv1() counts maj_alleles[], so a multiallelic variant is handled as
+// major vs. rest, like PLINK 2's other LD commands.  Its nyp value counts
+// nonmajor alleles, so PLINK 1.x's A1 is the nonmajor allele (see the counts[]
+// comment in TestMishap()), and A2 the major one.  HAPLOTYPE concatenates
+// two allele names with no separator, as PLINK 1.x does, so the pooled side is
+// written as "." rather than as a comma-separated list.
+void TestMishapAlleleNames(const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, uint32_t variant_uidx, const char** a1_ptr, const char** a2_ptr) {
+  const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * S_CAST(uintptr_t, variant_uidx));
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+  const AlleleCode maj_aidx = maj_alleles[variant_uidx];
+  *a1_ptr = (allele_ct == 2)? allele_storage[allele_idx_offset_base + 1 - maj_aidx] : ".";
+  *a2_ptr = allele_storage[allele_idx_offset_base + maj_aidx];
+}
+
+PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* sample_include, TestMishapFlags flags, double min_maf, double output_min_ln, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    if (unlikely(IsSet(cip->haploid_mask, 1))) {
+      logerrputs("Error: --test-mishap can only be used on diploid genomes.\n");
+      goto TestMishap_ret_INCONSISTENT_INPUT;
+    }
+    if (sample_ct < 2) {
+      logerrputs("Warning: Skipping --test-mishap, since there are less than two samples.\n");
+      goto TestMishap_ret_1;
+    }
+    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent) {
+      logerrputs("Error: --test-mishap calculation for already-phased data is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto TestMishap_ret_1;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
+      goto TestMishap_ret_NOMEM;
+    }
+    memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    // The flanking-haplotype model has no hemizygous case, so PLINK 1.x skips
+    // haploid chromosomes outright.
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (!IsSet(cip->haploid_mask, chr_idx)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
+    }
+    const uint32_t kept_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    if (kept_variant_ct < 2) {
+      logerrputs("Warning: Skipping --test-mishap, since there are too few eligible variants.\n");
+      goto TestMishap_ret_1;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    // PgrGetInv1() can invert the genotype vector in place, which requires
+    // vector alignment, so the three ring slots are spaced by the aligned
+    // word count rather than the packed one.
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* genobufs;
+    uintptr_t* cur_class_mask;
+    uintptr_t* cell_mask;
+    uint32_t* chr_variant_uidxs;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(3 * S_CAST(uintptr_t, sample_ctaw2), &genobufs) ||
+                 bigstack_alloc_w(sample_ctl, &cur_class_mask) ||
+                 bigstack_alloc_w(sample_ctl, &cell_mask) ||
+                 bigstack_alloc_u32(kept_variant_ct, &chr_variant_uidxs))) {
+      goto TestMishap_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    const uint32_t output_zst = (flags / kfTestMishapZs) & 1;
+    OutnameZstSet(".missing.hap", output_zst, outname_end);
+    // Longest line: the ID, a two-allele haplotype, both flanking IDs, and the
+    // numeric fields.
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 3 * S_CAST(uintptr_t, max_variant_id_slen) + 2 * S_CAST(uintptr_t, max_allele_slen) + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto TestMishap_ret_1;
+    }
+    // probable todo: make this customizable
+    cswritep = strcpya_k(cswritep, "#ID\tHAPLOTYPE\tF_0\tF_1\tM_H1\tM_H2\tCHISQ\tP\tFLANKING" EOLN_STR);
+
+    min_maf *= 1 - kSmallEpsilon;
+    // Enough room for "<prev_id>|<next_id>".
+    char* flankstr;
+    if (unlikely(bigstack_alloc_c(2 * kMaxIdSlen + 4, &flankstr))) {
+      goto TestMishap_ret_NOMEM;
+    }
+    uint32_t counts[27];
+    double hap_ct_table[10];
+    uint32_t inspected_ct = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      if (chr_variant_ct < 2) {
+        continue;
+      }
+      {
+        uintptr_t variant_uidx_base;
+        uintptr_t cur_bits;
+        BitIter1Start(variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
+        for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+          chr_variant_uidxs[cidx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        }
+      }
+      uintptr_t* prev_genovec = genobufs;
+      uintptr_t* cur_genovec = &(genobufs[sample_ctaw2]);
+      uintptr_t* next_genovec = &(genobufs[2 * S_CAST(uintptr_t, sample_ctaw2)]);
+      FillAllHomAlt(sample_ct, prev_genovec);
+      reterr = PgrGetInv1(sample_include, pssi, sample_ct, chr_variant_uidxs[0], maj_alleles[chr_variant_uidxs[0]], simple_pgrp, cur_genovec);
+      if (unlikely(reterr)) {
+        goto TestMishap_ret_PGR_FAIL;
+      }
+      ZeroTrailingNyps(sample_ct, cur_genovec);
+      STD_ARRAY_DECL(uint32_t, 4, cur_genocounts);
+      GenoarrCountFreqsUnsafe(cur_genovec, sample_ct, cur_genocounts);
+      uint32_t missing_ct_cur = cur_genocounts[3];
+      uint32_t have_prev = 0;
+      for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+        const uint32_t have_next = (cidx + 1 != chr_variant_ct);
+        uint32_t missing_ct_next = 0;
+        if (have_next) {
+          const uint32_t next_uidx_load = chr_variant_uidxs[cidx + 1];
+          reterr = PgrGetInv1(sample_include, pssi, sample_ct, next_uidx_load, maj_alleles[next_uidx_load], simple_pgrp, next_genovec);
+          if (unlikely(reterr)) {
+            goto TestMishap_ret_PGR_FAIL;
+          }
+          ZeroTrailingNyps(sample_ct, next_genovec);
+          STD_ARRAY_DECL(uint32_t, 4, next_genocounts);
+          GenoarrCountFreqsUnsafe(next_genovec, sample_ct, next_genocounts);
+          missing_ct_next = next_genocounts[3];
+        } else {
+          FillAllHomAlt(sample_ct, next_genovec);
+        }
+        if (missing_ct_cur >= 5) {
+          // counts[9 * m + 3 * p + n]: m is 0 when the central call is
+          // missing, p and n index the flanking genotypes in PLINK 1.x's
+          // (hom A1, het, hom A2) order.  A1 is the nonmajor allele, since
+          // PgrGetInv1() counts maj_alleles[], so PLINK 1.x's genotype index is
+          // 2 minus the nyp value.
+          for (uint32_t class_idx = 0; class_idx != 2; ++class_idx) {
+            if (!class_idx) {
+              GenoarrMatchToBitvec(cur_genovec, sample_ct, 3, cur_class_mask);
+            } else {
+              GenoarrToNonmissing(cur_genovec, sample_ct, cur_class_mask);
+            }
+            for (uint32_t prev_idx = 0; prev_idx != 3; ++prev_idx) {
+              GenoarrMatchToBitvec(prev_genovec, sample_ct, 2 - prev_idx, cell_mask);
+              BitvecAnd(cur_class_mask, sample_ctl, cell_mask);
+              const uint32_t cell_ct = PopcountWords(cell_mask, sample_ctl);
+              uint32_t* cur_counts = &(counts[9 * class_idx + 3 * prev_idx]);
+              if (!cell_ct) {
+                cur_counts[0] = 0;
+                cur_counts[1] = 0;
+                cur_counts[2] = 0;
+                continue;
+              }
+              STD_ARRAY_DECL(uint32_t, 4, cell_genocounts);
+              GenoarrCountSubsetFreqs2(next_genovec, cell_mask, sample_ct, cell_ct, cell_genocounts);
+              // Drop cell_genocounts[3]: PLINK 1.x also excludes samples whose
+              // next-flank call is missing.
+              cur_counts[0] = cell_genocounts[2];
+              cur_counts[1] = cell_genocounts[1];
+              cur_counts[2] = cell_genocounts[0];
+            }
+          }
+          const uint32_t cur_uidx = chr_variant_uidxs[cidx];
+          const char* variant_id = variant_ids[cur_uidx];
+          const char* prev_a1 = nullptr;
+          const char* prev_a2 = nullptr;
+          if (have_prev) {
+            const uint32_t prev_uidx = chr_variant_uidxs[cidx - 1];
+            TestMishapAlleleNames(allele_idx_offsets, allele_storage, maj_alleles, prev_uidx, &prev_a1, &prev_a2);
+          }
+          double orig_cmiss_tot = 0.0;
+          double orig_cnm_tot = 0.0;
+          double tot_recip;
+          if (have_next) {
+            const uint32_t next_uidx = chr_variant_uidxs[cidx + 1];
+            const char* next_a1;
+            const char* next_a2;
+            TestMishapAlleleNames(allele_idx_offsets, allele_storage, maj_alleles, next_uidx, &next_a1, &next_a2);
+            if (have_prev) {
+              hap_ct_table[0] = 2 * S_CAST(int32_t, counts[0] + counts[1] + counts[2] + counts[3] + counts[4] + counts[5] + counts[6] + counts[7] + counts[8]);
+              hap_ct_table[1] = 2 * S_CAST(int32_t, counts[9] + counts[10] + counts[11] + counts[12] + counts[13] + counts[14] + counts[15] + counts[16] + counts[17]);
+              tot_recip = hap_ct_table[0] + hap_ct_table[1];
+              if (tot_recip == 0.0) {
+                goto TestMishap_next_variant;
+              }
+              orig_cmiss_tot = hap_ct_table[0];
+              orig_cnm_tot = hap_ct_table[1];
+              char* flank_iter = strcpyax(flankstr, variant_ids[chr_variant_uidxs[cidx - 1]], '|');
+              flank_iter = strcpya(flank_iter, variant_ids[next_uidx]);
+              *flank_iter = '\0';
+              hap_ct_table[2] = S_CAST(int32_t, 2 * counts[0] + counts[1] + counts[3]);
+              hap_ct_table[3] = S_CAST(int32_t, 2 * counts[9] + counts[10] + counts[12]);
+              hap_ct_table[4] = S_CAST(int32_t, 2 * counts[2] + counts[1] + counts[5]);
+              hap_ct_table[5] = S_CAST(int32_t, 2 * counts[11] + counts[10] + counts[14]);
+              hap_ct_table[6] = S_CAST(int32_t, 2 * counts[6] + counts[3] + counts[7]);
+              hap_ct_table[7] = S_CAST(int32_t, 2 * counts[15] + counts[12] + counts[16]);
+              hap_ct_table[8] = S_CAST(int32_t, 2 * counts[8] + counts[5] + counts[7]);
+              hap_ct_table[9] = S_CAST(int32_t, 2 * counts[17] + counts[14] + counts[16]);
+              if (counts[4] + counts[13]) {
+                for (uint32_t uii = 0; uii != 9; ++uii) {
+                  counts[18 + uii] = counts[uii] + counts[9 + uii];
+                }
+                // Double-heterozygotes are split between the two phases in the
+                // proportion the EM estimate implies.
+                const double known11 = S_CAST(int32_t, 2 * counts[18] + counts[19] + counts[21]);
+                const double known12 = S_CAST(int32_t, 2 * counts[20] + counts[19] + counts[23]);
+                const double known21 = S_CAST(int32_t, 2 * counts[24] + counts[21] + counts[25]);
+                const double known22 = S_CAST(int32_t, 2 * counts[26] + counts[23] + counts[25]);
+                double freq1x;
+                double freq2x;
+                double freqx1;
+                double freqx2;
+                double freq11;
+                BlocksEmPhaseHethet(known11, known12, known21, known22, counts[22], &freq1x, &freq2x, &freqx1, &freqx2, &freq11, nullptr);
+                double dxx = (freq11 * tot_recip - (hap_ct_table[2] + hap_ct_table[3])) / S_CAST(int32_t, counts[4] + counts[13]);
+                double dyy = S_CAST(int32_t, counts[4]) * dxx;
+                double dzz = S_CAST(int32_t, counts[13]) * dxx;
+                hap_ct_table[2] += dyy;
+                hap_ct_table[3] += dzz;
+                hap_ct_table[8] += dyy;
+                hap_ct_table[9] += dzz;
+                dxx = 1.0 - dxx;
+                dyy = S_CAST(int32_t, counts[4]) * dxx;
+                dzz = S_CAST(int32_t, counts[13]) * dxx;
+                hap_ct_table[4] += dyy;
+                hap_ct_table[5] += dzz;
+                hap_ct_table[6] += dyy;
+                hap_ct_table[7] += dzz;
+              }
+              const double maf_thresh = min_maf * tot_recip;
+              for (uint32_t hap_idx = 0; hap_idx != 4; ++hap_idx) {
+                const uint32_t tbl_idx = 2 + 2 * hap_idx;
+                if (hap_ct_table[tbl_idx] + hap_ct_table[tbl_idx + 1] < maf_thresh) {
+                  hap_ct_table[0] -= hap_ct_table[tbl_idx];
+                  hap_ct_table[1] -= hap_ct_table[tbl_idx + 1];
+                  tot_recip -= hap_ct_table[tbl_idx] + hap_ct_table[tbl_idx + 1];
+                }
+              }
+              tot_recip = 1.0 / tot_recip;
+              // A1A1, A2A1, A1A2, A2A2, in PLINK 1.x's output order.
+              const uint32_t hap_tbl_idxs[4] = {2, 6, 4, 8};
+              const char* hap_prev_alleles[4] = {prev_a1, prev_a2, prev_a1, prev_a2};
+              const char* hap_next_alleles[4] = {next_a1, next_a1, next_a2, next_a2};
+              for (uint32_t row_idx = 0; row_idx != 4; ++row_idx) {
+                const uint32_t tbl_idx = hap_tbl_idxs[row_idx];
+                if (hap_ct_table[tbl_idx] + hap_ct_table[tbl_idx + 1] >= maf_thresh) {
+                  cswritep = TestMishapWriteLine(variant_id, hap_prev_alleles[row_idx], hap_next_alleles[row_idx], hap_ct_table, &(hap_ct_table[tbl_idx]), tot_recip, output_min_ln, flankstr, cswritep);
+                  if (unlikely(Cswrite(&css, &cswritep))) {
+                    goto TestMishap_ret_WRITE_FAIL;
+                  }
+                }
+              }
+            } else {
+              hap_ct_table[0] = 2 * S_CAST(int32_t, counts[0] + counts[1] + counts[2]);
+              hap_ct_table[1] = 2 * S_CAST(int32_t, counts[9] + counts[10] + counts[11]);
+              tot_recip = hap_ct_table[0] + hap_ct_table[1];
+              if (tot_recip == 0.0) {
+                goto TestMishap_next_variant;
+              }
+              orig_cmiss_tot = hap_ct_table[0];
+              orig_cnm_tot = hap_ct_table[1];
+              *strcpya(flankstr, variant_ids[next_uidx]) = '\0';
+              const double maf_thresh = min_maf * tot_recip;
+              hap_ct_table[2] = S_CAST(int32_t, counts[0] * 2 + counts[1]);
+              hap_ct_table[3] = S_CAST(int32_t, counts[9] * 2 + counts[10]);
+              hap_ct_table[4] = S_CAST(int32_t, counts[2] * 2 + counts[1]);
+              hap_ct_table[5] = S_CAST(int32_t, counts[11] * 2 + counts[10]);
+              if (hap_ct_table[4] + hap_ct_table[5] < maf_thresh) {
+                hap_ct_table[0] = hap_ct_table[2];
+                hap_ct_table[1] = hap_ct_table[3];
+                tot_recip = hap_ct_table[2] + hap_ct_table[3];
+              } else if (hap_ct_table[2] + hap_ct_table[3] < maf_thresh) {
+                hap_ct_table[0] = hap_ct_table[4];
+                hap_ct_table[1] = hap_ct_table[5];
+                tot_recip = hap_ct_table[4] + hap_ct_table[5];
+              }
+              tot_recip = 1.0 / tot_recip;
+              if (hap_ct_table[2] + hap_ct_table[3] >= maf_thresh) {
+                cswritep = TestMishapWriteLine(variant_id, nullptr, next_a1, hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_ln, flankstr, cswritep);
+                if (unlikely(Cswrite(&css, &cswritep))) {
+                  goto TestMishap_ret_WRITE_FAIL;
+                }
+              }
+              if (hap_ct_table[4] + hap_ct_table[5] >= maf_thresh) {
+                cswritep = TestMishapWriteLine(variant_id, nullptr, next_a2, hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_ln, flankstr, cswritep);
+                if (unlikely(Cswrite(&css, &cswritep))) {
+                  goto TestMishap_ret_WRITE_FAIL;
+                }
+              }
+            }
+          } else {
+            hap_ct_table[0] = 2 * S_CAST(int32_t, counts[0] + counts[3] + counts[6]);
+            hap_ct_table[1] = 2 * S_CAST(int32_t, counts[9] + counts[12] + counts[15]);
+            tot_recip = hap_ct_table[0] + hap_ct_table[1];
+            if (tot_recip == 0.0) {
+              goto TestMishap_next_variant;
+            }
+            orig_cmiss_tot = hap_ct_table[0];
+            orig_cnm_tot = hap_ct_table[1];
+            *strcpya(flankstr, variant_ids[chr_variant_uidxs[cidx - 1]]) = '\0';
+            const double maf_thresh = min_maf * tot_recip;
+            hap_ct_table[2] = S_CAST(int32_t, counts[0] * 2 + counts[3]);
+            hap_ct_table[3] = S_CAST(int32_t, counts[9] * 2 + counts[12]);
+            hap_ct_table[4] = S_CAST(int32_t, counts[6] * 2 + counts[3]);
+            hap_ct_table[5] = S_CAST(int32_t, counts[15] * 2 + counts[12]);
+            if (hap_ct_table[4] + hap_ct_table[5] < maf_thresh) {
+              hap_ct_table[0] = hap_ct_table[2];
+              hap_ct_table[1] = hap_ct_table[3];
+              tot_recip = hap_ct_table[2] + hap_ct_table[3];
+            } else if (hap_ct_table[2] + hap_ct_table[3] < maf_thresh) {
+              hap_ct_table[0] = hap_ct_table[4];
+              hap_ct_table[1] = hap_ct_table[5];
+              tot_recip = hap_ct_table[4] + hap_ct_table[5];
+            }
+            tot_recip = 1.0 / tot_recip;
+            if (hap_ct_table[2] + hap_ct_table[3] >= maf_thresh) {
+              cswritep = TestMishapWriteLine(variant_id, prev_a1, nullptr, hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_ln, flankstr, cswritep);
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto TestMishap_ret_WRITE_FAIL;
+              }
+            }
+            if (hap_ct_table[4] + hap_ct_table[5] >= maf_thresh) {
+              cswritep = TestMishapWriteLine(variant_id, prev_a2, nullptr, hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_ln, flankstr, cswritep);
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto TestMishap_ret_WRITE_FAIL;
+              }
+            }
+          }
+          // The HETERO row counts samples, not haplotypes, hence the halving.
+          hap_ct_table[0] = orig_cmiss_tot * 0.5;
+          hap_ct_table[1] = orig_cnm_tot * 0.5;
+          hap_ct_table[2] = S_CAST(int32_t, counts[1] + counts[3] + counts[4] + counts[5] + counts[7]);
+          hap_ct_table[3] = S_CAST(int32_t, counts[10] + counts[12] + counts[13] + counts[14] + counts[16]);
+          cswritep = TestMishapWriteLine(variant_id, "HETERO", nullptr, hap_ct_table, &(hap_ct_table[2]), 1.0 / (hap_ct_table[0] + hap_ct_table[1]), output_min_ln, flankstr, cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto TestMishap_ret_WRITE_FAIL;
+          }
+          ++inspected_ct;
+        }
+      TestMishap_next_variant:
+        {
+          uintptr_t* tmp_genovec = prev_genovec;
+          prev_genovec = cur_genovec;
+          cur_genovec = next_genovec;
+          next_genovec = tmp_genovec;
+        }
+        missing_ct_cur = missing_ct_next;
+        have_prev = 1;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto TestMishap_ret_WRITE_FAIL;
+    }
+    logprintfww("--test-mishap: %u loc%s checked, report written to %s .\n", inspected_ct, (inspected_ct == 1)? "us" : "i", outname);
+  }
+  while (0) {
+  TestMishap_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  TestMishap_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
+  TestMishap_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  TestMishap_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ TestMishap_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   const VcorFlags flags = vcip->flags;
   const uint32_t phased_calc = (flags / kfVcorPhased) & 1;
@@ -16527,18 +16251,6 @@ PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uin
     reterr = VcorTable(orig_variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, sex_nm, sex_male, vcip, flagname, raw_variant_ct, orig_variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, parallel_idx, parallel_tot, max_thread_ct, simple_pgrp, outname, outname_end);
   }
   return reterr;
-}
-
-// PLINK 1.x treats a male heterozygous call on chrX as missing.
-static void FlipScanSetMaleHetMissing(const uintptr_t* male_collapsed, uint32_t sample_ct, uintptr_t* genovec) {
-  const uint32_t word_ct = NypCtToWordCt(sample_ct);
-  const Halfword* male_alias = R_CAST(const Halfword*, male_collapsed);
-  for (uint32_t widx = 0; widx != word_ct; ++widx) {
-    const uintptr_t geno_word = genovec[widx];
-    const uintptr_t het_word = geno_word & (~(geno_word >> 1)) & kMask5555;
-    const uintptr_t male_word = UnpackHalfwordToWord(male_alias[widx]);
-    genovec[widx] = geno_word | ((het_word & male_word) << 1);
-  }
 }
 
 // --flip-scan: for each variant, compare its LD with each nearby variant
@@ -16574,6 +16286,8 @@ typedef struct FlipScanCtxStruct {
   uint32_t window_size;
   uint32_t window_bp;
   uint32_t max_neg_ct;
+  // 'dprime': the per-pair statistic is signed D' rather than r.
+  uint32_t use_dprime;
 
   // Per-block work assignment.
   uint32_t phase;         // 0 = recode, 1 = correlate, 2 = tally
@@ -16590,16 +16304,15 @@ typedef struct FlipScanCtxStruct {
   VariantAggs* vaggs_write[2];
   uintptr_t* genovec_subs[3];       // per-thread scratch: base, control, case
   const uintptr_t* subset_collapsed[2];
-  const uintptr_t* male_collapsed;
+  const uintptr_t* male_collapsed_interleaved;
   uint32_t base_ct;
-  uint32_t base_ctl2;
   uint32_t subset_ctl[2];
   uint32_t is_x;
   uint32_t is_fully_haploid;
 
-  // r for each (li, li + d) pair, d in [1, window_size), NaN when undefined.
-  // Computing each pair once and reading it from both endpoints halves the
-  // correlation work.
+  // r (or signed D', with 'dprime') for each (li, li + d) pair, d in
+  // [1, window_size), NaN when undefined.  Computing each pair once and
+  // reading it from both endpoints halves the correlation work.
   double* r_cache[2];
 
   FlipScanResult* results;
@@ -16633,26 +16346,79 @@ static double FlipScanR(const uintptr_t* first_genobuf, const VariantAggs* first
   return cov12 / sqrt(denom);
 }
 
+// Signed D' between two variants, over the samples where both are nonmissing.
+// Haplotype frequencies are estimated from the unphased genotypes exactly the
+// way --r2-phased does it: the double heterozygotes are the only ambiguous
+// observations, and PhasedLD() picks the maximum-likelihood split of them.
+// The sign convention matches r's, so the same sign-flip test applies.
+static double FlipScanDprime(const uintptr_t* first_genobuf, const uintptr_t* second_genobuf, uint32_t subset_ctaw, uint32_t subset_ctl) {
+  const uintptr_t* hom0 = first_genobuf;
+  const uintptr_t* ref2het0 = &(first_genobuf[subset_ctaw]);
+  const uintptr_t* hom1 = second_genobuf;
+  const uintptr_t* ref2het1 = &(second_genobuf[subset_ctaw]);
+  // The allele counted below is the one that is not "0" in the hom/ref2het
+  // encoding (usually the dataset-wide minor allele), which is the one/two
+  // convention PhasedLD() and GenoBitvecPhasedDotprod() use.
+  uint32_t valid_obs_ct = 0;
+  uint32_t nalt_ct0 = 0;
+  uint32_t nalt_ct1 = 0;
+  uint32_t known_dotprod = 0;
+  uint32_t hethet_ct = 0;
+  for (uint32_t widx = 0; widx != subset_ctl; ++widx) {
+    const uintptr_t hom_word0 = hom0[widx];
+    const uintptr_t ref2het_word0 = ref2het0[widx];
+    const uintptr_t hom_word1 = hom1[widx];
+    const uintptr_t ref2het_word1 = ref2het1[widx];
+    const uintptr_t nm_word0 = hom_word0 | ref2het_word0;
+    const uintptr_t nm_word1 = hom_word1 | ref2het_word1;
+    const uintptr_t one_word0 = ref2het_word0 & (~hom_word0);
+    const uintptr_t two_word0 = hom_word0 & (~ref2het_word0);
+    const uintptr_t one_word1 = ref2het_word1 & (~hom_word1);
+    const uintptr_t two_word1 = hom_word1 & (~ref2het_word1);
+    valid_obs_ct += PopcountWord(nm_word0 & nm_word1);
+    nalt_ct0 += PopcountWord(one_word0 & nm_word1) + 2 * PopcountWord(two_word0 & nm_word1);
+    nalt_ct1 += PopcountWord(one_word1 & nm_word0) + 2 * PopcountWord(two_word1 & nm_word0);
+    known_dotprod += PopcountWord((one_word0 & two_word1) | (one_word1 & two_word0)) + 2 * PopcountWord(two_word0 & two_word1);
+    hethet_ct += PopcountWord(one_word0 & one_word1);
+  }
+  if (valid_obs_ct < 2) {
+    return 0.0 / 0.0;
+  }
+  double nmajsums_d[2];
+  nmajsums_d[0] = u31tod(nalt_ct0);
+  nmajsums_d[1] = u31tod(nalt_ct1);
+  double results[3];
+  uint32_t is_neg;
+  // A variant monomorphic within the group leaves D' undefined; the pair is
+  // skipped, as it is for r.
+  if (PhasedLD(nmajsums_d, u31tod(known_dotprod), u31tod(hethet_ct), 0.5 / u31tod(valid_obs_ct), 1, nullptr, results, &is_neg) != kLDErrNone) {
+    return 0.0 / 0.0;
+  }
+  return results[2];
+}
+
 // Splits the raw genotypes of local variants [start, end) into the two
 // subsets and reduces each to the {+1, 0, -1} bitvector pair the correlation
 // kernel consumes.  Per-sample work, hence a worker phase.
 static void FlipScanRecodeRange(FlipScanCtx* ctx, uintptr_t tidx, uint32_t start, uint32_t end) {
   const uint32_t base_ct = ctx->base_ct;
-  const uint32_t base_ctl2 = ctx->base_ctl2;
+  const uint32_t base_ctv2 = NypCtToVecCt(base_ct);
+  const uint32_t base_ctaw2 = base_ctv2 * kWordsPerVec;
   const uint32_t base_word_ct = NypCtToWordCt(base_ct);
-  uintptr_t* scratch = &(ctx->genovec_subs[0][tidx * S_CAST(uintptr_t, base_ctl2)]);
+  uintptr_t* scratch = &(ctx->genovec_subs[0][tidx * S_CAST(uintptr_t, base_ctaw2)]);
   // PLINK 1.x treats heterozygous haploid calls as missing.  That is the only
   // reason to touch the raw genotypes at all, so on a diploid chromosome they
   // are read in place.
   const uint32_t needs_hh_fix = ctx->is_fully_haploid || ctx->is_x;
   for (uint32_t li = start; li != end; ++li) {
-    const uintptr_t* genovec_base = &(ctx->raw_genovecs[S_CAST(uintptr_t, li) * base_ctl2]);
+    const uintptr_t* genovec_base = &(ctx->raw_genovecs[S_CAST(uintptr_t, li) * base_ctaw2]);
     if (needs_hh_fix) {
-      memcpy(scratch, genovec_base, base_ctl2 * sizeof(intptr_t));
+      memcpy(scratch, genovec_base, base_ctaw2 * sizeof(intptr_t));
       if (ctx->is_fully_haploid) {
         SetHetMissing(base_word_ct, scratch);
       } else {
-        FlipScanSetMaleHetMissing(ctx->male_collapsed, base_ct, scratch);
+        // PLINK 1.x treats a male heterozygous call on chrX as missing.
+        SetMaleHetMissing(ctx->male_collapsed_interleaved, base_ctv2, scratch);
       }
       genovec_base = scratch;
     }
@@ -16694,6 +16460,7 @@ static void FlipScanRecodeRange(FlipScanCtx* ctx, uintptr_t tidx, uint32_t start
 // Fills the r cache for local variants [start, end): each one against the up
 // to window_size - 1 variants after it.
 static void FlipScanCorrelateRange(FlipScanCtx* ctx, uint32_t start, uint32_t end) {
+  const uint32_t use_dprime = ctx->use_dprime;
   const uint32_t window_size = ctx->window_size;
   const uint32_t window_bp = ctx->window_bp;
   const uint32_t local_ct = ctx->local_ct;
@@ -16720,10 +16487,29 @@ static void FlipScanCorrelateRange(FlipScanCtx* ctx, uint32_t start, uint32_t en
           cur_cache[lj - li - 1] = 0.0 / 0.0;
           continue;
         }
-        cur_cache[lj - li - 1] = FlipScanR(&(genobufs[S_CAST(uintptr_t, li) * 2 * cur_ctaw]), &(vaggs[li]), &(genobufs[S_CAST(uintptr_t, lj) * 2 * cur_ctaw]), &(vaggs[lj]), ctx->subset_ct[is_case]);
+        const uintptr_t* first_genobuf = &(genobufs[S_CAST(uintptr_t, li) * 2 * cur_ctaw]);
+        const uintptr_t* second_genobuf = &(genobufs[S_CAST(uintptr_t, lj) * 2 * cur_ctaw]);
+        if (use_dprime) {
+          cur_cache[lj - li - 1] = FlipScanDprime(first_genobuf, second_genobuf, cur_ctaw, ctx->subset_ctl[is_case]);
+        } else {
+          cur_cache[lj - li - 1] = FlipScanR(first_genobuf, &(vaggs[li]), second_genobuf, &(vaggs[lj]), ctx->subset_ct[is_case]);
+        }
       }
     }
   }
+}
+
+// Whether a neighbor pair is strong enough to count toward POS_CT/NEG_CT.  The
+// r test is PLINK 1.9's: either group at or above the threshold.  D' needs
+// both, since it is unstable where LD is weak: a single empty haplotype cell
+// pins |D'| at 1 whatever the sign of D, so a pair near linkage equilibrium in
+// one group would otherwise pass on noise and read as a sign flip.  A genuine
+// strand flip only changes the sign, so |D'| is high in both groups anyway.
+HEADER_INLINE uint32_t FlipScanPairCounts(double ctrl_stat, double case_stat, double min_stat, uint32_t use_dprime) {
+  if (use_dprime) {
+    return (fabs(ctrl_stat) >= min_stat) && (fabs(case_stat) >= min_stat);
+  }
+  return (fabs(ctrl_stat) >= min_stat) || (fabs(case_stat) >= min_stat);
 }
 
 HEADER_INLINE double FlipScanCachedR(const FlipScanCtx* ctx, uint32_t is_case, uint32_t li, uint32_t lj) {
@@ -16742,6 +16528,7 @@ static void FlipScanRange(const FlipScanCtx* ctx, uint32_t index_start, uint32_t
   const uint32_t first_local = ctx->first_local;
   const uint32_t max_neg_ct = ctx->max_neg_ct;
   const double min_corr = ctx->min_corr;
+  const uint32_t use_dprime = ctx->use_dprime;
   for (uint32_t index_idx = index_start; index_idx != index_end; ++index_idx) {
     const uint32_t li = first_local + index_idx;
     uint32_t nbr_start = 0;
@@ -16764,7 +16551,7 @@ static void FlipScanRange(const FlipScanCtx* ctx, uint32_t index_start, uint32_t
       if ((ctrl_r != ctrl_r) || (case_r != case_r)) {
         continue;
       }
-      if ((fabs(ctrl_r) >= min_corr) || (fabs(case_r) >= min_corr)) {
+      if (FlipScanPairCounts(ctrl_r, case_r, min_corr, use_dprime)) {
         const double abs_sum = fabs(ctrl_r) + fabs(case_r);
         if (case_r * ctrl_r >= 0.0) {
           ++pos_ct;
@@ -16804,76 +16591,77 @@ THREAD_FUNC_DECL FlipScanThread(void* raw_arg) {
 }
 
 
-// Opens the reference fileset and maps this dataset's variants onto it by ID.
-// ref_uidxs[] is filled with each variant's index in the reference, or
-// UINT32_MAX when there is no usable match; ref_flips[] records the ones whose
-// REF/ALT are the other way round there.
-PglErr FlipScanMatchRefVariants(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* const* ref_variant_ids, const uintptr_t* ref_allele_idx_offsets, const char* const* ref_allele_storage, const uintptr_t* ref_variant_include, uint32_t variant_ct, uint32_t ref_variant_ct, uint32_t max_thread_ct, uint32_t* ref_uidxs, uintptr_t* ref_flips, uint32_t* matched_ct_ptr, uint32_t* allele_mismatch_ct_ptr) {
+// Opens the panel fileset and maps this dataset's variants onto it by ID.
+// panel_uidxs[] is filled with each variant's index in the panel, or
+// UINT32_MAX when there is no usable match; panel_a1_idxs[] (indexed by
+// *main*-dataset variant_uidx) records which allele to use for each variant.
+PglErr FlipScanMatchPanelVariants(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const char* const* panel_variant_ids, const uintptr_t* panel_allele_idx_offsets, const char* const* panel_allele_storage, const uintptr_t* panel_variant_include, uint32_t variant_ct, uint32_t panel_variant_ct, uint32_t max_thread_ct, uint32_t* panel_uidxs, AlleleCode* panel_a1_idxs, uint32_t* matched_ct_ptr, uint32_t* allele_mismatch_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
     uint32_t* id_htable;
     uint32_t id_htable_size;
     uint32_t dup_found;
-    reterr = AllocAndPopulateNondupHtableMt(g_bigstack_end, ref_variant_include, ref_variant_ids, ref_variant_ct, max_thread_ct, &g_bigstack_base, &id_htable, &id_htable_size, &dup_found);
+    reterr = AllocAndPopulateNondupHtableMt(g_bigstack_end, panel_variant_include, panel_variant_ids, panel_variant_ct, max_thread_ct, &g_bigstack_base, &id_htable, &id_htable_size, &dup_found);
     if (unlikely(reterr)) {
-      goto FlipScanMatchRefVariants_ret_1;
+      goto FlipScanMatchPanelVariants_ret_1;
     }
     if (unlikely(dup_found)) {
       logerrputs("Error: --flip-scan reference fileset contains duplicate variant IDs.\n");
       reterr = kPglRetInconsistentInput;
-      goto FlipScanMatchRefVariants_ret_1;
+      goto FlipScanMatchPanelVariants_ret_1;
     }
     uint32_t matched_ct = 0;
     uint32_t allele_mismatch_ct = 0;
+    uint32_t a1_allele_idx = 0;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-      ref_uidxs[variant_uidx] = UINT32_MAX;
+      panel_uidxs[variant_uidx] = UINT32_MAX;
       const char* cur_id = variant_ids[variant_uidx];
-      const uint32_t ref_uidx = IdHtableFindNnt(cur_id, ref_variant_ids, id_htable, strlen(cur_id), id_htable_size);
-      if (ref_uidx == UINT32_MAX) {
+      const uint32_t panel_uidx = IdHtableFindNnt(cur_id, panel_variant_ids, id_htable, strlen(cur_id), id_htable_size);
+      if (panel_uidx == UINT32_MAX) {
         continue;
       }
-      // Both sides have to be biallelic with the same allele pair, in either
-      // order.  A swap is one of the things this command exists to find, so it
-      // is recorded rather than rejected.
+      // Only the A1 (default major, becomes REF if 'ref-allele-based'
+      // specified) allele must exist in both variants.
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
-      uint32_t allele_ct = 2;
+      // uint32_t allele_ct = 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        // allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      uintptr_t ref_allele_idx_offset_base = ref_uidx * 2;
-      uint32_t ref_allele_ct = 2;
-      if (ref_allele_idx_offsets) {
-        ref_allele_idx_offset_base = ref_allele_idx_offsets[ref_uidx];
-        ref_allele_ct = ref_allele_idx_offsets[ref_uidx + 1] - ref_allele_idx_offset_base;
+      if (maj_alleles) {
+        a1_allele_idx = maj_alleles[variant_uidx];
       }
-      if ((allele_ct != 2) || (ref_allele_ct != 2)) {
+      const char* cur_a1 = allele_storage[allele_idx_offset_base + a1_allele_idx];
+      const uint32_t cur_a1_blen = 1 + strlen(cur_a1);
+
+      uintptr_t panel_allele_idx_offset_base = panel_uidx * 2;
+      uint32_t panel_allele_ct = 2;
+      if (panel_allele_idx_offsets) {
+        panel_allele_idx_offset_base = panel_allele_idx_offsets[panel_uidx];
+        panel_allele_ct = panel_allele_idx_offsets[panel_uidx + 1] - panel_allele_idx_offset_base;
+      }
+      const char* const* cur_panel_alleles = &(panel_allele_storage[panel_allele_idx_offset_base]);
+      uint32_t panel_allele_idx = 0;
+      for (; panel_allele_idx != panel_allele_ct; ++panel_allele_idx) {
+        if (memequal(cur_a1, cur_panel_alleles[panel_allele_idx], cur_a1_blen)) {
+          break;
+        }
+      }
+      if (panel_allele_idx == panel_allele_ct) {
         ++allele_mismatch_ct;
         continue;
       }
-      const char* a0 = allele_storage[allele_idx_offset_base];
-      const char* a1 = allele_storage[allele_idx_offset_base + 1];
-      const char* r0 = ref_allele_storage[ref_allele_idx_offset_base];
-      const char* r1 = ref_allele_storage[ref_allele_idx_offset_base + 1];
-      if (strequal_overread(a0, r0) && strequal_overread(a1, r1)) {
-        ref_uidxs[variant_uidx] = ref_uidx;
-      } else if (strequal_overread(a0, r1) && strequal_overread(a1, r0)) {
-        ref_uidxs[variant_uidx] = ref_uidx;
-        SetBit(variant_uidx, ref_flips);
-      } else {
-        ++allele_mismatch_ct;
-        continue;
-      }
+      panel_a1_idxs[variant_uidx] = panel_allele_idx;
       ++matched_ct;
     }
     *matched_ct_ptr = matched_ct;
     *allele_mismatch_ct_ptr = allele_mismatch_ct;
   }
- FlipScanMatchRefVariants_ret_1:
+ FlipScanMatchPanelVariants_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -16885,7 +16673,7 @@ PglErr FlipScanMatchRefVariants(const uintptr_t* variant_include, const char* co
 // time what a user actually has is a frequency table, and a plain frequency
 // comparison catches the easy half of the problem, so this mode skips the LD
 // scan entirely and reports the frequency difference on its own.
-PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, PgenGlobalFlags gflags, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -16923,7 +16711,10 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
     const uint32_t col_pos = (flipscan_flags / kfFlipScanColPos) & 1;
     const uint32_t col_ref = (flipscan_flags / kfFlipScanColRef) & 1;
     const uint32_t col_alt = (flipscan_flags / kfFlipScanColAlt) & 1;
-    const uint32_t col_majfreq = (flipscan_flags / kfFlipScanColMajfreq) & 1;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t col_provref = col_ref && ProvrefCol(variant_include, nonref_flags, flipscan_flags / kfFlipScanColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t col_a1 = (flipscan_flags / kfFlipScanColA1) & 1;
+    const uint32_t col_freqs = (flipscan_flags / kfFlipScanColFreqs) & 1;
     const uint32_t col_problem = (flipscan_flags / kfFlipScanColProblem) & 1;
 
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
@@ -16951,12 +16742,14 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
     if (col_alt) {
       cswritep = strcpya_k(cswritep, "\tALT");
     }
-    if (col_majfreq) {
-      if (ref_allele_based) {
-        cswritep = strcpya_k(cswritep, "\tREF_FREQ\tPANEL_REF_FREQ");
-      } else {
-        cswritep = strcpya_k(cswritep, "\tMAJ_FREQ\tPANEL_MAJ_FREQ");
-      }
+    if (col_provref) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (col_a1) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (col_freqs) {
+      cswritep = strcpya_k(cswritep, "\tCUR_A1_FREQ\tPANEL_A1_FREQ");
     }
     if (col_problem) {
       cswritep = strcpya_k(cswritep, "\tPROBLEM");
@@ -16968,7 +16761,7 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
     uint32_t chr_blen = 0;
     uint32_t problem_ct = 0;
     uint32_t missing_ct = 0;
-    uint32_t maj_allele_idx = 0;
+    uint32_t a1_allele_idx = 0;
     uint32_t cur_allele_ct = 2;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -16990,16 +16783,16 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       if (maj_alleles) {
-        maj_allele_idx = maj_alleles[variant_uidx];
+        a1_allele_idx = maj_alleles[variant_uidx];
       }
-      const double dataset_maj_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
+      const double dataset_a1_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
       // Both sides report the same allele, chosen from this dataset.
       const uint32_t have_panel = !IsSet(not_found, variant_uidx);
-      double panel_maj_freq = 0.0 / 0.0;
+      double panel_a1_freq = 0.0 / 0.0;
       uint32_t is_problem = 0;
       if (have_panel) {
-        panel_maj_freq = GetAlleleFreq(&(ref_allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
-        is_problem = (fabs(dataset_maj_freq - panel_maj_freq) > freq_diff_thresh);
+        panel_a1_freq = GetAlleleFreq(&(ref_allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
+        is_problem = (fabs(dataset_a1_freq - panel_a1_freq) > freq_diff_thresh);
         problem_ct += is_problem;
       } else {
         ++missing_ct;
@@ -17012,20 +16805,36 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
         cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       }
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       if (col_ref) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base]);
+        cswritep = strcpya(cswritep, cur_alleles[0]);
       }
       if (col_alt) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + 1]);
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto FlipScanRefFreq_ret_WRITE_FAIL;
+          }
+          cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+          *cswritep++ = ',';
+        }
+        --cswritep;
       }
-      if (col_majfreq) {
+      if (col_provref) {
         *cswritep++ = '\t';
-        cswritep = dtoa_g(dataset_maj_freq, cswritep);
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
+      if (col_a1) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+      }
+      if (col_freqs) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dataset_a1_freq, cswritep);
         *cswritep++ = '\t';
         if (have_panel) {
-          cswritep = dtoa_g(panel_maj_freq, cswritep);
+          cswritep = dtoa_g(panel_a1_freq, cswritep);
         } else {
           cswritep = strcpya_k(cswritep, "NA");
         }
@@ -17128,82 +16937,87 @@ PglErr CountPsamSamples(const char* psamname, uint32_t max_thread_ct, uint32_t* 
 // rather than a frequency table is what lets the allele reconciliation happen
 // here, which is in turn what makes a REF/ALT swap between the two visible
 // instead of silently changing the answer.
-PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
-  PgenFileInfo ref_pgfi;
-  PgenReader ref_pgr;
-  ChrInfo ref_cip;
+  PgenFileInfo panel_pgfi;
+  PgenReader panel_pgr;
+  ChrInfo panel_cip;
   PreinitCstream(&css);
-  PreinitPgfi(&ref_pgfi);
-  PreinitPgr(&ref_pgr);
-  ref_cip.chr_mask = nullptr;
+  PreinitPgfi(&panel_pgfi);
+  PreinitPgr(&panel_pgr);
+  panel_cip.chr_mask = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
-    uint32_t ref_raw_sample_ct = 0;
-    reterr = CountPsamSamples(ldip->flipscan_ref_psam_fname, max_thread_ct, &ref_raw_sample_ct);
+    // Not fully functional yet.  Needs windowing logic, dprime, verbose.
+    uint32_t panel_raw_sample_ct = 0;
+    reterr = CountPsamSamples(ldip->flipscan_ref_psam_fname, max_thread_ct, &panel_raw_sample_ct);
     if (unlikely(reterr)) {
       goto FlipScanRefDataset_ret_1;
     }
-    if (unlikely(!ref_raw_sample_ct)) {
+    if (unlikely(!panel_raw_sample_ct)) {
       logerrputs("Error: --flip-scan reference fileset contains no samples.\n");
       goto FlipScanRefDataset_ret_INCONSISTENT_INPUT;
     }
 
-    if (unlikely(InitChrInfo(&ref_cip))) {
+    if (unlikely(InitChrInfo(&panel_cip))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
-    FinalizeChrset(load_filter_log_flags, &ref_cip);
-    uint32_t ref_raw_variant_ct = 0;
-    uint32_t ref_variant_ct = 0;
-    uintptr_t* ref_variant_include = nullptr;
-    char** ref_variant_ids_mutable = nullptr;
-    uintptr_t* ref_allele_idx_offsets = nullptr;
-    const char** ref_allele_storage = nullptr;
-    uint32_t ref_max_allele_ct = 2;
+    FinalizeChrset(load_filter_log_flags, &panel_cip);
+    uint32_t panel_raw_variant_ct = 0;
+    uint32_t panel_variant_ct = 0;
+    uintptr_t* panel_variant_include = nullptr;
+    char** panel_variant_ids_mutable = nullptr;
+    uintptr_t* panel_allele_idx_offsets = nullptr;
+    const char** panel_allele_storage = nullptr;
+    uint32_t panel_max_allele_ct = 2;
     {
-      uint32_t ref_max_variant_id_slen = 1;
+      uint32_t panel_max_variant_id_slen = 1;
       uint32_t info_reload_slen = 0;
       UnsortedVar vpos_sortstatus = kfUnsortedVar0;
       char* xheader = nullptr;
-      uint32_t* ref_variant_bps = nullptr;
+      uint32_t* panel_variant_bps = nullptr;
       uintptr_t* qual_present = nullptr;
       float* quals = nullptr;
       uintptr_t* filter_present = nullptr;
       uintptr_t* filter_npass = nullptr;
       char** filter_storage = nullptr;
-      uintptr_t* nonref_flags = nullptr;
+      uintptr_t* panel_nonref_flags = nullptr;
       double* variant_cms = nullptr;
       ChrIdx* chr_idxs = nullptr;
       uint32_t neg_bp_seen = 0;
-      uint32_t ref_max_allele_slen = 1;
+      uint32_t panel_max_allele_slen = 1;
       uintptr_t xheader_blen = 0;
       InfoFlags info_flags = kfInfo0;
       uint32_t max_filter_slen = 0;
       CmpExpr null_expr;
       null_expr.etype = kCmpExprTypeNull;
-      reterr = LoadPvar(ldip->flipscan_ref_pvar_fname, nullptr, nullptr, nullptr, nullptr, ".", nullptr, nullptr, &null_expr, &null_expr, kfMisc0, kfPvarPsam0, load_filter_log_flags, 0, 0, -1.0, 0, 0, 0, 0, 1, 0, 0x7fffffff, input_missing_geno_char, max_thread_ct, &ref_cip, &ref_max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &ref_variant_include, &ref_variant_bps, &ref_variant_ids_mutable, &ref_allele_idx_offsets, &ref_allele_storage, &qual_present, &quals, &filter_present, &filter_npass, &filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &ref_raw_variant_ct, &ref_variant_ct, &neg_bp_seen, &ref_max_allele_ct, &ref_max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      reterr = LoadPvar(ldip->flipscan_ref_pvar_fname, nullptr, nullptr, nullptr, nullptr, ".", nullptr, nullptr, &null_expr, &null_expr, kfMisc0, kfPvarPsam0, load_filter_log_flags, 0, 0, -1.0, 0, 0, 0, 0, 1, 0, 0x7fffffff, input_missing_geno_char, max_thread_ct, &panel_cip, &panel_max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &panel_variant_include, &panel_variant_bps, &panel_variant_ids_mutable, &panel_allele_idx_offsets, &panel_allele_storage, &qual_present, &quals, &filter_present, &filter_npass, &filter_storage, &panel_nonref_flags, &variant_cms, &chr_idxs, &panel_raw_variant_ct, &panel_variant_ct, &neg_bp_seen, &panel_max_allele_ct, &panel_max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto FlipScanRefDataset_ret_1;
       }
     }
-    if (unlikely(!ref_variant_ct)) {
+    if (unlikely(!panel_variant_ct)) {
       logerrputs("Error: --flip-scan reference fileset contains no variants.\n");
       goto FlipScanRefDataset_ret_INCONSISTENT_INPUT;
     }
-    const char* const* ref_variant_ids = TO_CONSTCPCONSTP(ref_variant_ids_mutable);
+    const char* const* panel_variant_ids = TO_CONSTCPCONSTP(panel_variant_ids_mutable);
 
-    uint32_t* ref_uidxs;
-    uintptr_t* ref_flips;
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    if (unlikely(bigstack_alloc_u32(raw_variant_ct, &ref_uidxs) ||
-                 bigstack_calloc_w(raw_variant_ctl, &ref_flips))) {
+    uint32_t* panel_uidxs;
+    AlleleCode* panel_a1_idxs;
+    if (unlikely(bigstack_alloc_u32(raw_variant_ct, &panel_uidxs) ||
+                 bigstack_alloc_ac(raw_variant_ct, &panel_a1_idxs))) {
       goto FlipScanRefDataset_ret_NOMEM;
+    }
+    const FlipScanFlags flipscan_flags = ldip->flipscan_flags;
+    const uint32_t ref_allele_based = (flipscan_flags / kfFlipScanRefBased) & 1;
+    if (ref_allele_based) {
+      maj_alleles = nullptr;
     }
     uint32_t matched_ct = 0;
     uint32_t allele_mismatch_ct = 0;
-    reterr = FlipScanMatchRefVariants(variant_include, variant_ids, allele_idx_offsets, allele_storage, ref_variant_ids, ref_allele_idx_offsets, ref_allele_storage, ref_variant_include, variant_ct, ref_variant_ct, max_thread_ct, ref_uidxs, ref_flips, &matched_ct, &allele_mismatch_ct);
+    reterr = FlipScanMatchPanelVariants(variant_include, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, panel_variant_ids, panel_allele_idx_offsets, panel_allele_storage, panel_variant_include, variant_ct, panel_variant_ct, max_thread_ct, panel_uidxs, panel_a1_idxs, &matched_ct, &allele_mismatch_ct);
     if (unlikely(reterr)) {
       goto FlipScanRefDataset_ret_1;
     }
@@ -17214,29 +17028,30 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
 
     PgenHeaderCtrl header_ctrl;
     uintptr_t pgfi_alloc_cacheline_ct;
-    reterr = PgfiInitPhase1(ldip->flipscan_ref_pgen_fname, nullptr, ref_raw_variant_ct, ref_raw_sample_ct, &header_ctrl, &ref_pgfi, &pgfi_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase1(ldip->flipscan_ref_pgen_fname, nullptr, panel_raw_variant_ct, panel_raw_sample_ct, &header_ctrl, &panel_pgfi, &pgfi_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
       WordWrapB(0);
       logerrputsb();
       goto FlipScanRefDataset_ret_1;
     }
-    ref_pgfi.allele_idx_offsets = ref_allele_idx_offsets;
-    ref_pgfi.max_allele_ct = ref_max_allele_ct;
+    panel_pgfi.allele_idx_offsets = panel_allele_idx_offsets;
+    panel_pgfi.max_allele_ct = panel_max_allele_ct;
     unsigned char* pgfi_alloc;
     if (unlikely(bigstack_alloc_uc(pgfi_alloc_cacheline_ct * kCacheline, &pgfi_alloc))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
-    const uint32_t ref_raw_variant_ctl = BitCtToWordCt(ref_raw_variant_ct);
+    const uint32_t panel_raw_variant_ctl = BitCtToWordCt(panel_raw_variant_ct);
     if ((header_ctrl & 192) == 192) {
-      uintptr_t* ref_nonref_flags;
-      if (unlikely(bigstack_alloc_w(ref_raw_variant_ctl, &ref_nonref_flags))) {
+      // todo: sync with earlier panel_nonref_flags definition
+      uintptr_t* panel_nonref_flags;
+      if (unlikely(bigstack_alloc_w(panel_raw_variant_ctl, &panel_nonref_flags))) {
         goto FlipScanRefDataset_ret_NOMEM;
       }
-      ref_pgfi.nonref_flags = ref_nonref_flags;
+      panel_pgfi.nonref_flags = panel_nonref_flags;
     }
     uintptr_t pgr_alloc_cacheline_ct;
     uint32_t max_vrec_width;
-    reterr = PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, ref_raw_variant_ct, &max_vrec_width, &ref_pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, panel_raw_variant_ct, &max_vrec_width, &panel_pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
       WordWrapB(0);
       logerrputsb();
@@ -17246,56 +17061,48 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     if (unlikely(bigstack_alloc_uc((pgr_alloc_cacheline_ct + DivUp(max_vrec_width, kCacheline)) * kCacheline, &pgr_alloc))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
-    reterr = PgrInit(ldip->flipscan_ref_pgen_fname, max_vrec_width, &ref_pgfi, &ref_pgr, pgr_alloc);
+    reterr = PgrInit(ldip->flipscan_ref_pgen_fname, max_vrec_width, &panel_pgfi, &panel_pgr, pgr_alloc);
     if (unlikely(reterr)) {
       goto FlipScanRefDataset_ret_1;
     }
-    uintptr_t* ref_genovec;
-    double* ref_ref_freqs;
-    if (unlikely(bigstack_alloc_w(NypCtToAlignedWordCt(ref_raw_sample_ct), &ref_genovec) ||
-                 bigstack_alloc_d(raw_variant_ct, &ref_ref_freqs))) {
+    uintptr_t* panel_genovec;
+    double* panel_a1_freqs;
+    if (unlikely(bigstack_alloc_w(NypCtToAlignedWordCt(panel_raw_sample_ct), &panel_genovec) ||
+                 bigstack_alloc_d(raw_variant_ct, &panel_a1_freqs))) {
       goto FlipScanRefDataset_ret_NOMEM;
     }
     PgrSampleSubsetIndex null_pssi;
-    PgrSetSampleSubsetIndex(nullptr, &ref_pgr, &null_pssi);
+    PgrSetSampleSubsetIndex(nullptr, &panel_pgr, &null_pssi);
     {
       uintptr_t variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        ref_ref_freqs[variant_uidx] = 0.0 / 0.0;
-        const uint32_t ref_uidx = ref_uidxs[variant_uidx];
-        if (ref_uidx == UINT32_MAX) {
+        panel_a1_freqs[variant_uidx] = 0.0 / 0.0;
+        const uint32_t panel_uidx = panel_uidxs[variant_uidx];
+        if (panel_uidx == UINT32_MAX) {
           continue;
         }
-        reterr = PgrGet(nullptr, null_pssi, ref_raw_sample_ct, ref_uidx, &ref_pgr, ref_genovec);
+        reterr = PgrGetInv1(nullptr, null_pssi, panel_raw_sample_ct, panel_uidx, panel_a1_idxs[variant_uidx], &panel_pgr, panel_genovec);
         if (unlikely(reterr)) {
-          PgenErrPrintNV(reterr, ref_uidx);
+          PgenErrPrintNV(reterr, panel_uidx);
           goto FlipScanRefDataset_ret_1;
         }
-        ZeroTrailingNyps(ref_raw_sample_ct, ref_genovec);
+        ZeroTrailingNyps(panel_raw_sample_ct, panel_genovec);
         STD_ARRAY_DECL(uint32_t, 4, genocounts);
-        GenoarrCountFreqsUnsafe(ref_genovec, ref_raw_sample_ct, genocounts);
+        GenoarrCountFreqsUnsafe(panel_genovec, panel_raw_sample_ct, genocounts);
         const uint32_t obs_ct = genocounts[0] + genocounts[1] + genocounts[2];
         if (!obs_ct) {
           continue;
         }
         // genotype 0 is hom-REF in the reference's own orientation, so a
         // flipped match has to be turned around to be comparable.
-        const uint32_t ref_allele_ct = 2 * genocounts[0] + genocounts[1];
-        double cur_freq = u31tod(ref_allele_ct) / u31tod(2 * obs_ct);
-        if (IsSet(ref_flips, variant_uidx)) {
-          cur_freq = 1.0 - cur_freq;
-        }
-        ref_ref_freqs[variant_uidx] = cur_freq;
+        const uint32_t panel_a1_allele_ct = 2 * genocounts[0] + genocounts[1];
+        double cur_freq = u31tod(panel_a1_allele_ct) / u31tod(2 * obs_ct);
+        panel_a1_freqs[variant_uidx] = cur_freq;
       }
     }
 
-    const FlipScanFlags flipscan_flags = ldip->flipscan_flags;
-    const uint32_t ref_allele_based = (flipscan_flags / kfFlipScanRefBased) & 1;
-    if (ref_allele_based) {
-      maj_alleles = nullptr;
-    }
     const uint32_t output_zst = (flipscan_flags / kfFlipScanZs) & 1;
     double freq_diff_thresh = ldip->flipscan_freq_diff;
     if (freq_diff_thresh < 0.0) {
@@ -17306,7 +17113,10 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     const uint32_t col_pos = (flipscan_flags / kfFlipScanColPos) & 1;
     const uint32_t col_ref = (flipscan_flags / kfFlipScanColRef) & 1;
     const uint32_t col_alt = (flipscan_flags / kfFlipScanColAlt) & 1;
-    const uint32_t col_majfreq = (flipscan_flags / kfFlipScanColMajfreq) & 1;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t col_provref = col_ref && ProvrefCol(variant_include, nonref_flags, flipscan_flags / kfFlipScanColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t col_a1 = (flipscan_flags / kfFlipScanColA1) & 1;
+    const uint32_t col_freqs = (flipscan_flags / kfFlipScanColFreqs) & 1;
     const uint32_t col_problem = (flipscan_flags / kfFlipScanColProblem) & 1;
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     char* chr_buf;
@@ -17333,12 +17143,14 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     if (col_alt) {
       cswritep = strcpya_k(cswritep, "\tALT");
     }
-    if (col_majfreq) {
-      if (ref_allele_based) {
-        cswritep = strcpya_k(cswritep, "\tREF_FREQ\tPANEL_REF_FREQ");
-      } else {
-        cswritep = strcpya_k(cswritep, "\tMAJ_FREQ\tPANEL_MAJ_FREQ");
-      }
+    if (col_provref) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (col_a1) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (col_freqs) {
+      cswritep = strcpya_k(cswritep, "\tCUR_A1_FREQ\tPANEL_A1_FREQ");
     }
     if (col_problem) {
       cswritep = strcpya_k(cswritep, "\tPROBLEM");
@@ -17349,8 +17161,8 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     uint32_t chr_end = 0;
     uint32_t chr_blen = 0;
     uint32_t problem_ct = 0;
-    uint32_t flip_ct = 0;
-    uint32_t maj_allele_idx = 0;
+    uint32_t allele_rotate_ct = 0;
+    uint32_t a1_allele_idx = 0;
     uint32_t cur_allele_ct = 2;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -17372,27 +17184,19 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       if (maj_alleles) {
-        maj_allele_idx = maj_alleles[variant_uidx];
+        a1_allele_idx = maj_alleles[variant_uidx];
       }
       // Same allele on both sides, chosen from this dataset, as in
-      // FlipScanRefFreq().  A multiallelic variant never gets a panel
-      // frequency (both sides must be biallelic with the same allele pair),
-      // but its MAJ_FREQ is still reported, so the major allele has to be
-      // looked up against the real allele count rather than assumed to be
-      // REF or ALT1.
-      const double dataset_maj_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
-      const double panel_ref_freq = ref_ref_freqs[variant_uidx];
-      const uint32_t have_panel = (panel_ref_freq == panel_ref_freq);
-      double panel_maj_freq = 0.0 / 0.0;
+      // FlipScanRefFreq().
+      const double dataset_a1_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
+      const double panel_a1_freq = panel_a1_freqs[variant_uidx];
+      const uint32_t have_panel = (panel_a1_freq == panel_a1_freq);
       uint32_t is_problem = 0;
       if (have_panel) {
-        // have_panel implies both sides are biallelic with the same allele
-        // pair, so maj_allele_idx is 0 or 1 here.
-        panel_maj_freq = maj_allele_idx? (1.0 - panel_ref_freq) : panel_ref_freq;
-        if (IsSet(ref_flips, variant_uidx)) {
-          ++flip_ct;
+        if (a1_allele_idx != panel_a1_idxs[variant_uidx]) {
+          ++allele_rotate_ct;
         }
-        is_problem = (fabs(dataset_maj_freq - panel_maj_freq) > freq_diff_thresh);
+        is_problem = (fabs(dataset_a1_freq - panel_a1_freq) > freq_diff_thresh);
         if (is_problem) {
           ++problem_ct;
         }
@@ -17404,20 +17208,36 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
         cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       }
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       if (col_ref) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base]);
+        cswritep = strcpya(cswritep, cur_alleles[0]);
       }
       if (col_alt) {
         *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + 1]);
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto FlipScanRefDataset_ret_WRITE_FAIL;
+          }
+          cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+          *cswritep++ = ',';
+        }
+        --cswritep;
       }
-      if (col_majfreq) {
+      if (col_provref) {
         *cswritep++ = '\t';
-        cswritep = dtoa_g(dataset_maj_freq, cswritep);
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
+      if (col_a1) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+      }
+      if (col_freqs) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(dataset_a1_freq, cswritep);
         *cswritep++ = '\t';
         if (have_panel) {
-          cswritep = dtoa_g(panel_maj_freq, cswritep);
+          cswritep = dtoa_g(panel_a1_freq, cswritep);
         } else {
           cswritep = strcpya_k(cswritep, "NA");
         }
@@ -17438,9 +17258,9 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto FlipScanRefDataset_ret_WRITE_FAIL;
     }
-    logprintfww("--flip-scan: %u variant%s matched the reference fileset by ID and allele pair (%u with REF and ALT the other way round).\n", matched_ct, (matched_ct == 1)? "" : "s", flip_ct);
+    logprintfww("--flip-scan: %u variant%s matched the reference fileset by ID and alleles (%u with allele order difference(s)).\n", matched_ct, (matched_ct == 1)? "" : "s", allele_rotate_ct);
     if (allele_mismatch_ct) {
-      logprintfww("Warning: %u variant%s matched the --flip-scan reference fileset by ID but not by allele pair, and %s skipped.\n", allele_mismatch_ct, (allele_mismatch_ct == 1)? "" : "s", (allele_mismatch_ct == 1)? "was" : "were");
+      logprintfww("Warning: %u variant%s matched the --flip-scan reference fileset by ID but not by main allele, and %s skipped.\n", allele_mismatch_ct, (allele_mismatch_ct == 1)? "" : "s", (allele_mismatch_ct == 1)? "was" : "were");
     }
     logprintf("--flip-scan: %u problem variant%s.\n", problem_ct, (problem_ct == 1)? "" : "s");
     logprintfww("--flip-scan report written to %s .\n", outname);
@@ -17458,14 +17278,14 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
   }
  FlipScanRefDataset_ret_1:
   CswriteCloseCond(&css, cswritep);
-  CleanupPgr2("--flip-scan reference .pgen file", &ref_pgr, &reterr);
-  CleanupPgfi2("--flip-scan reference .pgen file", &ref_pgfi, &reterr);
-  CleanupChrInfo(&ref_cip);
+  CleanupPgr2("--flip-scan reference .pgen file", &panel_pgr, &reterr);
+  CleanupPgfi2("--flip-scan reference .pgen file", &panel_pgfi, &reterr);
+  CleanupChrInfo(&panel_cip);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritep_verbose = nullptr;
@@ -17556,18 +17376,22 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       maj_alleles = nullptr;
     }
     const uint32_t output_zst = (ldip->flipscan_flags / kfFlipScanZs) & 1;
+    const uint32_t use_dprime = (ldip->flipscan_flags / kfFlipScanDprime) & 1;
 
     const uint32_t base_ctl = BitCtToWordCt(base_ct);
-    const uint32_t base_ctl2 = NypCtToAlignedWordCt(base_ct);
+    const uint32_t base_ctv = BitCtToVecCt(base_ct);
+    const uint32_t base_ctaw2 = NypCtToAlignedWordCt(base_ct);
     uint32_t* base_cumulative_popcounts;
     uintptr_t* subset_collapsed[2];
-    uintptr_t* male_collapsed;
+    uintptr_t* male_collapsed_interleaved;
     uintptr_t* genovec_base;
+    uintptr_t* male_collapsed_tmp;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &base_cumulative_popcounts) ||
                  bigstack_alloc_w(base_ctl, &(subset_collapsed[0])) ||
                  bigstack_alloc_w(base_ctl, &(subset_collapsed[1])) ||
-                 bigstack_alloc_w(base_ctl, &male_collapsed) ||
-                 bigstack_alloc_w(base_ctl2, &genovec_base))) {
+                 bigstack_alloc_w(base_ctv * kWordsPerVec, &male_collapsed_interleaved) ||
+                 bigstack_alloc_w(base_ctaw2, &genovec_base) ||
+                 bigstack_alloc_w(base_ctl, &male_collapsed_tmp))) {
       goto FlipScan_ret_NOMEM;
     }
     FillCumulativePopcounts(base_include, raw_sample_ctl, base_cumulative_popcounts);
@@ -17575,8 +17399,10 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       CopyBitarrSubset(subset_include[is_case], base_include, base_ct, subset_collapsed[is_case]);
       ZeroTrailingBits(base_ct, subset_collapsed[is_case]);
     }
-    CopyBitarrSubset(sex_male, base_include, base_ct, male_collapsed);
-    ZeroTrailingBits(base_ct, male_collapsed);
+    CopyBitarrSubset(sex_male, base_include, base_ct, male_collapsed_tmp);
+    ZeroTrailingWords(base_ctl, male_collapsed_tmp);
+    FillInterleavedMaskVec(male_collapsed_tmp, base_ctv, male_collapsed_interleaved);
+    BigstackReset(male_collapsed_tmp);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(base_cumulative_popcounts, simple_pgrp, &pssi);
 
@@ -17639,15 +17465,14 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
                  bigstack_alloc_u32(max_local_ct, &local_uidxs) ||
                  BIGSTACK_ALLOC_X(FlipScanResult, block_size, &results) ||
                  bigstack_alloc_u32(S_CAST(uintptr_t, block_size) * max_neg_ct, &neg_locals) ||
-                 bigstack_alloc_w(S_CAST(uintptr_t, max_local_ct) * base_ctl2, &raw_genovecs) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, max_local_ct) * base_ctaw2, &raw_genovecs) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, max_local_ct) * (window_size - 1), &(ctx.r_cache[0])) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, max_local_ct) * (window_size - 1), &(ctx.r_cache[1])))) {
       goto FlipScan_ret_NOMEM;
     }
     ctx.raw_genovecs = raw_genovecs;
     ctx.base_ct = base_ct;
-    ctx.base_ctl2 = base_ctl2;
-    ctx.male_collapsed = male_collapsed;
+    ctx.male_collapsed_interleaved = male_collapsed_interleaved;
     for (uint32_t is_case = 0; is_case != 2; ++is_case) {
       ctx.genobufs_write[is_case] = genobufs[is_case];
       ctx.vaggs_write[is_case] = vaggs[is_case];
@@ -17667,6 +17492,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     ctx.window_size = window_size;
     ctx.window_bp = window_bp;
     ctx.max_neg_ct = max_neg_ct;
+    ctx.use_dprime = use_dprime;
     ctx.results = results;
     ctx.neg_locals = neg_locals;
 
@@ -17678,7 +17504,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     uint32_t* local_starts;
     if (unlikely(bigstack_alloc_u32(calc_thread_ct + 1, &thread_starts) ||
                  bigstack_alloc_u32(calc_thread_ct + 1, &local_starts) ||
-                 bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * base_ctl2, &(ctx.genovec_subs[0])) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * base_ctaw2, &(ctx.genovec_subs[0])) ||
                  bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * NypCtToAlignedWordCt(subset_ct[0]), &(ctx.genovec_subs[1])) ||
                  bigstack_alloc_w(S_CAST(uintptr_t, calc_thread_ct) * NypCtToAlignedWordCt(subset_ct[1]), &(ctx.genovec_subs[2])))) {
       goto FlipScan_ret_NOMEM;
@@ -17702,13 +17528,18 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     const uint32_t col_pos = (flipscan_flags / kfFlipScanColPos) & 1;
     const uint32_t col_ref = (flipscan_flags / kfFlipScanColRef) & 1;
     const uint32_t col_alt = (flipscan_flags / kfFlipScanColAlt) & 1;
-    const uint32_t col_altfreq = (flipscan_flags / kfFlipScanColAltfreq) & 1;
+    const uint32_t all_nonref = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref) && (!nonref_flags);
+    // possible todo: resolve inconsistency with 1-variant-chromosome skipping
+    // logic below
+    const uint32_t col_provref = col_ref && ProvrefCol(variant_include, nonref_flags, flipscan_flags / kfFlipScanColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t col_a1 = (flipscan_flags / kfFlipScanColA1) & 1;
+    const uint32_t col_freqbase = (flipscan_flags / kfFlipScanColFreqbase) & 1;
+    const uint32_t col_freqs = (flipscan_flags / kfFlipScanColFreqs) & 1;
     const uint32_t col_posct = (flipscan_flags / kfFlipScanColPosct) & 1;
     const uint32_t col_rpos = (flipscan_flags / kfFlipScanColRpos) & 1;
     const uint32_t col_negct = (flipscan_flags / kfFlipScanColNegct) & 1;
     const uint32_t col_rneg = (flipscan_flags / kfFlipScanColRneg) & 1;
     const uint32_t col_negids = (flipscan_flags / kfFlipScanColNegids) & 1;
-    const uint32_t col_majfreq = (flipscan_flags / kfFlipScanColMajfreq) & 1;
     const uint32_t col_problem = (flipscan_flags / kfFlipScanColProblem) & 1;
     const uint32_t min_neg_ct = ldip->flipscan_min_neg_ct;
     *cswritep++ = '#';
@@ -17725,27 +17556,37 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     if (col_alt) {
       cswritep = strcpya_k(cswritep, "\tALT");
     }
-    if (col_altfreq) {
-      cswritep = strcpya_k(cswritep, "\tALT_FREQ");
+    if (col_provref) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
     }
-    if (col_majfreq) {
-      if (ref_allele_based) {
-        cswritep = strcpya_k(cswritep, "\tCASE_REF_FREQ\tCTRL_REF_FREQ");
-      } else {
-        cswritep = strcpya_k(cswritep, "\tCASE_MAJ_FREQ\tCTRL_MAJ_FREQ");
-      }
+    if (col_a1) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (col_freqbase) {
+      cswritep = strcpya_k(cswritep, "\tBASE_A1_FREQ");
+    }
+    if (col_freqs) {
+      cswritep = strcpya_k(cswritep, "\tCASE_A1_FREQ\tCTRL_A1_FREQ");
     }
     if (col_posct) {
       cswritep = strcpya_k(cswritep, "\tPOS_CT");
     }
     if (col_rpos) {
-      cswritep = strcpya_k(cswritep, "\tR_POS");
+      if (use_dprime) {
+        cswritep = strcpya_k(cswritep, "\tDPRIME_POS");
+      } else {
+        cswritep = strcpya_k(cswritep, "\tR_POS");
+      }
     }
     if (col_negct) {
       cswritep = strcpya_k(cswritep, "\tNEG_CT");
     }
     if (col_rneg) {
-      cswritep = strcpya_k(cswritep, "\tR_NEG");
+      if (use_dprime) {
+        cswritep = strcpya_k(cswritep, "\tDPRIME_NEG");
+      } else {
+        cswritep = strcpya_k(cswritep, "\tR_NEG");
+      }
     }
     if (col_problem) {
       cswritep = strcpya_k(cswritep, "\tPROBLEM");
@@ -17766,21 +17607,25 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       if (col_chrom) {
         cswritep_verbose = strcpya_k(cswritep_verbose, "CHROM\t");
       }
-      cswritep_verbose = strcpya_k(cswritep_verbose, "ID_INDEX");
       if (col_pos) {
-        cswritep_verbose = strcpya_k(cswritep_verbose, "\tPOS_INDEX");
+        cswritep_verbose = strcpya_k(cswritep_verbose, "POS_INDEX\t");
       }
-      if (col_alt) {
-        cswritep_verbose = strcpya_k(cswritep_verbose, "\tALT_INDEX");
+      cswritep_verbose = strcpya_k(cswritep_verbose, "ID_INDEX");
+      if (col_a1) {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tA1_INDEX");
       }
-      cswritep_verbose = strcpya_k(cswritep_verbose, "\tID_PAIR");
       if (col_pos) {
         cswritep_verbose = strcpya_k(cswritep_verbose, "\tPOS_PAIR");
       }
-      if (col_alt) {
-        cswritep_verbose = strcpya_k(cswritep_verbose, "\tALT_PAIR");
+      cswritep_verbose = strcpya_k(cswritep_verbose, "\tID_PAIR");
+      if (col_a1) {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tA1_PAIR");
       }
-      cswritep_verbose = strcpya_k(cswritep_verbose, "\tR_CASE\tR_CTRL");
+      if (use_dprime) {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tD_PRIME_CASE\tD_PRIME_CTRL");
+      } else {
+        cswritep_verbose = strcpya_k(cswritep_verbose, "\tR_CASE\tR_CTRL");
+      }
       AppendBinaryEoln(&cswritep_verbose);
     }
 
@@ -17797,12 +17642,14 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       goto FlipScan_ret_NOMEM;
     }
     uint32_t blocks_left = total_block_ct;
-    logprintf("--flip-scan%s (%u compute thread%s).\n", verbose? " verbose" : "", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+    logprintf("--flip-scan%s%s (%u compute thread%s).\n", use_dprime? " dprime" : "", verbose? " verbose" : "", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
 
     uint32_t problem_ct = 0;
     const uint32_t chr_ct = cip->chr_ct;
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
-    AlleleCode maj_allele_idx = 0;
+    uint32_t cur_allele_ct = 2;
+    AlleleCode a1_allele_idx = 0;
+    AlleleCode other_allele_idx = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
       const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
       const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
@@ -17842,10 +17689,10 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           // Which allele is "major" is settled once, from the whole dataset,
           // so both groups report the same allele's frequency.
           if (maj_alleles) {
-            maj_allele_idx = maj_alleles[variant_uidx];
+            a1_allele_idx = maj_alleles[variant_uidx];
           }
-          uintptr_t* cur_raw = &(raw_genovecs[S_CAST(uintptr_t, li) * base_ctl2]);
-          reterr = PgrGetInv1(base_include, pssi, base_ct, variant_uidx, maj_allele_idx, simple_pgrp, cur_raw);
+          uintptr_t* cur_raw = &(raw_genovecs[S_CAST(uintptr_t, li) * base_ctaw2]);
+          reterr = PgrGetInv1(base_include, pssi, base_ct, variant_uidx, a1_allele_idx, simple_pgrp, cur_raw);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto FlipScan_ret_1;
@@ -17882,9 +17729,12 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           uintptr_t allele_idx_offset_base = variant_uidx * 2;
           if (allele_idx_offsets) {
             allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+            cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
           }
-          const char* ref_allele = allele_storage[allele_idx_offset_base];
-          const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+          if (maj_alleles) {
+            a1_allele_idx = maj_alleles[variant_uidx];
+          }
           if (col_chrom) {
             cswritep = memcpyax(cswritep, chr_buf, chr_name_slen, '\t');
           }
@@ -17894,26 +17744,42 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
           if (col_ref) {
             *cswritep++ = '\t';
-            cswritep = strcpya(cswritep, ref_allele);
+            cswritep = strcpya(cswritep, cur_alleles[0]);
           }
           if (col_alt) {
             *cswritep++ = '\t';
-            cswritep = strcpya(cswritep, alt_allele);
+            for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+              cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto FlipScan_ret_WRITE_FAIL;
+              }
+              *cswritep++ = ',';
+            }
+            --cswritep;
           }
-          if (col_altfreq) {
+          if (col_provref) {
             *cswritep++ = '\t';
-            cswritep = dtoa_g(1.0 - allele_freqs[allele_idx_offset_base - variant_uidx], cswritep);
+            *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
           }
-          if (col_majfreq) {
+          if (col_a1) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+          }
+          if (col_freqbase) {
+            *cswritep++ = '\t';
+            const double a1_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), a1_allele_idx, cur_allele_ct);
+            cswritep = dtoa_g(a1_freq, cswritep);
+          }
+          if (col_freqs) {
             // Cases first, matching the CASE/CTRL column order.
             for (uint32_t uii = 0; uii != 2; ++uii) {
               const uint32_t is_case = 1 - uii;
               *cswritep++ = '\t';
-              const double maj_freq = ctx.local_group_freqs[is_case][li];
-              if (maj_freq != maj_freq) {
+              const double a1_freq = ctx.local_group_freqs[is_case][li];
+              if (a1_freq != a1_freq) {
                 cswritep = strcpya_k(cswritep, "NA");
               } else {
-                cswritep = dtoa_g(maj_freq, cswritep);
+                cswritep = dtoa_g(a1_freq, cswritep);
               }
             }
           }
@@ -17996,7 +17862,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
               if ((rr[0] != rr[0]) || (rr[1] != rr[1])) {
                 continue;
               }
-              if ((fabs(rr[0]) < min_corr) && (fabs(rr[1]) < min_corr)) {
+              if (!FlipScanPairCounts(rr[0], rr[1], min_corr, use_dprime)) {
                 continue;
               }
               const uint32_t other_uidx = local_uidxs[lj];
@@ -18004,27 +17870,27 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
               if (allele_idx_offsets) {
                 other_allele_idx_offset_base = allele_idx_offsets[other_uidx];
               }
+              if (maj_alleles) {
+                other_allele_idx = maj_alleles[other_uidx];
+              }
               if (col_chrom) {
                 cswritep_verbose = memcpyax(cswritep_verbose, chr_buf, chr_name_slen, '\t');
               }
-              cswritep_verbose = strcpya(cswritep_verbose, variant_ids[variant_uidx]);
               if (col_pos) {
-                *cswritep_verbose++ = '\t';
                 cswritep_verbose = u32toa(variant_bps[variant_uidx], cswritep_verbose);
-              }
-              if (col_alt) {
                 *cswritep_verbose++ = '\t';
-                cswritep_verbose = strcpya(cswritep_verbose, alt_allele);
               }
-              *cswritep_verbose++ = '\t';
-              cswritep_verbose = strcpya(cswritep_verbose, variant_ids[other_uidx]);
+              cswritep_verbose = strcpyax(cswritep_verbose, variant_ids[variant_uidx], '\t');
+              if (col_a1) {
+                cswritep_verbose = strcpyax(cswritep_verbose, cur_alleles[a1_allele_idx], '\t');
+              }
               if (col_pos) {
-                *cswritep_verbose++ = '\t';
-                cswritep_verbose = u32toa(variant_bps[other_uidx], cswritep_verbose);
+                cswritep_verbose = u32toa_x(variant_bps[other_uidx], '\t', cswritep_verbose);
               }
-              if (col_alt) {
+              cswritep_verbose = strcpya(cswritep_verbose, variant_ids[other_uidx]);
+              if (col_a1) {
                 *cswritep_verbose++ = '\t';
-                cswritep_verbose = strcpya(cswritep_verbose, allele_storage[other_allele_idx_offset_base + 1]);
+                cswritep_verbose = strcpya(cswritep_verbose, allele_storage[other_allele_idx_offset_base + other_allele_idx]);
               }
               *cswritep_verbose++ = '\t';
               cswritep_verbose = dtoa_g(rr[1], cswritep_verbose);

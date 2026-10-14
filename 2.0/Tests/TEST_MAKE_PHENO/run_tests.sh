@@ -70,3 +70,13 @@ fails $1/plink2 $2 $3 --bfile tmp_data --make-pheno dup.txt CASE --make-just-psa
 # The name is taken when the .psam already has a MAKEPHENO column.
 $1/plink2 $2 $3 --bfile tmp_data --make-pheno list.txt CASE --make-just-psam --out plink2_named
 fails $1/plink2 $2 $3 --pfile plink2_named --make-pheno list.txt CASE --make-just-psam --out plink2_bad
+
+# A categorical --pheno column must read as missing ("NONE") for every sample
+# the file doesn't mention.  LoadPhenos() used to zero only the first
+# 1/kWordsPerVec of the category-index array, leaving the rest uninitialized
+# (a sanitizer build crashes on the out-of-range category index).
+$1/plink2 $2 $3 --dummy 200 5 --make-pgen --out tmp_catp
+printf '#IID\tCAT\n' > tmp_catp.txt
+grep -v '^#' tmp_catp.psam | head -n 5 | awk '{print $1 "\tlvl" (NR % 2)}' >> tmp_catp.txt
+$1/plink2 $2 $3 --pfile tmp_catp --pheno tmp_catp.txt --make-just-psam --out plink2_catp
+test "$(grep -v '^#' plink2_catp.psam | tail -n +6 | awk '{print $NF}' | sort -u)" = "NONE"

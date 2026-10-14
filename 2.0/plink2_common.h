@@ -174,8 +174,10 @@ FLAGSET64_DEF_START()
   kfMiscSelectSidParentsOnly = (1LLU << 49),
   kfMiscZeroCms = (1LLU << 50),
   kfMiscMakePermPhenoZs = (1LLU << 51),
-  kfMiscWriteVarRangesZs = (1LLU << 52),
-  kfMiscWriteVarRangesAllowDups = (1LLU << 53)
+  kfMiscList23IndelsZs = (1LLU << 52),
+  kfMiscList23IndelsAllowDups = (1LLU << 53),
+  kfMiscWriteVarRangesAllowDups = (1LLU << 54),
+  kfMiscTuccVzs = (1LLU << 55)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -857,6 +859,19 @@ FLAGSET_DEF_START()
   kfChrOutput0M = (1 << 3)
 FLAGSET_DEF_END(ChrOutput);
 
+// --output-chr infer.  kfChrInferOn is set iff the mode is active; the other
+// bits record the chromosome code styles seen in the current input file.
+FLAGSET_DEF_START()
+  kfChrInfer0,
+  kfChrInferOn = (1 << 0),
+  kfChrInferPrefix = (1 << 1),
+  kfChrInferNoPrefix = (1 << 2),
+  kfChrInferNumeric = (1 << 3),
+  kfChrInferLetter = (1 << 4),
+  kfChrInferM = (1 << 5),
+  kfChrInferMT = (1 << 6)
+FLAGSET_DEF_END(ChrInfer);
+
 typedef struct ChrInfoStruct {
   // Main dynamic block intended to be allocated as a single aligned block of
   // memory on the heap freeable with vecaligned_free(), with chr_mask at the
@@ -907,6 +922,7 @@ typedef struct ChrInfoStruct {
   LlStr* incl_excl_name_stack;
   uint32_t is_include_stack;
   ChrOutput output_encoding;
+  ChrInfer output_infer;
 } ChrInfo;
 
 extern const char g_xymt_log_names[kChrOffsetCt][5];
@@ -943,6 +959,14 @@ char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encodi
 HEADER_INLINE char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
   return ChrNameStdEx(cip, chr_idx, cip->output_encoding, buf);
 }
+
+// --output-chr infer: record the style of a successfully parsed chromosome
+// code.  Caller must check (cip->output_infer != kfChrInfer0) first.
+void NoteChrCodeStyle(const char* chr_name, uint32_t name_slen, uint32_t chr_idx, ChrInfo* cip);
+
+// --output-chr infer: set output_encoding based on the recorded styles, then
+// clear them.  No-op if the mode isn't active.
+void InferChrOutputEncoding(ChrInfo* cip);
 
 // assumes chr_idx is valid
 // note that chr_idx == 0 is always rendered as '0', never 'chr0'
@@ -1268,6 +1292,8 @@ uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat
 
 uint32_t RemoveExcludedCats(const uint32_t* data_cat, const uintptr_t* cat_keep_bitarr, uint32_t raw_sample_ct, uint32_t in_sample_ct, uintptr_t* sample_include);
 
+BoolErr CatFromBinaryPheno(uint32_t raw_sample_ct, const PhenoCol** pheno_col_pp);
+
 // pheno_names is also allocated on the heap, but it can be handled with a
 // simple free_cond().
 void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols);
@@ -1387,14 +1413,20 @@ HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const Sampl
 // read_realpath must be a buffer of size >= kPglFnamesize bytes
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
-// assumes rawval is in [1, 32767]
+// rawval is usually in [1, 32767].  0 and 32768 are unusual, since a dosage
+// equal to its hardcall usually isn't stored, but the .pgen spec permits them.
 static_assert(kDosageMax == 32768, "PrintHaploidNonintDosage() needs to be updated.");
 HEADER_INLINE char* PrintHaploidNonintDosage(uint32_t rawval, char* start) {
   // Instead of constant 5-digit precision, we print fewer digits whenever that
   // doesn't interfere with proper round-tripping.  I.e. we search for the
   // shortest string in
   //   ((n - 0.5)/32768, (n + 0.5)/32768).
-  assert(rawval - 1 < 32767);
+  if (rawval - 1 >= 32767) {
+    // PrintDdosageDecimal(32768) would overflow u32toa_trunc4()'s table.
+    assert(rawval <= kDosageMax);
+    *start++ = '0' + (rawval / kDosageMax);
+    return start;
+  }
   *start++ = '0';
   return PrintDdosageDecimal(rawval, start);
 }
@@ -1577,6 +1609,17 @@ PglErr AllocAndFillVariantLastAlidxs(const uintptr_t* allele_idx_offsets, uint32
 void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, uint32_t variant_uidx, uint32_t bp_radius, uint32_t* start_vidxp, uint32_t* end_vidxp);
 
 PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags);
+
+HEADER_INLINE const char* const* GetVariantAlleles(const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_uidx, uint32_t* allele_ctp) {
+  uintptr_t allele_idx_offset_base = variant_uidx * S_CAST(uintptr_t, 2);
+  if (allele_idx_offsets) {
+    allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+    *allele_ctp = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+  } else {
+    *allele_ctp = 2;
+  }
+  return &(allele_storage[allele_idx_offset_base]);
+}
 
 uint32_t TriangleDivide(int64_t cur_prod_x2, int32_t modif);
 

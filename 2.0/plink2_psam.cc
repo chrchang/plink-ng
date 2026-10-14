@@ -407,7 +407,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
       // phenotypes
       if (!raw_sample_ct) {
         for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-          if (IsCategoricalPhenostrNocsv(token_ptrs[pheno_idx + 5])) {
+          if ((!no_categorical) && IsCategoricalPhenostrNocsv(token_ptrs[pheno_idx + 5])) {
             SetBit(pheno_idx, categorical_phenos);
           }
         }
@@ -524,7 +524,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
             dxx = missing_phenod;
           } else {
             if (unlikely(!IsSet(categorical_phenos, pheno_idx))) {
-              assert(psam_info_reverse_ll->next);
+              if (!psam_info_reverse_ll->next) {
+                // First line, so the entry was classified as numeric; it
+                // looks like a number but is out of range (e.g. 1e400).
+                *K_CAST(char*, &(cur_phenostr[slen])) = '\0';
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, psamname);
+                goto LoadPsam_ret_MALFORMED_INPUT_WW;
+              }
               const uint32_t is_second_relevant_line = !(psam_info_reverse_ll->next->next);
               logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &((*pheno_names_ptr)[pheno_idx * max_pheno_name_blen]), line_idx, psamname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
               goto LoadPsam_ret_INCOMPATIBLE_PHENOSTRS;
@@ -975,7 +981,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         pheno_prestart = &(line_iter[3]);
       }
       linebuf_iter = CommaOrTspaceFirstToken(pheno_prestart, comma_delim);
-      {
+      // linebuf_iter is null when the header has no column after the IDs
+      if (linebuf_iter) {
         const char* token_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
         const uintptr_t token_slen = token_end - linebuf_iter;
         if (strequal_k(linebuf_iter, "SID", token_slen)) {
@@ -1237,54 +1244,56 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         continue;
       }
-      if (!comma_delim) {
-        line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
-      } else {
-        line_iter = CsvLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
-      }
-      if (unlikely(!line_iter)) {
-        goto LoadPhenos_ret_MISSING_TOKENS;
-      }
-      if ((!pheno_info_reverse_ll) && (!no_categorical)) {
-        // first relevant line, detect categorical phenotypes...
-        // bugfix (18 Apr 2024): ...unless --no-categorical
-        for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
-          if (IsCategoricalPhenostr(token_ptrs[new_pheno_idx])) {
-            SetBit(new_pheno_idx, categorical_phenos);
-          } else if (affection_01 == 2) {
-            SetBit(new_pheno_idx, quantitative_phenos);
-          }
+      if (new_pheno_ct) {
+        if (!comma_delim) {
+          line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
+        } else {
+          line_iter = CsvLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
         }
-        categorical_pheno_ct = PopcountWords(categorical_phenos, new_pheno_ctl);
-        if (categorical_pheno_ct) {
-          // initialize hash table
-          const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
-          const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
-          const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
-
-          if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
-            goto LoadPhenos_ret_NOMEM;
+        if (unlikely(!line_iter)) {
+          goto LoadPhenos_ret_MISSING_TOKENS;
+        }
+        if ((!pheno_info_reverse_ll) && (!no_categorical)) {
+          // first relevant line, detect categorical phenotypes...
+          // bugfix (18 Apr 2024): ...unless --no-categorical
+          for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
+            if (IsCategoricalPhenostr(token_ptrs[new_pheno_idx])) {
+              SetBit(new_pheno_idx, categorical_phenos);
+            } else if (affection_01 == 2) {
+              SetBit(new_pheno_idx, quantitative_phenos);
+            }
           }
-          tmp_bigstack_end -= cat_ul_byte_ct;
-          total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_end);
-          tmp_bigstack_end -= cat_ul_byte_ct;
-          pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_end);
-          ZeroWArr(categorical_pheno_ct, total_catname_blens);
-          tmp_bigstack_end -= htable_byte_ct;
-          catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_end);
-          ZeroPtrArr(kCatHtableSize, catname_htable);
-          uint32_t cur_hval = missing_catname_hval;
-          for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
-            tmp_bigstack_end -= entry_byte_ct;
-            CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
-            pheno_catname_last[cat_pheno_idx] = new_entry;
-            new_entry->cat_idx = 0;
-            new_entry->htable_next = nullptr;
-            new_entry->pheno_next = nullptr;
-            memcpy(new_entry->str, missing_catname, missing_catname_blen);
-            catname_htable[cur_hval++] = new_entry;
-            if (cur_hval == kCatHtableSize) {
-              cur_hval = 0;
+          categorical_pheno_ct = PopcountWords(categorical_phenos, new_pheno_ctl);
+          if (categorical_pheno_ct) {
+            // initialize hash table
+            const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
+            const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
+            const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
+
+            if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
+              goto LoadPhenos_ret_NOMEM;
+            }
+            tmp_bigstack_end -= cat_ul_byte_ct;
+            total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_end);
+            tmp_bigstack_end -= cat_ul_byte_ct;
+            pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_end);
+            ZeroWArr(categorical_pheno_ct, total_catname_blens);
+            tmp_bigstack_end -= htable_byte_ct;
+            catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_end);
+            ZeroPtrArr(kCatHtableSize, catname_htable);
+            uint32_t cur_hval = missing_catname_hval;
+            for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
+              tmp_bigstack_end -= entry_byte_ct;
+              CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
+              pheno_catname_last[cat_pheno_idx] = new_entry;
+              new_entry->cat_idx = 0;
+              new_entry->htable_next = nullptr;
+              new_entry->pheno_next = nullptr;
+              memcpy(new_entry->str, missing_catname, missing_catname_blen);
+              catname_htable[cur_hval++] = new_entry;
+              if (cur_hval == kCatHtableSize) {
+                cur_hval = 0;
+              }
             }
           }
         }
@@ -1317,10 +1326,21 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             dxx = missing_phenod;
           } else {
             if (unlikely(!IsSet(categorical_phenos, new_pheno_idx))) {
-              assert(pheno_info_reverse_ll);
+              if (!pheno_info_reverse_ll) {
+                // First relevant line, so the entry was classified as
+                // numeric; it looks like a number but is out of range (e.g.
+                // 1e400).
+                *K_CAST(char*, &(cur_phenostr[slen])) = '\0';
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
+                goto LoadPhenos_ret_MALFORMED_INPUT_WW;
+              }
               const uint32_t is_second_relevant_line = !(pheno_info_reverse_ll->next);
               logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &(pheno_names[(old_pheno_ct + new_pheno_idx) * max_pheno_name_blen]), line_idx, pheno_fname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
               goto LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS;
+            }
+            if (unlikely(slen > kMaxIdSlen)) {
+              logerrputs("Error: Categorical phenotypes are limited to " MAX_ID_SLEN_STR " characters.\n");
+              goto LoadPhenos_ret_MALFORMED_INPUT;
             }
             uint32_t hashval;
             hashval = Hashceil(cur_phenostr, slen, kCatHtableSize) + cat_pheno_idx;
@@ -1461,7 +1481,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         new_pheno_data_iter = &(new_pheno_data_iter[nonmiss_vec_ct * kWordsPerVec]);
         if (is_categorical) {
           // allow nonmiss[] to be ignored in categorical case
-          ZeroWArr(data_vec_ct, new_pheno_data_iter);
+          ZeroWArr(data_vec_ct * kWordsPerVec, new_pheno_data_iter);
           pheno_cols_iter->data.cat = R_CAST(uint32_t*, new_pheno_data_iter);
           new_pheno_data_iter = &(new_pheno_data_iter[data_vec_ct * kWordsPerVec]);
           const char** cur_name_ptrs = R_CAST(const char**, new_pheno_data_iter);
@@ -1545,6 +1565,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         logerrputs("Warning: Phenotype/covariate value in [-8, -9) or (-9, -10] present, when -9\nis treated as missing.  Use --no-input-missing-phenotype to treat -9 as a\nnumeric value (missing values can be indicated by 'NA'), or\n--neg9-pheno-really-missing to suppress this warning.\n");
       }
     }
+    free_cond(*pheno_names_ptr);
     *pheno_names_ptr = pheno_names;
     *max_pheno_name_blen_ptr = max_pheno_name_blen;
   }

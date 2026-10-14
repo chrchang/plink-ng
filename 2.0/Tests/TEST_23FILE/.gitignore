@@ -5,3 +5,8 @@ multi*
 tmp_long.vcf
 expected_multi.txt
 *.log
+indel_edge.vcf
+expected_edge_indel.txt
+expected_dup_indel.txt
+indel_dup.vcf
+tmp_dup_err.txt

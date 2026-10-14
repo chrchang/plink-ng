@@ -31,8 +31,8 @@ summary_compare() {
 #    pair.
 plink --bfile tmp_data --fast-epistasis boost --epi1 1 --out plink19
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi1 1 --out plink2
-compare plink19.epi.cc plink2.epi.cc
-head -n 1 plink2.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF	P'
+compare plink19.epi.cc plink2.PHENO1.epi.cc
+head -n 1 plink2.PHENO1.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF	P'
 
 # 2. Stricter screening thresholds, with --epi2 set apart from --epi1 so that
 #    the summary's N_SIG is counted on its own threshold.
@@ -40,14 +40,14 @@ for e in 0.01 0.001 0.0001
 do
     plink --bfile tmp_data --fast-epistasis boost --epi1 $e --epi2 0.005 --out plink19_bp
     $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi1 $e --epi2 0.005 --out plink2_bp
-    compare plink19_bp.epi.cc plink2_bp.epi.cc
-    summary_compare plink19_bp.epi.cc.summary plink2_bp.epi.cc.summary
+    compare plink19_bp.epi.cc plink2_bp.PHENO1.epi.cc
+    summary_compare plink19_bp.epi.cc.summary plink2_bp.PHENO1.epi.cc.summary
 done
 
 # 3. The --epi1 default is 5e-6, which only a run with no --epi1 at all checks.
 plink --bfile tmp_data --fast-epistasis boost --epi2 0.005 --out plink19_bd
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi2 0.005 --out plink2_bd
-summary_compare plink19_bd.epi.cc.summary plink2_bd.epi.cc.summary
+summary_compare plink19_bd.epi.cc.summary plink2_bd.PHENO1.epi.cc.summary
 plink --bfile tmp_data --fast-epistasis boost --epi1 5e-6 --epi2 0.005 --out plink19_be
 diff -q <(tail -n +2 plink19_bd.epi.cc) <(tail -n +2 plink19_be.epi.cc)
 
@@ -58,61 +58,210 @@ diff -q <(tail -n +2 plink19_bd.epi.cc) <(tail -n +2 plink19_be.epi.cc)
 plink --simulate simulate_rare.txt --simulate-ncases 40 --simulate-ncontrols 40 --simulate-missing 0.1 --out tmp_rare > /dev/null
 plink --bfile tmp_rare --fast-epistasis boost --epi1 1 --epi2 0.02 --out plink19_br
 $1/plink2 $2 $3 --bfile tmp_rare --epistasis-boost --epi1 1 --epi2 0.02 --out plink2_br
-compare plink19_br.epi.cc plink2_br.epi.cc
-summary_compare plink19_br.epi.cc.summary plink2_br.epi.cc.summary
-test "$(awk '!/^#/ && $6 != 4' plink2_br.epi.cc | wc -l)" -gt 0
-test "$(awk '!/^#/ && $6 == 4' plink2_br.epi.cc | wc -l)" -gt 0
+compare plink19_br.epi.cc plink2_br.PHENO1.epi.cc
+summary_compare plink19_br.epi.cc.summary plink2_br.PHENO1.epi.cc.summary
+test "$(awk '!/^#/ && $6 != 4' plink2_br.PHENO1.epi.cc | wc -l)" -gt 0
+test "$(awk '!/^#/ && $6 == 4' plink2_br.PHENO1.epi.cc | wc -l)" -gt 0
 
 # 5. The .summary report: N_SIG, N_TOT, BEST_CHISQ and the variant it names.
 plink --bfile tmp_data --fast-epistasis boost --epi1 1 --epi2 0.05 --out plink19_s
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi1 1 --epi2 0.05 --out plink2_s
-summary_compare plink19_s.epi.cc.summary plink2_s.epi.cc.summary
+summary_compare plink19_s.epi.cc.summary plink2_s.PHENO1.epi.cc.summary
 
 # 6. --epi1 filters the main report without changing the summary's N_TOT, which
 #    counts every pair the fit stage could have been reached from.
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi1 0.001 --epi2 0.05 --out plink2_p1
-test "$(grep -vc '^#' plink2_p1.epi.cc)" -lt "$(grep -vc '^#' plink2_s.epi.cc)"
-diff <(cut -f2,4 plink2_p1.epi.cc.summary) <(cut -f2,4 plink2_s.epi.cc.summary)
+test "$(grep -vc '^#' plink2_p1.PHENO1.epi.cc)" -lt "$(grep -vc '^#' plink2_s.PHENO1.epi.cc)"
+diff <(cut -f2,4 plink2_p1.PHENO1.epi.cc.summary) <(cut -f2,4 plink2_s.PHENO1.epi.cc.summary)
 
 # 7. --threads 1 must reproduce the default run.
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi1 1 --threads 1 --out plink2_st
-diff -q plink2.epi.cc plink2_st.epi.cc
-diff -q plink2.epi.cc.summary plink2_st.epi.cc.summary
+diff -q plink2.PHENO1.epi.cc plink2_st.PHENO1.epi.cc
+diff -q plink2.PHENO1.epi.cc.summary plink2_st.PHENO1.epi.cc.summary
 
 # 8. --parallel: the chunks concatenate to the whole report.
 for i in 1 2 3
 do
     $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --epi1 1 --parallel $i 3 --out plink2_par$i
 done
-cat plink2_par1.epi.cc.1 plink2_par2.epi.cc.2 plink2_par3.epi.cc.3 > plink2_par.epi.cc
-diff -q plink2.epi.cc plink2_par.epi.cc
+cat plink2_par1.PHENO1.epi.cc.1 plink2_par2.PHENO1.epi.cc.2 plink2_par3.PHENO1.epi.cc.3 > plink2_par.PHENO1.epi.cc
+diff -q plink2.PHENO1.epi.cc plink2_par.PHENO1.epi.cc
 
 # 9. 'zs' is the same report, compressed.
 $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost zs --epi1 1 --out plink2_zs
-$1/plink2 $2 $3 --zst-decompress plink2_zs.epi.cc.zst > plink2_zs.epi.cc
-diff -q plink2.epi.cc plink2_zs.epi.cc
+$1/plink2 $2 $3 --zst-decompress plink2_zs.PHENO1.epi.cc.zst > plink2_zs.PHENO1.epi.cc
+diff -q plink2.PHENO1.epi.cc plink2_zs.PHENO1.epi.cc
 
-# 10. 'nop' drops the p-value column.
-$1/plink2 $2 $3 --bfile tmp_data --epistasis-boost nop --epi1 1 --out plink2_nop
-head -n 1 plink2_nop.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF'
+# 10. 'cols=-p' drops the p-value column, mirroring old 'nop'.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis-boost cols=-p --epi1 1 --out plink2_nop
+head -n 1 plink2_nop.PHENO1.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF'
 
 # 11. --fast-epistasis boost is accepted as a synonym, modifiers included, and
 #     --fast-epistasis without 'boost' is not: its default test is retired.
 $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost --epi1 1 --out plink2_fe
-diff -q plink2.epi.cc plink2_fe.epi.cc
-diff -q plink2.epi.cc.summary plink2_fe.epi.cc.summary
-$1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost nop --epi1 1 --out plink2_fenop
-diff -q plink2_nop.epi.cc plink2_fenop.epi.cc
+diff -q plink2.PHENO1.epi.cc plink2_fe.PHENO1.epi.cc
+diff -q plink2.PHENO1.epi.cc.summary plink2_fe.PHENO1.epi.cc.summary
+$1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost cols=-p --epi1 1 --out plink2_fenop
+diff -q plink2_nop.PHENO1.epi.cc plink2_fenop.PHENO1.epi.cc
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis --epi1 1 --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis zs --epi1 1 --out plink2_bad
 
-# 12. Rejected: the retired tests, the modifiers that need variant sets, and
-#     the flag dependencies.
+# 12. Rejected: the retired tests and the flag dependencies.
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost case-only --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost no-ueki --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost joint-effects --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost case-only --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost boost --out plink2_bad
-fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost set-by-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epi1 0.01 --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --gap 100 --out plink2_bad
+
+# 13. Covariates.  PLINK 1.9 has none here, so the adjusted statistic is
+#     checked against oracle_covar.py, which fits the same two models with a
+#     different coding.
+plink --simulate simulate_covar.txt --simulate-ncases 75 --simulate-ncontrols 75 --out tmp_oc > /dev/null
+awk 'BEGIN{OFS=" "} {print $1, $2, ((NR*7)%11)*0.25, (NR%3)*1.0}' tmp_oc.fam > tmp_oc_cov_body.txt
+(echo "#FID IID Q1 B1"; cat tmp_oc_cov_body.txt) > tmp_oc_cov.txt
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_cov.txt --out plink2_oc
+python3 oracle_covar.py tmp_oc tmp_oc_cov.txt > tmp_oc_oracle.txt
+awk -f cmp_covar.awk tmp_oc_oracle.txt plink2_oc.PHENO1.epi.cc
+
+# 14. A sampling zero costs the full model a parameter but does not cost the
+#     table a degree of freedom, so the adjusted DF is the unadjusted one on
+#     every pair; only an empty row or column, which drops a genotype level
+#     outright, brings either below 4.
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --out plink2_oc_un
+awk 'NR == FNR { if (FNR > 1) df1[$2 "|" $4] = $6; next }
+     FNR > 1 {
+       k = $2 "|" $4
+       if ($6 != df1[k]) { print "adjusted DF " $6 " vs unadjusted " df1[k] " on " k; exit 1 }
+       if ($6 < 4) { ++reduced }
+       ++compared
+     }
+     END { if (compared == 0) { print "no pairs compared"; exit 1 }
+           print compared " pairs agree on DF, " reduced+0 " of them below 4" }' plink2_oc_un.PHENO1.epi.cc plink2_oc.PHENO1.epi.cc
+# A pair the unadjusted scan gives fewer than 4 degrees of freedom has a
+# variant with a missing genotype level, which is the case that does reduce
+# them; the refit of that one pair has to agree.  (The simulated data has
+# hundreds of these, but nothing guarantees one, so this is conditional.)
+awk 'FNR > 1 && $6 < 4 { print $2; print $4; exit }' plink2.PHENO1.epi.cc > tmp_df2_vars.txt
+df2_expected=$(awk 'FNR > 1 && $6 < 4 { print $6; exit }' plink2.PHENO1.epi.cc)
+if [ -n "$df2_expected" ]; then
+    awk 'BEGIN{OFS=" "} {print $1, $2, ((NR*7)%11)*0.25}' tmp_data.fam > tmp_df2_cov_body.txt
+    (echo "#FID IID Q1"; cat tmp_df2_cov_body.txt) > tmp_df2_cov.txt
+    $1/plink2 $2 $3 --bfile tmp_data --extract tmp_df2_vars.txt --epistasis-boost no-firth --epi1 1 --covar tmp_df2_cov.txt --out plink2_df2
+    awk -v want="$df2_expected" 'FNR > 1 { if ($6 != want) { print "expected DF " want ", got " $6; exit 1 }; ++n }
+         END { if (n != 1) { print "expected one pair, got " n+0; exit 1 }
+               print "reduced-DF pair refit at DF " want }' plink2_df2.PHENO1.epi.cc
+fi
+
+# 15. A covariate that is constant over the analysis samples is dropped, and
+#     the run then has nothing to adjust for, so it must reproduce the
+#     unadjusted report exactly.
+awk 'BEGIN{OFS=" "} {print $1, $2, 1}' tmp_oc.fam > tmp_oc_const_body.txt
+(echo "#FID IID CONST"; cat tmp_oc_const_body.txt) > tmp_oc_const.txt
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_const.txt --out plink2_oc_const 2> plink2_oc_const.err
+grep -q "Excluding constant covariate 'CONST'" plink2_oc_const.err
+diff -q plink2_oc_un.PHENO1.epi.cc plink2_oc_const.PHENO1.epi.cc
+
+# 16. A sample missing a covariate is left out of the whole scan, not just of
+#     the refit, so the screen sees the same samples the refit does.
+awk 'BEGIN{OFS=" "} {print $1, $2, (NR == 1)? "NA" : ((NR*7)%11)*0.25}' tmp_oc.fam > tmp_oc_miss_body.txt
+(echo "#FID IID Q1"; cat tmp_oc_miss_body.txt) > tmp_oc_miss.txt
+head -n 1 tmp_oc.fam | awk '{print $1, $2}' > tmp_oc_drop.txt
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_miss.txt --out plink2_oc_miss
+$1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost --epi1 1 --remove tmp_oc_drop.txt --out plink2_oc_rm
+diff <(cut -f2,4 plink2_oc_miss.PHENO1.epi.cc.summary) <(cut -f2,4 plink2_oc_rm.PHENO1.epi.cc.summary)
+
+# 17. Rejected: a categorical covariate, which the refit cannot code yet.
+awk 'BEGIN{OFS=" "} {print $1, $2, (NR%2)? "left" : "right"}' tmp_oc.fam > tmp_oc_cat_body.txt
+(echo "#FID IID SIDE"; cat tmp_oc_cat_body.txt) > tmp_oc_cat.txt
+fails $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_cat.txt --out plink2_bad
+
+# 18. 'log10' reports -log10(p) under a NEG_LOG10_P header.
+$1/plink2 $2 $3 --bfile tmp_data --epistasis-boost log10 --epi1 1 --out plink2_log10
+head -n 1 plink2_log10.PHENO1.epi.cc | grep -qx '#CHROM1	ID1	CHROM2	ID2	STAT	DF	NEG_LOG10_P'
+paste <(cut -f 7 plink2.PHENO1.epi.cc) <(cut -f 7 plink2_log10.PHENO1.epi.cc) | awk 'NR > 1 {d = -log($1) / log(10) - $2; if (d < 0) {d = -d} if (d > 1e-4 * (1 + $2)) {exit 1}}'
+
+# 19. Case/control counts whose bit arrays take an odd number (7 or more) of
+#     words: the per-group bitvectors were packed at that unaligned stride, and
+#     PopcountWordsIntersect() crashed on them.
+$1/plink2 $2 $3 --dummy 800 20 0.5 --seed 1 --epistasis-boost --epi1 1 --out plink2_n800
+
+# 20. The set modes, which PLINK 1.9 also has, so they are checked against it.
+#     setA is 40 variants on the first chromosome, setB 30 on the second.
+#     With --epi1 1 every pair tested is reported, including one whose
+#     statistic is zero up to rounding noise of either sign (seed 1791033820
+#     once left such a pair out of set-by-all).
+{
+    printf 'setA\n'
+    awk 'NR <= 40 {print $2}' tmp_data.bim
+    printf 'END\n\nsetB\n'
+    awk 'NR > 200 && NR <= 230 {print $2}' tmp_data.bim
+    printf 'END\n'
+} > tmp_sets.txt
+
+# 20a. One set: every pair inside it, which is still a triangle.
+plink --bfile tmp_data --set tmp_sets.txt --set-names setA --fast-epistasis boost set-by-set --epi1 1 --out plink19_sbs
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --out plink2_sbs
+compare plink19_sbs.epi.cc plink2_sbs.PHENO1.epi.cc
+test "$(grep -vc '^#' plink2_sbs.PHENO1.epi.cc)" -eq 780
+
+# 20b. Two sets: every ordered pair across them.
+plink --bfile tmp_data --set tmp_sets.txt --fast-epistasis boost set-by-set --epi1 1 --out plink19_2s
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis-boost set-by-set --epi1 1 --out plink2_2s
+compare plink19_2s.epi.cc plink2_2s.PHENO1.epi.cc
+test "$(grep -vc '^#' plink2_2s.PHENO1.epi.cc)" -eq 1200
+
+# 20c. set-by-all: the set against every variant, minus the self-pairs.
+plink --bfile tmp_data --set tmp_sets.txt --set-names setA --fast-epistasis boost set-by-all --epi1 1 --out plink19_sba
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-all --epi1 1 --out plink2_sba
+compare plink19_sba.epi.cc plink2_sba.PHENO1.epi.cc
+test "$(grep -vc '^#' plink2_sba.PHENO1.epi.cc)" -eq 23960
+
+# 21. --parallel splits the row list in both modes, and the chunks concatenate.
+for i in 1 2 3
+do
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-all --epi1 1 --parallel $i 3 --out plink2_sbap$i
+done
+cat plink2_sbap1.PHENO1.epi.cc.1 plink2_sbap2.PHENO1.epi.cc.2 plink2_sbap3.PHENO1.epi.cc.3 > plink2_sbap.PHENO1.epi.cc
+diff -q plink2_sba.PHENO1.epi.cc plink2_sbap.PHENO1.epi.cc
+for i in 1 2 3
+do
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --parallel $i 3 --out plink2_sbsp$i
+done
+cat plink2_sbsp1.PHENO1.epi.cc.1 plink2_sbsp2.PHENO1.epi.cc.2 plink2_sbsp3.PHENO1.epi.cc.3 > plink2_sbsp.PHENO1.epi.cc
+diff -q plink2_sbs.PHENO1.epi.cc plink2_sbsp.PHENO1.epi.cc
+
+# 22. A variant filter takes variants out of the sets, so the row count follows.
+printf 'common_0\ncommon_1\n' > tmp_set_exclude.txt
+$1/plink2 $2 $3 --bfile tmp_data --exclude tmp_set_exclude.txt --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --out plink2_sbsf
+test "$(grep -vc '^#' plink2_sbsf.PHENO1.epi.cc)" -eq 703
+
+# 23. Rejected: a set mode with no --set, the two modes together, set-by-all
+#     with more than one set, and set-by-set with more than two.
+fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost set-by-set --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis-boost set-by-set set-by-all --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis-boost set-by-all --out plink2_bad
+{
+    cat tmp_sets.txt
+    printf '\nsetC\ncommon_5\nEND\n'
+} > tmp_three.txt
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_three.txt --epistasis-boost set-by-set --out plink2_bad
+
+# 24. The set definitions have to outlive every bigstack reset between where
+#     they are built and the scan.  Freed set memory is only overwritten once
+#     the scan's own sample-sized buffers are large enough, so this needs a
+#     sample count well above the other tests'.
+plink --dummy 40000 600 0.1 acgt --make-bed --out tmp_wide > /dev/null
+awk 'BEGIN{OFS="\t"} {print int((NR - 1) / 200) + 1, $2, 0, ((NR - 1) % 200) * 400000 + 1, $5, $6}' tmp_wide.bim > tmp_wide_relabeled.bim
+mv tmp_wide_relabeled.bim tmp_wide.bim
+{
+    printf 'setA\n'
+    awk 'NR <= 40 {print $2}' tmp_wide.bim
+    printf 'END\n\nsetB\n'
+    awk 'NR > 200 && NR <= 230 {print $2}' tmp_wide.bim
+    printf 'END\n'
+} > tmp_wide_sets.txt
+plink --bfile tmp_wide --set tmp_wide_sets.txt --fast-epistasis boost set-by-set --epi1 1 --out plink19_wide
+$1/plink2 $2 $3 --bfile tmp_wide --set tmp_wide_sets.txt --epistasis-boost set-by-set --epi1 1 --out plink2_wide
+compare plink19_wide.epi.cc plink2_wide.PHENO1.epi.cc

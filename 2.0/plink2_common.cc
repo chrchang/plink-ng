@@ -130,6 +130,8 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     pgvp->phasepresent = nullptr;
     pgvp->phaseinfo = nullptr;
   }
+  pgvp->dphase_present = nullptr;
+  pgvp->dphase_delta = nullptr;
   if (gflags & kfPgenGlobalDosagePresent) {
     if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->dosage_present)) ||
                  bigstack_allocv_dosage(sample_ct, &(pgvp->dosage_main)))) {
@@ -146,12 +148,14 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
       if (multiallelic_needed) {
         // todo
       }
+    } else {
+      // bugfix (21 Sep 2026): these were left uninitialized
+      pgvp->dphase_present = nullptr;
+      pgvp->dphase_delta = nullptr;
     }
   } else {
     pgvp->dosage_present = nullptr;
     pgvp->dosage_main = nullptr;
-    pgvp->dphase_present = nullptr;
-    pgvp->dphase_delta = nullptr;
     // todo: multiallelic-dosage buffers
   }
   return BigstackBaseSetChecked(g_bigstack_base);
@@ -1967,6 +1971,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
   // while the latter doesn't match any major resource.  no "chr" to reduce
   // file sizes and reduce the impact of this change.
   cip->output_encoding = kfChrOutputMT;
+  cip->output_infer = kfChrInfer0;
 
   cip->zero_extra_chrs = 0;
   cip->is_include_stack = 0;
@@ -2208,6 +2213,53 @@ char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encodi
     }
   }
   return buf;
+}
+
+void NoteChrCodeStyle(const char* chr_name, uint32_t name_slen, uint32_t chr_idx, ChrInfo* cip) {
+  // chr_idx == 0 is always rendered as '0', PAR1/PAR2 never get a 'chr'
+  // prefix, and contig names are never changed, so they tell us nothing.
+  if ((!chr_idx) || (chr_idx > cip->max_numeric_code)) {
+    return;
+  }
+  ChrInfer infer_flags = cip->output_infer;
+  // GetChrCodeRaw() only accepts a leading 'c'/'C' as part of a 'chr' prefix.
+  if ((ctou32(chr_name[0]) & 0xdf) == 'C') {
+    infer_flags |= kfChrInferPrefix;
+  } else {
+    infer_flags |= kfChrInferNoPrefix;
+  }
+  if (chr_idx > cip->autosome_ct) {
+    const uint32_t last_char_code = ctou32(chr_name[name_slen - 1]);
+    if (IsDigit(last_char_code)) {
+      infer_flags |= kfChrInferNumeric;
+    } else {
+      infer_flags |= kfChrInferLetter;
+      if (chr_idx == cip->xymt_codes[kChrOffsetMT]) {
+        infer_flags |= ((last_char_code & 0xdf) == 'T')? kfChrInferMT : kfChrInferM;
+      }
+    }
+  }
+  cip->output_infer = infer_flags;
+}
+
+void InferChrOutputEncoding(ChrInfo* cip) {
+  const ChrInfer infer_flags = cip->output_infer;
+  if (!infer_flags) {
+    return;
+  }
+  // Each part of the encoding is inferred separately; if the input is
+  // inconsistent or uninformative, we fall back on the default for that part.
+  ChrOutput output_encoding = kfChrOutputMT;
+  if ((infer_flags & (kfChrInferNumeric | kfChrInferLetter)) == kfChrInferNumeric) {
+    output_encoding = kfChrOutput0;
+  } else if ((infer_flags & (kfChrInferM | kfChrInferMT)) == kfChrInferM) {
+    output_encoding = kfChrOutputM;
+  }
+  if ((infer_flags & (kfChrInferPrefix | kfChrInferNoPrefix)) == kfChrInferPrefix) {
+    output_encoding |= kfChrOutputPrefix;
+  }
+  cip->output_encoding = output_encoding;
+  cip->output_infer = kfChrInferOn;
 }
 
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
@@ -3692,6 +3744,40 @@ void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {
   }
 }
 
+const char g_cc_cat_names[2][8] = {"CONTROL", "CASE"};
+
+BoolErr CatFromBinaryPheno(uint32_t raw_sample_ct, const PhenoCol** pheno_col_pp) {
+  const PhenoCol* orig_pheno_col = *pheno_col_pp;
+  assert(orig_pheno_col->type_code == kPhenoDtypeCc);
+  PhenoCol* synthetic_pheno_col;
+  uint32_t* cat_tmp;
+  const char** category_names;
+  if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, 1, &synthetic_pheno_col) ||
+               bigstack_end_calloc_u32(raw_sample_ct, &cat_tmp) ||
+               bigstack_end_alloc_kcp(3, &category_names))) {
+    return 1;
+  }
+  const uintptr_t* raw_pheno_nm = orig_pheno_col->nonmiss;
+  const uintptr_t* pheno_cc = orig_pheno_col->data.cc;
+  for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+    if (!IsSet(raw_pheno_nm, sample_uidx)) {
+      continue;
+    }
+    // 'CASE' is lexicographically before 'CONTROL'
+    cat_tmp[sample_uidx] = 2 - IsSet(pheno_cc, sample_uidx);
+  }
+  category_names[0] = nullptr;
+  category_names[1] = g_cc_cat_names[1];
+  category_names[2] = g_cc_cat_names[0];
+  synthetic_pheno_col->category_names = category_names;
+  synthetic_pheno_col->nonmiss = orig_pheno_col->nonmiss;
+  synthetic_pheno_col->data.cat = cat_tmp;
+  synthetic_pheno_col->type_code = kPhenoDtypeCat;
+  synthetic_pheno_col->nonnull_category_ct = 2;
+  *pheno_col_pp = synthetic_pheno_col;
+  return 0;
+}
+
 PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t prohibit_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask) {
   PglErr reterr = kPglRetSuccess;
   {
@@ -4367,6 +4453,15 @@ void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr
       logerrprintfww("Error: Failed to unpack (0-based) variant #%u in %s.\n", variant_uidx, file_descrip);
     }
     logerrputs("You can use --validate to check whether it is malformed.\n* If it is malformed, you probably need to either re-download the file, or\n  address an error in the command that generated the input .pgen.\n* If it appears to be valid, you have probably encountered a plink2 bug.  If\n  you report the error on GitHub or the plink2-users Google group (make sure to\n  include the full .log file in your report), we'll try to address it.\n");
+  } else if (reterr == kPglRetInconsistentInput) {
+    if (prepend_lf) {
+      logputs("\n");
+    }
+    if (variant_uidx == UINT32_MAX) {
+      logerrprintfww("Error: .pvar entry has too few alleles to be consistent with corresponding record in %s .\n", file_descrip);
+    } else {
+      logerrprintfww("Error: .pvar entry for (0-based) variant #%u has too few alleles to be consistent with corresponding record in %s .\n", variant_uidx, file_descrip);
+    }
   }
 }
 

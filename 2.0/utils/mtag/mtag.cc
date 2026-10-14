@@ -455,7 +455,7 @@ BoolErr LdscRegress(const LdscArgs* args, LdscKind kind, double* weight_buf, dou
 // ---------------------------------------------------------------------------
 
 double MtagNormalSf(double x) {
-  return 0.5 * erfc(x * M_SQRT1_2);
+  return 0.5 * erfc(x * (1.0 / kSqrt2));
 }
 
 // Inverse survival function, by bisection.  Called once per run.

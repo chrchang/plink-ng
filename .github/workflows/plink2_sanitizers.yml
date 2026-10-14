@@ -1,0 +1,145 @@
+name: PLINK2 sanitizers
+
+# Builds PLINK 2.0 with AddressSanitizer, LeakSanitizer and
+# UndefinedBehaviorSanitizer (2.0/build_san) and runs the self-contained suite
+# in 2.0/Tests against it, so that memory errors, leaks and undefined
+# behaviour on the tested code paths fail the pull request that introduces
+# them rather than surfacing in a user's run.
+#
+# This is build_san's default configuration, which performs unaligned vector
+# accesses on purpose and so leaves the alignment check off.  The Makefile's
+# NO_UNALIGNED=1 configuration, which turns that check on for the aligned
+# code paths, is not run here yet: it currently reports misaligned
+# SamePosPvarRecord accesses in --pmerge.
+#
+# Linux only.  The sanitizer build is several times slower than the
+# production one, and the functional-tests workflow already covers macOS.
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '1.9/**'
+      - '2.0/**'
+      - '.github/workflows/plink2_sanitizers.yml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '1.9/**'
+      - '2.0/**'
+      - '.github/workflows/plink2_sanitizers.yml'
+  workflow_dispatch:
+
+jobs:
+  run_tests:
+    name: 2.0/Tests under ASan+UBSan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libopenblas-dev \
+            liblapack-dev \
+            liblapacke-dev \
+            zlib1g-dev \
+            libzstd-dev
+
+      - name: Determine parallelism
+        run: echo "NPROC=$(getconf _NPROCESSORS_ONLN)" >> "$GITHUB_ENV"
+
+      # The sanitizer runtimes cannot map their shadow memory when the kernel
+      # randomizes mmap with 32 bits of entropy, which some runner images do
+      # (actions/runner-images#9515); 28 bits is the value they work with.
+      - name: Limit mmap randomization for the sanitizer runtimes
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Build sanitizer PLINK 2.0 and pgen_compress
+        working-directory: 2.0/build_san
+        run: make -j"$NPROC"
+
+      - name: Build PLINK 1.9
+        working-directory: 1.9
+        run: make -j"$NPROC" ZLIB=-lz BLASFLAGS="-llapack -lopenblas"
+
+      - name: Put PLINK 1.9 on PATH
+        run: echo "$GITHUB_WORKSPACE/1.9" >> "$GITHUB_PATH"
+
+      - name: Report versions
+        run: |
+          plink --version
+          2.0/build_san/plink2 --version
+
+      - name: Run 2.0/Tests
+        id: tests
+        working-directory: 2.0/Tests
+        env:
+          # Leak detection is on by default on Linux, but say so; halt_on_error
+          # makes UBSan reports fatal instead of just printed.
+          #
+          # Tests that expect plink2 to fail accept any non-zero exit status, so
+          # reports go to files and "Fail on sanitizer reports" checks them.
+          # With ASan, GCC's UBSan ignores log_path; abort_on_error plus
+          # handle_abort turns each UBSan report into an ASan one in the files.
+          # UBSan's log_path is still needed, or it sends ASan's output to stderr.
+          ASAN_OPTIONS: detect_leaks=1:handle_abort=1:log_path=${{ github.workspace }}/2.0/Tests/sanitizer-reports/asan
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1:abort_on_error=1:log_path=${{ github.workspace }}/2.0/Tests/sanitizer-reports/ubsan
+        run: |
+          mkdir -p sanitizer-reports sanitizer-canary
+          # Check that reports reach the files on this runner: a leak and a
+          # signed overflow (which only UBSan reports) must each leave one.
+          printf '%s\n' '#include <stdlib.h>' \
+            'int main(int argc, char** argv) {' \
+            '  volatile int big = 2147483647;' \
+            '  if (argc > 1) return malloc(16) == 0;' \
+            '  return big + argc;' \
+            '}' > sanitizer-canary/canary.c
+          gcc -O0 -g -fsanitize=address,undefined -fno-sanitize=alignment -o sanitizer-canary/canary sanitizer-canary/canary.c
+          for mode in leak ubsan; do
+            mkdir -p "sanitizer-canary/$mode"
+            args=()
+            if [ "$mode" = leak ]; then args=(leak); fi
+            ASAN_OPTIONS="${ASAN_OPTIONS//sanitizer-reports/sanitizer-canary/$mode}" \
+            UBSAN_OPTIONS="${UBSAN_OPTIONS//sanitizer-reports/sanitizer-canary/$mode}" \
+              ./sanitizer-canary/canary "${args[@]}" 2> "sanitizer-canary/$mode.stderr" || true
+            if [ -z "$(ls -A "sanitizer-canary/$mode")" ]; then
+              echo "::error::A sanitizer report ($mode) did not reach a report file, so the report check would miss it."
+              cat "sanitizer-canary/$mode.stderr"
+              exit 1
+            fi
+          done
+          ./run_tests.sh "$GITHUB_WORKSPACE/2.0/build_san"
+
+      - name: Fail on sanitizer reports
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        working-directory: 2.0/Tests
+        run: |
+          shopt -s nullglob
+          reports=(sanitizer-reports/*)
+          for f in "${reports[@]}"; do
+            echo "::group::$f"
+            cat "$f"
+            echo "::endgroup::"
+          done
+          if (( ${#reports[@]} )); then
+            echo "::error::${#reports[@]} sanitizer report(s); see above."
+            exit 1
+          fi
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plink2-sanitizer-logs
+          path: |
+            2.0/Tests/**/*.log
+            2.0/Tests/sanitizer-reports/
+            2.0/Tests/sanitizer-canary/
+          if-no-files-found: ignore

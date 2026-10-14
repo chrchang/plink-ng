@@ -53,6 +53,7 @@ void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_pt
 }
 
 void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
+  free_cond(adjust_file_info_ptr->test_name);
   free_cond(adjust_file_info_ptr->a1_field);
   free_cond(adjust_file_info_ptr->alt_field);
   free_cond(adjust_file_info_ptr->chr_field);
@@ -438,7 +439,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     double ln_pv_sidak_sd = -DBL_MAX;
     double ln_pv_holm = -DBL_MAX;
     uint32_t cur_allele_ct = 2;
-    uint32_t aidx = 0;
+    uintptr_t aidx = 0;
     for (; aidx < valid_allele_ct; ++aidx) {
       double ln_pval = sorted_ln_pvals[aidx];
       if (ln_pval > ln_pfilter) {
@@ -462,7 +463,9 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      // allele_storage is null in the --adjust-file case where no allele
+      // columns were requested; avoid pointer arithmetic on it.
+      const char* const* cur_alleles = allele_storage? &(allele_storage[allele_idx_offset_base]) : nullptr;
       if (ref_col) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -528,7 +531,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       }
       if (sidakss_col) {
         // avoid catastrophic cancellation for small p-values
-        // 1 - (1-p)^c = 1 - e^{c log(1-p)}
+        // 1 - (1-p)^c = 1 - e^{c log(1-p)} = -expm1(c log(1-p))
         // 2^{-7} threshold is arbitrary
         // 2^{-90} corresponds to cp + (cp)^2/2! == cp in double-precision
         // arithmetic, with several bits to spare
@@ -539,7 +542,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           if (ln_pval >= -7 * kLn2) {
             pv_sidak_ss = 1 - pow(1 - pval, valid_allele_ctd);
           } else {
-            pv_sidak_ss = 1 - exp(valid_allele_ctd * log1p(-pval));
+            pv_sidak_ss = -expm1(valid_allele_ctd * log1p(-pval));
           }
           ln_pv_sidak_ss = log(pv_sidak_ss);
         } else {
@@ -561,7 +564,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
             pv_sidak_sd_new = 1 - pow(1 - pval, valid_allele_ctd - aidx_d);
           } else {
             const double cur_exp = valid_allele_ctd - aidx_d;
-            pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
+            pv_sidak_sd_new = -expm1(cur_exp * log1p(-pval));
           }
           ln_pv_sidak_sd_new = log(pv_sidak_sd_new);
         } else {
@@ -586,8 +589,11 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto Multcomp_ret_WRITE_FAIL;
     }
-    // don't use valid_allele_ct due to --pfilter
-    logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
+    if (aidx == valid_allele_ct) {
+      logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
+    } else {
+      logprintfww("%" PRIuPTR " --adjust%s record%s (%" PRIuPTR " test%s, %" PRIuPTR " excluded by --pfilter) written to %s .\n", aidx, cip? "" : "-file", (aidx == 1)? "" : "s", valid_allele_ct, (valid_allele_ct == 1)? "" : "s", valid_allele_ct - aidx, outname);
+    }
   }
   while (0) {
   Multcomp_ret_NOMEM:
@@ -734,18 +740,18 @@ int32_t MetaGroupCmp(const void* aa, const void* bb) {
 // Fills col_skips/col_types for one input file; shared by both passes so the
 // two cannot disagree about which columns they are reading.
 static PglErr MetaSetupCols(const MetaInfo* mip, const char* header_start, const char* fname, uint32_t no_map, uint32_t no_allele, uint32_t input_is_beta, uint32_t weighted_z, uint32_t* col_skips, uint32_t* col_types, uint32_t* relevant_col_ct_ptr, uint32_t* has_a2_ptr) {
-  // [0] CHR, [1] SNP, [2] BP, [3] A1, [4] A2, [5] effect, [6] SE, [7] P,
-  // [8] effective sample size
+  // [0] CHROM/CHR, [1] ID/SNP, [2] POS/BP, [3] A1, [4] A2, [5] effect, [6] SE,
+  // [7] P, [8] effective sample size
   const char* col_search_order[9];
-  col_search_order[0] = no_map? "" : (mip->chr_field? mip->chr_field : "CHR\0CHROM\0");
-  col_search_order[1] = mip->snp_field? mip->snp_field : "SNP\0ID\0";
-  col_search_order[2] = no_map? "" : (mip->bp_field? mip->bp_field : "BP\0POS\0");
+  col_search_order[0] = no_map? "" : (mip->chr_field? mip->chr_field : "CHROM\0CHR\0");
+  col_search_order[1] = mip->snp_field? mip->snp_field : "ID\0SNP\0";
+  col_search_order[2] = no_map? "" : (mip->bp_field? mip->bp_field : "POS\0BP\0");
   col_search_order[3] = no_allele? "" : (mip->a1_field? mip->a1_field : "A1\0");
   col_search_order[4] = no_allele? "" : (mip->a2_field? mip->a2_field : "A2\0");
   col_search_order[5] = input_is_beta? "BETA\0" : "OR\0";
   col_search_order[6] = mip->se_field? mip->se_field : "SE\0";
   col_search_order[7] = weighted_z? (mip->p_field? mip->p_field : "P\0") : "";
-  col_search_order[8] = weighted_z? (mip->ess_field? mip->ess_field : "NMISS\0OBS_CT\0") : "";
+  col_search_order[8] = weighted_z? (mip->ess_field? mip->ess_field : "OBS_CT\0NMISS\0") : "";
   uint32_t found_type_bitset;
   PglErr reterr = SearchHeaderLine(header_start, col_search_order, "--meta-analysis", 9, relevant_col_ct_ptr, &found_type_bitset, col_skips, col_types);
   if (unlikely(reterr)) {
@@ -887,6 +893,9 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
 
     uintptr_t record_ct = 0;
     uintptr_t str_byte_ct = 0;
+    // longest CHR/A1/A2 token, which sizes the output buffer
+    uint32_t max_other_slen = 0;
+    uint64_t p_underflow_ct = 0;
     MetaRecord* records = nullptr;
     char* str_arena = nullptr;
     char* str_iter = nullptr;
@@ -930,7 +939,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
         uint32_t col_skips[9];
         uint32_t col_types[9];
         uint32_t relevant_col_ct;
-        uint32_t has_a2;
+        uint32_t has_a2 = 0;  // spurious gcc warning
         reterr = MetaSetupCols(mip, header_start, cur_fname, no_map, no_allele, input_is_beta, weighted_z, col_skips, col_types, &relevant_col_ct, &has_a2);
         if (unlikely(reterr)) {
           if (reterr == kPglRetInconsistentInput) {
@@ -957,14 +966,25 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
           if ((!ScantokDouble(token_ptrs[6], &se)) || (se <= 0.0)) {
             continue;
           }
+          {
+            // The inverse-variance weight 1/se^2, and its square, must be
+            // finite; otherwise the fixed-effect estimate is NaN.
+            const double cur_w = 1.0 / (se * se);
+            if (!(cur_w * cur_w <= DBL_MAX)) {
+              continue;
+            }
+          }
           double cur_ln_pval = 0.0;
           double cur_ess = 0.0;
           if (weighted_z) {
-            double cur_pval;
-            if ((!ScantokDouble(token_ptrs[7], &cur_pval)) || (cur_pval <= 0.0) || (cur_pval > 1.0)) {
+            if ((!ScantokLn(token_ptrs[7], &cur_ln_pval)) || (cur_ln_pval > 0.0)) {
               continue;
             }
-            cur_ln_pval = log(cur_pval);
+            if (cur_ln_pval == -DBL_MAX) {
+              // truncate to log(DBL_MIN)
+              p_underflow_ct += pass_idx;
+              cur_ln_pval = -708.3964185322641;
+            }
             if ((!ScantokDouble(token_ptrs[8], &cur_ess)) || (cur_ess <= 0.0)) {
               continue;
             }
@@ -975,6 +995,9 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
             }
             effect = log(effect);
           }
+          if (!(fabs(effect) <= DBL_MAX)) {
+            continue;
+          }
           uint32_t bp = 0;
           if (!no_map) {
             if (ScanUintDefcapx(token_ptrs[2], &bp)) {
@@ -982,6 +1005,10 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
             }
           }
           const uint32_t id_slen = token_slens[1];
+          if (unlikely(id_slen > kMaxIdSlen)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Variant ID on line %" PRIuPTR " of %s is longer than " MAX_ID_SLEN_STR " characters.\n", line_idx, cur_fname);
+            goto MetaAnalysis_ret_MALFORMED_INPUT_WW;
+          }
           uintptr_t cur_str_bytes = id_slen + 1;
           if (!no_map) {
             cur_str_bytes += token_slens[0] + 1;
@@ -993,6 +1020,17 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
             }
           }
           if (!pass_idx) {
+            if ((!no_map) && (token_slens[0] > max_other_slen)) {
+              max_other_slen = token_slens[0];
+            }
+            if (!no_allele) {
+              if (token_slens[3] > max_other_slen) {
+                max_other_slen = token_slens[3];
+              }
+              if (has_a2 && (token_slens[4] > max_other_slen)) {
+                max_other_slen = token_slens[4];
+              }
+            }
             str_byte_ct += cur_str_bytes;
           } else {
             MetaRecord* cur_rec = &(records[record_ct]);
@@ -1071,7 +1109,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     }
     STD_SORT(group_ct, MetaGroupCmp, groups);
 
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 256 + file_ct * 32;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 3 * S_CAST(uintptr_t, max_other_slen) + 256 + file_ct * 32;
     OutnameZstSet(".meta", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
@@ -1332,6 +1370,9 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     if (flip_discard_ct) {
       logerrprintf("Warning: %" PRIuPTR " row%s discarded due to an unresolvable allele mismatch.\n", flip_discard_ct, (flip_discard_ct == 1)? "" : "s");
     }
+    if (p_underflow_ct) {
+      logerrprintf("Warning: %" PRIu64 " p-value%s underflowed, treated as 2.22507e-308.\n", p_underflow_ct, (p_underflow_ct == 1)? "" : "s");
+    }
   }
   while (0) {
   MetaAnalysis_ret_NOMEM:
@@ -1419,7 +1460,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const uint32_t need_pos = (flags & kfAdjustColPos);
     const uint32_t need_ref = (flags & kfAdjustColRef);
     const uint32_t need_alt = (flags & (kfAdjustColAlt1 | kfAdjustColAlt));
-    const uint32_t need_provref = (flags & (kfAdjustColMaybeprovref | kfAdjustColProvref));
+    uint32_t need_provref = (flags & (kfAdjustColMaybeprovref | kfAdjustColProvref));
     uint32_t check_a1 = (flags & kfAdjustColA1);
     const uint32_t alt_comma_truncate = (need_alt == kfAdjustColAlt1);
     if (unlikely(need_alt == (kfAdjustColAlt1 | kfAdjustColAlt))) {
@@ -1458,6 +1499,10 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t test_name_slen = 0;
     uint32_t test_col_idx = 0;
     if (test_name) {
+      if (unlikely(!(found_type_bitset & 0x80))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --adjust-file test= parameter provided, but %s has no TEST column.\n", in_fname);
+        goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+      }
       test_name_slen = strlen(test_name);
       // this duplicates a bit of work done in SearchHeaderLine(), but not a
       // big deal
@@ -1487,9 +1532,14 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       snprintf(g_logbuf, kLogbufSize, "Error: No ALT column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (unlikely(need_provref && (!(found_type_bitset & 0x20)))) {
-      snprintf(g_logbuf, kLogbufSize, "Error: No PROVISIONAL_REF? column in %s.\n", in_fname);
-      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+    if (need_provref && (!(found_type_bitset & 0x20))) {
+      // bugfix (22 Sep 2026): 'maybeprovref', which is in the default column
+      // set, must not require the column.
+      if (unlikely(flags & kfAdjustColProvref)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: No PROVISIONAL_REF? column in %s.\n", in_fname);
+        goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+      }
+      need_provref = 0;
     }
     if (check_a1 && (!(found_type_bitset & 0x40))) {
       snprintf(g_logbuf, kLogbufSize, "Warning: No A1 column in %s. Omitting from output.\n", in_fname);
@@ -1623,6 +1673,11 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           continue;
         }
       }
+      // Multcomp()'s write buffer assumes these limits.
+      if (unlikely((token_slens[2] > kMaxIdSlen) || (chr_ids && (token_slens[0] > kMaxIdSlen)))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has a variant ID or chromosome code longer than " MAX_ID_SLEN_STR " characters.\n", line_idx, in_fname);
+        goto AdjustFile_ret_MALFORMED_INPUT_WW;
+      }
       if (chr_ids) {
         const uint32_t cur_slen = token_slens[0];
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[0], cur_slen, &tmp_alloc_base, &(chr_ids[variant_idx]))) {
@@ -1641,6 +1696,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (need_ref) {
         const uint32_t cur_slen = token_slens[3];
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
+        }
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[3], cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
@@ -1653,6 +1711,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           if (alt_comma) {
             cur_slen = alt_comma - alt_str;
           }
+        }
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
         }
         if (StoreStringAtBase(tmp_alloc_end, alt_str, cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx + 1]))) {
           goto AdjustFile_ret_NOMEM;
@@ -1670,6 +1731,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (check_a1) {
         const uint32_t cur_slen = token_slens[6];
+        if (cur_slen > max_allele_slen) {
+          max_allele_slen = cur_slen;
+        }
         if (StoreStringAtBase(tmp_alloc_end, token_ptrs[6], cur_slen, &tmp_alloc_base, &(a1_storage[variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
@@ -1691,6 +1755,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           } else {
             goto AdjustFile_ret_INVALID_PVAL;
           }
+        } else if (unlikely(ln_pval > 0.0)) {
+          // p > 1: Multcomp() would silently leave it out of the test count
+          goto AdjustFile_ret_INVALID_PVAL;
         }
       } else {
         double neglog10_pval;
@@ -1701,6 +1768,13 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         if (unlikely(ln_pval > 0.0)) {
           goto AdjustFile_ret_INVALID_PVAL;
         }
+      }
+      if (ln_pval <= -DBL_MAX) {
+        // p = 0 (ScantokLn returns -DBL_MAX), or a -log10(p) too large for
+        // ln(p) to be finite.  Truncate to log(DBL_MIN), as for 'INF' above;
+        // LnPToChisq() would otherwise overflow, and the GC column would
+        // come out NaN.
+        ln_pval = kLnNormalMin;
       }
       ln_pvals[variant_idx] = ln_pval;
       ++variant_idx;

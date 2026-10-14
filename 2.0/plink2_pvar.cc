@@ -1103,7 +1103,9 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   const uint32_t orig_x_start = cip->chr_fo_vidx_start[orig_xchr_fo_idx];
   const uint32_t orig_x_end = cip->chr_fo_vidx_start[orig_xchr_fo_idx + 1];
   const uint32_t par1_end = LowerBoundConstrainedNonemptyU32(variant_bps, orig_x_start, orig_x_end, splitpar_bound1 + 1);
-  const uint32_t par2_start = LowerBoundConstrainedNonemptyU32(variant_bps, par1_end, orig_x_end, splitpar_bound2);
+  // The search range is empty when every chrX variant is in PAR1, and the
+  // Nonempty variant would then read the next chromosome's first position.
+  const uint32_t par2_start = (par1_end == orig_x_end)? par1_end : LowerBoundConstrainedNonemptyU32(variant_bps, par1_end, orig_x_end, splitpar_bound2);
   uint32_t tot_codes_changed = (par1_end - orig_x_start) + (orig_x_end - par2_start);
   if (!tot_codes_changed) {
     logerrputs("Warning: --split-par had no effect (no X variants were in the PARs).\n");
@@ -1734,13 +1736,22 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       char* linebuf_iter = CurTokenEnd(line_iter);
       // #CHROM
-      if (unlikely(*linebuf_iter == '\n')) {
-        goto LoadPvar_ret_MISSING_TOKENS;
+      if (unlikely((*linebuf_iter != '\t') && (*linebuf_iter != ' '))) {
+        if (*linebuf_iter == '\n') {
+          goto LoadPvar_ret_MISSING_TOKENS;
+        }
+        // e.g. a NUL byte; the INFO reload paths would not find the line's
+        // later columns
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid character after the chromosome code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+        goto LoadPvar_ret_MALFORMED_INPUT_WW;
       }
       uint32_t cur_chr_code;
       reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, prohibit_extra_chrs, line_iter, linebuf_iter, cip, &cur_chr_code);
       if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
+      }
+      if (cip->output_infer) {
+        NoteChrCodeStyle(line_iter, linebuf_iter - line_iter, cur_chr_code, cip);
       }
       if (merge_par) {
         if (cur_chr_code == par2_code) {
@@ -2189,6 +2200,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       goto LoadPvar_ret_TSTREAM_FAIL;
     }
     reterr = kPglRetSuccess;
+    InferChrOutputEncoding(cip);
     if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
       logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPvar_ret_MALFORMED_INPUT;
@@ -2499,7 +2511,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MALFORMED_HEADER_LINE:
-    logerrprintf("Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx);
+    logerrprintf("Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, pvarname);
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE:

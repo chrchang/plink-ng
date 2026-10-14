@@ -89,3 +89,11 @@ done
 $1/plink2 $2 $3 --bfile tmp_data --make-pgen --out plink2_pgen
 $1/plink2 $2 $3 --pfile plink2_pgen --blocks --blocks-max-kb 200 --out plink2_frompgen
 diff -q plink2.blocks plink2_frompgen.blocks
+
+# 7. Founder counts whose bit arrays take an odd number (7 or more) of words:
+#    the three per-genotype masks were packed at that unaligned stride, and
+#    PopcountWordsIntersect() crashed on them.  384 and 512 did not.
+for n in 400 448 800
+do
+$1/plink2 $2 $3 --dummy $n 200 0.05 --seed 1 --blocks --blocks-max-kb 200 --out plink2_n$n
+done

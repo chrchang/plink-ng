@@ -1781,7 +1781,9 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     for (set_idx = 1; set_idx < set_ct; set_idx++) {
       writebuf[2 * set_idx - 1] = '\t';
     }
-    writebuf[2 * set_ct - 1] = '\n';
+    if (set_ct) {
+      writebuf[2 * set_ct - 1] = '\n';
+    }
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       if (marker_uidx >= chrom_end) {
@@ -1793,6 +1795,10 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
       bufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(g_textbuf[1]));
       *bufptr++ = '\t';
       bufptr = uint32toa_x(marker_pos[marker_uidx], '\t', bufptr);
+      if (!set_ct) {
+        // no set columns follow, so the line ends here
+        bufptr[-1] = '\n';
+      }
       // do not keep double-tab (if it was intentional, it should have been in
       // the header line too...)
       fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);

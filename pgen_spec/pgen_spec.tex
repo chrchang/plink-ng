@@ -466,6 +466,14 @@ used on the resulting packed array.
   for samples outside category 3.
 \end{itemize}
 
+In variant record types 1--4, 6, and 7, every difflist entry must change its
+sample's category: an entry for a sample in category 0 (resp. 2, 3) is not
+permitted in a type 4 (resp. 6, 7) record, an entry in a type 1 record must
+name one of the two less common categories, and an entry in an LD-compressed
+record must differ from the sample's category in the previous
+non-LD-compressed variant (before the final inversion, for type 3).  Readers
+may assume this without checking.
+
 \subsubsection{Multiallelic hard-calls}
 
 When bit 3 of the variant record type is set, multiallelic hard-call(s) are
@@ -479,13 +487,13 @@ The low 4 bits of the first byte of auxiliary data track \#1 indicates how the
 category 1 patch set is formatted.
 
 \begin{itemize}
-\item \texttt{0}: Patch set starts with a bitarray with $J$ bits, where $J$ is
-  the number of samples in genotype category 1, and bit $j\in [0, J)$ is set
+\item \texttt{0}: Patch set starts with a bitarray with $J$ bits, where $J\>0$
+  is the number of samples in genotype category 1, and bit $j\in [0, J)$ is set
   iff the ($j+1$)th smallest sample ID among those in genotype category 1 isn't
-  a REF-ALT1 genotype.  Let $K$ be the number of set bits; then the bitarray is
-  followed by a packed array of $K$ fixed-width values, where the width depends
-  on the total number of ALT alleles, and each value is 2 less than the ALT
-  allele index in the corresponding genotype:
+  a REF-ALT1 genotype.  Let $K\>0$ be the number of set bits; then the bitarray
+  is followed by a packed array of $K$ fixed-width values, where the width
+  depends on the total number of ALT alleles, and each value is 2 less than the
+  ALT allele index in the corresponding genotype:
   \begin{itemize}
   \item 2 ALT alleles: width ZERO.  All set bits in the initial bitarray
     correspond to REF-ALT2.
@@ -509,10 +517,10 @@ formatted.  The actual patch set appears after the end of the category 1 patch
 set.
 
 \begin{itemize}
-\item \texttt{0}: Patch set starts with a bitarray with $J$ bits, where $J$ is
-  the number of samples in genotype category 2, and bit $j\in [0, J)$ is set
+\item \texttt{0}: Patch set starts with a bitarray with $J$ bits, where $J\>0$
+  is the number of samples in genotype category 2, and bit $j\in [0, J)$ is set
   iff the ($j+1$)th smallest sample ID among those in genotype category 2 isn't
-  a homozygous-ALT1 genotype.  Let $K$ be the number of set bits.  Then, if
+  a homozygous-ALT1 genotype.  Let $K\>0$ be the number of set bits.  Then, if
   there are exactly 2 ALT alleles, this is followed by a bitarray with $K$ bits
   where set bits correspond to homozygous-ALT2 genotypes, and clear bits
   correspond to heterozygous ALT1-ALT2.  Otherwise, the initial bitarray is

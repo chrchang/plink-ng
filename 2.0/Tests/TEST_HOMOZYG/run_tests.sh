@@ -31,11 +31,11 @@ compare_hom() {
         }
         /^#/ { next }
         {
-            # FID IID CHROM ID1 ID2 POS1 POS2 KB NSNP DENSITY PHOM PHET
+            # FID IID CHROM POS1 POS2 ID1 ID2 KB NSNP DENSITY PHOM PHET
             ++n2;
-            key = $1 "_" $2 "_" $4;
+            key = $1 "_" $2 "_" $6;
             if (!(key in seen)) { print "run not found in PLINK 1.9 output: " key; failed = 1; exit 1 }
-            if (snp2[key] != $5 || pos1[key] != $6 || pos2[key] != $7 || nsnp[key] != $9) {
+            if (snp2[key] != $7 || pos1[key] != $4 || pos2[key] != $5 || nsnp[key] != $9) {
                 print "boundary mismatch on " key; failed = 1; exit 1
             }
             if (!close_enough(kb[key], $8) || !close_enough(density[key], $10) ||
@@ -76,6 +76,27 @@ compare_indiv() {
 }
 
 compare_summary() {
+    awk '
+        FNR == NR {
+            if (FNR > 1) { rohct[$2] = $5; ++n1 }
+            next
+        }
+        /^#/ { next }
+        {
+            ++n2;
+            if (rohct[$3] != $4) {
+                print "summary mismatch on " $3; failed = 1; exit 1
+            }
+        }
+        END {
+            if (failed) { exit 1 }
+            if (n1 != n2) { print "variant count mismatch: " n1 " vs " n2; exit 1 }
+            print n1 " variants matched"
+        }
+    ' "$1" "$2"
+}
+
+compare_summary_cc() {
     awk '
         FNR == NR {
             if (FNR > 1) { aff[$2] = $4; unaff[$2] = $5; ++n1 }
@@ -153,7 +174,7 @@ diff -q plink2.hom plink2_zs.hom
 
 # 7. cols= drops the columns it doesn't name.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=chrom,pos,nsnp --homozyg-min-af 0 --out plink2_cols
-head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	ID1	ID2	POS1	POS2	NSNP'
+head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	POS1	POS2	ID1	ID2	NSNP'
 # cols= named no .hom.indiv column, so only IID survives there.
 head -n 1 plink2_cols.hom.indiv | grep -qx '#IID'
 
@@ -204,3 +225,18 @@ awk '
 # 9. cols= without froh drops the column.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=nseg,kbtot --homozyg-min-af 0 --out plink2_nofroh
 head -n 1 plink2_nofroh.hom.indiv | grep -qx '#IID	NSEG	KB'
+
+# 10. pheno= stratifies the .hom.summary ROH_CT column by category, with the
+#     category names in the header; the counts must add up to the unstratified
+#     ROH_CT (every sample has a binary phenotype value here).
+awk '{print $1 "\t" $2 "\t" (NR % 2? 2 : 1)}' tmp_data.fam > tmp_pheno.txt
+$1/plink2 $2 $3 --bfile tmp_data --pheno tmp_pheno.txt --homozyg pheno=PHENO1 --homozyg-min-af 0 --out plink2_pheno
+head -n 1 plink2_pheno.hom.summary | grep -qx '#CHROM	POS	ID	CASE	CONTROL'
+awk '
+    FNR == NR { if (FNR > 1) { tot[$3] = $4 } next }
+    FNR > 1 {
+        if ($4 + $5 != tot[$3]) { print "stratified counts do not sum to ROH_CT at " $3; exit 1 }
+        if ($4 > 0 || $5 > 0) { nonzero = 1 }
+    }
+    END { if (!nonzero) { print "every stratified count is zero"; exit 1 } }
+' plink2.hom.summary plink2_pheno.hom.summary

@@ -41,7 +41,7 @@ diff -q <(printf '#IID\n'; seq 0 119 | sed 's/^/per/') tmp_hard_r.psam
 
 # 2. Dosages.  --export mgf writes five significant digits, so a second trip
 #    through it is exact even though the first one rounds.
-$BUILD/plink2 $EXTRA1 $EXTRA2 --dummy 120 400 0.03 dosage-freq=0.7 --seed 1 --out tmp_dose
+$BUILD/plink2 $EXTRA1 $EXTRA2 --dummy 120 400 0.03 dosage-freq=0.7 pheno-ct=0 --seed 1 --out tmp_dose
 $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dose --export mgf --out tmp_dose_e
 $BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_dose_e.mgf tmp_dose_e.pos.txt --out tmp_dose_r
 $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dose_r --export mgf --out tmp_dose_e2

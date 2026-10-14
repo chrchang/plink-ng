@@ -275,6 +275,80 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// NewPgenWriter
+SEXP NewPgenWriter(String filename, int sample_ct, int variant_ct, SEXP nonref_flags, int allele_ct_limit, bool hardcall_phase_present, bool dosage_present);
+RcppExport SEXP _pgenlibr_NewPgenWriter(SEXP filenameSEXP, SEXP sample_ctSEXP, SEXP variant_ctSEXP, SEXP nonref_flagsSEXP, SEXP allele_ct_limitSEXP, SEXP hardcall_phase_presentSEXP, SEXP dosage_presentSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< String >::type filename(filenameSEXP);
+    Rcpp::traits::input_parameter< int >::type sample_ct(sample_ctSEXP);
+    Rcpp::traits::input_parameter< int >::type variant_ct(variant_ctSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type nonref_flags(nonref_flagsSEXP);
+    Rcpp::traits::input_parameter< int >::type allele_ct_limit(allele_ct_limitSEXP);
+    Rcpp::traits::input_parameter< bool >::type hardcall_phase_present(hardcall_phase_presentSEXP);
+    Rcpp::traits::input_parameter< bool >::type dosage_present(dosage_presentSEXP);
+    rcpp_result_gen = Rcpp::wrap(NewPgenWriter(filename, sample_ct, variant_ct, nonref_flags, allele_ct_limit, hardcall_phase_present, dosage_present));
+    return rcpp_result_gen;
+END_RCPP
+}
+// AppendBiallelic
+void AppendBiallelic(List pgen_writer, SEXP geno);
+RcppExport SEXP _pgenlibr_AppendBiallelic(SEXP pgen_writerSEXP, SEXP genoSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen_writer(pgen_writerSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type geno(genoSEXP);
+    AppendBiallelic(pgen_writer, geno);
+    return R_NilValue;
+END_RCPP
+}
+// AppendAlleles
+void AppendAlleles(List pgen_writer, SEXP acbuf, Nullable<LogicalVector> phasepresent, bool all_phased, Nullable<int> allele_ct);
+RcppExport SEXP _pgenlibr_AppendAlleles(SEXP pgen_writerSEXP, SEXP acbufSEXP, SEXP phasepresentSEXP, SEXP all_phasedSEXP, SEXP allele_ctSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen_writer(pgen_writerSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type acbuf(acbufSEXP);
+    Rcpp::traits::input_parameter< Nullable<LogicalVector> >::type phasepresent(phasepresentSEXP);
+    Rcpp::traits::input_parameter< bool >::type all_phased(all_phasedSEXP);
+    Rcpp::traits::input_parameter< Nullable<int> >::type allele_ct(allele_ctSEXP);
+    AppendAlleles(pgen_writer, acbuf, phasepresent, all_phased, allele_ct);
+    return R_NilValue;
+END_RCPP
+}
+// AppendDosages
+void AppendDosages(List pgen_writer, NumericVector dosages);
+RcppExport SEXP _pgenlibr_AppendDosages(SEXP pgen_writerSEXP, SEXP dosagesSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen_writer(pgen_writerSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type dosages(dosagesSEXP);
+    AppendDosages(pgen_writer, dosages);
+    return R_NilValue;
+END_RCPP
+}
+// GetWrittenVariantCt
+int GetWrittenVariantCt(List pgen_writer);
+RcppExport SEXP _pgenlibr_GetWrittenVariantCt(SEXP pgen_writerSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen_writer(pgen_writerSEXP);
+    rcpp_result_gen = Rcpp::wrap(GetWrittenVariantCt(pgen_writer));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ClosePgenWriter
+void ClosePgenWriter(List pgen_writer);
+RcppExport SEXP _pgenlibr_ClosePgenWriter(SEXP pgen_writerSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen_writer(pgen_writerSEXP);
+    ClosePgenWriter(pgen_writer);
+    return R_NilValue;
+END_RCPP
+}
 // NewPvar
 SEXP NewPvar(String filename, bool omit_chrom, bool omit_pos);
 RcppExport SEXP _pgenlibr_NewPvar(SEXP filenameSEXP, SEXP omit_chromSEXP, SEXP omit_posSEXP) {
@@ -383,6 +457,12 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pgenlibr_ReadList", (DL_FUNC) &_pgenlibr_ReadList, 3},
     {"_pgenlibr_VariantScores", (DL_FUNC) &_pgenlibr_VariantScores, 3},
     {"_pgenlibr_ClosePgen", (DL_FUNC) &_pgenlibr_ClosePgen, 1},
+    {"_pgenlibr_NewPgenWriter", (DL_FUNC) &_pgenlibr_NewPgenWriter, 7},
+    {"_pgenlibr_AppendBiallelic", (DL_FUNC) &_pgenlibr_AppendBiallelic, 2},
+    {"_pgenlibr_AppendAlleles", (DL_FUNC) &_pgenlibr_AppendAlleles, 5},
+    {"_pgenlibr_AppendDosages", (DL_FUNC) &_pgenlibr_AppendDosages, 2},
+    {"_pgenlibr_GetWrittenVariantCt", (DL_FUNC) &_pgenlibr_GetWrittenVariantCt, 1},
+    {"_pgenlibr_ClosePgenWriter", (DL_FUNC) &_pgenlibr_ClosePgenWriter, 1},
     {"_pgenlibr_NewPvar", (DL_FUNC) &_pgenlibr_NewPvar, 3},
     {"_pgenlibr_GetVariantChrom", (DL_FUNC) &_pgenlibr_GetVariantChrom, 2},
     {"_pgenlibr_GetVariantPos", (DL_FUNC) &_pgenlibr_GetVariantPos, 2},

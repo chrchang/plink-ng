@@ -1,0 +1,4 @@
+split.*
+expected.txt
+tmp_*
+*.log

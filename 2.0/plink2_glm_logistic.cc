@@ -1496,8 +1496,13 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
         const uint32_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
         const uint32_t nm_sample_ct_rem = nm_sample_ctav - nm_sample_ct;
         // first predictor column: intercept
+        // bugfix (22 Sep 2026): when prev_nm is set but this variant has
+        // missing calls, the column is shorter, and its trailing elements
+        // (which must be zero) still hold 1s from the previous variant.
         if (!prev_nm) {
           FillFVec(nm_sample_ct, S_CAST(float, 1.0), nm_predictors_pmaj_buf);
+        } else if (missing_ct) {
+          ZeroFArr(nm_sample_ct_rem, &(nm_predictors_pmaj_buf[nm_sample_ct]));
         }
         // second predictor column: genotype
         float* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
@@ -2773,6 +2778,10 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   //     maxit = 25
   //     |dev - dev_{old}| / (|dev| + 0.1) < 1e-8, where dev := -2 *
   //       log-likelihood.
+  // One deliberate difference from glm.fit: hh and ll are recomputed at the
+  // final coefficients before returning.  glm.fit's standard errors come
+  // from the weights of the penultimate iterate, which can still be ~1e-3
+  // (relative) off when a large effect converges slowly.
   // Support for sample_offsets was added in Mar 2024.  I had thought that
   // cc-residualize without single-prec didn't make sense since single-prec
   // should offer more of a speed boost for less accuracy cost on the initial
@@ -2795,6 +2804,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   // coef  = main result.
   // ll    = cholesky decomposition matrix, predictor_ct^2, rows vector-aligned
   // hh    = hessian matrix buffer, predictor_ct^2, rows vector-aligned
+  //         (both evaluated at the final coef)
   // pp    = final likelihoods minus Y[] (not currently used by callers).
   //
   // Returns 1 on convergence failure, 0 otherwise.
@@ -2850,7 +2860,8 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   // This index is 1 less than 'iter' in glm.R.
-  for (uint32_t iteration = 1; iteration != maxit; ++iteration) {
+  uint32_t iteration = 1;
+  for (; iteration != maxit; ++iteration) {
     // V[i] = P[i] * (1 - P[i]);
     // P[i] -= Y[i];
     ComputeVAndPMinusYD(yy, sample_ctav, pp, vv);
@@ -2885,11 +2896,18 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
 
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
-      return 0;
+      break;
     }
     loglik_old = loglik;
   }
-  *is_unfinished_ptr = 1;
+  if (iteration == maxit) {
+    *is_unfinished_ptr = 1;
+  }
+  // pp holds the probabilities at the final coef; evaluate the information
+  // matrix there.
+  ComputeVAndPMinusYD(yy, sample_ctav, pp, vv);
+  ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh);
+  CholeskyDecompositionD(hh, predictor_ct, ll);
   return 0;
 }
 
@@ -4046,8 +4064,11 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         const uint32_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kDoublePerDVec);
         const uint32_t nm_sample_ct_rem = nm_sample_ctav - nm_sample_ct;
         // first predictor column: intercept
+        // bugfix (22 Sep 2026): see GlmLogisticThreadF().
         if (!prev_nm) {
           FillDVec(nm_sample_ct, 1.0, nm_predictors_pmaj_buf);
+        } else if (missing_ct) {
+          ZeroDArr(nm_sample_ct_rem, &(nm_predictors_pmaj_buf[nm_sample_ct]));
         }
         // second predictor column: genotype
         double* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
@@ -5312,7 +5333,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, glm_cols / kfGlmColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
-    const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t a1_ct_cc_col = glm_cols & kfGlmColA1countcc;
@@ -5352,9 +5372,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     cswritep = strcpya_k(cswritep, "\tA1");
     if (omitted_col) {
       cswritep = strcpya_k(cswritep, "\tOMITTED");
-    }
-    if (ax_col) {
-      cswritep = strcpya_k(cswritep, "\tAX");
     }
     if (a1_ct_col) {
       cswritep = strcpya_k(cswritep, "\tA1_CT");
@@ -5688,26 +5705,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 if (omitted_col) {
                   *cswritep++ = '\t';
                   cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                }
-                if (ax_col) {
-                  *cswritep++ = '\t';
-                  if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
-                    if (unlikely(Cswrite(&css, &cswritep))) {
-                      goto GlmLogistic_ret_WRITE_FAIL;
-                    }
-                    cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                  } else {
-                    for (uint32_t tmp_allele_idx = 0; tmp_allele_idx != allele_ct; ++tmp_allele_idx) {
-                      if (tmp_allele_idx == a1_allele_idx) {
-                        continue;
-                      }
-                      if (unlikely(Cswrite(&css, &cswritep))) {
-                        goto GlmLogistic_ret_WRITE_FAIL;
-                      }
-                      cswritep = strcpyax(cswritep, cur_alleles[tmp_allele_idx], ',');
-                    }
-                    --cswritep;
-                  }
                 }
                 if (a1_ct_col) {
                   *cswritep++ = '\t';

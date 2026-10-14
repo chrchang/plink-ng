@@ -31,6 +31,14 @@ $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --export rlist --out plink2_rlist
 plink --bfile tmp_data --recode rlist --out plink19_rlist
 same plink19_rlist.rlist plink2_rlist.rlist
 
+# The omitted class is the major homozygote, not the REF homozygote.  Making
+# the A1 (minor) allele REF exercises the other direction.
+awk '{ print $2, $5 }' tmp_data.bim > tmp_a1.txt
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --ref-allele force tmp_a1.txt 2 1 --make-bed --out tmp_swap
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_swap --export rlist --out plink2_rlist_swap
+plink --bfile tmp_swap --recode rlist --out plink19_rlist_swap
+same plink19_rlist_swap.rlist plink2_rlist_swap.rlist
+
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --export structure --out plink2_structure
 plink --bfile tmp_data --recode structure --out plink19_structure
 same plink19_structure.recode.strct_in plink2_structure.strct_in
@@ -66,9 +74,9 @@ same plink19_lgenref.ref plink2_lgenref.ref
 #    the sample count implied by the header.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --export beagle-unphased --out plink2_beagle
 test "$(grep -c '^M' plink2_beagle.dat)" -eq "$(wc -l < tmp_data.bim)"
-grep -q '^P FID' plink2_beagle.dat
-grep -q '^I IID' plink2_beagle.dat
-grep -q '^A ' plink2_beagle.dat
+grep -q '^P	FID' plink2_beagle.dat
+grep -q '^I	IID' plink2_beagle.dat
+grep -q '^A	' plink2_beagle.dat
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --export mgf --out plink2_mgf
 test "$(wc -l < plink2_mgf.mgf)" -eq "$(wc -l < tmp_data.bim)"
 test "$(wc -l < plink2_mgf.pos.txt)" -eq "$(wc -l < tmp_data.bim)"

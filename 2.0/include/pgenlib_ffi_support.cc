@@ -333,6 +333,176 @@ BoolErr Dosage16ToDoublesMeanimpute(const uintptr_t* genoarr, const uintptr_t* d
   return 0;
 }
 
+// Returns (first haplotype dosage) - (second haplotype dosage) for a sample
+// with an explicit dosage, in 1/16384 units, following the plink2
+// --export vcf-dosage=HDS convention:
+// * explicit dosage-phase: stored difference.
+// * hardcall-phased het: the largest difference consistent with the dosage,
+//   with the sign taken from phaseinfo.
+// * otherwise: 0 (dosage split evenly).
+// *dphase_delta_iterp must be advanced in lockstep with the dosage_present
+// bits, so this must be called in increasing sample index order.
+static inline int32_t DosagePhasedDelta(const PgenVariant* pgvp, uintptr_t sample_uidx, uint32_t dosage_int, const int16_t** dphase_delta_iterp) {
+  if (pgvp->dphase_ct && IsSet(pgvp->dphase_present, sample_uidx)) {
+    const int32_t delta = **dphase_delta_iterp;
+    *dphase_delta_iterp += 1;
+    return delta;
+  }
+  if (pgvp->phasepresent_ct && IsSet(pgvp->phasepresent, sample_uidx)) {
+    const int32_t homdist = (dosage_int > 16384)? (32768 - dosage_int) : dosage_int;
+    return IsSet(pgvp->phaseinfo, sample_uidx)? homdist : -homdist;
+  }
+  return 0;
+}
+
+static const float kGenoToHapFloats[8] = {0.0, 0.0, 0.5, 0.5, 1.0, 1.0, -9.0, -9.0};
+
+void PhasedDosage16ToFloatsMinus9(const PgenVariant* pgvp, uint32_t sample_ct, float* hap_dosages) {
+  const uintptr_t* genoarr = pgvp->genovec;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  float* write_iter = hap_dosages;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+        break;
+      }
+      subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
+      const uint32_t cur_geno = geno_word & 3;
+      write_iter[0] = kGenoToHapFloats[2 * cur_geno];
+      write_iter[1] = kGenoToHapFloats[2 * cur_geno + 1];
+      write_iter = &(write_iter[2]);
+      geno_word >>= 2;
+    }
+  }
+  const uint32_t phasepresent_ct = pgvp->phasepresent_ct;
+  if (phasepresent_ct) {
+    const uintptr_t* phasepresent = pgvp->phasepresent;
+    const uintptr_t* phaseinfo = pgvp->phaseinfo;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = phasepresent[0];
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+      // phaseinfo bit set: 1|0
+      const uint32_t first_hap_alt = IsSet(phaseinfo, sample_uidx);
+      hap_dosages[2 * sample_uidx] = S_CAST(float, first_hap_alt);
+      hap_dosages[2 * sample_uidx + 1] = S_CAST(float, 1 - first_hap_alt);
+    }
+  }
+  const uint32_t dosage_ct = pgvp->dosage_ct;
+  if (dosage_ct) {
+    const uintptr_t* dosage_present = pgvp->dosage_present;
+    const uint16_t* dosage_main = pgvp->dosage_main;
+    const int16_t* dphase_delta_iter = pgvp->dphase_delta;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+      const int32_t dosage_int = dosage_main[dosage_idx];
+      const int32_t delta = DosagePhasedDelta(pgvp, sample_uidx, dosage_int, &dphase_delta_iter);
+      // multiply by 2^{-15}
+      hap_dosages[2 * sample_uidx] = S_CAST(float, dosage_int + delta) * S_CAST(float, 0.000030517578125);
+      hap_dosages[2 * sample_uidx + 1] = S_CAST(float, dosage_int - delta) * S_CAST(float, 0.000030517578125);
+    }
+  }
+}
+
+static const double kGenoToHapDoubles[8] = {0.0, 0.0, 0.5, 0.5, 1.0, 1.0, -9.0, -9.0};
+
+void PhasedDosage16ToDoublesMinus9(const PgenVariant* pgvp, uint32_t sample_ct, double* hap_dosages) {
+  const uintptr_t* genoarr = pgvp->genovec;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  double* write_iter = hap_dosages;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+        break;
+      }
+      subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
+      const uint32_t cur_geno = geno_word & 3;
+      write_iter[0] = kGenoToHapDoubles[2 * cur_geno];
+      write_iter[1] = kGenoToHapDoubles[2 * cur_geno + 1];
+      write_iter = &(write_iter[2]);
+      geno_word >>= 2;
+    }
+  }
+  const uint32_t phasepresent_ct = pgvp->phasepresent_ct;
+  if (phasepresent_ct) {
+    const uintptr_t* phasepresent = pgvp->phasepresent;
+    const uintptr_t* phaseinfo = pgvp->phaseinfo;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = phasepresent[0];
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+      const uint32_t first_hap_alt = IsSet(phaseinfo, sample_uidx);
+      hap_dosages[2 * sample_uidx] = u31tod(first_hap_alt);
+      hap_dosages[2 * sample_uidx + 1] = u31tod(1 - first_hap_alt);
+    }
+  }
+  const uint32_t dosage_ct = pgvp->dosage_ct;
+  if (dosage_ct) {
+    const uintptr_t* dosage_present = pgvp->dosage_present;
+    const uint16_t* dosage_main = pgvp->dosage_main;
+    const int16_t* dphase_delta_iter = pgvp->dphase_delta;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+      const int32_t dosage_int = dosage_main[dosage_idx];
+      const int32_t delta = DosagePhasedDelta(pgvp, sample_uidx, dosage_int, &dphase_delta_iter);
+      hap_dosages[2 * sample_uidx] = S_CAST(double, dosage_int + delta) * 0.000030517578125;
+      hap_dosages[2 * sample_uidx + 1] = S_CAST(double, dosage_int - delta) * 0.000030517578125;
+    }
+  }
+}
+
+void AlleleCodesToHapDosageFloatsMinus9(const int32_t* allele_codes, const unsigned char* phasebytes, uint32_t sample_ct, int32_t allele_idx, float* hap_dosages) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const int32_t code0 = allele_codes[2 * sample_idx];
+    if (code0 < 0) {
+      hap_dosages[2 * sample_idx] = S_CAST(float, -9.0);
+      hap_dosages[2 * sample_idx + 1] = S_CAST(float, -9.0);
+      continue;
+    }
+    const uint32_t hap0_match = (code0 == allele_idx);
+    const uint32_t hap1_match = (allele_codes[2 * sample_idx + 1] == allele_idx);
+    if ((hap0_match != hap1_match) && (!phasebytes[sample_idx])) {
+      hap_dosages[2 * sample_idx] = S_CAST(float, 0.5);
+      hap_dosages[2 * sample_idx + 1] = S_CAST(float, 0.5);
+    } else {
+      hap_dosages[2 * sample_idx] = S_CAST(float, hap0_match);
+      hap_dosages[2 * sample_idx + 1] = S_CAST(float, hap1_match);
+    }
+  }
+}
+
+void AlleleCodesToHapDosageDoublesMinus9(const int32_t* allele_codes, const unsigned char* phasebytes, uint32_t sample_ct, int32_t allele_idx, double* hap_dosages) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const int32_t code0 = allele_codes[2 * sample_idx];
+    if (code0 < 0) {
+      hap_dosages[2 * sample_idx] = -9.0;
+      hap_dosages[2 * sample_idx + 1] = -9.0;
+      continue;
+    }
+    const uint32_t hap0_match = (code0 == allele_idx);
+    const uint32_t hap1_match = (allele_codes[2 * sample_idx + 1] == allele_idx);
+    if ((hap0_match != hap1_match) && (!phasebytes[sample_idx])) {
+      hap_dosages[2 * sample_idx] = 0.5;
+      hap_dosages[2 * sample_idx + 1] = 0.5;
+    } else {
+      hap_dosages[2 * sample_idx] = u31tod(hap0_match);
+      hap_dosages[2 * sample_idx + 1] = u31tod(hap1_match);
+    }
+  }
+}
+
 double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct) {
   const uint32_t word_ct = DivUp(sample_ct, kBitsPerWordD2);
   double result = 0.0;

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import pgenlib
 import numpy as np
+import base64
 import csv
 import os
+import pytest
 import random
 import string
 
@@ -275,6 +277,24 @@ def assert_geno(a0, a1, got_geno, aidx):
         assert (a0 == aidx) and (a1 == aidx)
 
 
+def expected_phased_dosages(acodes, phasepresent, aidx):
+    # acodes: [..., 2 * nsample] allele codes; phasepresent: [..., nsample]
+    # Phased: per-haplotype indicator.  Unphased het carrying aidx once:
+    # 0.5 on each haplotype.  Missing: -9.
+    hap0 = acodes[..., 0::2]
+    hap1 = acodes[..., 1::2]
+    want = np.empty(acodes.shape, np.float64)
+    want[..., 0::2] = (hap0 == aidx)
+    want[..., 1::2] = (hap1 == aidx)
+    split = ((hap0 == aidx) != (hap1 == aidx)) & np.logical_not(phasepresent)
+    want[..., 0::2][split] = 0.5
+    want[..., 1::2][split] = 0.5
+    missing = (hap0 == -9)
+    want[..., 0::2][missing] = -9
+    want[..., 1::2][missing] = -9
+    return want
+
+
 def check_phased_multiallelic_read_concordance(r, raw_nsample, nvariant, test_acodes, test_phasepresent_bools, allele_idx_offsets, sample_subset):
     want_acodes = test_acodes
     want_phasepresent = test_phasepresent_bools
@@ -333,6 +353,22 @@ def check_phased_multiallelic_read_concordance(r, raw_nsample, nvariant, test_ac
     r.read_alleles_list(vidx_list, got_acodes_2d)
     for i in range(tmp_nvariant):
         assert np.array_equal(got_acodes_2d[i], want_acodes[vidx_list[i]])
+
+    # No dosages in this file, so read_phased_dosages*() is derived from
+    # hardcalls.
+    for dtype in [np.float32, np.float64]:
+        vidx = random.randrange(nvariant)
+        aidx = random.randrange(allele_idx_offsets[vidx+1] - allele_idx_offsets[vidx])
+        got_hap_dosages = np.empty([2 * cur_nsample], dtype)
+        r.read_phased_dosages(vidx, got_hap_dosages, allele_idx=aidx)
+        assert np.array_equal(got_hap_dosages, expected_phased_dosages(want_acodes[vidx], want_phasepresent[vidx], aidx))
+        # allele_idx 0 is valid for every variant
+        got_hap_dosages_2d = np.empty([tmp_nvariant, 2 * cur_nsample], dtype)
+        r.read_phased_dosages_range(vidx_start, vidx_end, got_hap_dosages_2d, allele_idx=0)
+        assert np.array_equal(got_hap_dosages_2d, expected_phased_dosages(want_acodes[vidx_start:vidx_end], want_phasepresent[vidx_start:vidx_end], 0))
+        r.read_phased_dosages_list(vidx_list, got_hap_dosages_2d)
+        for i in range(tmp_nvariant):
+            assert np.array_equal(got_hap_dosages_2d[i], expected_phased_dosages(want_acodes[vidx_list[i]], want_phasepresent[vidx_list[i]], 1))
 
     vidx = random.randrange(nvariant)
     allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]
@@ -453,3 +489,126 @@ def test_bim(tmp_path):
     ncase = 5
     for case_idx in range(0, ncase):
         bim_case(tmp_path, case_idx, 1, 100)
+
+
+def test_phased_dosages_from_unphased_dosages(tmp_path):
+    # Dosages written by append_dosages() carry no phase, so each haplotype
+    # gets half of the read_dosages() value.
+    random.seed(0)
+    for case_idx in range(20):
+        nsample = random.randrange(1, 300)
+        nvariant = random.randrange(1, 20)
+        rng = np.random.default_rng(case_idx)
+        dosages = rng.uniform(0.0, 2.0, size=(nvariant, nsample))
+        dosages[rng.random((nvariant, nsample)) < 0.05] = -9
+        test_pgen_path = bytes(tmp_path / ("unphased_dosages_" + str(case_idx) + ".pgen"))
+        with pgenlib.PgenWriter(test_pgen_path, nsample, variant_ct=nvariant, nonref_flags=False, dosage_present=True) as w:
+            w.append_dosages_batch(dosages)
+        with pgenlib.PgenReader(test_pgen_path) as r:
+            for sample_subset in [None, sorted(random.sample(range(nsample), k=(nsample+1) // 2))]:
+                cur_nsample = nsample
+                if sample_subset is not None:
+                    r.change_sample_subset(np.asarray(sample_subset, np.uint32))
+                    cur_nsample = len(sample_subset)
+                for aidx in [0, 1]:
+                    want_dosages = np.empty([nvariant, cur_nsample], np.float64)
+                    r.read_dosages_range(0, nvariant, want_dosages, allele_idx=aidx)
+                    want = np.repeat(np.where(want_dosages == -9, -9, want_dosages / 2), 2, axis=1)
+                    got = np.empty([nvariant, 2 * cur_nsample], np.float64)
+                    r.read_phased_dosages_range(0, nvariant, got, allele_idx=aidx)
+                    assert np.array_equal(got, want)
+                    vidx = random.randrange(nvariant)
+                    got1 = np.empty([2 * cur_nsample], np.float32)
+                    r.read_phased_dosages(vidx, got1, allele_idx=aidx)
+                    assert np.array_equal(got1, want[vidx].astype(np.float32))
+
+
+# Generated with
+#   plink2 --vcf hds.vcf dosage=HDS --make-pgen
+# from the following VCF entries (FORMAT GT:HDS, except rs4 which is GT only):
+#   rs1  0|1:0.1,0.9      1|0:0.8,0.3  0|0:0.05,0.02  1|1:0.95,0.85  0|1:0.4,0.45
+#   rs2  0|0:0,0          0|1:0,1      1|0:1,0        1|1:1,1        0|1:0.25,0.75
+#   rs3  0|1:0.123,0.877  0/1:0.5,0.5  .|.:.,.        0|0:0.2,0.1    1|1:0.6,0.9
+#   rs4  0|1              0/1          1|0            .              1/1
+#   rs5  0|1:0.1,1        0/1:0.3,0.6  1|0:1,0.2      0/0:0.1,0.1    0|1:0.7,0.2
+# HDS_WANT is what plink2 --export vcf vcf-dosage=HDS-force writes back.
+HDS_PGEN_B64 = "bBsQBQAAAAUAAABEHgAAAAAAAADQ8PAQ8BgKFAQWxQMDAABAZkZ7BDNzZjbNzAAg7AFmBs38lAEHAhAAQAEA4PUDAwAbAEAAQDMTAGANvs9mBs3s1QILAvUBAwAfZkaaOc1MzQyaORbN7DMzACA="
+HDS_WANT = [
+    [0.1, 0.9, 0.8, 0.3, 0.05, 0.02, 0.95, 0.85, 0.4, 0.45],
+    [0, 0, 0, 1, 1, 0, 1, 1, 0.25, 0.75],
+    [0.123, 0.877, 0.5, 0.5, -9, -9, 0.2, 0.1, 0.6, 0.9],
+    [0, 1, 0.5, 0.5, 1, 0, -9, -9, 1, 1],
+    [0.1, 1, 0.3, 0.6, 1, 0.2, 0.1, 0.1, 0.7, 0.2]]
+
+# Generated with
+#   plink2 --vcf ds.vcf dosage=DS --make-pgen
+# from these GT:DS entries.  Where no dosage-phase is stored, a phased het
+# hardcall determines the split, and an unphased dosage is split evenly.
+#   rs1  0|1:1.1   1|0:0.7  0/1:0.7  0|0:0.2
+#   rs2  1|0:1.25  0|1:0.9  1/1:1.9  ./.:.
+DS_PGEN_B64 = "bBsQAgAAAAQAAABEGAAAAAAAAADw8A4M/QAPZkbNLM0szQwCzSznAAcAUJo5mnkBADA="
+DS_WANT = [
+    [0.1, 1, 0.7, 0, 0.35, 0.35, 0.1, 0.1],
+    [1, 0.25, 0, 0.9, 0.95, 0.95, -9, -9]]
+
+
+def check_phased_dosage_fixture(tmp_path, name, pgen_b64, want_list):
+    test_pgen_path = tmp_path / (name + ".pgen")
+    test_pgen_path.write_bytes(base64.b64decode(pgen_b64))
+    want = np.asarray(want_list, np.float64)
+    nvariant = want.shape[0]
+    nsample = want.shape[1] // 2
+    missing = (want == -9)
+    with pgenlib.PgenReader(bytes(test_pgen_path)) as r:
+        for sample_subset in [None, [0, nsample - 1], [1]]:
+            if sample_subset is None:
+                cols = np.arange(2 * nsample)
+            else:
+                r.change_sample_subset(np.asarray(sample_subset, np.uint32))
+                cols = np.asarray([[2 * s, 2 * s + 1] for s in sample_subset]).ravel()
+            for dtype in [np.float32, np.float64]:
+                for aidx in [0, 1]:
+                    cur_want = want[:, cols]
+                    if aidx == 0:
+                        cur_want = np.where(missing[:, cols], -9, 1 - cur_want)
+                    got = np.empty([nvariant, len(cols)], dtype)
+                    r.read_phased_dosages_range(0, nvariant, got, allele_idx=aidx)
+                    got_list = np.empty([nvariant, len(cols)], dtype)
+                    r.read_phased_dosages_list(np.arange(nvariant, dtype=np.uint32), got_list, allele_idx=aidx)
+                    assert np.array_equal(got, got_list)
+                    for vidx in range(nvariant):
+                        got1 = np.empty([len(cols)], dtype)
+                        r.read_phased_dosages(vidx, got1, allele_idx=aidx)
+                        assert np.array_equal(got1, got[vidx])
+                    assert np.array_equal(got == -9, missing[:, cols])
+                    # The sum and difference of the two haplotype dosages are
+                    # stored in 1/16384 units.
+                    assert np.allclose(got, cur_want, rtol=0, atol=1.0 / 32768 + 1e-6)
+                    got_dosages = np.empty([nvariant, len(cols) // 2], dtype)
+                    r.read_dosages_range(0, nvariant, got_dosages, allele_idx=aidx)
+                    nonmissing = (got_dosages != -9)
+                    assert np.allclose((got[:, 0::2] + got[:, 1::2])[nonmissing], got_dosages[nonmissing], rtol=0, atol=1e-6)
+
+
+def test_phased_dosages_hds(tmp_path):
+    check_phased_dosage_fixture(tmp_path, "hds", HDS_PGEN_B64, HDS_WANT)
+    check_phased_dosage_fixture(tmp_path, "ds", DS_PGEN_B64, DS_WANT)
+
+
+def test_phased_dosages_errors(tmp_path):
+    test_pgen_path = tmp_path / "hds.pgen"
+    test_pgen_path.write_bytes(base64.b64decode(HDS_PGEN_B64))
+    with pgenlib.PgenReader(bytes(test_pgen_path)) as r:
+        buf = np.empty([10], np.float64)
+        with pytest.raises(RuntimeError):
+            r.read_phased_dosages(0, np.empty([9], np.float64))
+        with pytest.raises(RuntimeError):
+            r.read_phased_dosages(0, np.empty([10], np.int32))
+        with pytest.raises(RuntimeError):
+            r.read_phased_dosages(5, buf)
+        with pytest.raises(RuntimeError):
+            r.read_phased_dosages(0, buf, allele_idx=2)
+        with pytest.raises(RuntimeError):
+            r.read_phased_dosages_range(0, 5, np.empty([5, 9], np.float32))
+        with pytest.raises(RuntimeError):
+            r.read_phased_dosages_list(np.asarray([0, 5], np.uint32), np.empty([2, 10], np.float32))

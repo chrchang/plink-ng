@@ -33,3 +33,10 @@ fi
 if [[ $(cat plink2.pvar | awk '{if ($4 == "0") print $0}' | wc -c) -ne 0 ]]; then
     exit 1
 fi
+
+# A single-'#' comment line that merely starts with "#CHROM" must not be taken
+# for the header line when the INFO column is reloaded for .pvar output.
+$1/plink2 $2 $3 --dummy 4 2 --make-pgen --out tmp_ri
+printf '##fileformat=VCFv4.3\n#CHROMOSOME names below are GRCh38\n##INFO=<ID=AF,Number=A,Type=Float,Description="af">\n#CHROM\tPOS\tID\tREF\tALT\tINFO\n1\t100\tv1\tA\tG\tAF=0.1\n1\t200\tv2\tC\tT\tAF=0.2\n' > tmp_ri.pvar
+$1/plink2 $2 $3 --pfile tmp_ri --make-just-pvar --out plink2_ri
+test "$(grep -v '^#' plink2_ri.pvar | cut -f 6 | tr '\n' ' ')" = "AF=0.1 AF=0.2 "

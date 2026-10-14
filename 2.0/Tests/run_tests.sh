@@ -63,6 +63,11 @@ cd TEST_PMERGE
 cd ..
 echo "TEST_PMERGE passed."
 
+cd TEST_PMERGE_MULTIPASS
+./run_tests.sh $d $2 $3 > TEST_PMERGE_MULTIPASS.log
+cd ..
+echo "TEST_PMERGE_MULTIPASS passed."
+
 cd TEST_EXPORT_LEGACY
 ./run_tests.sh $d $2 $3 > TEST_EXPORT_LEGACY.log
 cd ..
@@ -138,6 +143,11 @@ cd TEST_MAKE_PERM_PHENO
 cd ..
 echo "TEST_MAKE_PERM_PHENO passed."
 
+cd TEST_Q_SCORE_RANGE
+./run_tests.sh $d $2 $3 > TEST_Q_SCORE_RANGE.log
+cd ..
+echo "TEST_Q_SCORE_RANGE passed."
+
 cd TEST_BLOCKS
 ./run_tests.sh $d $2 $3 > TEST_BLOCKS.log
 cd ..
@@ -158,6 +168,11 @@ cd TEST_EPISTASIS
 cd ..
 echo "TEST_EPISTASIS passed."
 
+cd TEST_TUCC
+./run_tests.sh $d $2 $3 > TEST_TUCC.log
+cd ..
+echo "TEST_TUCC passed."
+
 cd TEST_WRITE_VAR_RANGES
 ./run_tests.sh $d $2 $3 > TEST_WRITE_VAR_RANGES.log
 cd ..
@@ -177,5 +192,225 @@ cd TEST_GENE_REPORT
 ./run_tests.sh $d $2 $3 > TEST_GENE_REPORT.log
 cd ..
 echo "TEST_GENE_REPORT passed."
+
+cd TEST_INFO_TO_COLS
+./run_tests.sh $d $2 $3 > TEST_INFO_TO_COLS.log
+cd ..
+echo "TEST_INFO_TO_COLS passed."
+
+cd TEST_ATTRIB
+./run_tests.sh $d $2 $3 > TEST_ATTRIB.log
+cd ..
+echo "TEST_ATTRIB passed."
+
+cd TEST_NEIGHBOUR
+./run_tests.sh $d $2 $3 > TEST_NEIGHBOUR.log
+cd ..
+echo "TEST_NEIGHBOUR passed."
+
+cd TEST_SETS
+./run_tests.sh $d $2 $3 > TEST_SETS.log
+cd ..
+echo "TEST_SETS passed."
+
+cd TEST_TEST_MISHAP
+./run_tests.sh $d $2 $3 > TEST_TEST_MISHAP.log
+cd ..
+echo "TEST_TEST_MISHAP passed."
+
+cd TEST_EPISTASIS_QT
+./run_tests.sh $d $2 $3 > TEST_EPISTASIS_QT.log
+cd ..
+echo "TEST_EPISTASIS_QT passed."
+
+cd TEST_OBLIG_MISSING
+./run_tests.sh $d $2 $3 > TEST_OBLIG_MISSING.log
+cd ..
+echo "TEST_OBLIG_MISSING passed."
+
+cd TEST_GLM_MISSING
+./run_tests.sh $d $2 $3 > TEST_GLM_MISSING.log
+cd ..
+echo "TEST_GLM_MISSING passed."
+
+cd TEST_SCORE_DOMREC
+./run_tests.sh $d $2 $3 > TEST_SCORE_DOMREC.log
+cd ..
+echo "TEST_SCORE_DOMREC passed."
+
+cd TEST_GLM_MULTINOMIAL
+./run_tests.sh $d $2 $3 > TEST_GLM_MULTINOMIAL.log
+cd ..
+echo "TEST_GLM_MULTINOMIAL passed."
+
+cd TEST_OUTPUT_CHR_INFER
+./run_tests.sh $d $2 $3 > TEST_OUTPUT_CHR_INFER.log
+cd ..
+echo "TEST_OUTPUT_CHR_INFER passed."
+
+cd TEST_HDS_FORCE_INTEGRAL
+./run_tests.sh $d $2 $3 > TEST_HDS_FORCE_INTEGRAL.log
+cd ..
+echo "TEST_HDS_FORCE_INTEGRAL passed."
+
+cd TEST_PGEN_EMPTY_DOSAGE_LIST
+./run_tests.sh $d $2 $3 > TEST_PGEN_EMPTY_DOSAGE_LIST.log
+cd ..
+echo "TEST_PGEN_EMPTY_DOSAGE_LIST passed."
+
+cd TEST_PGEN_CORRUPT_BODY
+./run_tests.sh $d $2 $3 > TEST_PGEN_CORRUPT_BODY.log
+cd ..
+echo "TEST_PGEN_CORRUPT_BODY passed."
+
+cd TEST_OXFORD_SAMPLE
+./run_tests.sh $d $2 $3 > TEST_OXFORD_SAMPLE.log
+cd ..
+echo "TEST_OXFORD_SAMPLE passed."
+
+cd TEST_KING_TABLE_MALFORMED
+./run_tests.sh $d $2 $3 > TEST_KING_TABLE_MALFORMED.log
+cd ..
+echo "TEST_KING_TABLE_MALFORMED passed."
+
+cd TEST_VCF_MALFORMED
+./run_tests.sh $d $2 $3 > TEST_VCF_MALFORMED.log
+cd ..
+echo "TEST_VCF_MALFORMED passed."
+
+cd TEST_BGEN_MALFORMED
+./run_tests.sh $d $2 $3 > TEST_BGEN_MALFORMED.log
+cd ..
+echo "TEST_BGEN_MALFORMED passed."
+
+cd TEST_PVAR_ALLELE_CT
+./run_tests.sh $d $2 $3 > TEST_PVAR_ALLELE_CT.log
+cd ..
+echo "TEST_PVAR_ALLELE_CT passed."
+
+cd TEST_ADJUST_FILE_PROVREF
+./run_tests.sh $d $2 $3 > TEST_ADJUST_FILE_PROVREF.log
+cd ..
+echo "TEST_ADJUST_FILE_PROVREF passed."
+
+cd TEST_ADJUST_EXTREME_P
+./run_tests.sh $d $2 $3 > TEST_ADJUST_EXTREME_P.log
+cd ..
+echo "TEST_ADJUST_EXTREME_P passed."
+
+cd TEST_SCORE_VS_FIXED_ALLELE
+./run_tests.sh $d $2 $3 > TEST_SCORE_VS_FIXED_ALLELE.log
+cd ..
+echo "TEST_SCORE_VS_FIXED_ALLELE passed."
+
+cd TEST_PCA_ALLELE_WTS_PROJECT
+./run_tests.sh $d $2 $3 > TEST_PCA_ALLELE_WTS_PROJECT.log
+cd ..
+echo "TEST_PCA_ALLELE_WTS_PROJECT passed."
+
+cd TEST_KING_TABLE_IBS1
+./run_tests.sh $d $2 $3 > TEST_KING_TABLE_IBS1.log
+cd ..
+echo "TEST_KING_TABLE_IBS1 passed."
+
+cd TEST_CHRY_DOSAGE_FREQ
+./run_tests.sh $d $2 $3 > TEST_CHRY_DOSAGE_FREQ.log
+cd ..
+echo "TEST_CHRY_DOSAGE_FREQ passed."
+
+cd TEST_SCORE_CENTER_MISSING
+./run_tests.sh $d $2 $3 > TEST_SCORE_CENTER_MISSING.log
+cd ..
+echo "TEST_SCORE_CENTER_MISSING passed."
+
+cd TEST_GLM_LOGISTIC_MISSING
+./run_tests.sh $d $2 $3 > TEST_GLM_LOGISTIC_MISSING.log
+cd ..
+echo "TEST_GLM_LOGISTIC_MISSING passed."
+
+cd TEST_BCF_MALFORMED
+./run_tests.sh $d $2 $3 > TEST_BCF_MALFORMED.log
+cd ..
+echo "TEST_BCF_MALFORMED passed."
+
+cd TEST_VCF_MULTIALLELIC_DS_FIELDS
+./run_tests.sh $d $2 $3 > TEST_VCF_MULTIALLELIC_DS_FIELDS.log
+cd ..
+echo "TEST_VCF_MULTIALLELIC_DS_FIELDS passed."
+
+cd TEST_VCF_MULTIALLELIC_DS_X
+./run_tests.sh $d $2 $3 > TEST_VCF_MULTIALLELIC_DS_X.log
+cd ..
+echo "TEST_VCF_MULTIALLELIC_DS_X passed."
+
+cd TEST_BCF_HAPLOID_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_HAPLOID_HDS.log
+cd ..
+echo "TEST_BCF_HAPLOID_HDS passed."
+
+cd TEST_BCF_UNPHASED_DOSAGE_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_UNPHASED_DOSAGE_HDS.log
+cd ..
+echo "TEST_BCF_UNPHASED_DOSAGE_HDS passed."
+
+cd TEST_BCF_MULTIALLELIC_HDS
+./run_tests.sh $d $2 $3 > TEST_BCF_MULTIALLELIC_HDS.log
+cd ..
+echo "TEST_BCF_MULTIALLELIC_HDS passed."
+
+cd TEST_BGEN_REF_FIRST_PHASE
+./run_tests.sh $d $2 $3 > TEST_BGEN_REF_FIRST_PHASE.log
+cd ..
+echo "TEST_BGEN_REF_FIRST_PHASE passed."
+
+cd TEST_SPLIT_PHASED
+./run_tests.sh $d $2 $3 > TEST_SPLIT_PHASED.log
+cd ..
+echo "TEST_SPLIT_PHASED passed."
+
+cd TEST_PGEN_DIFFLIST_COMMON
+./run_tests.sh $d $2 $3 > TEST_PGEN_DIFFLIST_COMMON.log
+cd ..
+echo "TEST_PGEN_DIFFLIST_COMMON passed."
+
+cd TEST_MULTIALLELIC_PHASED_R
+./run_tests.sh $d $2 $3 > TEST_MULTIALLELIC_PHASED_R.log
+cd ..
+echo "TEST_MULTIALLELIC_PHASED_R passed."
+
+cd TEST_MALFORMED_INPUTS
+./run_tests.sh $d $2 $3 > TEST_MALFORMED_INPUTS.log
+cd ..
+echo "TEST_MALFORMED_INPUTS passed."
+
+cd TEST_LGEN
+./run_tests.sh $d $2 $3 > TEST_LGEN.log
+cd ..
+echo "TEST_LGEN passed."
+
+cd TEST_VARIANT_JOIN
+./run_tests.sh $d $2 $3 > TEST_VARIANT_JOIN.log
+cd ..
+echo "TEST_VARIANT_JOIN passed."
+
+cd TEST_NORMALIZE_INDEL_JOIN
+./run_tests.sh $d $2 $3 > TEST_NORMALIZE_INDEL_JOIN.log
+cd ..
+echo "TEST_NORMALIZE_INDEL_JOIN passed."
+
+cd TEST_SPLIT_PAR_ALL_PAR1
+./run_tests.sh $d $2 $3 > TEST_SPLIT_PAR_ALL_PAR1.log
+cd ..
+echo "TEST_SPLIT_PAR_ALL_PAR1 passed."
+
+cd TEST_VALIDATE_DUP_ALLELE
+./run_tests.sh $d $2 $3 > TEST_VALIDATE_DUP_ALLELE.log
+cd ..
+echo "TEST_VALIDATE_DUP_ALLELE passed."
+
+cd TEST_ALLELE_UNIQUENESS
+./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
+cd ..
+echo "TEST_ALLELE_UNIQUENESS passed."
 
 echo "All tests passed."

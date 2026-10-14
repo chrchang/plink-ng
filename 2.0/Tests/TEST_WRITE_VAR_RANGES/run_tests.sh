@@ -22,12 +22,6 @@ plink --bfile tmp_data --write-var-ranges $variant_ct --allow-no-sex --out plink
 $1/plink2 $2 $3 --bfile tmp_data --write-var-ranges $variant_ct --out plink2_all
 diff -q <(tail -n +2 plink19_all.var.ranges) <(tail -n +2 plink2_all.var.ranges)
 
-# Zstd output round-trips.
-$1/plink2 $2 $3 --bfile tmp_data --write-var-ranges 10 zs --out plink2_zs
-$1/plink2 $2 $3 --zst-decompress plink2_zs.var.ranges.zst > plink2_zs.var.ranges
-$1/plink2 $2 $3 --bfile tmp_data --write-var-ranges 10 --out plink2_plain
-diff -q plink2_zs.var.ranges plink2_plain.var.ranges
-
 # More blocks than variants is an error.
 if $1/plink2 $2 $3 --bfile tmp_data --write-var-ranges $((variant_ct + 1)) --out plink2_bad 2> tmp_err.txt; then
     echo "expected --write-var-ranges to reject a block count above the variant count"
