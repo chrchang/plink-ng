@@ -205,3 +205,39 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance $shape --parallel 1
 fi
 done
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance square0 --parallel 1 3 --out plink2_par0 > /dev/null
+
+# 7. The rare-variant path.  A variant where all but a few samples share one
+#    genotype never enters the dense scan: its contribution is added globally,
+#    per sample, and per rare-rare pair instead.  Here most variants qualify
+#    (120 samples allows up to 4 non-common calls), with enough missingness to
+#    exercise the missing-call corrections.  'flat-missing' must still match
+#    PLINK 1.9 byte for byte, the default mode to within its weight
+#    quantization, and neither may depend on the thread count.
+plink --simulate simulate_rare.txt --simulate-missing 0.012 --simulate-ncases 60 --simulate-ncontrols 60 --seed 1 --out tmp_rare_raw > /dev/null
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_rare_raw --mac 1 --make-bed --out tmp_rare
+for shape in "" square triangle; do
+    suffix=${shape:-default}
+    plink --bfile tmp_rare --distance flat-missing $shape --out plink19_rf_$suffix
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_rare --distance flat-missing $shape --out plink2_rf_$suffix
+    cmp plink19_rf_$suffix.dist plink2_rf_$suffix.dist
+done
+# Make sure the scan really took most of the variants.
+test "$(sed -n 's/^\([0-9]*\) variants handled by initial scan.*/\1/p' plink2_rf_default.log)" -gt 100
+plink --bfile tmp_rare --distance --out plink19_rw
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_rare --distance --out plink2_rw
+close plink19_rw.dist plink2_rw.dist 1e-5
+for threads in 1 3 8; do
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_rare --distance bin square allele-ct ibs --threads $threads --out plink2_rt$threads > /dev/null
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_rare --distance flat-missing bin square allele-ct ibs --threads $threads --out plink2_rft$threads > /dev/null
+done
+cmp plink2_rt1.dist.bin plink2_rt3.dist.bin
+cmp plink2_rt1.dist.bin plink2_rt8.dist.bin
+cmp plink2_rft1.dist.bin plink2_rft3.dist.bin
+cmp plink2_rft1.dist.bin plink2_rft8.dist.bin
+# --parallel pieces of the rare-variant path concatenate to the whole matrix.
+plink --bfile tmp_rare --distance flat-missing --out plink19_rfp
+for piece in 1 2 3; do
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_rare --distance flat-missing --parallel $piece 3 --out plink2_rp > /dev/null
+    cat plink2_rp.dist.$piece
+done > plink2_rparallel.dist
+cmp plink19_rfp.dist plink2_rparallel.dist
