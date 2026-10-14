@@ -49,6 +49,7 @@ FLAGSET_DEF_START()
   kfEpiColProp = (1 << 17),
   kfEpiSetBySet = (1 << 18),
   kfEpiSetByAll = (1 << 19),
+  kfEpiFirth = (1 << 20),
   kfEpiColDefault = (kfEpiColChrom | kfEpiColMaybeA1 | kfEpiColOrbeta | kfEpiColSe | kfEpiColStat | kfEpiColDf | kfEpiColP | kfEpiColNsig | kfEpiColNtot | kfEpiColProp)
 FLAGSET_DEF_END(EpiFlags);
 

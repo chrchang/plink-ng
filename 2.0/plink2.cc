@@ -3890,6 +3890,8 @@ PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p
       flags |= kfEpiNoFirth;
     } else if (strequal_k(cur_modif, "firth-fallback", cur_modif_slen)) {
       explicit_firth_fallback = 1;
+    } else if (strequal_k(cur_modif, "firth", cur_modif_slen)) {
+      flags |= kfEpiFirth;
     } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
       flags |= kfEpiLog10;
     } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
@@ -3919,8 +3921,8 @@ PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p
       return kPglRetInvalidCmdline;
     }
   }
-  if (unlikely(explicit_firth_fallback && (flags & kfEpiNoFirth))) {
-    logerrprintfww("Error: --%s: 'no-firth' and 'firth-fallback' modifiers cannot be used together.\n", flagname_p);
+  if (unlikely((explicit_firth_fallback + ((flags & kfEpiNoFirth) != 0) + ((flags & kfEpiFirth) != 0)) > 1)) {
+    logerrprintfww("Error: --%s: 'no-firth', 'firth-fallback', and 'firth' modifiers cannot be used together.\n", flagname_p);
     return kPglRetInvalidCmdline;
   }
   if (unlikely((flags & (kfEpiSetBySet | kfEpiSetByAll)) == (kfEpiSetBySet | kfEpiSetByAll))) {
