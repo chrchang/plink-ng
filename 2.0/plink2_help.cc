@@ -3784,7 +3784,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --gene-subset <filename> : Restrict --gene-report to the genes named in this\n"
 "                             file.\n"
                );
-    HelpPrint("gene-report-chr-field\0gene-report-pos-field\0gene-report-id-field\0gene-report-p-field\0gene-report\0", &help_ctrl, 0,
+    HelpPrint("gene-report-chr-field\0gene-report-pos-field\0gene-report-id-field\0gene-report-snp-field\0gene-report-p-field\0gene-report\0", &help_ctrl, 0,
 "  --gene-report-chr-field <n...> : Set --gene-report input field names.  When\n"
 "  --gene-report-pos-field <n...>   multiple arguments are given to these flags,\n"
 "  --gene-report-id-field <n...>    earlier names take precedence over later\n"
