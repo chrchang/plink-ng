@@ -11937,6 +11937,11 @@ void UpdateVcorWindow(const uintptr_t* variant_include, const uint32_t* variant_
   *uidx_endp = uidx_end;
 }
 
+// Per-block result-buffer cap for VcorTable(); see the comment where it's
+// applied.
+CONSTI32(kVcorTableMinBlockResultCt, 1 << 22);
+CONSTI32(kVcorTableMinBlockRowCt, 128);
+
 PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, const char* flagname, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -12499,8 +12504,22 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
 
     // Assign ~half of remaining workspace to input buffers and ~half to output
     // buffers.
+    // However, don't let a single block grow without bound: the writer thread
+    // can only overlap with computation when there are several blocks, and
+    // every result slot is touched.  (With 5000 samples, 20000 variants, and
+    // --memory 16000, the whole job used to fit in one block, which was ~40%
+    // slower and used ~3.5x as much memory as the capped version.)  The cap
+    // scales with variant_ct so that rows-per-block stays large when the
+    // column window is wide (e.g. inter-chr), since each block re-unpacks its
+    // column window.
     const uintptr_t results_stride = 1 + d_col + dprime_col;
-    const uintptr_t result_capacity = bigstack_left() / (4 * sizeof(double) * results_stride);
+    uintptr_t result_capacity = bigstack_left() / (4 * sizeof(double) * results_stride);
+    {
+      const uintptr_t result_capacity_cap = MAXV(kVcorTableMinBlockResultCt, kVcorTableMinBlockRowCt * S_CAST(uintptr_t, variant_ct));
+      if (result_capacity > result_capacity_cap) {
+        result_capacity = result_capacity_cap;
+      }
+    }
     if (unlikely(bigstack_alloc_d(result_capacity * results_stride, &(ctx.results[0])) ||
                  bigstack_alloc_d(result_capacity * results_stride, &(ctx.results[1])))) {
       goto VcorTable_ret_NOMEM;
