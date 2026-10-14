@@ -3872,7 +3872,9 @@ void CleanupObligMissingData(ObligMissingData* omdp) {
 // sample belongs to at most one), and the variant file attaches variants to
 // them (a variant may be in several).  IDs which are absent from the dataset
 // are ignored, as in PLINK 1.x.
-PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, ObligMissingData* omdp) {
+// As in PLINK 1.x, every call covered by a block must actually be missing;
+// anything else is an error.
+PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, PgenReader* simple_pgrp, ObligMissingData* omdp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   const char* cur_fname = omip->sample_fname;
@@ -4097,6 +4099,74 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
     omdp->entry_ct = entry_ct;
     omdp->block_ct = block_ct;
     logprintf("--oblig-missing: %" PRIuPTR " block%s, %" PRIuPTR " variant-block pair%s.\n", block_ct, (block_ct == 1)? "" : "s", entry_ct, (entry_ct == 1)? "" : "s");
+    if (simple_pgrp) {
+      // Group the samples by block, as indexes into the subsetted genotype
+      // vector, so that each variant-block pair only visits its own members.
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      uint32_t* sample_include_cumulative_popcounts;
+      uint32_t* block_starts;
+      uint32_t* block_fill;
+      uint32_t* block_members;
+      uintptr_t* missingness;
+      uintptr_t* genovec_buf;
+      if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                   bigstack_calloc_u32(block_ct + 1, &block_starts) ||
+                   bigstack_alloc_u32(block_ct, &block_fill) ||
+                   bigstack_alloc_u32(sample_ct, &block_members) ||
+                   bigstack_alloc_w(BitCtToWordCt(sample_ct), &missingness) ||
+                   bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf))) {
+        goto LoadObligMissing_ret_NOMEM;
+      }
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const uint32_t cur_block_idx = sample_block_idxs[sample_uidx];
+        if (cur_block_idx != UINT32_MAX) {
+          block_starts[cur_block_idx + 1] += 1;
+        }
+      }
+      for (uintptr_t cur_block_idx = 0; cur_block_idx != block_ct; ++cur_block_idx) {
+        block_starts[cur_block_idx + 1] += block_starts[cur_block_idx];
+      }
+      memcpy(block_fill, block_starts, block_ct * sizeof(int32_t));
+      sample_uidx_base = 0;
+      cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const uint32_t cur_block_idx = sample_block_idxs[sample_uidx];
+        if (cur_block_idx != UINT32_MAX) {
+          block_members[block_fill[cur_block_idx]++] = sample_idx;
+        }
+      }
+      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+      uint64_t confirmed_ct = 0;
+      uint32_t prev_variant_uidx = UINT32_MAX;
+      for (uintptr_t entry_idx = 0; entry_idx != entry_ct; ++entry_idx) {
+        const uint64_t cur_entry = final_entries[entry_idx];
+        const uint32_t variant_uidx = cur_entry >> 32;
+        if (variant_uidx != prev_variant_uidx) {
+          reterr = PgrGetMissingness(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, missingness, genovec_buf);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto LoadObligMissing_ret_1;
+          }
+          prev_variant_uidx = variant_uidx;
+        }
+        const uint32_t cur_block_idx = S_CAST(uint32_t, cur_entry);
+        const uint32_t member_end = block_starts[cur_block_idx + 1];
+        for (uint32_t member_idx = block_starts[cur_block_idx]; member_idx != member_end; ++member_idx) {
+          if (unlikely(!IsSet(missingness, block_members[member_idx]))) {
+            logerrprintfww("Error: Nonmissing --oblig-missing genotype at variant '%s'. (To force it to missing, use --zero-cluster.)\n", variant_ids[variant_uidx]);
+            goto LoadObligMissing_ret_INCONSISTENT_INPUT;
+          }
+        }
+        confirmed_ct += member_end - block_starts[cur_block_idx];
+      }
+      logprintf("--oblig-missing: %" PRIu64 " call%s confirmed missing.\n", confirmed_ct, (confirmed_ct == 1)? "" : "s");
+    }
   }
   while (0) {
   LoadObligMissing_ret_NOMEM:
@@ -4115,6 +4185,9 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
     break;
   LoadObligMissing_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
+    break;
+  LoadObligMissing_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  LoadObligMissing_ret_1:

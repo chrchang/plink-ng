@@ -739,12 +739,13 @@ typedef struct Plink2CmdlineStruct {
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
-uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
+uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, const char* oblig_missing_variant_fname, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
   return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Epi | kfCommand1Blocks | kfCommand1Tucc | kfCommand1TestMishap)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
-    (hwe_ln_thresh != -DBL_MAX);
+    (hwe_ln_thresh != -DBL_MAX) ||
+    (oblig_missing_variant_fname != nullptr);
 }
 
 
@@ -1507,7 +1508,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
-      if (SingleVariantLoaderIsNeeded(king_cutoff_fprefix, pcp->command_flags1, make_plink2_flags, pcp->rmdup_mode, pcp->hwe_ln_thresh)) {
+      if (SingleVariantLoaderIsNeeded(king_cutoff_fprefix, pcp->oblig_missing_info.variant_fname, pcp->command_flags1, make_plink2_flags, pcp->rmdup_mode, pcp->hwe_ln_thresh)) {
         // ugly kludge, probably want to add pgenlib_internal support for this
         // hybrid use pattern
         FILE* shared_ff_copy = pgfi.shared_ff;
@@ -1845,7 +1846,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (pcp->oblig_missing_info.variant_fname) {
-          reterr = LoadObligMissing(&pcp->oblig_missing_info, sample_include, &pii.sii, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, raw_sample_ct, sample_ct, max_variant_id_slen, variant_id_htable_size, &oblig_missing_data);
+          reterr = LoadObligMissing(&pcp->oblig_missing_info, sample_include, &pii.sii, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, raw_sample_ct, sample_ct, max_variant_id_slen, variant_id_htable_size, pgenname[0]? (&simple_pgr) : nullptr, &oblig_missing_data);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
