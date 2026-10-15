@@ -854,7 +854,13 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
               for (uint32_t difflist_idx_lowbits = 0; difflist_idx_lowbits != loop_len; ++difflist_idx_lowbits) {
                 const uint32_t sample_idx = *difflist_sample_ids_iter++;
                 const uint32_t cur_geno = raregeno_word & 3;
-                SetBit(child_to_trio_idxs[sample_idx], trio_include_buf);
+                // child_to_trio_idxs[] is UINT32_MAX for samples that aren't
+                // children in any trio; SetBit() on that would write 512 MiB
+                // past trio_include_buf.
+                const uint32_t child_trio_idx = child_to_trio_idxs[sample_idx];
+                if (child_trio_idx != UINT32_MAX) {
+                  SetBit(child_trio_idx, trio_include_buf);
+                }
                 if (cur_geno != 1) {
                   const uint32_t offset_start = parent_to_trio_offsets[sample_idx];
                   const uint32_t offset_end = parent_to_trio_offsets[sample_idx + 1];
