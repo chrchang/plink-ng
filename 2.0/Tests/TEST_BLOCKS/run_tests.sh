@@ -97,3 +97,24 @@ for n in 400 448 800
 do
 $1/plink2 $2 $3 --dummy $n 200 0.05 --seed 1 --blocks --blocks-max-kb 200 --out plink2_n$n
 done
+
+# 8. Known phase.  A phased double-het is a known pair of haplotypes, as in
+#    --r2-phased, so a dataset with every sample written twice must give the
+#    same blocks as one with every haplotype written as a homozygous sample:
+#    both have the same haplotype counts and no double-hets of unknown phase.
+#    Erasing the phase must change the answer on this fixture, or the check
+#    above proves nothing.
+for m in phased dup haphom
+do
+    awk -v mode=$m -f make_vcf_phased.awk > tmp_data_$m.vcf
+    $1/plink2 $2 $3 --vcf tmp_data_$m.vcf --make-pgen --out tmp_data_$m > /dev/null
+    $1/plink2 $2 $3 --pfile tmp_data_$m --blocks --blocks-max-kb 200 --out plink2_$m
+done
+diff -q plink2_dup.blocks plink2_haphom.blocks
+diff -q plink2_dup.blocks.det plink2_haphom.blocks.det
+$1/plink2 $2 $3 --pfile tmp_data_phased --make-pgen erase-phase --out tmp_data_unphased > /dev/null
+$1/plink2 $2 $3 --pfile tmp_data_unphased --blocks --blocks-max-kb 200 --out plink2_unphased
+if diff -q plink2_phased.blocks.det plink2_unphased.blocks.det > /dev/null; then
+    echo "erasing phase did not change the blocks"
+    exit 1
+fi

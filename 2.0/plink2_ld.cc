@@ -14027,10 +14027,13 @@ uint32_t HaploviewBlocksClassify(uint32_t* counts, uint32_t lowci_max, uint32_t 
 
   // Note that lowCI and highCI are *one-sided* 95% confidence bounds, i.e.
   // together, they form a 90% confidence interval.
-  double known11 = u31tod(2 * counts[0] + counts[1] + counts[3]);
-  double known12 = u31tod(2 * counts[2] + counts[1] + counts[5]);
-  double known21 = u31tod(2 * counts[6] + counts[3] + counts[7]);
-  double known22 = u31tod(2 * counts[8] + counts[5] + counts[7]);
+  // counts[15] and counts[16] are the phased cis and trans double-hets; they
+  // have already been removed from counts[4], which is left holding only the
+  // double-hets of unknown phase.
+  double known11 = u31tod(2 * counts[0] + counts[1] + counts[3] + counts[15]);
+  double known12 = u31tod(2 * counts[2] + counts[1] + counts[5] + counts[16]);
+  double known21 = u31tod(2 * counts[6] + counts[3] + counts[7] + counts[16]);
+  double known22 = u31tod(2 * counts[8] + counts[5] + counts[7] + counts[15]);
   double total_prob = 0.0;
   double lnsurf_highstrong_thresh = 0.0;
   uint32_t onside_sol_ct = 1;
@@ -14355,7 +14358,7 @@ int32_t BlockCandidateCmp(const void* aa, const void* bb) {
 // 3x3 genotype counts for a pair, in the (hom-A1, het, hom-A2) order
 // haploview_blocks_classify() expects.  A1 is ALT, so plink2's nyp codes map
 // to rows 2, 1, 0.
-static void BlocksPairCounts(const uintptr_t* geno_masks0, const uintptr_t* geno_masks1, uint32_t sample_ctl, uint32_t* counts) {
+static void BlocksPairCounts(const uintptr_t* geno_masks0, const uintptr_t* geno_masks1, uint32_t sample_ctl, uint32_t phase_present, uint32_t* counts) {
   static const uint32_t nyp_order[3] = {2, 1, 0};
   for (uint32_t ii = 0; ii != 3; ++ii) {
     const uintptr_t* cur0 = &(geno_masks0[nyp_order[ii] * S_CAST(uintptr_t, sample_ctl)]);
@@ -14363,6 +14366,27 @@ static void BlocksPairCounts(const uintptr_t* geno_masks0, const uintptr_t* geno
       const uintptr_t* cur1 = &(geno_masks1[nyp_order[jj] * S_CAST(uintptr_t, sample_ctl)]);
       counts[ii * 3 + jj] = PopcountWordsIntersect(cur0, cur1, sample_ctl);
     }
+  }
+  counts[15] = 0;
+  counts[16] = 0;
+  if (phase_present && counts[4]) {
+    // Masks 3 and 4 are phasepresent and (phaseinfo & phasepresent).  A
+    // double-het whose phase is known at both markers is a known pair of
+    // haplotypes, as in --r2-phased: cis when the phaseinfo bits agree.
+    const uintptr_t* phasepresent0 = &(geno_masks0[3 * S_CAST(uintptr_t, sample_ctl)]);
+    const uintptr_t* phaseinfo0 = &(geno_masks0[4 * S_CAST(uintptr_t, sample_ctl)]);
+    const uintptr_t* phasepresent1 = &(geno_masks1[3 * S_CAST(uintptr_t, sample_ctl)]);
+    const uintptr_t* phaseinfo1 = &(geno_masks1[4 * S_CAST(uintptr_t, sample_ctl)]);
+    uint32_t both_phased_ct = 0;
+    uint32_t trans_ct = 0;
+    for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+      const uintptr_t both_phased = phasepresent0[widx] & phasepresent1[widx];
+      both_phased_ct += PopcountWord(both_phased);
+      trans_ct += PopcountWord(both_phased & (phaseinfo0[widx] ^ phaseinfo1[widx]));
+    }
+    counts[4] -= both_phased_ct;
+    counts[15] = both_phased_ct - trans_ct;
+    counts[16] = trans_ct;
   }
 }
 
@@ -14393,6 +14417,7 @@ typedef struct BlocksCtxStruct {
   uintptr_t ci_stride;
   unsigned char* ci_types;
   uint32_t founder_ctl;
+  uint32_t phase_present;
   uint32_t ring_size;
   uint32_t batch_start;
   uint32_t batch_len;
@@ -14414,6 +14439,7 @@ void BlocksClassifyPairs(const BlocksCtx* ctx, uint64_t pair_start, uint64_t pai
   const uintptr_t ci_stride = ctx->ci_stride;
   unsigned char* ci_types = ctx->ci_types;
   const uint32_t founder_ctl = ctx->founder_ctl;
+  const uint32_t phase_present = ctx->phase_present;
   const uint32_t ring_size = ctx->ring_size;
   const uint32_t batch_start = ctx->batch_start;
   const uint32_t batch_len = ctx->batch_len;
@@ -14447,8 +14473,10 @@ void BlocksClassifyPairs(const BlocksCtx* ctx, uint64_t pair_start, uint64_t pai
         }
       }
       const uint32_t other_slot = (cidx - delta) % ring_size;
-      uint32_t counts[9];
-      BlocksPairCounts(cur_masks, &(window_masks[other_slot * geno_mask_stride]), founder_ctl, counts);
+      // [9]..[14] are HaploviewBlocksClassify()'s chrX slots (unused here),
+      // [15] and [16] the phased double-het counts.
+      uint32_t counts[17];
+      BlocksPairCounts(cur_masks, &(window_masks[other_slot * geno_mask_stride]), founder_ctl, phase_present, counts);
       cur_ci_types[delta] = HaploviewBlocksClassify(counts, lowci_max, lowci_min, recomb_highci, strong_highci, strong_lowci, strong_lowci_outer, 0, recomb_fast_ln_thresh);
     }
     (void)max_delta;
@@ -14482,11 +14510,6 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
   {
     if (founder_ct < 2) {
       logerrputs("Warning: Skipping --blocks, since there are less than two founders.\n");
-      goto HaploviewBlocks_ret_1;
-    }
-    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent) {
-      logerrputs("Error: --blocks calculation for already-phased data is under development.\n");
-      reterr = kPglRetNotYetSupported;
       goto HaploviewBlocks_ret_1;
     }
     const uint32_t no_small_max_span = (bip->flags / kfBlocksNoSmallMaxSpan) & 1;
@@ -14574,11 +14597,22 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
       logerrprintfww("Warning: --blocks is running on %u founder%s.  The D' confidence intervals it\nthresholds on are wide at this sample size, so both the number of blocks and\ntheir boundaries are unstable; treat the output as provisional.\n", founder_ct, (founder_ct == 1)? "" : "s");
     }
 
+    // Known phase resolves double-hets the same way it does for
+    // --r2-phased; see BlocksPairCounts().
+    const uint32_t phase_present = (PgrGetGflags(simple_pgrp) / kfPgenGlobalHardcallPhasePresent) & 1;
     uint32_t* founder_cumulative_popcounts;
     uintptr_t* genovec;
+    uintptr_t* phasepresent = nullptr;
+    uintptr_t* phaseinfo = nullptr;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_cumulative_popcounts) ||
                  bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec))) {
       goto HaploviewBlocks_ret_NOMEM;
+    }
+    if (phase_present) {
+      if (unlikely(bigstack_alloc_w(BitCtToWordCt(founder_ct), &phasepresent) ||
+                   bigstack_alloc_w(BitCtToWordCt(founder_ct), &phaseinfo))) {
+        goto HaploviewBlocks_ret_NOMEM;
+      }
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_cumulative_popcounts);
     PgrSampleSubsetIndex pssi;
@@ -14619,7 +14653,8 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
       }
     }
 
-    const uintptr_t geno_mask_stride = 3 * S_CAST(uintptr_t, founder_ctl);
+    // three per-genotype masks, plus phasepresent and phaseinfo when needed
+    const uintptr_t geno_mask_stride = (3 + 2 * phase_present) * S_CAST(uintptr_t, founder_ctl);
     // Index markers are processed in batches so the thread sync cost is paid
     // once per batch instead of once per marker.
     uint32_t batch_size = 512;
@@ -14654,6 +14689,7 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
     ctx.ci_stride = ci_stride;
     ctx.ci_types = ci_types_all;
     ctx.founder_ctl = founder_ctl;
+    ctx.phase_present = phase_present;
     ctx.ring_size = ring_size;
     ctx.strong_lowci = strong_lowci;
     ctx.strong_lowci_outer = strong_lowci_outer;
@@ -14723,13 +14759,30 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
             ++window_start_cidx;
           }
           const uint32_t cur_slot = cidx % ring_size;
-          reterr = PgrGetInv1(founder_info, pssi, founder_ct, cur_uidx, maj_alleles[cur_uidx], simple_pgrp, genovec);
+          uintptr_t* cur_masks = &(window_masks[cur_slot * geno_mask_stride]);
+          if (!phase_present) {
+            reterr = PgrGetInv1(founder_info, pssi, founder_ct, cur_uidx, maj_alleles[cur_uidx], simple_pgrp, genovec);
+          } else {
+            uint32_t phasepresent_ct;
+            reterr = PgrGetInv1P(founder_info, pssi, founder_ct, cur_uidx, maj_alleles[cur_uidx], simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
+            uintptr_t* phasepresent_mask = &(cur_masks[3 * S_CAST(uintptr_t, founder_ctl)]);
+            uintptr_t* phaseinfo_mask = &(cur_masks[4 * S_CAST(uintptr_t, founder_ctl)]);
+            ZeroWArr(2 * founder_ctl, phasepresent_mask);
+            if (phasepresent_ct) {
+              // phaseinfo bits are not guaranteed clear where phasepresent is
+              const uint32_t founder_ctl_exact = BitCtToWordCt(founder_ct);
+              for (uint32_t widx = 0; widx != founder_ctl_exact; ++widx) {
+                phasepresent_mask[widx] = phasepresent[widx];
+                phaseinfo_mask[widx] = phasepresent[widx] & phaseinfo[widx];
+              }
+            }
+          }
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, cur_uidx);
             goto HaploviewBlocks_ret_1;
           }
           ZeroTrailingNyps(founder_ct, genovec);
-          BlocksFillGenoMasks(genovec, founder_ct, founder_ctl, &(window_masks[cur_slot * geno_mask_stride]));
+          BlocksFillGenoMasks(genovec, founder_ct, founder_ctl, cur_masks);
           window_uidxs[cur_slot] = cur_uidx;
           batch_window_starts[bidx] = window_start_cidx;
           const uint32_t cur_max_delta = cidx - window_start_cidx;
