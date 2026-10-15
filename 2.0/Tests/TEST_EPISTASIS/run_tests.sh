@@ -265,3 +265,36 @@ mv tmp_wide_relabeled.bim tmp_wide.bim
 plink --bfile tmp_wide --set tmp_wide_sets.txt --fast-epistasis boost set-by-set --epi1 1 --out plink19_wide
 $1/plink2 $2 $3 --bfile tmp_wide --set tmp_wide_sets.txt --epistasis-boost set-by-set --epi1 1 --out plink2_wide
 compare plink19_wide.epi.cc plink2_wide.PHENO1.epi.cc
+
+# 21. Firth regression for the covariate-adjusted refit.  The fixture is 240
+#     samples and 30 rare variants, so that many pairs have a genotype cell
+#     with no cases or no controls, which logistic regression cannot fit
+#     properly.  oracle.tsv holds R's penalized likelihood ratio (direct
+#     maximization of the Jeffreys-penalized log-likelihood, with the
+#     interaction terms held at zero for the null fit, as in logistf's test)
+#     and glm()'s likelihood ratio.  'firth' uses the former everywhere,
+#     'no-firth' the latter wherever it converges, and the default
+#     'firth-fallback' is a mix of the two.
+$1/plink2 $2 $3 --pedmap firth/data --epistasis-boost firth --epi1 1 --covar firth/cov.txt --out plink2_firth
+awk -v col=3 -f cmp_firth.awk firth/oracle.tsv plink2_firth.PHENO1.epi.cc
+$1/plink2 $2 $3 --pedmap firth/data --epistasis-boost no-firth --epi1 1 --covar firth/cov.txt --out plink2_nofirth
+awk -v col=4 -f cmp_firth.awk firth/oracle.tsv plink2_nofirth.PHENO1.epi.cc
+$1/plink2 $2 $3 --pedmap firth/data --epistasis-boost --epi1 1 --covar firth/cov.txt --out plink2_fallback
+$1/plink2 $2 $3 --pedmap firth/data --epistasis-boost firth-fallback --epi1 1 --covar firth/cov.txt --out plink2_fallback2
+diff plink2_fallback.PHENO1.epi.cc plink2_fallback2.PHENO1.epi.cc
+awk -f firth_modes.awk plink2_firth.PHENO1.epi.cc plink2_nofirth.PHENO1.epi.cc plink2_fallback.PHENO1.epi.cc
+# The summary is built from the screen, which the refit does not touch.
+diff plink2_firth.PHENO1.epi.cc.summary plink2_nofirth.PHENO1.epi.cc.summary
+diff plink2_fallback.PHENO1.epi.cc.summary plink2_nofirth.PHENO1.epi.cc.summary
+# Results do not depend on the thread count.
+$1/plink2 $2 $3 --threads 8 --pedmap firth/data --epistasis-boost firth --epi1 1 --covar firth/cov.txt --out plink2_firth_t8
+diff plink2_firth.PHENO1.epi.cc plink2_firth_t8.PHENO1.epi.cc
+# Without covariates there is nothing to refit, so the Firth modifiers change
+# nothing.
+$1/plink2 $2 $3 --pedmap firth/data --epistasis-boost --epi1 1 --out plink2_firth_nocov_default
+$1/plink2 $2 $3 --pedmap firth/data --epistasis-boost firth --epi1 1 --out plink2_firth_nocov
+diff plink2_firth_nocov_default.PHENO1.epi.cc plink2_firth_nocov.PHENO1.epi.cc
+# The three modes are mutually exclusive, and plain --epistasis has no 'firth'.
+fails $1/plink2 $2 $3 --pedmap firth/data --epistasis-boost firth no-firth --out plink2_bad
+fails $1/plink2 $2 $3 --pedmap firth/data --epistasis-boost firth firth-fallback --out plink2_bad
+fails $1/plink2 $2 $3 --pedmap firth/data --epistasis firth --out plink2_bad

@@ -171,8 +171,8 @@ static uint32_t FepiBoost(const uint32_t* counts, const double* recip_cache, con
   // Iterative proportional fitting, cycling over the three two-way margins
   // until the fitted table stops moving.  mu is [geno1 * 6 + geno2 * 2 +
   // group].
-  // (Only 'no-firth' and 'firth-fallback' modes are supported, so there's no
-  // need to extend this to mirror Firth regression without covariates.)
+  // (Firth regression is only used by the covariate-adjusted refit, so there's
+  // no need to extend this to mirror it.)
   double mu[18];
   for (uint32_t cell_idx = 0; cell_idx != 18; ++cell_idx) {
     mu[cell_idx] = 1.0;
@@ -314,6 +314,11 @@ typedef struct EpiCovarCtxStruct {
   double* hh;
   double* grad;
   double* dcoef;
+  // Firth regression's extra workspace.
+  double* hdiag;
+  double* ww;
+  double* hh0;
+  double* tmpnxk_buf;
   MatrixInvertBuf1* inv_1d_buf;
   double* dbl_2d_buf;
   uint32_t* nm_sample_idxs;
@@ -359,9 +364,18 @@ static double EpiCovarLoglik(const double* xx, const double* yy, const double* c
 // (columns - 1) over the levels that are present, so a sampling zero leaves
 // them alone and only an empty row or column reduces them.
 //
+// firth_mode is 0 for plain logistic regression only, 1 for logistic with a
+// Firth fallback, and 2 for Firth regression throughout.  Both models of a
+// pair are always fit the same way, since a likelihood ratio between a
+// penalized and an unpenalized fit means nothing: in fallback mode, the pair
+// is redone with Firth regression if either logistic fit fails to converge or
+// a genotype dummy has zero cases or zero controls (as --glm checks), and the
+// statistic is then the penalized likelihood ratio, as in logistf's default
+// test.  *firth_used_ptr says which one the statistic is.
+//
 // Returns 1 if the pair cannot be fit, in which case it is left out of the
 // report.
-static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* col_geno_bits, const uint32_t* counts, uint32_t analysis_ctl, EpiCovarCtx* ctx, double* stat_ptr, uint32_t* df_ptr) {
+static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* col_geno_bits, const uint32_t* counts, uint32_t analysis_ctl, uint32_t firth_mode, EpiCovarCtx* ctx, double* stat_ptr, uint32_t* df_ptr, uint32_t* firth_used_ptr) {
   uint32_t row_levels[3];
   uint32_t col_levels[3];
   uint32_t row_level_ct = 0;
@@ -442,7 +456,41 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
   const uintptr_t predictor_ctav = ctx->predictor_ctav;
   double loglik[2];
   const uint32_t predictor_cts[2] = {main_predictor_ct, full_predictor_ct};
-  for (uint32_t model_idx = 0; model_idx != 2; ++model_idx) {
+  uint32_t use_firth = (firth_mode == 2);
+  if (firth_mode == 1) {
+    // A genotype dummy with no cases or no controls (in the main model, a
+    // non-reference genotype of either variant; in the full model, a
+    // non-reference occupied cell) separates the phenotype, so skip straight
+    // to Firth regression rather than wait for the logistic fit to fail.
+    for (uint32_t row_level_idx = 1; row_level_idx != row_level_ct; ++row_level_idx) {
+      uint32_t case_tot = 0;
+      uint32_t ctrl_tot = 0;
+      for (uint32_t other = 0; other != 3; ++other) {
+        case_tot += counts[row_levels[row_level_idx] * 3 + other];
+        ctrl_tot += counts[9 + row_levels[row_level_idx] * 3 + other];
+      }
+      use_firth |= (!case_tot) || (!ctrl_tot);
+    }
+    for (uint32_t col_level_idx = 1; col_level_idx != col_level_ct; ++col_level_idx) {
+      uint32_t case_tot = 0;
+      uint32_t ctrl_tot = 0;
+      for (uint32_t other = 0; other != 3; ++other) {
+        case_tot += counts[other * 3 + col_levels[col_level_idx]];
+        ctrl_tot += counts[9 + other * 3 + col_levels[col_level_idx]];
+      }
+      use_firth |= (!case_tot) || (!ctrl_tot);
+    }
+    for (uint32_t row_level_idx = 0; row_level_idx != row_level_ct; ++row_level_idx) {
+      for (uint32_t col_level_idx = 0; col_level_idx != col_level_ct; ++col_level_idx) {
+        const uint32_t cell_col = cell_cols[row_level_idx][col_level_idx];
+        if (cell_col && (cell_col != UINT32_MAX)) {
+          const uint32_t cell_idx = row_levels[row_level_idx] * 3 + col_levels[col_level_idx];
+          use_firth |= (!counts[cell_idx]) || (!counts[9 + cell_idx]);
+        }
+      }
+    }
+  }
+  for (uint32_t model_idx = 0; (!use_firth) && (model_idx != 2); ++model_idx) {
     const uint32_t cur_predictor_ct = predictor_cts[model_idx];
     for (uint32_t pred_idx = 0; pred_idx != cur_predictor_ct; ++pred_idx) {
       ZeroDArr(sample_ctav, &(xx[pred_idx * sample_ctav]));
@@ -476,10 +524,130 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
     uint32_t is_unfinished = 0;
     ZeroDArr(predictor_ctav, ctx->coef);
     if (LogisticRegressionD(yy, xx, nullptr, nm_ct, cur_predictor_ct, &is_unfinished, ctx->coef, ctx->ll, ctx->pp, ctx->vv, ctx->hh, ctx->grad, ctx->dcoef, ctx->inv_1d_buf, ctx->dbl_2d_buf) || is_unfinished) {
-      return 1;
+      if (firth_mode != 1) {
+        return 1;
+      }
+      // Redo both models with Firth regression.
+      use_firth = 1;
+      break;
     }
     loglik[model_idx] = EpiCovarLoglik(xx, yy, ctx->coef, sample_ctav, nm_ct, cur_predictor_ct);
   }
+  if (use_firth) {
+    // Penalized likelihood ratio test of the interaction terms, as in
+    // logistf: the full model is Firth-fit, and the main-effects model is the
+    // maximizer of the same (full-design) penalized likelihood with the
+    // interaction coefficients held at zero.  Fitting the two designs
+    // separately instead would give each its own penalty, and a statistic
+    // that can come out negative.  The penalized likelihood does not depend on
+    // how the full model is parametrized, so the interaction terms are
+    // whichever occupied-cell indicators the main effects do not already span.
+    // Layout: intercept, covariates, row dummies, column dummies, interaction
+    // terms, so that the fixed coefficients come last.
+    double basis[9][9];
+    uint32_t basis_ct = 0;
+    int32_t prod_idxs[3][3];
+    uint32_t prod_ct = 0;
+    for (uint32_t step_idx = 0; step_idx != 1 + (row_level_ct - 1) + (col_level_ct - 1) + (row_level_ct - 1) * (col_level_ct - 1); ++step_idx) {
+      // The cell-space vector of this step's column.
+      double cur_vec[9];
+      int32_t* prod_idx_ptr = nullptr;
+      uint32_t cell_vec_idx = 0;
+      for (uint32_t row_level_idx = 0; row_level_idx != row_level_ct; ++row_level_idx) {
+        for (uint32_t col_level_idx = 0; col_level_idx != col_level_ct; ++col_level_idx) {
+          if (cell_cols[row_level_idx][col_level_idx] == UINT32_MAX) {
+            continue;
+          }
+          double val;
+          if (!step_idx) {
+            val = 1.0;
+          } else if (step_idx < row_level_ct) {
+            val = (row_level_idx == step_idx)? 1.0 : 0.0;
+          } else if (step_idx < row_level_ct + col_level_ct - 1) {
+            val = (col_level_idx == step_idx - (row_level_ct - 1))? 1.0 : 0.0;
+          } else {
+            const uint32_t prod_step = step_idx - (row_level_ct + col_level_ct - 2) - 1;
+            const uint32_t prod_row = prod_step / (col_level_ct - 1) + 1;
+            const uint32_t prod_col = prod_step % (col_level_ct - 1) + 1;
+            val = ((row_level_idx == prod_row) && (col_level_idx == prod_col))? 1.0 : 0.0;
+            prod_idx_ptr = &(prod_idxs[prod_row][prod_col]);
+          }
+          cur_vec[cell_vec_idx++] = val;
+        }
+      }
+      if (prod_idx_ptr) {
+        *prod_idx_ptr = -1;
+      }
+      // Gram-Schmidt against what is already spanned.
+      double norm_sq = 0.0;
+      for (uint32_t vec_idx = 0; vec_idx != occupied_ct; ++vec_idx) {
+        norm_sq += cur_vec[vec_idx] * cur_vec[vec_idx];
+      }
+      for (uint32_t basis_idx = 0; basis_idx != basis_ct; ++basis_idx) {
+        double dotprod = 0.0;
+        for (uint32_t vec_idx = 0; vec_idx != occupied_ct; ++vec_idx) {
+          dotprod += basis[basis_idx][vec_idx] * cur_vec[vec_idx];
+        }
+        for (uint32_t vec_idx = 0; vec_idx != occupied_ct; ++vec_idx) {
+          cur_vec[vec_idx] -= dotprod * basis[basis_idx][vec_idx];
+        }
+      }
+      double resid_sq = 0.0;
+      for (uint32_t vec_idx = 0; vec_idx != occupied_ct; ++vec_idx) {
+        resid_sq += cur_vec[vec_idx] * cur_vec[vec_idx];
+      }
+      if (resid_sq > 1e-9 * norm_sq) {
+        const double inv_norm = 1.0 / sqrt(resid_sq);
+        for (uint32_t vec_idx = 0; vec_idx != occupied_ct; ++vec_idx) {
+          basis[basis_ct][vec_idx] = cur_vec[vec_idx] * inv_norm;
+        }
+        ++basis_ct;
+        if (prod_idx_ptr) {
+          *prod_idx_ptr = S_CAST(int32_t, prod_ct++);
+        }
+      }
+    }
+    if (full_predictor_ct != main_predictor_ct + prod_ct) {
+      // The main-effects model is itself rank-deficient.
+      return 1;
+    }
+    const uintptr_t full_predictor_ctav = RoundUpPow2(full_predictor_ct, kDoublePerDVec);
+    for (uint32_t pred_idx = 0; pred_idx != full_predictor_ct; ++pred_idx) {
+      ZeroDArr(sample_ctav, &(xx[pred_idx * sample_ctav]));
+    }
+    const uint32_t row_dummy_start = 1 + covar_ct;
+    const uint32_t col_dummy_start = row_dummy_start + row_level_ct - 1;
+    for (uint32_t sample_idx = 0; sample_idx != nm_ct; ++sample_idx) {
+      const uint32_t analysis_idx = nm_sample_idxs[sample_idx];
+      const uint32_t row_level_idx = nm_row_levels[sample_idx];
+      const uint32_t col_level_idx = nm_col_levels[sample_idx];
+      xx[sample_idx] = 1.0;
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        xx[(1 + covar_idx) * sample_ctav + sample_idx] = covar_vals[covar_idx * covar_stride + analysis_idx];
+      }
+      if (row_level_idx) {
+        xx[(row_dummy_start + row_level_idx - 1) * sample_ctav + sample_idx] = 1.0;
+      }
+      if (col_level_idx) {
+        xx[(col_dummy_start + col_level_idx - 1) * sample_ctav + sample_idx] = 1.0;
+      }
+      if (row_level_idx && col_level_idx && (prod_idxs[row_level_idx][col_level_idx] >= 0)) {
+        xx[(main_predictor_ct + S_CAST(uint32_t, prod_idxs[row_level_idx][col_level_idx])) * sample_ctav + sample_idx] = 1.0;
+      }
+    }
+    // The full model, then the constrained one.
+    for (uint32_t model_idx = 0; model_idx != 2; ++model_idx) {
+      uint32_t is_unfinished = 0;
+      ZeroDArr(full_predictor_ctav, ctx->coef);
+      if (FirthRegressionConstrainedD(yy, xx, nullptr, nm_ct, full_predictor_ct, model_idx? main_predictor_ct : full_predictor_ct, ctx->coef, &is_unfinished, ctx->hh, ctx->inv_1d_buf, ctx->dbl_2d_buf, ctx->pp, ctx->vv, ctx->grad, ctx->dcoef, ctx->hdiag, ctx->ww, ctx->hh0, ctx->tmpnxk_buf) || is_unfinished) {
+        return 1;
+      }
+      if (FirthPenalizedLoglikD(yy, xx, ctx->coef, nm_ct, full_predictor_ct, ctx->hh0, ctx->inv_1d_buf, ctx->dbl_2d_buf, ctx->pp, ctx->vv, &(loglik[1 - model_idx]))) {
+        return 1;
+      }
+    }
+  }
+  *firth_used_ptr = use_firth;
   const double stat = 2 * (loglik[1] - loglik[0]);
   if (!isfinite(stat)) {
     return 1;
@@ -639,13 +807,13 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     // With no covariate left there is nothing for the refit to adjust for, and
     // the logistic likelihood ratio would only reproduce the log-linear fit,
     // so the screen-and-fit path is used unchanged.
-    if (unlikely(cur_covar_ct && (!(flags & kfEpiNoFirth)))) {
-      // temporary
-      logerrputs("Error: --epistasis-boost: Firth regression is not implemented yet.  Specify\n'no-firth' for now.\n");
-      reterr = kPglRetNotYetSupported;
-      goto CalcEpiBoost_ret_1;
-    }
     const uint32_t covar_refit = (cur_covar_ct != 0);
+    // 0 = 'no-firth', 1 = 'firth-fallback' (the default), 2 = 'firth', as in
+    // --glm.
+    const uint32_t firth_mode = (flags & kfEpiNoFirth)? 0 : ((flags & kfEpiFirth)? 2 : 1);
+    if ((firth_mode == 2) && (!covar_refit)) {
+      logerrputs("Warning: --epistasis-boost's 'firth' modifier has no effect without covariates.\n");
+    }
 
     const uint32_t group_ct = 2;
     const uint32_t group_cts[3] = {case_ct, ctrl_ct, analysis_ct};
@@ -899,6 +1067,10 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       covar_ctx.hh = nullptr;
       covar_ctx.grad = nullptr;
       covar_ctx.dcoef = nullptr;
+      covar_ctx.hdiag = nullptr;
+      covar_ctx.ww = nullptr;
+      covar_ctx.hh0 = nullptr;
+      covar_ctx.tmpnxk_buf = nullptr;
       covar_ctx.inv_1d_buf = nullptr;
       covar_ctx.dbl_2d_buf = nullptr;
       covar_ctx.nm_sample_idxs = nullptr;
@@ -916,6 +1088,10 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
                      bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.hh) ||
                      bigstack_alloc_d(predictor_ctav, &covar_ctx.grad) ||
                      bigstack_alloc_d(predictor_ctav, &covar_ctx.dcoef) ||
+                     bigstack_alloc_d(max_sample_ctav, &covar_ctx.hdiag) ||
+                     bigstack_alloc_d(max_sample_ctav, &covar_ctx.ww) ||
+                     bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.hh0) ||
+                     bigstack_alloc_d(max_sample_ctav * max_predictor_ct, &covar_ctx.tmpnxk_buf) ||
                      bigstack_alloc_d(max_predictor_ct * MAXV(max_predictor_ct, 7), &covar_ctx.dbl_2d_buf) ||
                      bigstack_alloc_u32(analysis_ct, &covar_ctx.nm_sample_idxs) ||
                      bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_row_levels) ||
@@ -1091,6 +1267,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     }
     uint64_t pairs_reported = 0;
     uint64_t refit_fail_ct = 0;
+    uint64_t refit_firth_ct = 0;
     fputs("--epistasis-boost: 0%", stdout);
     fflush(stdout);
     uint64_t next_print_pair = pair_ct_total / 100;
@@ -1193,10 +1370,12 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
               const uintptr_t analysis_offset = 3 * S_CAST(uintptr_t, case_ctl + ctrl_ctl);
               double adj_stat;
               uint32_t adj_df;
-              if (EpiCovarRefit(&(row_slot[analysis_offset]), &(col_slot[analysis_offset]), counts, analysis_ctl, &covar_ctx, &adj_stat, &adj_df)) {
+              uint32_t firth_used;
+              if (EpiCovarRefit(&(row_slot[analysis_offset]), &(col_slot[analysis_offset]), counts, analysis_ctl, firth_mode, &covar_ctx, &adj_stat, &adj_df, &firth_used)) {
                 ++refit_fail_ct;
                 do_report = 0;
               } else {
+                refit_firth_ct += firth_used;
                 report_stat = adj_stat;
                 report_df = adj_df;
               }
@@ -1307,6 +1486,9 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     logprintf("--epistasis-boost: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
     if (covar_refit) {
       logprintf("--epistasis-boost: STAT/DF/P adjusted for %u covariate%s; BEST_CHISQ and N_SIG\nare not.\n", cur_covar_ct, (cur_covar_ct == 1)? "" : "s");
+      if (firth_mode) {
+        logprintf("--epistasis-boost: %" PRIu64 " pair%s refit with Firth regression (penalized likelihood ratio).\n", refit_firth_ct, (refit_firth_ct == 1)? "" : "s");
+      }
       if (refit_fail_ct) {
         logprintfww("Warning: %" PRIu64 " pair%s left out of the report because the covariate-adjusted fit did not converge.\n", refit_fail_ct, (refit_fail_ct == 1)? "" : "s");
       }

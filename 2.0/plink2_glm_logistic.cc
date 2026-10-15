@@ -3062,10 +3062,18 @@ void FirthComputeSecondWeightsD(const double* hdiag, const double* vv, __maybe_u
 #endif
 }
 
-BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
+BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t free_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
   // This is a port of Georg Heinze's logistf 1.24.1 R function (called with
   // pl=FALSE), adapted to use many of plink 1.9's optimizations; see
   //   https://github.com/georgheinze/logistf
+  //
+  // If free_predictor_ct < predictor_ct, only the first free_predictor_ct
+  // coefficients are updated; the rest stay at their starting values (so,
+  // zero when beta is zeroed out first), while the Jeffreys penalty is still
+  // computed from the whole design.  That is the null fit of a penalized
+  // likelihood ratio test of the last predictor_ct - free_predictor_ct
+  // coefficients, as in logistf's.  free_predictor_ct == predictor_ct is
+  // ordinary Firth regression.
   //
   // Preallocated buffers (initial contents irrelevant):
   // inv_1d_buf, dbl_2d_buf = for matrix inversion
@@ -3097,6 +3105,7 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
   // the iteration limit without satisfying other convergence criteria; the
   // main return value is 0 in this case.
   const uintptr_t predictor_ctav = RoundUpPow2(predictor_ct, kDoublePerDVec);
+  const uintptr_t free_predictor_ctav = RoundUpPow2(free_predictor_ct, kDoublePerDVec);
   const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
 
   // ustar[] trailing elements must be zeroed out
@@ -3158,7 +3167,7 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     MultMatrixDxnVectND(xx, ww, sample_ct, predictor_ct, ustar);
     if (iter_idx) {
       double ustar_max = 0.0;
-      for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
+      for (uint32_t pred_uidx = 0; pred_uidx != free_predictor_ct; ++pred_uidx) {
         const double abs_ustar_cur = fabs(ustar[pred_uidx]);
         if (abs_ustar_cur > ustar_max) {
           ustar_max = abs_ustar_cur;
@@ -3174,19 +3183,24 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
       }
     }
     loglik_old = loglik;
+    if (free_predictor_ct != predictor_ct) {
+      // The gradient of a constrained coefficient plays no role in the step,
+      // and the padding of the vector below must be zero.
+      ZeroDArr(predictor_ct - free_predictor_ct, &(ustar[free_predictor_ct]));
+    }
 
     FirthComputeSecondWeightsD(hdiag, vv, sample_ct, sample_ctav, ww);
-    ComputeHessianD(xx, ww, sample_ct, predictor_ct, hh);
-    if (InvertSymmdefStridedMatrix(predictor_ct, predictor_ctav, hh, inv_1d_buf, dbl_2d_buf)) {
+    ComputeHessianD(xx, ww, sample_ct, free_predictor_ct, hh);
+    if (InvertSymmdefStridedMatrix(free_predictor_ct, free_predictor_ctav, hh, inv_1d_buf, dbl_2d_buf)) {
       return 1;
     }
-    ReflectStridedMatrix0(predictor_ct, predictor_ctav, hh);
+    ReflectStridedMatrix0(free_predictor_ct, free_predictor_ctav, hh);
 
     // delta := hh * ustar (note that hh is inverted already)
-    MultMatrixDxnVectND(hh, ustar, predictor_ct, predictor_ct, delta);
+    MultMatrixDxnVectND(hh, ustar, free_predictor_ct, free_predictor_ct, delta);
 
     delta_max = 0.0;
-    for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
+    for (uint32_t pred_uidx = 0; pred_uidx != free_predictor_ct; ++pred_uidx) {
       const double abs_delta_cur = fabs(delta[pred_uidx]);
       if (abs_delta_cur > delta_max) {
         delta_max = abs_delta_cur;
@@ -3195,15 +3209,53 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     const double maxstep = 5.0;
     if (delta_max > maxstep) {
       const double scaling_factor = maxstep / delta_max;
-      for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
+      for (uint32_t pred_uidx = 0; pred_uidx != free_predictor_ct; ++pred_uidx) {
         delta[pred_uidx] *= scaling_factor;
       }
       delta_max = maxstep;
     }
-    for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
+    for (uint32_t pred_uidx = 0; pred_uidx != free_predictor_ct; ++pred_uidx) {
       beta[pred_uidx] += delta[pred_uidx];
     }
   }
+}
+
+BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
+  return FirthRegressionConstrainedD(yy, xx, sample_offsets, sample_ct, predictor_ct, predictor_ct, beta, is_unfinished_ptr, hh, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0, tmpnxk_buf);
+}
+
+// Penalized log-likelihood, loglik + 0.5 * log(det(X' V X)), of a Firth fit
+// at coefficient vector coef, i.e. the quantity FirthRegressionD() maximizes
+// (and logistf reports as 'loglik').  Exposed so --epistasis-boost can form
+// a penalized likelihood ratio.  The buffers are the same as FirthRegressionD()'s
+// (hh0 = predictor_ct^2 with vector-aligned rows, pp and vv = sample_ct, with
+// room for vector-alignment padding).  Returns 1 on failure.
+BoolErr FirthPenalizedLoglikD(const double* yy, const double* xx, const double* coef, uint32_t sample_ct, uint32_t predictor_ct, double* hh0, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* loglik_ptr) {
+  const uintptr_t predictor_ctav = RoundUpPow2(predictor_ct, kDoublePerDVec);
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uint32_t trailing_sample_ct = sample_ctav - sample_ct;
+  if (trailing_sample_ct) {
+    ZeroDArr(trailing_sample_ct, &(pp[sample_ct]));
+    ZeroDArr(trailing_sample_ct, &(vv[sample_ct]));
+  }
+  ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+  logistic_v_unsafe(pp, sample_ct);
+  double loglik;
+  if (ComputeLoglikCheckedD(yy, pp, sample_ct, &loglik)) {
+    return 1;
+  }
+  ComputeVD(pp, sample_ct, vv);
+  ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh0);
+  if (InvertSymmdefMatrixFirstHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf)) {
+    return 1;
+  }
+  const double dethh = HalfSymmInvertedDet(hh0, inv_1d_buf, predictor_ct, predictor_ctav);
+  loglik += 0.5 * log(dethh);
+  if (!isfinite(loglik)) {
+    return 1;
+  }
+  *loglik_ptr = loglik;
+  return 0;
 }
 
 BoolErr FirthRegressionResidualizedD(const double* yy, const double* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0_buf, double* tmpnxk_buf, double* mean_centered_pmaj_buf, double* sample_offsets_buf) {
