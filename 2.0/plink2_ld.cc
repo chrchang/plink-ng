@@ -6431,11 +6431,13 @@ uint32_t GetNextIsland(const ChrInfo* cip, const uint32_t* variant_bps, const ui
     const uint32_t search_start_vidx = last_index_vidx + 1;
     const uint32_t first_out_of_range_vidx = ExpsearchU32(variant_bps, search_start_vidx, chr_end_vidx, last_index_bp + bp_radius + 1);
     const uint32_t last_in_range_vidx = FindLast1BitBefore(observed_variants, first_out_of_range_vidx);
-    if ((vidx_end == chr_end_vidx) || (variant_bps[vidx_end] - variant_bps[last_in_range_vidx] <= bp_radius)) {
-      *vidx_endp = last_in_range_vidx + 1;
-      return vidx_start;
-    }
-    last_known_bp = variant_bps[vidx_end];
+    // Either way, the island can end here.  When the next index variant
+    // shares a non-index candidate with this island, the next island will
+    // overlap this one, which has always been the behavior; when it doesn't,
+    // the two windows are disjoint, so continuing the island across the gap
+    // only made it larger (it could cover the whole chromosome).
+    *vidx_endp = last_in_range_vidx + 1;
+    return vidx_start;
   }
 }
 
@@ -9435,11 +9437,18 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           uint32_t ext_load_dosage = load_dosage;
           ScanPhaseDosage(observed_variants, pgfip, next_vidx_start, next_vidx_end, check_phase && ((!is_haploid) || is_x), check_dosage, &ext_relevant_phase_exists, &ext_load_dosage);
           const R2PhaseType ext_phase_type = GetR2PhaseType(phased_r2, ext_relevant_phase_exists);
-          const uintptr_t ext_candidate_ct = candidate_ct + next_oaidx_end - next_oaidx_start;
+          // Unpacking covers every observed allele from oaidx_start onward,
+          // including those in the gap between islands, so size by span.
+          const uintptr_t ext_candidate_ct = next_oaidx_end - oaidx_start;
           const uint64_t ext_unpacked_variant_byte_stride = UnpackedByteStride(&ctx, ext_phase_type, x_exists, ext_load_dosage);
           const uintptr_t ext_high_multiread_byte_target = MAXV(RoundUpPow2((ext_candidate_ct + calc_thread_ct) * sizeof(intptr_t), 2 * kCacheline) / 2, multiread_byte_target);
           if (bytes_avail < ext_candidate_ct * S_CAST(uint64_t, ext_unpacked_variant_byte_stride) + 2 * ext_high_multiread_byte_target) {
             // Insufficient memory to extend.
+            break;
+          }
+          if (ext_candidate_ct * S_CAST(uint64_t, ext_unpacked_variant_byte_stride) > (4194304 * k1LU) * calc_thread_ct) {
+            // Extending past the utilization target would mostly mean
+            // unpacking the gap before the next island.
             break;
           }
           vidx_end = next_vidx_end;
@@ -9449,7 +9458,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           cur_high_multiread_byte_target = ext_high_multiread_byte_target;
           phase_type = ext_phase_type;
           load_dosage = ext_load_dosage;
-          next_vidx_start = GetNextIslandIdxs(cip, variant_bps, allele_idx_offsets, icandidate_vbitvec, observed_variants, observed_alleles, observed_alleles_cumulative_popcounts_w, raw_variant_ct, bp_radius, nullptr, &next_oaidx_end, &next_vidx_end, &next_chr_fo_idx, &next_allele_idx_first, &next_allele_idx_last);
+          next_vidx_start = GetNextIslandIdxs(cip, variant_bps, allele_idx_offsets, icandidate_vbitvec, observed_variants, observed_alleles, observed_alleles_cumulative_popcounts_w, raw_variant_ct, bp_radius, &next_oaidx_start, &next_oaidx_end, &next_vidx_end, &next_chr_fo_idx, &next_allele_idx_first, &next_allele_idx_last);
         }
         multiread_base[1] = &(g_bigstack_base[cur_high_multiread_byte_target]);
         unsigned char* unpacked_variants = &(multiread_base[1][cur_high_multiread_byte_target]);
