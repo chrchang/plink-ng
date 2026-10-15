@@ -2,4 +2,6 @@
 pgenlib.c
 pgenlib.cpp
 pgenlib.so
+*.so
+build/
 __pycache__

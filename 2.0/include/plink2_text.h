@@ -118,6 +118,9 @@
 namespace plink2 {
 #endif
 
+// Full definition in plink2_s3.h; only needed here as a pointer type.
+struct S3Credentials;
+
 PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr);
 
 typedef struct TextFileBaseStruct {
@@ -210,7 +213,7 @@ CONSTI32(kDecompressMinCapacity, kDecompressMinBlen + kDecompressChunkSize);
 // * enforced_max_line_blen must be >= dst_capacity - kDecompressChunkSize.
 //   It's the point at which long-line errors instead of out-of-memory errors
 //   are reported.  It isn't permitted to be less than 1 MiB.
-PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txf_ptr);
+PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txf_ptr, const S3Credentials* s3_creds = nullptr);
 
 HEADER_INLINE PglErr TextFileOpen(const char* fname, textFILE* txf_ptr) {
   return TextFileOpenEx(fname, kMaxLongLine, 0, nullptr, txf_ptr);
@@ -403,7 +406,7 @@ void PreinitTextStream(TextStream* txs_ptr);
 //   are interpreted the same way as TextFileOpenEx().
 //   When move-constructing, enforced_max_line_blen and dst_capacity may be
 //   smaller than what the textFILE was opened with.
-PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr);
+PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr, const S3Credentials* s3_creds = nullptr);
 
 HEADER_INLINE PglErr TextStreamOpen(const char* fname, TextStream* txs_ptr) {
   return TextStreamOpenEx(fname, kMaxLongLine, 0, NumCpu(nullptr), nullptr, nullptr, txs_ptr);
