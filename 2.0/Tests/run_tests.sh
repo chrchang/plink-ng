@@ -268,6 +268,11 @@ cd TEST_OXFORD_SAMPLE
 cd ..
 echo "TEST_OXFORD_SAMPLE passed."
 
+cd TEST_GEN_IMPORT_MT
+./run_tests.sh $d $2 $3 > TEST_GEN_IMPORT_MT.log
+cd ..
+echo "TEST_GEN_IMPORT_MT passed."
+
 cd TEST_KING_TABLE_MALFORMED
 ./run_tests.sh $d $2 $3 > TEST_KING_TABLE_MALFORMED.log
 cd ..
