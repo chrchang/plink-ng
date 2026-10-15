@@ -315,6 +315,14 @@ HEADER_INLINE int32_t strequal_unsafe(const char* unknown_len_str, const char* k
   return memequal(unknown_len_str, known_len_tok, slen) && (!unknown_len_str[slen]);
 }
 
+// See #653: allele tokens are usually a single character.
+HEADER_INLINE int32_t allele_equal_unsafe(const char* unknown_len_allele, const char* known_len_allele, uint32_t slen) {
+  if (slen == 1) {
+    return (unknown_len_allele[0] == known_len_allele[0]) && (!unknown_len_allele[1]);
+  }
+  return memequal(unknown_len_allele, known_len_allele, slen) && (!unknown_len_allele[slen]);
+}
+
 HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
   return (ucc <= 32);
 }
