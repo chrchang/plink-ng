@@ -3471,7 +3471,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     // Close file, then reopen with a smaller line-load buffer and (if bgzf)
     // reduce decompression thread count.  2 is good in the simplest cases
-    // (no GQ/DP filter, no dosage), otherwise limit to 1.
+    // (no GQ/DP filter, no dosage); expensive-to-parse lines get more, see
+    // below.
     uint32_t decompress_thread_ct = 1;
     uint32_t calc_thread_ct;
     {
@@ -3479,7 +3480,14 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // "are lines expensive to parse?"  will add a multiallelic condition
         // to the disjunction soon
         // this is based on a bunch of DS-force measurements
-        calc_thread_ct = 1 + (sample_ct > 5) + (sample_ct > 12) + (sample_ct > 32) + (sample_ct > 512);
+        // Retuned on an M4 Max (DS, 1000/5000/20000 samples): bgzf
+        // decompression was the bottleneck at 1 thread; 4 decompression + 8
+        // parse threads was 35-37% faster at all three sizes, and more parse
+        // threads didn't help further.
+        calc_thread_ct = 1 + (sample_ct > 5) + (sample_ct > 12) + (sample_ct > 32) + 4 * (sample_ct > 512);
+        if (TextIsMt(&vcf_txs)) {
+          decompress_thread_ct = 1 + (max_thread_ct > 6) + (max_thread_ct > 10) + (max_thread_ct > 14);
+        }
       } else {
         if (TextIsMt(&vcf_txs) && (max_thread_ct > 1)) {
           decompress_thread_ct = 2;
