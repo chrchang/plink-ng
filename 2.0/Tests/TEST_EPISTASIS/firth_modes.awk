@@ -18,7 +18,11 @@ FNR > 1 {
     ++n
 }
 END {
-    if (n != length(firth)) { print "fallback has " n " pairs, firth " length(firth); exit 1 }
+    firthlen = 0
+    for (item in firth) {
+        firthlen++
+    }
+    if (n != firthlen) { print "fallback has " n " pairs, firth " firthlen; exit 1 }
     if (!is_firth || !is_logistic || !rescued) {
         print "expected a mix: " is_firth+0 " firth, " is_logistic+0 " logistic, " rescued+0 " rescued"; exit 1
     }
