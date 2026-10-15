@@ -221,3 +221,76 @@ fails $1/plink2 $2 $3 --bfile tmp_data --epistasis set-by-all --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis set-by-set set-by-all --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis set-by-all --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis set-by-set --out plink2_bad
+
+# 15. Several quantitative phenotypes in one run.  Phenotypes with the same
+#     missingness pattern share each pair's design-matrix work; the others get
+#     their own pass.  Either way, each phenotype's report and summary must be
+#     byte-identical to a single-phenotype run that selects it with
+#     --pheno-name.  B and C share a missingness pattern (so go through the
+#     shared path together), A is complete and D has a pattern of its own (so
+#     each is a pass by itself), and CC, a case/control column, is skipped.
+#     Covariates with a missing value intersect all four patterns.
+awk 'BEGIN{OFS="\t"}
+     {
+       a = $6
+       b = ((NR * 7) % 13) * 0.3 - 1.1 + 0.4 * $6
+       c = ((NR * 5) % 11) * 0.25 + 0.7 * $6
+       d = ((NR * 3) % 17) * 0.2
+       cc = (NR % 3 == 0) ? 2 : 1
+       if (NR % 9 == 0) { b = "NA"; c = "NA" }
+       if (NR % 14 == 0) { d = "NA" }
+       print $1, $2, a, b, c, d, cc
+     }' tmp_small.fam > tmp_multi_body.txt
+(printf '#FID\tIID\tA\tB\tC\tD\tCC\n'; cat tmp_multi_body.txt) > tmp_multi_pheno.txt
+for cov in "" "--covar tmp_small.cov" "--covar tmp_small_na.cov"
+do
+    $1/plink2 $2 $3 --bfile tmp_small --pheno tmp_multi_pheno.txt $cov --epistasis --epi1 1 --out plink2_multi
+    test ! -e plink2_multi.CC.epi.qt
+    for p in A B C D
+    do
+        $1/plink2 $2 $3 --bfile tmp_small --pheno tmp_multi_pheno.txt --pheno-name $p $cov --epistasis --epi1 1 --out plink2_single_$p
+        cmp plink2_multi.$p.epi.qt plink2_single_$p.$p.epi.qt
+        cmp plink2_multi.$p.epi.qt.summary plink2_single_$p.$p.epi.qt.summary
+        test "$(wc -l < plink2_multi.$p.epi.qt)" -gt 100
+    done
+    if cmp -s plink2_multi.A.epi.qt plink2_multi.B.epi.qt; then exit 1; fi
+    # B and C always share a pass.
+    grep -q "Processing [0-9]* phenotypes with identical missingness patterns together" plink2_multi.log
+    # Thread count changes nothing, in the shared path either.
+    $1/plink2 $2 $3 --bfile tmp_small --pheno tmp_multi_pheno.txt $cov --epistasis --epi1 1 --threads 1 --out plink2_multi_t1
+    $1/plink2 $2 $3 --bfile tmp_small --pheno tmp_multi_pheno.txt $cov --epistasis --epi1 1 --threads 8 --out plink2_multi_t8
+    for p in A B C D
+    do
+        cmp plink2_multi.$p.epi.qt plink2_multi_t1.$p.epi.qt
+        cmp plink2_multi.$p.epi.qt plink2_multi_t8.$p.epi.qt
+        cmp plink2_multi.$p.epi.qt.summary plink2_multi_t8.$p.epi.qt.summary
+    done
+    # --parallel jobs concatenate to the single run, for every phenotype.
+    for j in 1 2 3
+    do
+        $1/plink2 $2 $3 --bfile tmp_small --pheno tmp_multi_pheno.txt $cov --epistasis --epi1 1 --parallel $j 3 --out plink2_multi_par
+    done
+    for p in A B C D
+    do
+        cat plink2_multi_par.$p.epi.qt.1 plink2_multi_par.$p.epi.qt.2 plink2_multi_par.$p.epi.qt.3 > tmp_multi_par_cat.txt
+        cmp plink2_multi.$p.epi.qt tmp_multi_par_cat.txt
+    done
+done
+# Set modes and compressed output go through the same path.
+{
+    printf 'setA\n'
+    awk 'NR <= 20 {print $2}' tmp_small.bim
+    printf 'END\n\nsetB\n'
+    awk 'NR > 10 && NR <= 30 {print $2}' tmp_small.bim
+    printf 'END\n'
+} > tmp_multi_sets.txt
+$1/plink2 $2 $3 --bfile tmp_small --set tmp_multi_sets.txt --pheno tmp_multi_pheno.txt --covar tmp_small.cov --epistasis set-by-set zs --epi1 1 --out plink2_multi_set
+$1/plink2 $2 $3 --bfile tmp_small --set tmp_multi_sets.txt --pheno tmp_multi_pheno.txt --pheno-name C --covar tmp_small.cov --epistasis set-by-set zs --epi1 1 --out plink2_single_set
+$1/plink2 $2 $3 --zst-decompress plink2_multi_set.C.epi.qt.zst > tmp_multi_set_C.txt
+$1/plink2 $2 $3 --zst-decompress plink2_single_set.C.epi.qt.zst > tmp_single_set_C.txt
+cmp tmp_multi_set_C.txt tmp_single_set_C.txt
+$1/plink2 $2 $3 --zst-decompress plink2_multi_set.D.epi.qt.summary.zst > tmp_multi_set_D.txt
+$1/plink2 $2 $3 --bfile tmp_small --set tmp_multi_sets.txt --pheno tmp_multi_pheno.txt --pheno-name D --covar tmp_small.cov --epistasis set-by-set --epi1 1 --out plink2_single_set_D
+cmp tmp_multi_set_D.txt plink2_single_set_D.D.epi.qt.summary
+# Only a case/control phenotype selected: still an error.
+fails $1/plink2 $2 $3 --bfile tmp_small --pheno tmp_multi_pheno.txt --pheno-name CC --epistasis --out plink2_bad
