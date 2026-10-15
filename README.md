@@ -14,7 +14,7 @@
 [![CRAN pgenlibr](https://img.shields.io/cran/v/pgenlibr?label=CRAN%20pgenlibr&logo=r)](https://CRAN.R-project.org/package=pgenlibr)
 
 Source code for PLINK 1.9 and PLINK 2.0, the successors to Shaun Purcell's
-PLINK 1.07 (https://zzz.bwh.harvard.edu/plink/), a whole-genome association
+PLINK 1.07 (https://zzz.nyspi.org/plink/), a whole-genome association
 analysis toolset.
 
 - User documentation and prebuilt binaries: [PLINK 1.9](https://www.cog-genomics.org/plink/1.9/), [PLINK 2.0](https://www.cog-genomics.org/plink/2.0/)
