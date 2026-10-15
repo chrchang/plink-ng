@@ -6019,6 +6019,19 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
   return reterr;
 }
 
+// On Apple silicon, Accelerate doesn't parallelize the per-block matrix
+// products below by itself (enabling its internal threading changed nothing),
+// so plink2's own worker threads are needed: --pca approx went from 19.2s to
+// 10.9s and --make-rel from 3.3s to 2.4s (M4 Max, 16 threads).  The
+// one-compute-thread choice is kept on Intel Macs, which it was made for.
+static inline uint32_t AccelerateNeedsWorkerThreads() {
+#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+  return BlasIsAccelerate();
+#else
+  return 0;
+#endif
+}
+
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -6032,7 +6045,8 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   {
     assert(variant_ct);
     uint32_t calc_thread_ct = 1;
-    if ((!BlasIsMultithreaded()) && (!BlasIsAccelerate())) {
+    const uint32_t accelerate_worker_threads = AccelerateNeedsWorkerThreads();
+    if (((!BlasIsMultithreaded()) && (!BlasIsAccelerate())) || accelerate_worker_threads) {
       calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
       if (calc_thread_ct * parallel_tot > sample_ct / 32) {
         calc_thread_ct = sample_ct / (32 * parallel_tot);
@@ -6144,7 +6158,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       ctx.normed_dosage_smaj_bufs[1] = nullptr;
       SetThreadFuncAndData(CalcGrmThread, &ctx, &tg);
     }
-    if (BlasIsMultithreaded()) {
+    if (BlasIsMultithreaded() && (!accelerate_worker_threads)) {
       BLAS_SET_NUM_THREADS((max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct);
     }
     // Main workflow:
@@ -7685,7 +7699,9 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (unlikely(reterr)) {
       goto CalcPca_ret_1;
     }
-    const uint32_t blas_is_accelerate = BlasIsAccelerate();
+    // "accelerate" here means "rely on Accelerate's own threading", which is
+    // only worthwhile on Intel Macs; see AccelerateNeedsWorkerThreads().
+    const uint32_t blas_is_accelerate = BlasIsAccelerate() && (!AccelerateNeedsWorkerThreads());
     // With Accelerate, we can take Grand Central Dispatch dgemm for granted.
     // (tried this with Linux MKL + OpenMP as well, but results were inferior)
     uint32_t calc_thread_ct = 1;
