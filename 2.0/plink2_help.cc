@@ -1353,7 +1353,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
     HelpPrint("epistasis\0", &help_ctrl, 1,
-"  --epistasis ['zs'] ['ref-based'] ['log10'] ['cols='<col set descriptor>]\n"
+"  --epistasis ['zs'] ['ref-based'] [{set-by-set | set-by-all}] ['log10']\n"
+"              ['cols='<col set descriptor>]\n"
 "    Scan every pair of autosomal variants for an interaction with quantitative\n"
 "    phenotype(s), by least-squares regression of the phenotype(s) on the two\n"
 "    genotypes, their product, and any --covar covariates.  Potentially\n"
@@ -1370,6 +1371,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      squared t-statistic as a 1-df chi-square with a normal p-value; this\n"
 "      reports the t-statistic itself, with the matching t p-value.\n"
 "    * A constant covariate is dropped with a warning, as in --glm.\n"
+"    * With --set or --make-set, 'set-by-set' scans the pairs inside one set,\n"
+"      or every pair across two, and 'set-by-all' scans one set against every\n"
+"      variant.  Both drop a variant's pair with itself.\n"
 "    * Samples missing either genotype, the phenotype, or any covariate are\n"
 "      left out of that pair's regression.\n"
 "    Supported column sets are:\n"

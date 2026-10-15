@@ -93,11 +93,10 @@ diff -q plink2.PHENO1.epi.qt plink2_zs.PHENO1.epi.qt
 $1/plink2 $2 $3 --bfile tmp_data --epistasis cols=-p --epi1 1 --out plink2_nop
 head -n 1 plink2_nop.PHENO1.epi.qt | grep -qx '#CHROM1	ID1	CHROM2	ID2	BETA_INT	SE	T_STAT'
 
-# 9. Rejected: a case/control phenotype, the set modifiers, and the two
-#    epistasis commands together.
+# 9. Rejected: a case/control phenotype, and the two epistasis commands
+#    together.  (The set modifiers are checked in section 14.)
 plink --simulate simulate.txt --simulate-ncases 150 --simulate-ncontrols 150 --out tmp_cc > /dev/null
 fails $1/plink2 $2 $3 --bfile tmp_cc --epistasis --out plink2_bad
-fails $1/plink2 $2 $3 --bfile tmp_data --epistasis set-by-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --epistasis-boost --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --fast-epistasis boost --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis --gap 100 --out plink2_bad
@@ -134,3 +133,91 @@ if awk 'NR > 1 && $6 > 0.5 {found = 1} END {exit !found}' plink2_rb_freq.afreq; 
 else
     diff -q plink2.PHENO1.epi.qt plink2_rb.PHENO1.epi.qt
 fi
+
+# 14. The set modes, which PLINK 1.9 also has, so they are checked against it,
+#     and against the matching pairs of the all-pairs report.  setA is the
+#     first 20 variants (chromosome 1), setB 15 variants on chromosome 2, and
+#     setC straddles setA so that two sets can overlap.
+{
+    printf 'setA\n'
+    awk 'NR <= 20 {print $2}' tmp_data.bim
+    printf 'END\n\nsetB\n'
+    awk 'NR > 50 && NR <= 65 {print $2}' tmp_data.bim
+    printf 'END\n\nsetC\n'
+    awk 'NR > 10 && NR <= 30 {print $2}' tmp_data.bim
+    printf 'END\n'
+} > tmp_sets.txt
+
+# 14a. One set: every pair inside it, which is still a triangle.
+plink --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis set-by-set --epi1 1 --out plink19_sbs
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis set-by-set --epi1 1 --out plink2_sbs
+awk -f cmp19.awk plink19_sbs.epi.qt plink2_sbs.PHENO1.epi.qt
+awk -f summary19.awk plink19_sbs.epi.qt.summary plink2_sbs.PHENO1.epi.qt.summary
+awk -v expected_n=190 -f cmp_subset.awk plink2.PHENO1.epi.qt plink2_sbs.PHENO1.epi.qt
+
+# 14b. Two sets: every pair across them.
+plink --bfile tmp_data --set tmp_sets.txt --set-names setA setB --epistasis set-by-set --epi1 1 --out plink19_2s
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA setB --epistasis set-by-set --epi1 1 --out plink2_2s
+awk -f cmp19.awk plink19_2s.epi.qt plink2_2s.PHENO1.epi.qt
+# 1.9 only summarizes the row set; this also summarizes the column set, as
+# --epistasis-boost does, so compare the row set's variants.
+awk 'NR == FNR {k[$2]; next} /^#/ || ($2 in k)' plink19_2s.epi.qt.summary plink2_2s.PHENO1.epi.qt.summary > plink2_2s_rows.summary
+awk -f summary19.awk plink19_2s.epi.qt.summary plink2_2s_rows.summary
+awk -v expected_n=300 -f cmp_subset.awk plink2.PHENO1.epi.qt plink2_2s.PHENO1.epi.qt
+
+# 14c. set-by-all: the set against every variant, minus the self-pairs.  A pair
+#      inside the set is listed once from each side, as in 1.9.
+plink --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis set-by-all --epi1 1 --out plink19_sba
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis set-by-all --epi1 1 --out plink2_sba
+awk -f cmp19.awk plink19_sba.epi.qt plink2_sba.PHENO1.epi.qt
+# (The summaries are not compared here: a variant inside the set is also a
+# column for the other rows, which only this program counts.)
+awk -v expected_n=2980 -f cmp_subset.awk plink2.PHENO1.epi.qt plink2_sba.PHENO1.epi.qt
+
+# 14d. Overlapping sets do not pair a variant with itself.
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA setC --epistasis set-by-set --epi1 1 --out plink2_ov
+awk -v expected_n=390 -f cmp_subset.awk plink2.PHENO1.epi.qt plink2_ov.PHENO1.epi.qt
+awk 'NR > 1 && $2 == $4 {exit 1}' plink2_ov.PHENO1.epi.qt
+
+# 14e. With covariates and missing calls, against the all-pairs run of the same
+#      data.
+$1/plink2 $2 $3 --bfile tmp_small --covar tmp_small.cov --epistasis --epi1 1 --out plink2_cfull
+{ printf 'setA\n'; awk 'NR <= 8 {print $2}' tmp_small.bim; printf 'END\n'; } > tmp_small_sets.txt
+n_small="$(awk 'END {print NR}' tmp_small.bim)"
+$1/plink2 $2 $3 --bfile tmp_small --covar tmp_small.cov --set tmp_small_sets.txt --epistasis set-by-all --epi1 1 --out plink2_csba
+awk -v expected_n=$((8 * (n_small - 1))) -f cmp_subset.awk plink2_cfull.PHENO1.epi.qt plink2_csba.PHENO1.epi.qt
+$1/plink2 $2 $3 --bfile tmp_small --covar tmp_small.cov --set tmp_small_sets.txt --epistasis set-by-set --epi1 1 --out plink2_csbs
+awk -v expected_n=28 -f cmp_subset.awk plink2_cfull.PHENO1.epi.qt plink2_csbs.PHENO1.epi.qt
+
+# 14f. One thread reproduces the default run, and --parallel chunks
+#      concatenate to it, in each mode.
+for m in "set-by-set" "set-by-all"
+do
+    t="${m//-/}"
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis $m --epi1 1 --out plink2_$t
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis $m --epi1 1 --threads 1 --out plink2_${t}_st
+    diff -q plink2_$t.PHENO1.epi.qt plink2_${t}_st.PHENO1.epi.qt
+    diff -q plink2_$t.PHENO1.epi.qt.summary plink2_${t}_st.PHENO1.epi.qt.summary
+    for i in 1 2 3
+    do
+        $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis $m --epi1 1 --parallel $i 3 --out plink2_${t}_p$i
+    done
+    cat plink2_${t}_p1.PHENO1.epi.qt.1 plink2_${t}_p2.PHENO1.epi.qt.2 plink2_${t}_p3.PHENO1.epi.qt.3 > plink2_${t}_p.PHENO1.epi.qt
+    diff -q plink2_$t.PHENO1.epi.qt plink2_${t}_p.PHENO1.epi.qt
+done
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA setB --epistasis set-by-set --epi1 1 --threads 1 --out plink2_2s_st
+diff -q plink2_2s.PHENO1.epi.qt plink2_2s_st.PHENO1.epi.qt
+for i in 1 2 3
+do
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA setB --epistasis set-by-set --epi1 1 --parallel $i 3 --out plink2_2s_p$i
+done
+cat plink2_2s_p1.PHENO1.epi.qt.1 plink2_2s_p2.PHENO1.epi.qt.2 plink2_2s_p3.PHENO1.epi.qt.3 > plink2_2s_p.PHENO1.epi.qt
+diff -q plink2_2s.PHENO1.epi.qt plink2_2s_p.PHENO1.epi.qt
+
+# 14g. Rejected: a set mode with no --set, the two modes together, set-by-all
+#      with more than one set, and set-by-set with more than two.
+fails $1/plink2 $2 $3 --bfile tmp_data --epistasis set-by-set --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --epistasis set-by-all --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis set-by-set set-by-all --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis set-by-all --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis set-by-set --out plink2_bad
