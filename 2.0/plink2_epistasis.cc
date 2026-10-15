@@ -3090,13 +3090,16 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
     // As in --glm, phenotypes whose included samples (after intersecting with
     // the covariates' nonmissing sets) are identical are processed together.
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    // vector-aligned stride, since BitvecAndCopy() and BitvecAnd() write
+    // these with vector operations
+    const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
     uint32_t* qt_pheno_idxs;
     uint32_t* batch_pheno_idxs;
     uintptr_t* pheno_includes;
     uintptr_t* assigned;
     if (unlikely(bigstack_alloc_u32(qt_pheno_ct, &qt_pheno_idxs) ||
                  bigstack_alloc_u32(MINV(qt_pheno_ct, S_CAST(uint32_t, kEpiLinearMaxBatchSize)), &batch_pheno_idxs) ||
-                 bigstack_alloc_w(S_CAST(uintptr_t, qt_pheno_ct) * raw_sample_ctl, &pheno_includes) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, qt_pheno_ct) * raw_sample_ctaw, &pheno_includes) ||
                  bigstack_calloc_w(BitCtToWordCt(qt_pheno_ct), &assigned))) {
       goto CalcEpiLinear_ret_NOMEM;
     }
@@ -3108,7 +3111,7 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
           continue;
         }
         qt_pheno_idxs[qt_idx] = pheno_idx;
-        uintptr_t* cur_include = &(pheno_includes[S_CAST(uintptr_t, qt_idx) * raw_sample_ctl]);
+        uintptr_t* cur_include = &(pheno_includes[S_CAST(uintptr_t, qt_idx) * raw_sample_ctaw]);
         BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, cur_include);
         for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
           BitvecAnd(covar_cols[covar_idx].nonmiss, raw_sample_ctl, cur_include);
@@ -3120,7 +3123,7 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
       if (IsSet(assigned, qt_idx)) {
         continue;
       }
-      const uintptr_t* cur_include = &(pheno_includes[S_CAST(uintptr_t, qt_idx) * raw_sample_ctl]);
+      const uintptr_t* cur_include = &(pheno_includes[S_CAST(uintptr_t, qt_idx) * raw_sample_ctaw]);
       uint32_t batch_pheno_ct = 0;
       batch_pheno_idxs[batch_pheno_ct++] = qt_pheno_idxs[qt_idx];
       SetBit(qt_idx, assigned);
@@ -3128,7 +3131,7 @@ PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno
         if (IsSet(assigned, qt_idx2)) {
           continue;
         }
-        if (memequal(cur_include, &(pheno_includes[S_CAST(uintptr_t, qt_idx2) * raw_sample_ctl]), raw_sample_ctl * sizeof(intptr_t))) {
+        if (memequal(cur_include, &(pheno_includes[S_CAST(uintptr_t, qt_idx2) * raw_sample_ctaw]), raw_sample_ctl * sizeof(intptr_t))) {
           SetBit(qt_idx2, assigned);
           batch_pheno_idxs[batch_pheno_ct++] = qt_pheno_idxs[qt_idx2];
         }
