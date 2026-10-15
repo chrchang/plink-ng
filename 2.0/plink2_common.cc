@@ -4009,6 +4009,8 @@ uintptr_t GetMhcWordCt(uintptr_t sample_ct) {
   return RoundUpPow2(patch_01_max_word_ct, kWordsPerVec) + RoundUpPow2(patch_10_max_word_ct, kWordsPerVec);
 }
 
+CONSTI32(kPgenMtLoadTargetBlockByteCt, 64 * 1048576);
+
 PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
@@ -4038,6 +4040,23 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
     return kPglRetNomem;
   }
 #endif
+  // The 1/4-of-workspace rule above lets a large --memory turn the whole file
+  // into a single block, which serializes reading, computation and writing,
+  // and touches memory roughly equal to the file size.  Past a few dozen MiB
+  // per block, larger blocks don't help: across --freq, --hardy, --missing,
+  // --het, --geno-counts, --sample-counts, --glm, --score, --pca approx,
+  // --make-bed and --export, outputs were unchanged and times were the same
+  // or better (e.g. --make-bed 0.23s -> 0.13s with 100000 samples), while
+  // peak memory dropped from ~file size to ~100 MB.
+  // Keep at least 64 variants per requested thread, and a multiple of
+  // kBitsPerVec.
+  {
+    const uint32_t min_read_block_size = MAXV(2 * kBitsPerVec, 64 * (*calc_thread_ct_ptr));
+    while ((read_block_size >= 2 * min_read_block_size) && (multiread_cacheline_ct > kPgenMtLoadTargetBlockByteCt / kCacheline)) {
+      read_block_size /= 2;
+      multiread_cacheline_ct = PgfiMultireadGetCachelineReq(variant_include, pgfip, variant_ct, read_block_size);
+    }
+  }
   main_loadbufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(multiread_cacheline_ct * kCacheline));
   main_loadbufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(multiread_cacheline_ct * kCacheline));
   pgfip->block_base = main_loadbufs[0];
