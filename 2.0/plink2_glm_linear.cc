@@ -773,6 +773,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           }
         }
         uint32_t sparse_optimization = 0;
+        // dosage variant with missing calls whose covariate dot products can
+        // still come from xtx_image; see below
+        uint32_t dosage_downdate = 0;
         double* multi_start = nullptr;
         if (!allele_ct_m2) {
           // When there are no dosages, and either:
@@ -842,6 +845,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
               }
             } else {
+              // The dosage column is filled below as usual, but the covariate
+              // dot products don't need a dsyrk over the nonmissing samples:
+              // as in the hardcall case, xtx_image minus the missing samples'
+              // contributions gives them.
+              dosage_downdate = missing_sparse_eligible && (missing_ct * 2 < nm_sample_ct) && (!MissingLeavesConstantCovar(sample_nm, cur_covars_cmaj, xtx_image, cur_sample_ct, nm_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_biallelic_predictor_ct));
               uintptr_t sample_midx_base = 0;
               uintptr_t sample_nm_bits = sample_nm[0];
               uint32_t dosage_idx = 0;
@@ -1353,11 +1361,15 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             // bugfix (12 Sep 2017): forgot to implement per-variant VIF and
             // max-corr checks
             // DPrintf("\nWorker thread %" PRIuPTR " starting main regression for %u", tidx, variant_uidx);
-            if (xtx_image && (sparse_optimization || (prev_nm && (!allele_ct_m2)))) {
+            if (xtx_image && (sparse_optimization || dosage_downdate || (prev_nm && (!allele_ct_m2)))) {
               // only need to fill in additive and possibly domdev dot
               // products
               memcpy(xtx_inv, xtx_image, cur_predictor_ct * cur_predictor_ct * sizeof(double));
               memcpy(xt_y, xt_y_image, cur_predictor_ct * sizeof(double));
+              if (dosage_downdate) {
+                SubtractMissingFromCovarDotprods(sample_nm, cur_covars_cmaj, cur_pheno, cur_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_predictor_ct, 1, nm_covar_row_buf, xtx_inv, xt_y);
+                xtx_inv[0] = u31tod(nm_sample_ct);
+              }
               if (sparse_optimization) {
                 // currently does not handle chrX
                 double geno_pheno_prod = 0.0;
