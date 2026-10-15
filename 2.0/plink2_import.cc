@@ -12698,6 +12698,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
+CONSTI32(kBgen11BlockTargetByteCt, 256 * 1048576);
+
 PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -13125,6 +13127,16 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       } else if (unlikely(main_block_size < 8)) {
         // this threshold is arbitrary
         goto OxBgenToPgen_ret_NOMEM;
+      }
+      {
+        // Every buffer below is sized at full sample width per block
+        // variant, so a block that fills the workspace touched ~3 GB with
+        // --memory 16000 (5000 samples) without being faster.  Bound the
+        // block by a byte budget, keeping at least 64 variants per thread.
+        const uintptr_t budget_block_size = MAXV(kBgen11BlockTargetByteCt / bytes_req_per_in_block_variant, 64 * S_CAST(uintptr_t, calc_thread_ct));
+        if (main_block_size > budget_block_size) {
+          main_block_size = budget_block_size;
+        }
       }
       if (calc_thread_ct > main_block_size / 8) {
         calc_thread_ct = main_block_size / 8;
