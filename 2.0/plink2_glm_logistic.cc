@@ -4800,6 +4800,13 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 }
               }
             }
+            // With missing calls, the max-corr/VIF check needs the dot products
+            // over the nonmissing samples.  As in linear --glm, the intercept
+            // and covariate ones can come from xtx_image minus the missing
+            // samples instead of a full dsyrk; see
+            // SubtractMissingFromCovarDotprods().
+            uint32_t missing_downdate;
+            missing_downdate = corr_inv && missing_ct && (!allele_ct_m2) && (!is_regular_x) && cur_covar_ct && (!cur_parameter_subset) && (missing_ct * 2 < nm_sample_ct) && (!MissingLeavesConstantCovar(sample_nm, cur_covars_cmaj, nm_precomp->xtx_image, cur_sample_ct, nm_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_predictor_ct));
             if (corr_inv && prev_nm && (!allele_ct_m2)) {
               uintptr_t start_pred_idx = 0;
               if (!(model_dominant || model_recessive || model_hetonly || model_hethom)) {
@@ -4821,6 +4828,32 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 semicomputed_biallelic_xtx[cur_predictor_ct + 2] = semicomputed_biallelic_xtx[2 * cur_predictor_ct + 1];
               }
               glm_err = CheckMaxCorrAndVifNm(semicomputed_biallelic_xtx, corr_inv, cur_predictor_ct, domdev_third_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
+              if (glm_err) {
+                goto GlmLogisticThreadD_skip_regression;
+              }
+            } else if (missing_downdate) {
+              // Lower triangle of the nonmissing samples' predictor dot
+              // products, intercept included.  inverse_corr_buf is free until
+              // CheckMaxCorrAndVif(), so it holds the covariate row.
+              double* nm_xtx = predictor_dotprod_buf;
+              memcpy(nm_xtx, nm_precomp->xtx_image, cur_predictor_ct * cur_predictor_ct * sizeof(double));
+              SubtractMissingFromCovarDotprods(sample_nm, cur_covars_cmaj, nullptr, cur_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_predictor_ct, 0, inverse_corr_buf, nm_xtx, nullptr);
+              nm_xtx[0] = u31tod(nm_sample_ct);
+              // Genotype (and domdev) rows: products with every predictor,
+              // straight from the compacted predictor buffer.
+              for (uint32_t geno_pred_idx = 1; geno_pred_idx != domdev_third + 2; ++geno_pred_idx) {
+                ColMajorVectorMatrixMultiplyStrided(&(nm_predictors_pmaj_buf[geno_pred_idx * nm_sample_ctav]), nm_predictors_pmaj_buf, nm_sample_ct, nm_sample_ctav, cur_predictor_ct, dbl_2d_buf);
+                for (uint32_t pred_idx = 0; pred_idx != geno_pred_idx; ++pred_idx) {
+                  nm_xtx[geno_pred_idx * cur_predictor_ct + pred_idx] = dbl_2d_buf[pred_idx];
+                }
+                for (uint32_t pred_idx = geno_pred_idx; pred_idx != cur_predictor_ct; ++pred_idx) {
+                  nm_xtx[pred_idx * cur_predictor_ct + geno_pred_idx] = dbl_2d_buf[pred_idx];
+                }
+              }
+              for (uint32_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
+                dbl_2d_buf[pred_idx] = nm_xtx[pred_idx * cur_predictor_ct];
+              }
+              glm_err = CheckMaxCorrAndVif(nm_xtx, 1, cur_predictor_ct, nm_sample_ct, max_corr, vif_thresh, dbl_2d_buf, nullptr, inverse_corr_buf, inv_1d_buf);
               if (glm_err) {
                 goto GlmLogisticThreadD_skip_regression;
               }
