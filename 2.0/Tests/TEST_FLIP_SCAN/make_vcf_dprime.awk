@@ -4,6 +4,14 @@
 # haplotypes (each one a few mutations away from an earlier one), and each
 # allele is occasionally redrawn at random, so the within-block pairs span the
 # whole range of D' and the double heterozygotes actually need phasing.
+#
+# mode= selects how the genotypes are written, from the same random draws:
+#   (unset):  unphased, one sample per individual
+#   phased:   phased, one sample per individual
+#   dup:      phased, every sample written twice
+#   haphom:   every haplotype written as a homozygous sample
+# dup and haphom have the same haplotype counts and no double-hets of unknown
+# phase, so with known phase used, D' is the same on both.
 BEGIN {
     OFS = "\t";
     sample_ct = 400;
@@ -19,7 +27,11 @@ BEGIN {
     print "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"GT\">";
     line = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT";
     for (s = 0; s < sample_ct; ++s) {
-        line = line "\tS" s;
+        if ((mode == "dup") || (mode == "haphom")) {
+            line = line "\tS" s "a\tS" s "b";
+        } else {
+            line = line "\tS" s;
+        }
     }
     print line;
 
@@ -49,6 +61,9 @@ BEGIN {
             for (s = 0; s < sample_ct; ++s) {
                 if (rnd() < 0.02) {
                     gt = "./.";
+                    if ((mode == "dup") || (mode == "haphom")) {
+                        gt = gt OFS gt;
+                    }
                 } else {
                     a1 = hap[draw1[s], j];
                     a2 = hap[draw2[s], j];
@@ -62,7 +77,15 @@ BEGIN {
                         a1 = 1 - a1;
                         a2 = 1 - a2;
                     }
-                    gt = a1 "/" a2;
+                    if (mode == "") {
+                        gt = a1 "/" a2;
+                    } else if (mode == "phased") {
+                        gt = a1 "|" a2;
+                    } else if (mode == "dup") {
+                        gt = a1 "|" a2 OFS a1 "|" a2;
+                    } else {
+                        gt = a1 "/" a1 OFS a2 "/" a2;
+                    }
                 }
                 line = line OFS gt;
             }

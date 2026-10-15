@@ -3565,16 +3565,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1FlipScan) {
         // Only the LD scan walks a positional window.
-        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname) && (!pcp->ld_info.flipscan_ref_pgen_fname))) {
+        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname))) {
           logerrputs("Error: --flip-scan requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        if (pcp->ld_info.flipscan_ref_pgen_fname) {
-          reterr = FlipScanRefDataset(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, maj_alleles, allele_freqs, &(pcp->ld_info), pcp->load_filter_log_flags, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->input_missing_geno_char, pcp->max_thread_ct, outname, outname_end);
-        } else if (pcp->ld_info.flipscan_ref_freq_fname) {
+        if (pcp->ld_info.flipscan_ref_freq_fname) {
           reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, maj_alleles, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pgfi.gflags, pcp->max_thread_ct, outname, outname_end);
         } else {
-          reterr = FlipScan(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, maj_alleles, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = FlipScan(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, maj_alleles, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->load_filter_log_flags, pcp->input_missing_geno_char, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
@@ -7898,11 +7896,6 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "lip-scan-ref-pfile") || strequal_k_unsafe(flagname_p2, "lip-scan-ref-bfile")) {
-          // Still need to possibly filter founders, and independently verify
-          // handling of multiallelic variants.
-          logerrputs("Error: --flip-scan-ref-{b,p}file is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
           // Same shape as --pgen-diff: one prefix, or the three filenames.
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -15826,9 +15819,9 @@ int main(int argc, char** argv) {
       logerrputs("Error: --flip-scan-ref-freq must be used with --flip-scan.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((pc.ld_info.flipscan_flags & kfFlipScanDprime) && (pc.ld_info.flipscan_ref_freq_fname || pc.ld_info.flipscan_ref_pgen_fname))) {
-      // The reference-based modes have no LD scan for D' to replace.
-      logerrputs("Error: --flip-scan 'dprime' cannot be used with --flip-scan-ref-freq,\n--flip-scan-ref-pfile, or --flip-scan-ref-bfile.\n");
+    if (unlikely((pc.ld_info.flipscan_flags & kfFlipScanDprime) && pc.ld_info.flipscan_ref_freq_fname)) {
+      // --flip-scan-ref-freq has no LD scan for D' to replace.
+      logerrputs("Error: --flip-scan 'dprime' cannot be used with --flip-scan-ref-freq.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {
