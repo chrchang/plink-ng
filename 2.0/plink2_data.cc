@@ -7507,7 +7507,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
 
   const uint32_t hard_call_halfdist = mcp->hard_call_halfdist;
   const uint32_t dosage_erase_halfdist = ctx->dosage_erase_halfdist;
-  const uintptr_t dosageraw_word_ct = kWordsPerVec * (BitCtToVecCt(raw_sample_ct) + DivUp(raw_sample_ct, (kBytesPerVec / sizeof(Dosage))));
 
   STPgenWriter* spgwp = ctx->spgwp;
   PgenWriterCommon* pwcp;
@@ -7680,21 +7679,18 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         // multiallelic dosage not implemented yet
         assert(read_allele_ct == 2);
 
-        // this should have length dependent on dosage_ct
+        // PgrGetRaw() packs dosage_main and dphase_delta to their actual
+        // lengths.
         cur_dosagepresent = cur_vrec_end;
         cur_dosagevals = R_CAST(Dosage*, &(cur_dosagepresent[raw_sample_ctaw]));
         read_dosage_ct = PopcountWords(cur_dosagepresent, raw_sample_ctl);
-
-        // temporary
-        cur_vrec_end = &(cur_vrec_end[dosageraw_word_ct]);
+        cur_vrec_end = &(cur_vrec_end[raw_sample_ctaw + DosageCtToAlignedWordCt(read_dosage_ct)]);
 
         if (is_dphase) {
           cur_dphasepresent = cur_vrec_end;
           cur_dphasedelta = R_CAST(SDosage*, &(cur_dphasepresent[raw_sample_ctaw]));
           read_dphase_ct = PopcountWords(cur_dphasepresent, raw_sample_ctl);
-
-          // temporary
-          cur_vrec_end = &(cur_vrec_end[dosageraw_word_ct]);
+          cur_vrec_end = &(cur_vrec_end[raw_sample_ctaw + DosageCtToAlignedWordCt(read_dphase_ct)]);
         }
       }
       uint32_t write_rare01_ct = 0;

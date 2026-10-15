@@ -10022,20 +10022,34 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
   const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
   loadbuf_iter = &(loadbuf_iter[raw_sample_ctaw]);
   uint16_t* dosage_main = DowncastWToU16(loadbuf_iter);
-  // probable todo: pack this more tightly in the future
+  // Parse into full-width slots, then pack dosage_main (and dphase_delta) down
+  // to their actual lengths, so consecutive records don't each touch
+  // raw_sample_ct * 2 bytes per track.  The consumer (MakePgenThread())
+  // recomputes the packed lengths from the dosage_present/dphase_present
+  // popcounts.
   const uintptr_t dosage_main_aligned_wordct = kWordsPerVec * DivUp(raw_sample_ct, (kBytesPerVec / sizeof(int16_t)));
-  loadbuf_iter = &(loadbuf_iter[dosage_main_aligned_wordct]);
   uintptr_t* dphase_present = nullptr;
   int16_t* dphase_delta = nullptr;
   if (save_dphase) {
-    dphase_present = loadbuf_iter;
+    dphase_present = &(loadbuf_iter[dosage_main_aligned_wordct]);
+    dphase_delta = DowncastWToI16(&(dphase_present[raw_sample_ctaw]));
+  }
+  reterr = ParseDosage16(fread_ptr, fread_end, nullptr, raw_sample_ct, vidx, allele_ct, pgrp, nullptr, dphase_present, dphase_delta, nullptr, dosage_present, dosage_main);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  const uint32_t dosage_ct = PopcountWords(dosage_present, raw_sample_ctl);
+  loadbuf_iter = &(loadbuf_iter[kWordsPerVec * DivUp(dosage_ct, (kBytesPerVec / sizeof(int16_t)))]);
+  if (save_dphase) {
+    const uint32_t dphase_ct = PopcountWords(dphase_present, raw_sample_ctl);
+    // memmove: the packed destination can overlap the full-width source.
+    memmove(loadbuf_iter, dphase_present, raw_sample_ctaw * sizeof(intptr_t));
     loadbuf_iter = &(loadbuf_iter[raw_sample_ctaw]);
-    dphase_delta = DowncastWToI16(loadbuf_iter);
-    loadbuf_iter = &(loadbuf_iter[dosage_main_aligned_wordct]);
+    memmove(loadbuf_iter, dphase_delta, dphase_ct * sizeof(int16_t));
+    loadbuf_iter = &(loadbuf_iter[kWordsPerVec * DivUp(dphase_ct, (kBytesPerVec / sizeof(int16_t)))]);
   }
   *loadbuf_iter_ptr = loadbuf_iter;
-  reterr = ParseDosage16(fread_ptr, fread_end, nullptr, raw_sample_ct, vidx, allele_ct, pgrp, nullptr, dphase_present, dphase_delta, nullptr, dosage_present, dosage_main);
-  return reterr;
+  return kPglRetSuccess;
 }
 
 
