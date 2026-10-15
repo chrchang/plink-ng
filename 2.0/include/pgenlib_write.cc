@@ -2302,11 +2302,13 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_
   // magic number) to final output file.
   unsigned char copybuf[kPglFwriteBlockSize + 3];
   uintptr_t nbyte = fread(copybuf, 1, kPglFwriteBlockSize + 3, *pgen_outfile_ptr);
-  if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b", 2)))) {
+  // The body can be empty: an all-hom-ref variant (vrtype 5) has a
+  // zero-length record.
+  if (unlikely((nbyte < 3) || (!memequal_k(copybuf, "l\x1b", 2)))) {
     return kPglRetRewindFail;
   }
   nbyte -= 3;
-  if (unlikely(!fwrite_unlocked(&(copybuf[3]), nbyte, 1, header_ff))) {
+  if (nbyte && unlikely(!fwrite_unlocked(&(copybuf[3]), nbyte, 1, header_ff))) {
     return kPglRetWriteFail;
   }
   while (1) {
