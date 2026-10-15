@@ -1331,6 +1331,21 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   THREAD_RETURN;
 }
 
+CONSTI32(kBgenWriteBlockMinTargetByteCt, 256 * 1048576);
+
+// Upper bound on each BGEN-export write buffer.  The rest of the workspace
+// doesn't make export faster: with 5000 samples and --memory 16000, the old
+// bigstack_left() / 4 bound made BGEN-1.3 export peak at ~3 GB, vs. ~400 MB
+// at the same speed with this cap.  The per-thread term keeps a full block of
+// work per thread when records are large (many samples), and the kBitsPerVec
+// term keeps the block-halving loops below from failing where they didn't
+// before.
+static uintptr_t BgenWriteBlockByteTarget(uintptr_t byte_ct, uint64_t per_variant_byte_ct, uint32_t max_thread_ct) {
+  uint64_t target_byte_ct = MAXV(S_CAST(uint64_t, kBgenWriteBlockMinTargetByteCt), per_variant_byte_ct * 64 * max_thread_ct);
+  target_byte_ct = MAXV(target_byte_ct, per_variant_byte_ct * 2 * kBitsPerVec);
+  return (byte_ct > target_byte_ct)? target_byte_ct : byte_ct;
+}
+
 PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_nonfemale_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_geno_cts) {
   // isomorphic to ExportOxGen().
   assert(sample_ct);
@@ -1370,7 +1385,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     }
     ctx.sex_nonfemale_collapsed = sex_nonfemale_collapsed;
 
-    const uintptr_t max_write_block_byte_ct = bigstack_left() / 4;
+    const uintptr_t max_write_block_byte_ct = BgenWriteBlockByteTarget(bigstack_left() / 4, bgen_compressed_buf_max + sizeof(int32_t), max_thread_ct);
     uint32_t max_write_block_size = kPglVblockSize;
     for (; ; max_write_block_size /= 2) {
       // limit each write buffer to 1/4 of remaining workspace
@@ -3030,7 +3045,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       BigstackReset(exported_sample_ids);
     }
 
-    const uintptr_t max_write_block_byte_ct = bigstack_left() / 4;
+    const uintptr_t max_write_block_byte_ct = BgenWriteBlockByteTarget(bigstack_left() / 4, bgen_compressed_buf_max + 2 * sizeof(int32_t), max_thread_ct);
     uint32_t max_write_block_size = kPglVblockSize;
     for (; ; max_write_block_size /= 2) {
       // limit each write buffer to 1/4 of remaining workspace
