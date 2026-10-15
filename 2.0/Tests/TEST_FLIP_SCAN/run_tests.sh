@@ -296,3 +296,65 @@ fi
 $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dp_phased --pheno tmp_dp_phased.pheno --maf 0.05 --flip-scan verbose --out plink2_dp_phased_r
 $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dp_unphased --pheno tmp_dp_phased.pheno --maf 0.05 --flip-scan verbose --out plink2_dp_unphased_r
 diff -q plink2_dp_phased_r.flipscan plink2_dp_unphased_r.flipscan
+
+# 12. --flip-scan-ref-pfile/--flip-scan-ref-bfile must behave as if the
+#     reference fileset had been merged in as the controls.  split_ref_vcf.awk
+#     splits one fileset in half, makes the reference half awkward (REF/ALT
+#     swapped, an extra allele, missing variants), and writes the merged
+#     equivalent; the scan on the merged fileset, with the first half as
+#     cases, is the oracle.  Differences allowed: ALT lists this dataset's
+#     alleles, and PROBLEM is NA where one side has no calls.
+#     The checks cover unphased and phased data, 'dprime', sample counts that
+#     are not word multiples, non-founders in the reference, and chrX, where
+#     the reference's sexes decide which hets are missing.
+ref_compare() {
+    awk -F '\t' 'BEGIN {OFS = "\t"} NR > 1 && ($7 == "NA" || $8 == "NA") {$13 = "NA"} {$5 = "."; print}' $1.flipscan > tmp_ref_cmp1.txt
+    awk -F '\t' 'BEGIN {OFS = "\t"} {$5 = "."; print}' $2.flipscan > tmp_ref_cmp2.txt
+    diff -q tmp_ref_cmp1.txt tmp_ref_cmp2.txt
+    diff -q $1.flipscan.verbose $2.flipscan.verbose
+}
+for m in unphased phased chrx
+do
+    if [ $m = unphased ]; then
+        awk -f make_vcf_dprime.awk > tmp_ref_all.vcf
+    elif [ $m = phased ]; then
+        awk -v mode=phased -f make_vcf_dprime.awk > tmp_ref_all.vcf
+    else
+        # moved past the pseudoautosomal region
+        awk -v mode=phased -f make_vcf_dprime.awk | awk 'BEGIN {OFS = "\t"} /^##contig/ {print "##contig=<ID=X>"; next} /^#/ {print; next} {$1 = "X"; $2 += 5000000; print}' > tmp_ref_all.vcf
+    fi
+    awk -f split_ref_vcf.awk tmp_ref_all.vcf
+    for f in main panel merged
+    do
+        # every third individual male; S300..S309 have a father, so they
+        # are not founders
+        awk 'BEGIN {OFS = "\t"; print "#IID", "PAT", "MAT", "SEX"} /^#CHROM/ {for (i = 10; i <= NF; ++i) {s = substr($i, 2) + 0; print $i, (s >= 300 && s < 310)? "S299" : "0", "0", (s % 3 == 0)? 1 : 2}}' tmp_ref_$f.vcf > tmp_ref_$f.psam_in
+        $BUILD/plink2 $EXTRA1 $EXTRA2 --vcf tmp_ref_$f.vcf --psam tmp_ref_$f.psam_in --make-pgen --out tmp_ref_${m}_$f > /dev/null
+    done
+    awk 'BEGIN {print "#IID\tPHENO1"} !/^#/ {s = substr($1, 2) + 0; print $1 "\t" ((s < 200)? 2 : 1)}' tmp_ref_${m}_merged.psam > tmp_ref_$m.pheno
+    # 63 of this dataset's founders dropped, so neither side is a whole
+    # number of words
+    awk '!/^#/ {s = substr($1, 2) + 0; if (s >= 137 && s < 200) print $1}' tmp_ref_${m}_merged.psam > tmp_ref_drop.txt
+    for mode in "" dprime
+    do
+        $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_ref_${m}_merged --remove tmp_ref_drop.txt --pheno tmp_ref_$m.pheno --flip-scan verbose ref-allele-based $mode --out plink2_refm_$m$mode
+        $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_ref_${m}_main --remove tmp_ref_drop.txt --flip-scan verbose ref-allele-based $mode --flip-scan-ref-pfile tmp_ref_${m}_panel --out plink2_refp_$m$mode
+        ref_compare plink2_refm_$m$mode plink2_refp_$m$mode
+    done
+done
+# the planted flips are in the reference half, so some must be found
+test "$(awk -F '\t' 'NR > 1 && $13 == "Y"' plink2_refp_unphased.flipscan | wc -l)" -gt 5
+# the reference's sexes matter on chrX
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$NF = 2; print}' tmp_ref_chrx_panel.psam > tmp_ref_fem.psam
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_ref_chrx_main --remove tmp_ref_drop.txt --flip-scan verbose ref-allele-based --flip-scan-ref-pfile tmp_ref_chrx_panel.pgen tmp_ref_chrx_panel.pvar tmp_ref_fem.psam --out plink2_refp_fem
+if diff -q plink2_refp_chrx.flipscan plink2_refp_fem.flipscan > /dev/null; then
+    echo "--flip-scan-ref-pfile ignored the reference's sexes"
+    exit 1
+fi
+# A .bed reference gives the same answer as the .pgen it came from, in the
+# default major-allele mode too.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_ref_unphased_panel --max-alleles 2 --make-bed --out tmp_ref_bpanel > /dev/null
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_ref_bpanel --make-pgen --out tmp_ref_ppanel > /dev/null
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_ref_unphased_main --flip-scan --flip-scan-ref-bfile tmp_ref_bpanel --out plink2_refb
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_ref_unphased_main --flip-scan --flip-scan-ref-pfile tmp_ref_ppanel --out plink2_refpp
+diff -q plink2_refb.flipscan plink2_refpp.flipscan
