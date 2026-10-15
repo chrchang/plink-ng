@@ -173,9 +173,10 @@ uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags f
   return vec_ct * kBytesPerVec;
 }
 
-// Upper bound on the size of each of the two VCF/BCF genotype buffers.  Past
-// a few dozen records per thread, a larger block does not speed up parsing;
-// it just delays the start of the parse/write overlap and touches more memory.
+// Upper bound on the size of each of the two VCF/BCF/BGEN-1.2+ genotype
+// buffers.  Past a few dozen records per thread, a larger block does not speed
+// up parsing; it just delays the start of the parse/write overlap and touches
+// more memory.
 // (With 5000 samples and --memory 16000, spending the entire workspace here
 // raised peak RSS by ~1.5 GiB and slowed import down by ~15%.)
 CONSTI32(kGparseBufMinTargetByteCt, 64 * 1048576);
@@ -14434,7 +14435,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       bgen13_ctx.block_allele_idx_offsets[1] = nullptr;
       bgen13_ctx.err_info = (~0LLU) << 32;
       SetThreadFuncAndData(Bgen13GenoToPgenThread, &bgen13_ctx, &tg);
-      cachelines_avail = bigstack_left() / (kCacheline * 2);
+      cachelines_avail = CapGparseBufCachelineCt(bigstack_left() / (kCacheline * 2), max_bytes_req_per_variant, calc_thread_ct);
       if (unlikely(bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[0])) ||
                    bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[1])))) {
         assert(0);
