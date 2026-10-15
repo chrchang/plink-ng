@@ -351,8 +351,10 @@ void PwcInitPhase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, PgenWriter
   pwcs[0]->vrec_len_buf = S_CAST(unsigned char*, arena_alloc_raw_rd(variant_ct_limit * pwcs[0]->vrec_len_byte_ct, &alloc_iter));
 
   pwcs[0]->vrtype_buf = S_CAST(uintptr_t*, arena_alloc_raw(vrtype_buf_byte_ct, &alloc_iter));
-  // the PwcAppend... functions assume these bytes are zeroed out
-  memset(pwcs[0]->vrtype_buf, 0, vrtype_buf_byte_ct);
+  // The PwcAppend... functions assume these bytes are zeroed out.  This is
+  // done one variant block at a time, by PwcZeroVblockVrtypes(), rather than
+  // here: single-pass importers set variant_ct_limit to a large upper bound,
+  // and zeroing the whole buffer upfront touched ~2 GB with --memory 16000.
 
   const uint32_t sample_ct = pwcs[0]->sample_ct;
   const uint32_t genovec_byte_alloc = NypCtToCachelineCt(sample_ct) * kCacheline;
@@ -718,6 +720,25 @@ uint32_t SaveOnebit(const uintptr_t* __restrict genovec, uint32_t common2_code, 
 }
 
 // returns vrec_len
+// Called at the start of each variant block, before any of its vrtypes are
+// stored.  Zeroes that block's slice of vrtype_buf, including the trailing
+// bytes PhaseOrDosagePresent() and PwcFinish() rely on after the last block.
+// Blocks are disjoint, so this is safe in the multithreaded writer.
+static void PwcZeroVblockVrtypes(uint32_t vidx, PgenWriterCommon* pwcp) {
+  const uint32_t variant_ct_limit = pwcp->variant_ct_limit;
+  unsigned char* vrtype_bytes = DowncastToUc(pwcp->vrtype_buf);
+  uintptr_t byte_start;
+  uintptr_t byte_end;
+  if (pwcp->phase_dosage_gflags) {
+    byte_start = vidx;
+    byte_end = MINV(S_CAST(uintptr_t, vidx) + kPglVblockSize, RoundUpPow2(variant_ct_limit, kCacheline));
+  } else {
+    byte_start = vidx / 2;
+    byte_end = MINV(S_CAST(uintptr_t, vidx / 2) + (kPglVblockSize / 2), DivUp(variant_ct_limit, kCacheline * 2) * kCacheline);
+  }
+  memset(&(vrtype_bytes[byte_start]), 0, byte_end - byte_start);
+}
+
 uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint32_t vidx, PgenWriterCommon* pwcp, uint32_t* het_ct_ptr, uint32_t* altxy_ct_ptr, unsigned char* vrtype_ptr) {
   const uint32_t sample_ct = pwcp->sample_ct;
   assert((!(sample_ct % kBitsPerWordD2)) || (!(genovec[sample_ct / kBitsPerWordD2] >> (2 * (sample_ct % kBitsPerWordD2)))));
@@ -763,6 +784,7 @@ uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint
   if (!(vidx % kPglVblockSize)) {
     // beginning of a variant block.  save raw fpos in header; LD compression
     // prohibited.
+    PwcZeroVblockVrtypes(vidx, pwcp);
 
     // er, need to use a relative offset in the multithreaded case, absolute
     // position isn't known
@@ -1022,6 +1044,7 @@ uint32_t PwcAppendBiallelicDifflistLimitedMain(const uintptr_t* __restrict rareg
   const uint32_t difflist_viable = (difflist_common_geno != 1) && (difflist_len <= max_difflist_len);
   STD_ARRAY_REF(uint32_t, 4) ldbase_genocounts = pwcp->ldbase_genocounts;
   if (!(vidx % kPglVblockSize)) {
+    PwcZeroVblockVrtypes(vidx, pwcp);
     pwcp->vblock_fpos[vidx / kPglVblockSize] = pwcp->vblock_fpos_offset + S_CAST(uintptr_t, pwcp->fwrite_bufp - pwcp->fwrite_buf);
   } else if (difflist_len > sample_ctd64) {
     const uint32_t ld_diff_threshold = difflist_viable? (difflist_len - sample_ctd64) : max_difflist_len;
@@ -2099,8 +2122,8 @@ BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, c
 }
 
 uint32_t PhaseOrDosagePresent(const uintptr_t* vrtype_buf, uint32_t variant_ct) {
-  // Assumes trailing bits of vrtype_buf are zeroed out.  (This happens during
-  // vrtype_buf initialization.)
+  // Assumes trailing bits of vrtype_buf are zeroed out.  (PwcZeroVblockVrtypes()
+  // does this for the last variant block.)
   const uint32_t word_ct = DivUp(variant_ct, kBytesPerWord);
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
     if (vrtype_buf[widx] & (kMask0101 * 0xf0)) {
