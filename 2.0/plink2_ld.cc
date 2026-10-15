@@ -17428,6 +17428,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     uintptr_t* panel_genovec = nullptr;
     uintptr_t* panel_phasebuf = nullptr;
     PgrSampleSubsetIndex panel_pssi;
+    PgrClearSampleSubsetIndex(nullptr, &panel_pssi); // address warning
     if (panel_mode) {
       const uint32_t panel_raw_sample_ctl = BitCtToWordCt(panel_raw_sample_ct);
       uintptr_t* panel_male_collapsed;

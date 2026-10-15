@@ -1972,10 +1972,12 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* ex
       if (match_list == match_list_stop) {
         continue;
       }
+#ifdef __LP64__
       if (unlikely(saved_line_ct == 0x100000000LLU)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Too many matching lines in %s (--gene-report can only handle 4294967296).\n", report_fname);
         goto GeneReport_ret_MALFORMED_INPUT_WW;
       }
+#endif
       memcpy(record_iter, &ln_pval, sizeof(double));
       memcpy(&(record_iter[8]), &variant_bp, sizeof(int32_t));
       const uint32_t id_slen_u32 = id_slen;

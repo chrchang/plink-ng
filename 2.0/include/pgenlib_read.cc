@@ -2809,11 +2809,13 @@ BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** 
   }
 #else
   // cur_vrec_width < 2^31 since otherwise we error out on initialization
-  if (unlikely(!fread_unlocked(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff))) {
-    if (feof_unlocked(pgrp->ff)) {
-      errno = 0;
+  if (cur_vrec_width) {
+    if (unlikely(!fread_unlocked(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff))) {
+      if (feof_unlocked(pgrp->ff)) {
+        errno = 0;
+      }
+      return 1;
     }
-    return 1;
   }
 #endif
   *fread_pp = pgrp->fread_buf;
