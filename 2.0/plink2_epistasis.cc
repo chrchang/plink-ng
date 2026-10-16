@@ -662,7 +662,11 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
   return 0;
 }
 
-PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, const VariantSets* vsp, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+// Runs --epistasis-boost on one case/control phenotype.  Everything that
+// depends on the phenotype (the included samples, the covariate columns, the
+// monomorphic-variant screen, the output names) is recomputed here, so each
+// call is a complete, independent run.
+static PglErr CalcEpiBoostOne(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, const VariantSets* vsp, uint32_t raw_sample_ct, uint32_t pheno_idx, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritetp = nullptr;
@@ -675,45 +679,6 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const EpiFlags flags = epi_ip->flags;
     const uint32_t is_set_by_set = (flags / kfEpiSetBySet) & 1;
     const uint32_t is_set_by_all = (flags / kfEpiSetByAll) & 1;
-    if (is_set_by_set || is_set_by_all) {
-      if (unlikely(!vsp->set_ct)) {
-        logerrputs("Error: --epistasis-boost's set modes require a variant set; load one with\n--set or --make-set.\n");
-        goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
-      }
-      if (is_set_by_all) {
-        if (unlikely(vsp->set_ct != 1)) {
-          logerrputs("Error: --epistasis-boost set-by-all takes exactly one set.  --set-names or\n--set-collapse-all may be handy here.\n");
-          goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
-        }
-      } else if (unlikely(vsp->set_ct > 2)) {
-        logerrputs("Error: --epistasis-boost set-by-set takes one or two sets.  --set-names or\n--set-collapse-all may be handy here.\n");
-        goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
-      }
-    }
-
-    // For interface consistency with --glm, etc., this should loop over all
-    // case/control phenotypes.  But that's expensive, O(variant_ct^2) each.
-    // Should try to GPU-accelerate this before lifting the current
-    // one-phenotype restriction.
-    uint32_t pheno_idx = UINT32_MAX;
-    uint32_t cc_pheno_ct = 0;
-    for (uint32_t uii = 0; uii != pheno_ct; ++uii) {
-      if (pheno_cols[uii].type_code == kPhenoDtypeCc) {
-        ++cc_pheno_ct;
-        if (pheno_idx == UINT32_MAX) {
-          pheno_idx = uii;
-        }
-      }
-    }
-    if (unlikely(!cc_pheno_ct)) {
-      logerrputs("Error: --epistasis-boost requires a case/control phenotype.\n");
-      goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
-    }
-    if (cc_pheno_ct > 1) {
-      logerrputs("Error: --epistasis-boost is currently limited to exactly one case/control\nphenotype; select one with --pheno-name.\n");
-      reterr = kPglRetNotYetSupported;
-      goto CalcEpiBoost_ret_1;
-    }
     const uint32_t output_zst = (flags / kfEpiZs) & 1;
     // <output prefix>.<pheno name>.epi.cc.summary.32768[.zst]
     const uint32_t pheno_name_blen_capacity = kPglFnamesize - 22 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
@@ -721,7 +686,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t pheno_name_slen = strlen(pheno_name);
     if (unlikely(pheno_name_slen >= pheno_name_blen_capacity)) {
       logerrputs("Error: Phenotype name and/or --out argument too long.\n");
-      goto CalcEpiBoost_ret_INCONSISTENT_INPUT;
+      goto CalcEpiBoostOne_ret_INCONSISTENT_INPUT;
     }
     char* outname_end2 = outname_end;
     *outname_end2++ = '.';
@@ -739,14 +704,14 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     if (unlikely(bigstack_alloc_w(raw_sample_ctl, &analysis_include) ||
                  bigstack_alloc_w(raw_sample_ctl, &case_include) ||
                  bigstack_alloc_w(raw_sample_ctl, &ctrl_include))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, analysis_include);
     for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
       const PhenoCol* cur_covar_col = &(covar_cols[covar_idx]);
       if (unlikely(cur_covar_col->type_code == kPhenoDtypeCat)) {
         snprintf(g_logbuf, kLogbufSize, "Error: --epistasis-boost does not support categorical covariates yet ('%s').  Split it into binary covariates with --split-cat-pheno first.\n", &(covar_names[covar_idx * max_covar_name_blen]));
-        goto CalcEpiBoost_ret_INCONSISTENT_INPUT_WW;
+        goto CalcEpiBoostOne_ret_INCONSISTENT_INPUT_WW;
       }
       BitvecAnd(cur_covar_col->nonmiss, raw_sample_ctl, analysis_include);
     }
@@ -758,18 +723,18 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t ctrl_ct = PopcountWords(ctrl_include, raw_sample_ctl);
     if (unlikely(case_ct < 2)) {
       logerrputs("Error: --epistasis-boost requires at least 2 cases.\n");
-      goto CalcEpiBoost_ret_DEGENERATE_DATA;
+      goto CalcEpiBoostOne_ret_DEGENERATE_DATA;
     }
     if (unlikely(ctrl_ct < 2)) {
       logerrputs("Error: --epistasis-boost requires at least 2 controls.\n");
-      goto CalcEpiBoost_ret_DEGENERATE_DATA;
+      goto CalcEpiBoostOne_ret_DEGENERATE_DATA;
     }
     // The covariates are stored one column at a time, since the refit walks a
     // single covariate across the samples of one pair.
     double* covar_vals = nullptr;
     if (covar_ct) {
       if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, analysis_ct) * covar_ct, &covar_vals))) {
-        goto CalcEpiBoost_ret_NOMEM;
+        goto CalcEpiBoostOne_ret_NOMEM;
       }
       uintptr_t sample_uidx_base = 0;
       uintptr_t analysis_include_bits = analysis_include[0];
@@ -834,7 +799,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include;
     if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
     const uint32_t chr_ct = cip->chr_ct;
@@ -852,7 +817,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     uint32_t variant_ct = orig_variant_ct - nonautosomal_ct;
     if (unlikely(variant_ct < 2)) {
       logerrputs("Error: --epistasis-boost requires at least 2 autosomal variants.\n");
-      goto CalcEpiBoost_ret_DEGENERATE_DATA;
+      goto CalcEpiBoostOne_ret_DEGENERATE_DATA;
     }
 
     // Monomorphic variants are dropped up front, over the whole phenotyped
@@ -863,12 +828,12 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     PgrSampleSubsetIndex pssis[3];
     for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
       if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &(sample_include_cumulative_popcounts[group_idx])))) {
-        goto CalcEpiBoost_ret_NOMEM;
+        goto CalcEpiBoostOne_ret_NOMEM;
       }
       FillCumulativePopcounts(group_includes[group_idx], raw_sample_ctl, sample_include_cumulative_popcounts[group_idx]);
     }
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &(sample_include_cumulative_popcounts[2])))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     FillCumulativePopcounts(analysis_include, raw_sample_ctl, sample_include_cumulative_popcounts[2]);
     const uint32_t max_group_ct = MAXV(analysis_ct, MAXV(case_ct, ctrl_ct));
@@ -878,7 +843,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_group_ct), &genovec) ||
                  bigstack_alloc_w(BitCtToWordCt(max_group_ct), &hom_buf) ||
                  bigstack_alloc_w(BitCtToWordCt(max_group_ct), &ref2het_buf))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     {
       uintptr_t variant_uidx_base = 0;
@@ -890,7 +855,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
         reterr = PgrGet(analysis_include, pssis[2], analysis_ct, variant_uidx, simple_pgrp, genovec);
         if (unlikely(reterr)) {
           PgenErrPrintNV(reterr, variant_uidx);
-          goto CalcEpiBoost_ret_1;
+          goto CalcEpiBoostOne_ret_1;
         }
         // GenoarrCountFreqsUnsafe() counts whole words and derives the hom-REF
         // count by subtraction, so the nyps past sample_ct have to be cleared
@@ -910,7 +875,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       }
       if (unlikely(variant_ct < 2)) {
         logerrputs("Error: --epistasis-boost has fewer than 2 usable variants left.\n");
-        goto CalcEpiBoost_ret_DEGENERATE_DATA;
+        goto CalcEpiBoostOne_ret_DEGENERATE_DATA;
       }
     }
     if (nonautosomal_ct) {
@@ -921,7 +886,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     uint32_t* variant_chr_fo_idxs;
     if (unlikely(bigstack_alloc_u32(variant_ct, &variant_uidxs) ||
                  bigstack_alloc_u32(variant_ct, &variant_chr_fo_idxs))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     {
       uintptr_t variant_uidx_base = 0;
@@ -953,12 +918,12 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     uint32_t col_ct = variant_ct;
     uint32_t is_triangular = 1;
     if (unlikely(bigstack_alloc_u32(variant_ct, &row_vidxs))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     if (is_set_by_set || is_set_by_all) {
       uint32_t* orig_cumulative_popcounts;
       if (unlikely(bigstack_alloc_u32(raw_variant_ctl, &orig_cumulative_popcounts))) {
-        goto CalcEpiBoost_ret_NOMEM;
+        goto CalcEpiBoostOne_ret_NOMEM;
       }
       FillCumulativePopcounts(orig_variant_include, raw_variant_ctl, orig_cumulative_popcounts);
       row_ct = 0;
@@ -975,7 +940,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       } else {
         is_triangular = 0;
         if (unlikely(bigstack_alloc_u32(variant_ct, &col_vidxs))) {
-          goto CalcEpiBoost_ret_NOMEM;
+          goto CalcEpiBoostOne_ret_NOMEM;
         }
         if (is_set_by_all) {
           for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -993,7 +958,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       }
       if (unlikely((!row_ct) || (!col_ct) || (is_triangular && (row_ct < 2)))) {
         logerrputs("Error: --epistasis-boost's set modes have too few usable variants left.\n");
-        goto CalcEpiBoost_ret_DEGENERATE_DATA;
+        goto CalcEpiBoostOne_ret_DEGENERATE_DATA;
       }
       logprintf("--epistasis-boost: %u row variant%s, %u column variant%s.\n", row_ct, (row_ct == 1)? "" : "s", col_ct, (col_ct == 1)? "" : "s");
     } else {
@@ -1034,7 +999,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     // analysis_ct + 1 possible denominators.
     double* recip_cache;
     if (unlikely(bigstack_alloc_d(analysis_ct + 1, &recip_cache))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     recip_cache[0] = 0.0;
     for (uint32_t uii = 1; uii <= analysis_ct; ++uii) {
@@ -1096,13 +1061,13 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
                      bigstack_alloc_u32(analysis_ct, &covar_ctx.nm_sample_idxs) ||
                      bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_row_levels) ||
                      bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_col_levels))) {
-          goto CalcEpiBoost_ret_NOMEM;
+          goto CalcEpiBoostOne_ret_NOMEM;
         }
         // The refit indexes its phenotype by analysis-sample index, so the
         // case set is needed in those coordinates rather than the raw ones.
         uintptr_t* case_collapsed;
         if (unlikely(bigstack_alloc_w(analysis_ctl, &case_collapsed))) {
-          goto CalcEpiBoost_ret_NOMEM;
+          goto CalcEpiBoostOne_ret_NOMEM;
         }
         CopyBitarrSubset(case_include, analysis_include, analysis_ct, case_collapsed);
         covar_ctx.case_bitvec = case_collapsed;
@@ -1116,7 +1081,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     uintptr_t bytes_per_variant = words_per_variant * sizeof(intptr_t);
     const uintptr_t max_slot_ct = (bigstack_left() / 2) / bytes_per_variant;
     if (unlikely(max_slot_ct < 4)) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     // The report has to come out in row-major order, so that concatenating
     // --parallel jobs reproduces a single run, as PLINK 1.x promises.  A row
@@ -1138,12 +1103,12 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     uintptr_t* col_bits;
     if (unlikely(bigstack_alloc_w(row_block_size * words_per_variant, &row_bits) ||
                  bigstack_alloc_w(col_block_size * words_per_variant, &col_bits))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
 
     EpiSummaryEntry* summary;
     if (unlikely(BIGSTACK_ALLOC_X(EpiSummaryEntry, variant_ct, &summary))) {
-      goto CalcEpiBoost_ret_NOMEM;
+      goto CalcEpiBoostOne_ret_NOMEM;
     }
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       summary[variant_idx].n_sig = 0;
@@ -1215,7 +1180,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * max_chr_slen + 2 * a1_col * max_allele_slen + 2 * kMaxIdSlen + 256;
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
-      goto CalcEpiBoost_ret_1;
+      goto CalcEpiBoostOne_ret_1;
     }
     if (!parallel_idx) {
       *cswritep++ = '#';
@@ -1292,7 +1257,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
           reterr = PgrGetInv1(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidx, aidx, simple_pgrp, genovec);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
-            goto CalcEpiBoost_ret_1;
+            goto CalcEpiBoostOne_ret_1;
           }
           GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
           dst = &(dst[3 * group_ctls[group_idx]]);
@@ -1313,7 +1278,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
             reterr = PgrGetInv1(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidx, aidx, simple_pgrp, genovec);
             if (unlikely(reterr)) {
               PgenErrPrintNV(reterr, variant_uidx);
-              goto CalcEpiBoost_ret_1;
+              goto CalcEpiBoostOne_ret_1;
             }
             GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
             dst = &(dst[3 * group_ctls[group_idx]]);
@@ -1460,7 +1425,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
               }
               AppendBinaryEoln(&cswritep);
               if (unlikely(Cswrite(&css, &cswritep))) {
-                goto CalcEpiBoost_ret_WRITE_FAIL;
+                goto CalcEpiBoostOne_ret_WRITE_FAIL;
               }
             }
           }
@@ -1480,7 +1445,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
-      goto CalcEpiBoost_ret_WRITE_FAIL;
+      goto CalcEpiBoostOne_ret_WRITE_FAIL;
     }
     fputs("\b\b\b", stdout);
     logprintf("--epistasis-boost: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
@@ -1507,7 +1472,7 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
     }
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &csst, &cswritetp);
     if (unlikely(reterr)) {
-      goto CalcEpiBoost_ret_1;
+      goto CalcEpiBoostOne_ret_1;
     }
     const uint32_t nsig_col = flags & kfEpiColNsig;
     const uint32_t ntot_col = flags & kfEpiColNtot;
@@ -1585,36 +1550,82 @@ PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_
       cswritetp = strcpya(cswritetp, variant_ids[variant_uidxs[cur->best_vidx]]);
       AppendBinaryEoln(&cswritetp);
       if (unlikely(Cswrite(&csst, &cswritetp))) {
-        goto CalcEpiBoost_ret_WRITE_FAIL;
+        goto CalcEpiBoostOne_ret_WRITE_FAIL;
       }
     }
     if (unlikely(CswriteCloseNull(&csst, cswritetp))) {
-      goto CalcEpiBoost_ret_WRITE_FAIL;
+      goto CalcEpiBoostOne_ret_WRITE_FAIL;
     }
     logprintfww("--epistasis-boost: Summary for %u variant%s written to %s .\n", summary_row_ct, (summary_row_ct == 1)? "" : "s", outname);
   }
   while (0) {
-  CalcEpiBoost_ret_NOMEM:
+  CalcEpiBoostOne_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  CalcEpiBoost_ret_WRITE_FAIL:
+  CalcEpiBoostOne_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  CalcEpiBoost_ret_INCONSISTENT_INPUT_WW:
+  CalcEpiBoostOne_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
-  CalcEpiBoost_ret_INCONSISTENT_INPUT:
+  CalcEpiBoostOne_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
-  CalcEpiBoost_ret_DEGENERATE_DATA:
+  CalcEpiBoostOne_ret_DEGENERATE_DATA:
     reterr = kPglRetDegenerateData;
     break;
   }
- CalcEpiBoost_ret_1:
+ CalcEpiBoostOne_ret_1:
   CswriteCloseCond(&css, cswritep);
   CswriteCloseCond(&csst, cswritetp);
   BigstackReset(bigstack_mark);
   return reterr;
+}
+
+PglErr CalcEpiBoost(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const EpiInfo* epi_ip, const VariantSets* vsp, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  const EpiFlags flags = epi_ip->flags;
+  const uint32_t is_set_by_set = (flags / kfEpiSetBySet) & 1;
+  const uint32_t is_set_by_all = (flags / kfEpiSetByAll) & 1;
+  if (is_set_by_set || is_set_by_all) {
+    if (unlikely(!vsp->set_ct)) {
+      logerrputs("Error: --epistasis-boost's set modes require a variant set; load one with\n--set or --make-set.\n");
+      return kPglRetInconsistentInput;
+    }
+    if (is_set_by_all) {
+      if (unlikely(vsp->set_ct != 1)) {
+        logerrputs("Error: --epistasis-boost set-by-all takes exactly one set.  --set-names or\n--set-collapse-all may be handy here.\n");
+        return kPglRetInconsistentInput;
+      }
+    } else if (unlikely(vsp->set_ct > 2)) {
+      logerrputs("Error: --epistasis-boost set-by-set takes one or two sets.  --set-names or\n--set-collapse-all may be handy here.\n");
+      return kPglRetInconsistentInput;
+    }
+  }
+
+  // Like --glm, this runs once per case/control phenotype; phenotypes of
+  // other types are skipped.  There is no work to share between phenotypes
+  // here, since the sample set, and hence every genotype table, can differ.
+  uint32_t cc_pheno_ct = 0;
+  for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+    cc_pheno_ct += (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc);
+  }
+  if (unlikely(!cc_pheno_ct)) {
+    logerrputs("Error: --epistasis-boost requires a case/control phenotype.\n");
+    return kPglRetInconsistentInput;
+  }
+  for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+    if (pheno_cols[pheno_idx].type_code != kPhenoDtypeCc) {
+      continue;
+    }
+    if (cc_pheno_ct > 1) {
+      logprintfww("--epistasis-boost: Phenotype '%s'.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]));
+    }
+    const PglErr reterr = CalcEpiBoostOne(orig_sample_include, pheno_cols, pheno_names, covar_cols, covar_names, orig_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, epi_ip, vsp, raw_sample_ct, pheno_idx, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, orig_variant_ct, max_allele_slen, output_min_ln, parallel_idx, parallel_tot, max_thread_ct, simple_pgrp, outname, outname_end);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  return kPglRetSuccess;
 }
 
 // --epistasis: the interaction term of a linear regression of the phenotype on

@@ -298,3 +298,59 @@ diff plink2_firth_nocov_default.PHENO1.epi.cc plink2_firth_nocov.PHENO1.epi.cc
 fails $1/plink2 $2 $3 --pedmap firth/data --epistasis-boost firth no-firth --out plink2_bad
 fails $1/plink2 $2 $3 --pedmap firth/data --epistasis-boost firth firth-fallback --out plink2_bad
 fails $1/plink2 $2 $3 --pedmap firth/data --epistasis firth --out plink2_bad
+
+# 25. Several case/control phenotypes in one run.  Each phenotype's report and
+#     summary must be byte-identical to a single-phenotype run that selects it
+#     with --pheno-name, so the phenotypes differ in which samples are missing;
+#     a quantitative phenotype in the file is skipped.  Covariates and
+#     --parallel are covered too.
+awk 'BEGIN{OFS="\t"}
+     {
+       cc2 = ((NR * NR + 3 * NR) % 5 < 2) ? 2 : 1
+       if (NR % 11 == 0) cc2 = -9
+       cc3 = ((NR * 5) % 7 < 3) ? 2 : 1
+       if (NR % 13 == 0) cc3 = -9
+       print $1, $2, $6, cc2, cc3, ((NR * 13) % 17) * 0.5
+     }' tmp_oc.fam > tmp_multi_body.txt
+(printf '#FID\tIID\tCC1\tCC2\tCC3\tQ1\n'; cat tmp_multi_body.txt) > tmp_multi_pheno.txt
+for cov in "" "--covar tmp_oc_cov.txt"
+do
+    $1/plink2 $2 $3 --bfile tmp_oc --pheno tmp_multi_pheno.txt --epistasis-boost --epi1 1 --epi2 0.005 $cov --out plink2_multi
+    test ! -e plink2_multi.Q1.epi.cc
+    for p in CC1 CC2 CC3
+    do
+        $1/plink2 $2 $3 --bfile tmp_oc --pheno tmp_multi_pheno.txt --pheno-name $p --epistasis-boost --epi1 1 --epi2 0.005 $cov --out plink2_single_$p
+        cmp plink2_multi.$p.epi.cc plink2_single_$p.$p.epi.cc
+        cmp plink2_multi.$p.epi.cc.summary plink2_single_$p.$p.epi.cc.summary
+        test "$(wc -l < plink2_multi.$p.epi.cc)" -gt 1
+    done
+    # The phenotypes really are different analyses.
+    if cmp -s plink2_multi.CC1.epi.cc plink2_multi.CC2.epi.cc; then exit 1; fi
+    # --parallel jobs concatenate to the single run, for every phenotype.
+    for j in 1 2 3
+    do
+        $1/plink2 $2 $3 --bfile tmp_oc --pheno tmp_multi_pheno.txt --epistasis-boost --epi1 1 --epi2 0.005 $cov --parallel $j 3 --out plink2_multi_par
+    done
+    for p in CC1 CC2 CC3
+    do
+        cat plink2_multi_par.$p.epi.cc.1 plink2_multi_par.$p.epi.cc.2 plink2_multi_par.$p.epi.cc.3 > tmp_multi_par_cat.txt
+        cmp plink2_multi.$p.epi.cc tmp_multi_par_cat.txt
+    done
+done
+# Set modes run per phenotype as well.
+{
+    printf 'setA\n'
+    awk 'NR <= 20 {print $2}' tmp_oc.bim
+    printf 'END\n\nsetB\n'
+    awk 'NR > 10 && NR <= 20 {print $2}' tmp_oc.bim
+    printf 'END\n'
+} > tmp_multi_sets.txt
+$1/plink2 $2 $3 --bfile tmp_oc --set tmp_multi_sets.txt --pheno tmp_multi_pheno.txt --epistasis-boost set-by-set --epi1 1 --out plink2_multi_set
+for p in CC2 CC3
+do
+    $1/plink2 $2 $3 --bfile tmp_oc --set tmp_multi_sets.txt --pheno tmp_multi_pheno.txt --pheno-name $p --epistasis-boost set-by-set --epi1 1 --out plink2_single_set_$p
+    cmp plink2_multi_set.$p.epi.cc plink2_single_set_$p.$p.epi.cc
+    cmp plink2_multi_set.$p.epi.cc.summary plink2_single_set_$p.$p.epi.cc.summary
+done
+# Only a quantitative phenotype selected: still an error.
+fails $1/plink2 $2 $3 --bfile tmp_oc --pheno tmp_multi_pheno.txt --pheno-name Q1 --epistasis-boost --out plink2_bad
