@@ -32,8 +32,8 @@ for it ended in 2016, and it now receives only bugfixes.
 **PLINK 2.0** (`2.0/`) is designed to handle VCF files and dosage data, and is
 under active development. Its native format is the .pgen/.pvar/.psam fileset,
 which stores dosages, phase and multiallelic variants; it also reads and writes
-PLINK 1 filesets. Most basic features other than non-concatenating merge are
-now in place. See [2.0/README.md](2.0/README.md) for more details.
+PLINK 1 filesets. Most features other than multiallelic-dosage support are now
+in place. See [2.0/README.md](2.0/README.md) for more details.
 
 ## Installing
 
@@ -77,9 +77,9 @@ liblapack-dev liblapacke-dev zlib1g-dev libzstd-dev`.
 
 ## Libraries
 
-- **C/C++** (`2.0/include/`): two LGPL-licensed libraries, pgenlib (reads and
-  writes .pgen files) and plink2_text (fast line reader with gzip/Zstd
-  decompression). The .pgen format is specified in
+- **C/C++** (`2.0/include/`): primarily two LGPL-licensed libraries, pgenlib
+  (reads and writes .pgen files) and plink2_text (fast line reader with
+  gzip/Zstd decompression). The .pgen format is specified in
   [pgen_spec/pgen_spec.pdf](pgen_spec/pgen_spec.pdf).
 - **Python**: `pip install pgenlib` ([2.0/Python](2.0/Python)).
 - **R**: `install.packages("pgenlibr")` ([CRAN](https://CRAN.R-project.org/package=pgenlibr), source in [2.0/pgenlibr](2.0/pgenlibr)).
