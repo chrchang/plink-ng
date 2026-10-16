@@ -9452,12 +9452,112 @@ THREAD_FUNC_DECL DosageTransposeThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "Export012Smaj() needs to be updated.");
+// Line formatting for --export A/AD runs on worker threads: each thread
+// formats a contiguous range of samples into its own buffer, and the main
+// thread writes the buffers in order while the next round is formatted.
+typedef struct Export012SmajFmtCtxStruct {
+  const Dosage* smaj_dosagebuf;
+  uintptr_t stride;
+  uint32_t variant_ct;
+  uint32_t include_dom;
+  char exportf_delim;
+  const uint32_t* sample_uidxs;
+  const char* sample_ids;
+  const char* paternal_ids;
+  const char* maternal_ids;
+  uintptr_t max_sample_id_blen;
+  uintptr_t max_paternal_id_blen;
+  uintptr_t max_maternal_id_blen;
+  const uintptr_t* sex_nm;
+  const uintptr_t* sex_male;
+  const uintptr_t* pheno_nm;
+  const uintptr_t* pheno_cc;
+  const double* pheno_qt;
+  const char* legacy_output_missing_pheno;
+  uint32_t lomp_slen;
+
+  uint32_t round_start;
+  uint32_t round_end;
+  uint32_t per_thread_ct;
+  char** bufs[2];
+  char** buf_ends[2];
+} Export012SmajFmtCtx;
+
+// sample_idx is relative to the current pass.
+static char* Export012SmajLine(const Export012SmajFmtCtx* ctx, uint32_t sample_idx, char* write_iter) {
+  const char exportf_delim = ctx->exportf_delim;
+  const uintptr_t sample_uidx = ctx->sample_uidxs[sample_idx];
+  const char* cur_sample_fid = &(ctx->sample_ids[sample_uidx * ctx->max_sample_id_blen]);
+  const char* fid_end = AdvToDelim(cur_sample_fid, '\t');
+  write_iter = memcpyax(write_iter, cur_sample_fid, fid_end - cur_sample_fid, exportf_delim);
+  write_iter = strcpyax(write_iter, &(fid_end[1]), exportf_delim);
+  write_iter = strcpyax(write_iter, &(ctx->paternal_ids[sample_uidx * ctx->max_paternal_id_blen]), exportf_delim);
+  write_iter = strcpyax(write_iter, &(ctx->maternal_ids[sample_uidx * ctx->max_maternal_id_blen]), exportf_delim);
+  *write_iter++ = Sexchar(ctx->sex_nm, ctx->sex_male, sample_uidx);
+  *write_iter++ = exportf_delim;
+  if ((!ctx->pheno_nm) || (!IsSet(ctx->pheno_nm, sample_uidx))) {
+    write_iter = memcpya(write_iter, ctx->legacy_output_missing_pheno, ctx->lomp_slen);
+  } else if (ctx->pheno_cc) {
+    *write_iter++ = '1' + IsSet(ctx->pheno_cc, sample_uidx);
+  } else {
+    write_iter = dtoa_g(ctx->pheno_qt[sample_uidx], write_iter);
+  }
+  const uint32_t variant_ct = ctx->variant_ct;
+  const uint32_t include_dom = ctx->include_dom;
+  const Dosage* cur_dosage_row = &(ctx->smaj_dosagebuf[sample_idx * ctx->stride]);
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    *write_iter++ = exportf_delim;
+    uint32_t cur_dosage_val = cur_dosage_row[variant_idx];
+    if (cur_dosage_val != 65535) {
+      write_iter = PrintSmallDosage(cur_dosage_val, write_iter);
+      if (include_dom) {
+        *write_iter++ = exportf_delim;
+        write_iter = PrintSmallDosage(16384 - abs_i32(cur_dosage_val - 16384), write_iter);
+      }
+    } else {
+      write_iter = strcpya_k(write_iter, "NA");
+      if (include_dom) {
+        *write_iter++ = exportf_delim;
+        write_iter = strcpya_k(write_iter, "NA");
+      }
+    }
+  }
+  AppendBinaryEoln(&write_iter);
+  return write_iter;
+}
+
+THREAD_FUNC_DECL Export012SmajFmtThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  Export012SmajFmtCtx* ctx = S_CAST(Export012SmajFmtCtx*, arg->sharedp->context);
+  uint32_t parity = 0;
+  do {
+    const uint64_t sample_idx_start = ctx->round_start + S_CAST(uint64_t, tidx) * ctx->per_thread_ct;
+    const uint32_t round_end = ctx->round_end;
+    char* write_iter = ctx->bufs[parity][tidx];
+    if (sample_idx_start < round_end) {
+      const uint32_t sample_idx_end = MINV(sample_idx_start + ctx->per_thread_ct, round_end);
+      for (uint32_t sample_idx = sample_idx_start; sample_idx != sample_idx_end; ++sample_idx) {
+        write_iter = Export012SmajLine(ctx, sample_idx, write_iter);
+      }
+    }
+    ctx->buf_ends[parity][tidx] = write_iter;
+    parity = 1 - parity;
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+// Per-parity budget for the formatted-line buffers.
+CONSTI32(kExport012SmajFmtByteCt, 64 * 1048576);
+
 PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* export_allele, const char* const* export_allele_missing, const char* legacy_output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t include_dom, uint32_t include_uncounted, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, PgenFileInfo* pgfip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   ThreadGroup tg;
   PreinitThreads(&tg);
+  ThreadGroup fmt_tg;
+  PreinitThreads(&fmt_tg);
   DosageTransposeCtx ctx;
   {
     // Write header line; then fully load-and-transpose the first X samples,
@@ -9631,6 +9731,45 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       goto Export012Smaj_ret_NOMEM;
     }
 
+    // Formatting buffers come first, so the passes below are sized from
+    // what's left.  fmt_per_thread_ct == 0 means "format on the main thread",
+    // used when there isn't room for at least two worker buffers.
+    Export012SmajFmtCtx fmt_ctx;
+    uint32_t fmt_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+    uint32_t fmt_per_thread_ct = 0;
+    uint32_t* fmt_sample_uidxs = nullptr;
+    {
+      const uintptr_t max_line_blen = piip->sii.max_sample_id_blen + piip->parental_id_info.max_paternal_id_blen + piip->parental_id_info.max_maternal_id_blen + MAXV(lomp_slen, kMaxDoubleGSlen) + 8 + S_CAST(uintptr_t, variant_ct) * 8 * (1 + include_dom);
+      const uintptr_t fmt_byte_ct = MINV(kExport012SmajFmtByteCt, bigstack_left() / 8);
+      uintptr_t lines_per_thread = fmt_byte_ct / (fmt_thread_ct * max_line_blen);
+      if (!lines_per_thread) {
+        fmt_thread_ct = fmt_byte_ct / max_line_blen;
+        lines_per_thread = 1;
+      }
+      if (fmt_thread_ct > 1) {
+        if (unlikely(bigstack_alloc_u32(sample_ct, &fmt_sample_uidxs) ||
+                     bigstack_alloc_cp(fmt_thread_ct, &(fmt_ctx.bufs[0])) ||
+                     bigstack_alloc_cp(fmt_thread_ct, &(fmt_ctx.bufs[1])) ||
+                     bigstack_alloc_cp(fmt_thread_ct, &(fmt_ctx.buf_ends[0])) ||
+                     bigstack_alloc_cp(fmt_thread_ct, &(fmt_ctx.buf_ends[1])))) {
+          goto Export012Smaj_ret_NOMEM;
+        }
+        const uintptr_t buf_byte_ct = lines_per_thread * max_line_blen;
+        for (uint32_t parity = 0; parity != 2; ++parity) {
+          for (uint32_t tidx = 0; tidx != fmt_thread_ct; ++tidx) {
+            if (unlikely(bigstack_alloc_c(buf_byte_ct, &(fmt_ctx.bufs[parity][tidx])))) {
+              goto Export012Smaj_ret_NOMEM;
+            }
+          }
+        }
+        if (unlikely(SetThreadCt(fmt_thread_ct, &fmt_tg))) {
+          goto Export012Smaj_ret_NOMEM;
+        }
+        fmt_ctx.sample_uidxs = fmt_sample_uidxs;
+        fmt_per_thread_ct = lines_per_thread;
+      }
+    }
+
     // Remaining memory byte requirements:
     //   calc_thread_ct * kDosagePerCacheline * kBytesPerWord *
     //     read_sample_ctaw2 for per-thread genovecs buffers
@@ -9690,6 +9829,28 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
+    if (fmt_per_thread_ct) {
+      fmt_ctx.smaj_dosagebuf = ctx.smaj_dosagebuf;
+      fmt_ctx.stride = stride;
+      fmt_ctx.variant_ct = variant_ct;
+      fmt_ctx.include_dom = include_dom;
+      fmt_ctx.exportf_delim = exportf_delim;
+      fmt_ctx.sample_ids = sample_ids;
+      fmt_ctx.paternal_ids = paternal_ids;
+      fmt_ctx.maternal_ids = maternal_ids;
+      fmt_ctx.max_sample_id_blen = max_sample_id_blen;
+      fmt_ctx.max_paternal_id_blen = max_paternal_id_blen;
+      fmt_ctx.max_maternal_id_blen = max_maternal_id_blen;
+      fmt_ctx.sex_nm = sex_nm;
+      fmt_ctx.sex_male = sex_male;
+      fmt_ctx.pheno_nm = pheno_nm;
+      fmt_ctx.pheno_cc = pheno_cc;
+      fmt_ctx.pheno_qt = pheno_qt;
+      fmt_ctx.legacy_output_missing_pheno = legacy_output_missing_pheno;
+      fmt_ctx.lomp_slen = lomp_slen;
+      fmt_ctx.per_thread_ct = fmt_per_thread_ct;
+      SetThreadFuncAndData(Export012SmajFmtThread, &fmt_ctx, &fmt_tg);
+    }
     uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
     for (uint32_t pass_idx = 0; pass_idx != pass_ct; ++pass_idx) {
       memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
@@ -9780,61 +9941,129 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       fflush(stdout);
       pct = 0;
       next_print_idx = (read_sample_ct + 99) / 100;
-      uintptr_t sample_uidx_base;
-      uintptr_t sample_include_bits;
-      BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
-      const Dosage* cur_dosage_row = ctx.smaj_dosagebuf;
-      for (uint32_t sample_idx = 0; sample_idx != read_sample_ct; ++sample_idx) {
-        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
-        const char* cur_sample_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
-        const char* fid_end = AdvToDelim(cur_sample_fid, '\t');
-        write_iter = memcpyax(write_iter, cur_sample_fid, fid_end - cur_sample_fid, exportf_delim);
-        write_iter = strcpyax(write_iter, &(fid_end[1]), exportf_delim);
-        write_iter = strcpyax(write_iter, &(paternal_ids[sample_uidx * max_paternal_id_blen]), exportf_delim);
-        write_iter = strcpyax(write_iter, &(maternal_ids[sample_uidx * max_maternal_id_blen]), exportf_delim);
-        *write_iter++ = Sexchar(sex_nm, sex_male, sample_uidx);
-        *write_iter++ = exportf_delim;
-        if ((!pheno_nm) || (!IsSet(pheno_nm, sample_uidx))) {
-          write_iter = memcpya(write_iter, legacy_output_missing_pheno, lomp_slen);
-        } else if (pheno_cc) {
-          *write_iter++ = '1' + IsSet(pheno_cc, sample_uidx);
-        } else {
-          write_iter = dtoa_g(pheno_qt[sample_uidx], write_iter);
+      if (fmt_per_thread_ct) {
+        {
+          uintptr_t sample_uidx_base;
+          uintptr_t sample_include_bits;
+          BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
+          for (uint32_t sample_idx = 0; sample_idx != read_sample_ct; ++sample_idx) {
+            fmt_sample_uidxs[sample_idx] = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+          }
         }
-        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        if (pass_idx) {
+          ReinitThreads(&fmt_tg);
+        }
+        // The formatted lines bypass writebuf, so flush it first.
+        if (unlikely(fwrite_checked(writebuf, write_iter - writebuf, outfile))) {
           goto Export012Smaj_ret_WRITE_FAIL;
         }
-        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-          *write_iter++ = exportf_delim;
-          uint32_t cur_dosage_val = cur_dosage_row[variant_idx];
-          if (cur_dosage_val != 65535) {
-            write_iter = PrintSmallDosage(cur_dosage_val, write_iter);
-            if (include_dom) {
-              *write_iter++ = exportf_delim;
-              write_iter = PrintSmallDosage(16384 - abs_i32(cur_dosage_val - 16384), write_iter);
+        write_iter = writebuf;
+        // Main workflow:
+        // 1. Join the previous round's threads.
+        // 2. Spawn threads formatting the next round of samples.
+        // 3. Write the previous round's buffers, in thread order.
+        const uint32_t round_ct = fmt_thread_ct * fmt_per_thread_ct;
+        uint32_t fmt_parity = 0;
+        uint32_t round_start = 0;
+        uint32_t prev_round_end = 0;
+        while (1) {
+          if (prev_round_end) {
+            JoinThreads(&fmt_tg);
+          }
+          const uint32_t round_end = MINV(S_CAST(uint64_t, round_start) + round_ct, read_sample_ct);
+          const uint32_t spawned = (round_start != read_sample_ct);
+          if (spawned) {
+            fmt_ctx.round_start = round_start;
+            fmt_ctx.round_end = round_end;
+            if (round_end == read_sample_ct) {
+              DeclareLastThreadBlock(&fmt_tg);
             }
-          } else {
-            write_iter = strcpya_k(write_iter, "NA");
-            if (include_dom) {
-              *write_iter++ = exportf_delim;
-              write_iter = strcpya_k(write_iter, "NA");
+            if (unlikely(SpawnThreads(&fmt_tg))) {
+              goto Export012Smaj_ret_THREAD_CREATE_FAIL;
             }
           }
-          // todo: try making this check less frequently
+          if (prev_round_end) {
+            const uint32_t prev_parity = 1 - fmt_parity;
+            for (uint32_t tidx = 0; tidx != fmt_thread_ct; ++tidx) {
+              const char* buf = fmt_ctx.bufs[prev_parity][tidx];
+              if (unlikely(fwrite_checked(buf, fmt_ctx.buf_ends[prev_parity][tidx] - buf, outfile))) {
+                goto Export012Smaj_ret_WRITE_FAIL;
+              }
+            }
+            if (prev_round_end >= next_print_idx) {
+              if (pct > 10) {
+                putc_unlocked('\b', stdout);
+              }
+              pct = (prev_round_end * 100LLU) / read_sample_ct;
+              printf("\b\b%u%%", pct++);
+              fflush(stdout);
+              next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
+            }
+          }
+          if (!spawned) {
+            break;
+          }
+          prev_round_end = round_end;
+          fmt_parity = 1 - fmt_parity;
+          round_start = round_end;
+        }
+      } else {
+        uintptr_t sample_uidx_base;
+        uintptr_t sample_include_bits;
+        BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
+        const Dosage* cur_dosage_row = ctx.smaj_dosagebuf;
+        for (uint32_t sample_idx = 0; sample_idx != read_sample_ct; ++sample_idx) {
+          const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+          const char* cur_sample_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
+          const char* fid_end = AdvToDelim(cur_sample_fid, '\t');
+          write_iter = memcpyax(write_iter, cur_sample_fid, fid_end - cur_sample_fid, exportf_delim);
+          write_iter = strcpyax(write_iter, &(fid_end[1]), exportf_delim);
+          write_iter = strcpyax(write_iter, &(paternal_ids[sample_uidx * max_paternal_id_blen]), exportf_delim);
+          write_iter = strcpyax(write_iter, &(maternal_ids[sample_uidx * max_maternal_id_blen]), exportf_delim);
+          *write_iter++ = Sexchar(sex_nm, sex_male, sample_uidx);
+          *write_iter++ = exportf_delim;
+          if ((!pheno_nm) || (!IsSet(pheno_nm, sample_uidx))) {
+            write_iter = memcpya(write_iter, legacy_output_missing_pheno, lomp_slen);
+          } else if (pheno_cc) {
+            *write_iter++ = '1' + IsSet(pheno_cc, sample_uidx);
+          } else {
+            write_iter = dtoa_g(pheno_qt[sample_uidx], write_iter);
+          }
           if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
             goto Export012Smaj_ret_WRITE_FAIL;
           }
-        }
-        AppendBinaryEoln(&write_iter);
-        cur_dosage_row = &(cur_dosage_row[ctx.stride]);
-        if (sample_idx >= next_print_idx) {
-          if (pct > 10) {
-            putc_unlocked('\b', stdout);
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            *write_iter++ = exportf_delim;
+            uint32_t cur_dosage_val = cur_dosage_row[variant_idx];
+            if (cur_dosage_val != 65535) {
+              write_iter = PrintSmallDosage(cur_dosage_val, write_iter);
+              if (include_dom) {
+                *write_iter++ = exportf_delim;
+                write_iter = PrintSmallDosage(16384 - abs_i32(cur_dosage_val - 16384), write_iter);
+              }
+            } else {
+              write_iter = strcpya_k(write_iter, "NA");
+              if (include_dom) {
+                *write_iter++ = exportf_delim;
+                write_iter = strcpya_k(write_iter, "NA");
+              }
+            }
+            // todo: try making this check less frequently
+            if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+              goto Export012Smaj_ret_WRITE_FAIL;
+            }
           }
-          pct = (sample_idx * 100LLU) / read_sample_ct;
-          printf("\b\b%u%%", pct++);
-          fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
+          AppendBinaryEoln(&write_iter);
+          cur_dosage_row = &(cur_dosage_row[ctx.stride]);
+          if (sample_idx >= next_print_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (sample_idx * 100LLU) / read_sample_ct;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
+          }
         }
       }
       sample_uidx_start = sample_uidx_end;
@@ -9870,6 +10099,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     break;
   }
  Export012Smaj_ret_1:
+  CleanupThreads(&fmt_tg);
   CleanupThreads(&tg);
   fclose_cond(outfile);
   pgfip->block_base = nullptr;
