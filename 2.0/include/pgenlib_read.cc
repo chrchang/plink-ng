@@ -6445,6 +6445,7 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, const uintp
 // only compare codes against a single allele index don't need to.
 BoolErr Aux1aFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uint32_t rare01_ct) {
   // allele_ct == 3, 4, 6, and 18 use every bit pattern of their entry width.
+  uintptr_t bitwise_or = 0;
   if (allele_ct < 7) {
     if (allele_ct != 5) {
       return 0;
@@ -6452,7 +6453,6 @@ BoolErr Aux1aFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uin
     // Check for 0b11.
     const uint32_t byte_ct = DivUp(rare01_ct, 4);
     const uint32_t fullword_ct = byte_ct / kBytesPerWord;
-    uintptr_t bitwise_or = 0;
     for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
       uintptr_t cur_word;
       CopyFromUnalignedOffsetW(&cur_word, fvals, widx);
@@ -6460,7 +6460,7 @@ BoolErr Aux1aFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uin
     }
     const uint32_t trailing_byte_ct = byte_ct % kBytesPerWord;
     if (trailing_byte_ct) {
-      const uintptr_t cur_word = SubwordLoad(&(fvals[fullword_ct * kBytesPerWord]), trailing_byte_ct);
+      const uintptr_t cur_word = ProperSubwordLoad(&(fvals[fullword_ct * kBytesPerWord]), trailing_byte_ct);
       bitwise_or |= cur_word & (cur_word >> 1);
     }
     return !!(bitwise_or & kMask5555);
@@ -6470,26 +6470,55 @@ BoolErr Aux1aFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uin
     if (allele_ct == 18) {
       return 0;
     }
-    // probable todo: vectorize this when byte_ct >= kBytesPerVec.
-    // vecuc_shuffle8() with fixed table (all nybbles > max_code get mapped to
-    // 255, other nybbles get mapped to 0) might be helpful.
-    // unless compiler is now smart enough to handle this?
+    // For each word:
+    // 1. mask out odd nybbles, add (15 - max_code) to each byte, check for
+    //    overflows
+    // 2. shift right 4, then same as above
+    // possible todo: fully vectorize; this is just SWAR
     const uint32_t byte_ct = DivUp(rare01_ct, 2);
-    for (uint32_t uii = 0; uii != byte_ct; ++uii) {
-      const uint32_t cur_byte = fvals[uii];
-      if (unlikely(((cur_byte >> 4) > max_code) || ((cur_byte & 15) > max_code))) {
-        return 1;
-      }
+    const uint32_t fullword_ct = byte_ct / kBytesPerWord;
+    const uintptr_t test_incr = (15 - max_code) * kMask0101;
+    for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
+      uintptr_t cur_word;
+      CopyFromUnalignedOffsetW(&cur_word, fvals, widx);
+      const uintptr_t even_result = (cur_word & kMask0F0F) + test_incr;
+      const uintptr_t odd_result = ((cur_word >> 4) & kMask0F0F) + test_incr;
+      bitwise_or |= even_result | odd_result;
     }
-    return 0;
-  }
-  // All recent compilers should know how to handle this.
-  for (uint32_t uii = 0; uii != rare01_ct; ++uii) {
-    if (unlikely(fvals[uii] > max_code)) {
-      return 1;
+    const uint32_t trailing_byte_ct = byte_ct % kBytesPerWord;
+    if (trailing_byte_ct) {
+      const uintptr_t cur_word = ProperSubwordLoad(&(fvals[fullword_ct * kBytesPerWord]), trailing_byte_ct);
+      const uintptr_t even_result = (cur_word & kMask0F0F) + test_incr;
+      const uintptr_t odd_result = ((cur_word >> 4) & kMask0F0F) + test_incr;
+      bitwise_or |= even_result | odd_result;
     }
+    return !!(bitwise_or & (~kMask0F0F));
   }
-  return 0;
+  // macOS compiler did not optimize this in Oct 2026.
+  // for (uint32_t uii = 0; uii != rare01_ct; ++uii) {
+  //   if (unlikely(fvals[uii] > max_code)) {
+  //     return 1;
+  //   }
+  // }
+  // return 0;
+  // todo: this should be based on vecuc_signed_cmpgt() on x86-64.
+  const uint32_t fullword_ct = rare01_ct / kBytesPerWord;
+  const uintptr_t test_incr = (255 - max_code) * kMask0001;
+  for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
+    uintptr_t cur_word;
+    CopyFromUnalignedOffsetW(&cur_word, fvals, widx);
+    const uintptr_t even_result = (cur_word & kMask00FF) + test_incr;
+    const uintptr_t odd_result = ((cur_word >> 8) & kMask00FF) + test_incr;
+    bitwise_or |= even_result | odd_result;
+  }
+  const uint32_t trailing_byte_ct = rare01_ct % kBytesPerWord;
+  if (trailing_byte_ct) {
+    const uintptr_t cur_word = ProperSubwordLoad(&(fvals[fullword_ct * kBytesPerWord]), trailing_byte_ct);
+    const uintptr_t even_result = (cur_word & kMask00FF) + test_incr;
+    const uintptr_t odd_result = ((cur_word >> 8) & kMask00FF) + test_incr;
+    bitwise_or |= even_result | odd_result;
+  }
+  return !!(bitwise_or & (~kMask00FF));
 }
 
 BoolErr Aux1bFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uint32_t rare10_ct) {
@@ -6501,43 +6530,67 @@ BoolErr Aux1bFvalsAreInvalid(const unsigned char* fvals, uint32_t allele_ct, uin
   // which isn't stored in this track.
   const uint32_t max_code = allele_ct - 2;
   if (allele_ct < 6) {
-    // probable todo: vectorize
-    const uint32_t fullbyte_ct = rare10_ct / 2;
-    for (uint32_t uii = 0; uii != fullbyte_ct; ++uii) {
-      const uint32_t cur_byte = fvals[uii];
-      const uint32_t lo_code1 = cur_byte & 3;
-      const uint32_t hi_code1 = (cur_byte >> 2) & 3;
-      const uint32_t lo_code2 = (cur_byte >> 4) & 3;
-      const uint32_t hi_code2 = cur_byte >> 6;
-      if (unlikely((!hi_code1) || (hi_code1 > max_code) || (lo_code1 > hi_code1) ||
-                   (!hi_code2) || (hi_code2 > max_code) || (lo_code2 > hi_code2))) {
-        return 1;
-      }
+    // Requirements:
+    // 1. 0 < hi_code <= max_code
+    // 2. lo_code <= hi_code
+    // In this branch, lo_code and hi_code are packed 2-bit elements.
+    // probable todo: full vectorization, use shuffle8 when available
+    const uint32_t fullword_ct = rare10_ct / kNybblesPerWord;
+    const uintptr_t max_codes = max_code * kMask1111;
+    uintptr_t bitwise_or = 0;
+    for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
+      uintptr_t cur_word;
+      CopyFromUnalignedOffsetW(&cur_word, fvals, widx);
+      const uintptr_t lo_codes = cur_word & kMask3333;
+      const uintptr_t hi_codes = (cur_word >> 2) & kMask3333;
+      // If hi_code < lo_code, high bits will be set in the corresponding
+      // nybble of (hi_codes - lo_codes).
+      bitwise_or |= hi_codes - lo_codes;
+      // Check for hi_code == 0.
+      bitwise_or |= hi_codes - kMask1111;
+      // Check for hi_code > max_code.
+      bitwise_or |= max_codes - hi_codes;
     }
-    if (rare10_ct % 2) {
-      const uint32_t last_byte = fvals[fullbyte_ct];
-      const uint32_t lo_code = last_byte & 3;
-      const uint32_t hi_code = last_byte >> 2;
-      if (unlikely((!hi_code) || (hi_code > max_code) || (lo_code > hi_code))) {
-        return 1;
-      }
+    const uint32_t remainder = rare10_ct % kNybblesPerWord;
+    if (remainder) {
+      const uintptr_t cur_word = SubwordLoad(&(fvals[fullword_ct * kBytesPerWord]), (remainder + 1) / 2);
+      const uintptr_t lo_codes = cur_word & kMask3333;
+      const uintptr_t hi_codes = (cur_word >> 2) & kMask3333;
+      bitwise_or |= hi_codes - lo_codes;
+      bitwise_or |= hi_codes - (kMask1111 >> (kBitsPerWord - (remainder * 4)));
+      bitwise_or |= max_codes - hi_codes;
     }
-  } else if (allele_ct < 18) {
-    for (uint32_t uii = 0; uii != rare10_ct; ++uii) {
-      const uint32_t cur_byte = fvals[uii];
-      const uint32_t lo_code = cur_byte & 15;
-      const uint32_t hi_code = cur_byte >> 4;
-      if (unlikely((!hi_code) || (hi_code > max_code) || (lo_code > hi_code))) {
-        return 1;
-      }
+    return !!(bitwise_or & (~kMask3333));
+  }
+  if (allele_ct < 18) {
+    const uint32_t fullword_ct = rare10_ct / kBytesPerWord;
+    const uintptr_t max_codes = max_code * kMask0101;
+    uintptr_t bitwise_or = 0;
+    for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
+      uintptr_t cur_word;
+      CopyFromUnalignedOffsetW(&cur_word, fvals, widx);
+      const uintptr_t lo_codes = cur_word & kMask0F0F;
+      const uintptr_t hi_codes = (cur_word >> 4) & kMask0F0F;
+      bitwise_or |= hi_codes - lo_codes;
+      bitwise_or |= hi_codes - kMask0101;
+      bitwise_or |= max_codes - hi_codes;
     }
-  } else {
-    for (uint32_t uii = 0; uii != rare10_ct; ++uii) {
-      const uint32_t lo_code = fvals[2 * uii];
-      const uint32_t hi_code = fvals[2 * uii + 1];
-      if (unlikely((!hi_code) || (hi_code > max_code) || (lo_code > hi_code))) {
-        return 1;
-      }
+    const uint32_t remainder = rare10_ct % kBytesPerWord;
+    if (remainder) {
+      const uintptr_t cur_word = ProperSubwordLoad(&(fvals[fullword_ct * kBytesPerWord]), remainder);
+      const uintptr_t lo_codes = cur_word & kMask0F0F;
+      const uintptr_t hi_codes = (cur_word >> 4) & kMask0F0F;
+      bitwise_or |= hi_codes - lo_codes;
+      bitwise_or |= hi_codes - (kMask0101 >> (kBitsPerWord - (remainder * 8)));
+      bitwise_or |= max_codes - hi_codes;
+    }
+    return !!(bitwise_or & (~kMask0F0F));
+  }
+  for (uint32_t uii = 0; uii != rare10_ct; ++uii) {
+    const uint32_t lo_code = fvals[2 * uii];
+    const uint32_t hi_code = fvals[2 * uii + 1];
+    if (unlikely((!hi_code) || (hi_code > max_code) || (lo_code > hi_code))) {
+      return 1;
     }
   }
   return 0;
