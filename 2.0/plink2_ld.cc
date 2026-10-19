@@ -13749,7 +13749,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     fflush(stdout);
     uint32_t undefined_ct = 0;
     uint32_t written_ct = 0;
-    uint32_t next_print_ct = kept_variant_ct / 100;
+    uint32_t pct = 0;
+    uint32_t next_print_ct = (kept_variant_ct + 99) / 100;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
@@ -13870,11 +13871,13 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
         }
         written_ct += cur_block_size;
         if (written_ct >= next_print_ct) {
-          if (written_ct != kept_variant_ct) {
-            printf("\b\b%u%%", S_CAST(uint32_t, (written_ct * 100LLU) / kept_variant_ct));
-            fflush(stdout);
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
           }
-          next_print_ct = (written_ct / (kept_variant_ct / 100 + 1) + 1) * (kept_variant_ct / 100 + 1);
+          pct = (written_ct * 100LLU) / kept_variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_ct = (pct * S_CAST(uint64_t, kept_variant_ct) + 99) / 100;
         }
         block_start = block_end;
       }
@@ -13882,7 +13885,7 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto LdScore_ret_WRITE_FAIL;
     }
-    fputs("\b\b\b", stdout);
+    putc_unlocked('\r', stdout);
     logprintfww("--ld-score: LD Scores for %u variant%s written to %s .\n", kept_variant_ct, (kept_variant_ct == 1)? "" : "s", outname);
 
     // The variant counts behind those scores, which LD Score regression needs
