@@ -894,6 +894,7 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
       goto ExportLgen_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
     fflush(stdout);
     char* write_iter = writebuf;
     uint32_t pct = 0;
@@ -1058,6 +1059,7 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
       goto ExportList_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
     fflush(stdout);
     char* write_iter = writebuf;
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
@@ -1204,6 +1206,7 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
       goto ExportRlist_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
     fflush(stdout);
     char* write_iter = writebuf;
     STD_ARRAY_DECL(uint32_t, 4, genocounts);

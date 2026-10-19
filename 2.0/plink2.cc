@@ -5014,56 +5014,56 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-          }
-          if (param_ct > 2) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 3]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.iid);
-            if (unlikely(reterr)) {
-              goto main_ret_1;
-            }
-          }
-          if (param_ct > 3) {
-            const char* cur_modif = argvk[arg_idx + 4];
-            if (unlikely(strlen(cur_modif) != 1)) {
-              goto main_ret_23FILE_INVALID_SEX;
-            }
-            const char cc = cur_modif[0];
-            if ((cc == 'M') || (cc == 'm') || (cc == '1')) {
-              pc.twenty_three_info.sex_mode = kTwentythreeSexMale;
-            } else if ((cc == 'F') || (cc == 'f') || (cc == '2')) {
-              pc.twenty_three_info.sex_mode = kTwentythreeSexFemale;
-            } else if (cc == '0') {
-              pc.twenty_three_info.sex_mode = kTwentythreeSexMissing;
-            } else if (unlikely((cc != 'I') && (cc != 'i'))) {
-              goto main_ret_23FILE_INVALID_SEX;
-            }
-          }
-          if (param_ct > 4) {
-            // The .psam PHENO1 column accepts categorical values as well as
-            // numbers, so anything IsCategoricalPhenostrNocsv() accepts is
-            // passed through unchanged.
-            const char* pheno_str = argvk[arg_idx + 5];
-            if (!IsCategoricalPhenostrNocsv(pheno_str)) {
-              double dxx;
-              if (unlikely(!ScantokDouble(pheno_str, &dxx))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --23file phenotype '%s'.\n", pheno_str);
-                goto main_ret_INVALID_CMDLINE_WWA;
+            if (param_ct > 2) {
+              reterr = AllocAndFlatten(&(argvk[arg_idx + 3]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.iid);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
               }
-            }
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 5]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.pheno);
-            if (unlikely(reterr)) {
-              goto main_ret_1;
-            }
-          }
-          if (param_ct > 5) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 6]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.paternal_id);
-            if (unlikely(reterr)) {
-              goto main_ret_1;
-            }
-          }
-          if (param_ct > 6) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 7]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.maternal_id);
-            if (unlikely(reterr)) {
-              goto main_ret_1;
+              if (param_ct > 3) {
+                const char* cur_modif = argvk[arg_idx + 4];
+                if (unlikely(strlen(cur_modif) != 1)) {
+                  goto main_ret_23FILE_INVALID_SEX;
+                }
+                const char cc = cur_modif[0];
+                if ((cc == 'M') || (cc == 'm') || (cc == '1')) {
+                  pc.twenty_three_info.sex_mode = kTwentythreeSexMale;
+                } else if ((cc == 'F') || (cc == 'f') || (cc == '2')) {
+                  pc.twenty_three_info.sex_mode = kTwentythreeSexFemale;
+                } else if (cc == '0') {
+                  pc.twenty_three_info.sex_mode = kTwentythreeSexMissing;
+                } else if (unlikely((cc != 'I') && (cc != 'i'))) {
+                  goto main_ret_23FILE_INVALID_SEX;
+                }
+                if (param_ct > 4) {
+                  // The .psam PHENO1 column accepts categorical values as well
+                  // as numbers, so anything IsCategoricalPhenostrNocsv()
+                  // accepts is passed through unchanged.
+                  const char* pheno_str = argvk[arg_idx + 5];
+                  if (!IsCategoricalPhenostrNocsv(pheno_str)) {
+                    double dxx;
+                    if (unlikely(!ScantokDouble(pheno_str, &dxx))) {
+                      snprintf(g_logbuf, kLogbufSize, "Error: Invalid --23file phenotype '%s'.\n", pheno_str);
+                      goto main_ret_INVALID_CMDLINE_WWA;
+                    }
+                  }
+                  reterr = AllocAndFlatten(&(argvk[arg_idx + 5]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.pheno);
+                  if (unlikely(reterr)) {
+                    goto main_ret_1;
+                  }
+                  if (param_ct > 5) {
+                    reterr = AllocAndFlatten(&(argvk[arg_idx + 6]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.paternal_id);
+                    if (unlikely(reterr)) {
+                      goto main_ret_1;
+                    }
+                    if (param_ct > 6) {
+                      reterr = AllocAndFlatten(&(argvk[arg_idx + 7]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.maternal_id);
+                      if (unlikely(reterr)) {
+                        goto main_ret_1;
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
           xload |= kfXload23file;
@@ -15619,7 +15619,7 @@ int main(int argc, char** argv) {
       }
       pc.dependency_flags |= kfFilterPvarReq;
     }
-    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf | kfXloadLgen)));
+    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf | kfXloadLgen | kfXload23file)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (gene_report_info.report_fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr) || (meta_info.fnames != nullptr);
     if (gene_report_info.report_fname) {
       if (unlikely(load_params || xload)) {

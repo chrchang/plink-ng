@@ -3074,6 +3074,7 @@ void CleanupTwentythree(TwentythreeInfo* tip) {
 // calls in the last column; '-' denotes a missing call.  This mirrors PLINK
 // 1.9's bed_from_23(), including its sex-inference rules and its D/I indel
 // convention, but writes .pgen/.pvar/.psam and uses plink2 chromosome codes.
+// TODO: is_splitpar logic
 PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* infile_name = tip->fname;
