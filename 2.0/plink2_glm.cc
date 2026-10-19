@@ -2848,6 +2848,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       reterr = kPglRetNotYetSupported;
       goto GlmMain_ret_1;
     }
+    if (max_extra_allele_ct && (glm_flags & kfGlmMultinomial)) {
+      reterr = kPglRetNotYetSupported;
+      logerrputs("Error: \"--glm multinomial\" on multiallelic variants is under development.\n");
+      goto GlmMain_ret_1;
+    }
     const uint32_t biallelic_raw_predictor_ctl = BitCtToWordCt(biallelic_raw_predictor_ct);
     const uint32_t first_covar_pred_uidx = 2 + domdev_third;
     uint32_t first_interaction_pred_uidx = 0;
