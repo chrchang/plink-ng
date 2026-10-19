@@ -15156,6 +15156,7 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
       goto HaploviewBlocks_ret_WRITE_FAIL;
     }
     *outname_end = '\0';
+    putc_unlocked('\r', stdout);
     logprintfww("--blocks: %u haploblock%s written to %s.blocks , with details in %s.blocks.det .\n", block_ct, (block_ct == 1)? "" : "s", outname, outname);
   }
   while (0) {
@@ -15258,6 +15259,7 @@ static double TagPairR2(const TagCtx* ctx, uint32_t slot0, uint32_t slot1) {
   return cov12 * cov12 / (variance1 * variance2);
 }
 
+// probable todos: progress indicator, multithreading
 PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const char* tag_fname, uint32_t list_all, uint32_t mode2, uint32_t bp_radius, double r2_thresh, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;

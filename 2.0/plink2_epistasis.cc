@@ -1447,7 +1447,7 @@ static PglErr CalcEpiBoostOne(const uintptr_t* orig_sample_include, const PhenoC
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto CalcEpiBoostOne_ret_WRITE_FAIL;
     }
-    fputs("\b\b\b", stdout);
+    putc_unlocked('\r', stdout);
     logprintf("--epistasis-boost: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
     if (covar_refit) {
       logprintf("--epistasis-boost: STAT/DF/P adjusted for %u covariate%s; BEST_CHISQ and N_SIG\nare not.\n", cur_covar_ct, (cur_covar_ct == 1)? "" : "s");
@@ -2930,7 +2930,7 @@ static PglErr CalcEpiLinearBatch(const uintptr_t* sample_include, const uint32_t
         goto CalcEpiLinearBatch_ret_WRITE_FAIL;
       }
     }
-    fputs("\b\b\b", stdout);
+    putc_unlocked('\r', stdout);
     for (uint32_t batch_idx = 0; batch_idx != batch_pheno_ct; ++batch_idx) {
       EpiLinearOutnameAppend(&(pheno_names[batch_pheno_idxs[batch_idx] * max_pheno_name_blen]), 0, parallel_idx, parallel_tot, output_zst, outname_end);
       logprintf("--epistasis: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_tested[batch_idx], (pairs_tested[batch_idx] == 1)? "" : "s", pairs_reported[batch_idx], outname);
