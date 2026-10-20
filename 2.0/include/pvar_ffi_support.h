@@ -23,6 +23,9 @@
 namespace plink2 {
 #endif
 
+// Full definition in plink2_s3.h; only needed here as a pointer type.
+struct S3Credentials;
+
 // Would prefer to make p a flexible array member, but that doesn't adhere to
 // current CRAN coding standards, so we have an extra dereference here.
 struct RefcountedWptrStruct {
@@ -75,7 +78,7 @@ FLAGSET_DEF_START()
   kfLoadMinimalPvarOmitPos = (1 << 1)
 FLAGSET_DEF_END(LoadMinimalPvarFlags);
 
-PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalPvar* mpp, char* errstr_buf);
+PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalPvar* mpp, char* errstr_buf, const S3Credentials* s3_creds = nullptr);
 
 HEADER_INLINE PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
   return LoadMinimalPvarEx(fname, kfLoadMinimalPvarOmitChrom | kfLoadMinimalPvarOmitPos, mpp, errstr_buf);

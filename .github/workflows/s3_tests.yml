@@ -1,0 +1,92 @@
+name: PLINK2 S3 TESTS
+
+on:
+  push:
+    paths:
+      - 2.0/plink2_s3.cc
+      - 2.0/plink2_s3.h
+      - 2.0/s3stream/**
+      - 2.0/Makefile*
+      - 2.0/build_dynamic/Makefile
+      - 2.0/plink2.cc
+      - 2.0/pixi.toml
+      - 2.0/pixi_activate.sh
+      - 2.0/Tests/TEST_S3/**
+      - .github/workflows/s3_tests.yml
+  pull_request:
+    paths:
+      - 2.0/plink2_s3.cc
+      - 2.0/plink2_s3.h
+      - 2.0/s3stream/**
+      - 2.0/Makefile*
+      - 2.0/build_dynamic/Makefile
+      - 2.0/plink2.cc
+      - 2.0/pixi.toml
+      - 2.0/pixi_activate.sh
+      - 2.0/Tests/TEST_S3/**
+      - .github/workflows/s3_tests.yml
+  workflow_dispatch:
+
+jobs:
+  s3_tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux exercises the fopencookie backend, macOS the funopen one.
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          manifest-path: 2.0/pixi.toml
+          cache: true
+
+      # macOS runners have no docker, so MinIO runs natively.  dl.min.io no
+      # longer serves standalone binaries, hence Homebrew.
+      - name: Install MinIO (macOS)
+        if: runner.os == 'macOS'
+        run: brew install minio minio-mc
+
+      # The quay.io MinIO image is no longer pullable, so Linux uses conda-forge's
+      # build too.  Only minio and mc are exposed, not the rest of that env.
+      - name: Install MinIO (Linux)
+        if: runner.os == 'Linux'
+        working-directory: ./2.0
+        run: |
+          pixi install -e s3test
+          mkdir -p "$RUNNER_TEMP/miniobin"
+          ln -s "$PWD/.pixi/envs/s3test/bin/minio" "$RUNNER_TEMP/miniobin/minio"
+          ln -s "$PWD/.pixi/envs/s3test/bin/mc" "$RUNNER_TEMP/miniobin/mc"
+          echo "$RUNNER_TEMP/miniobin" >> "$GITHUB_PATH"
+
+      - name: Build plink2 with S3 support
+        working-directory: ./2.0
+        run: pixi run build
+
+      - name: Confirm the binary is linked against libcurl
+        working-directory: ./2.0
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            otool -L build_dynamic/plink2 | grep -i curl
+          else
+            ldd build_dynamic/plink2 | grep -i curl
+          fi
+
+      - name: Run S3 tests
+        working-directory: ./2.0/Tests/TEST_S3
+        env:
+          KEEP_MINIO: 1
+          S3_TEST_NATIVE: 1
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/2.0/.pixi/envs/default/lib:${LD_LIBRARY_PATH:-}"
+          bash run_tests.sh ../../build_dynamic
+
+      - name: Dump MinIO logs on failure
+        if: failure()
+        working-directory: ./2.0/Tests/TEST_S3
+        run: cat tmp_s3/minio.log 2>/dev/null || true

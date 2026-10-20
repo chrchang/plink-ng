@@ -19,6 +19,8 @@
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
 #   Debug symbols: change DEBUG to -g (still incompatible with -flto?)
+#   Enable S3 input support via libcurl: USE_S3
+#     (requires libcurl >= 7.75.0)
 NO_AVX2 = 1
 NO_SSE42 = 1
 CPU_CHECK = 1
@@ -33,6 +35,7 @@ STATIC_AOCL =
 AOCLROOT = /home/admin/aocl/5.1.0/gcc
 CBLAS_LAPACKE =
 FORCE_32BIT =
+USE_S3 =
 # Giving up on -flto default for now (Mar 2026) due to the high frequency of
 # gcc 10.2 crashes.  Will try again after next upgrade of my own build
 # machines.
@@ -147,9 +150,10 @@ ifeq ($(UNAME), Darwin)
     $(error AOCL is not currently supported on OS X)
   endif
   BLASFLAGS=-framework Accelerate
-  CFLAGS += -I/usr/local/include
-  CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
-  LINKFLAGS += -L/usr/local/lib
+  # /opt/homebrew is where Homebrew installs on Apple Silicon.
+  CFLAGS += -I/usr/local/include -I/opt/homebrew/include
+  CXXFLAGS += -I/usr/local/include -I/opt/homebrew/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
+  LINKFLAGS += -L/usr/local/lib -L/opt/homebrew/lib
   LIBTOOL=libtool
   STATIC=-static
 else
@@ -207,6 +211,11 @@ ifdef NO_LAPACK
   BLASFLAGS=
 endif
 
+ifdef USE_S3
+  BASEFLAGS += -DUSE_S3 -DS3STREAM_ENABLE
+  LINKFLAGS += -lcurl
+endif
+
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
 ZCFLAGS += ${BASEFLAGS} ${CWARN2} ${ZSTD_INCLUDE2}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN2} ${CXXINCLUDE2}
@@ -215,7 +224,7 @@ ifdef FORCE_32BIT
   CXXFLAGS += -Wno-sign-compare
 endif
 
-SFX ?= ""
+SFX ?=
 
 all: plink2$(SFX) pgen_compress$(SFX)
 
@@ -224,10 +233,10 @@ plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
 	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	$(CXX) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
+	$(CXX) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS) $(LDFLAGS)
 
 pgen_compress$(SFX): $(PGCSRC2)
-	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
+	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@ $(LINKFLAGS)
 
 pgenlib.a: $(PGENLIB_CCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
@@ -240,10 +249,10 @@ plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2)
 	$(LIBTOOL) $(STATIC) -o $@ $(PLINK2LIB_OBJL)
 
 static_pgenlib_test: pgenlib.a ../pgen_compress.cc
-	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. pgenlib.a
+	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. pgenlib.a $(LINKFLAGS)
 
 static_plink2lib_test: plink2lib.a ../pgen_compress.cc
-	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. plink2lib.a
+	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. plink2lib.a $(LINKFLAGS)
 
 .PHONY: clean
 clean:
