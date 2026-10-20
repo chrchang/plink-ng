@@ -15213,15 +15213,51 @@ typedef struct TagCtxStruct {
 
 static uint32_t TagWindowStart(const TagCtx* ctx, uint32_t cidx) {
   const uint32_t* uidxs = ctx->chr_variant_uidxs;
-  const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
-  uint32_t start = 0;
-  while ((start < cidx) && (cur_bp - ctx->variant_bps[uidxs[start]] > ctx->bp_radius)) {
-    ++start;
+  const uint32_t* variant_bps = ctx->variant_bps;
+  const uint32_t cur_bp = variant_bps[uidxs[cidx]];
+  const uint32_t bp_radius = ctx->bp_radius;
+  if (cur_bp <= bp_radius) {
+    return 0;
   }
-  return start;
+  const uint32_t min_bp = cur_bp - bp_radius;
+  // Binary search for smallest cidx_first where variant_bps[uidxs[cidx_first]]
+  // >= min_bp (where we know cidx satisfies this).
+  // Loop invariants: variant_bps[uidxs[end_idx]] >= min_bp; either this is
+  // untrue for start_idx, or start_idx==end_idx.
+  uint32_t start_idx = 0;
+  uint32_t end_idx = cidx;
+  while (start_idx < end_idx) {
+    const uint32_t mid_idx = (start_idx + end_idx) / 2;
+    if (variant_bps[uidxs[mid_idx]] < min_bp) {
+      start_idx = mid_idx + 1;
+    } else {
+      end_idx = mid_idx;
+    }
+  }
+  return end_idx;
 }
 
 static uint32_t TagWindowEnd(const TagCtx* ctx, uint32_t cidx) {
+  const uint32_t* uidxs = ctx->chr_variant_uidxs;
+  const uint32_t* variant_bps = ctx->variant_bps;
+  const uint32_t max_bp = variant_bps[uidxs[cidx]] + ctx->bp_radius;
+  // Binary search for 1 + largest cidx_last where
+  // variant_bps[uidxs[cidx_last]] <= max_bp (where we know cidx satisfies
+  // this).
+  // Loop invariants: variant_bps[uidxs[start_idx]] <= max_bp; either this is
+  // untrue for end_idx, or start_idx==end_idx.
+  uint32_t start_idx = cidx;
+  uint32_t end_idx = ctx->chr_variant_ct - 1;
+  while (start_idx < end_idx) {
+    const uint32_t mid_idx = (start_idx + end_idx + 1) / 2;
+    if (variant_bps[uidxs[mid_idx]] <= max_bp) {
+      start_idx = mid_idx;
+    } else {
+      end_idx = mid_idx - 1;
+    }
+  }
+  return start_idx + 1;
+  /*
   const uint32_t* uidxs = ctx->chr_variant_uidxs;
   const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
   uint32_t end = ctx->chr_variant_ct;
@@ -15229,6 +15265,7 @@ static uint32_t TagWindowEnd(const TagCtx* ctx, uint32_t cidx) {
     --end;
   }
   return end;
+  */
 }
 
 // Unphased r^2 between two ring slots, with the integer accumulators
@@ -15259,7 +15296,7 @@ static double TagPairR2(const TagCtx* ctx, uint32_t slot0, uint32_t slot1) {
   return cov12 * cov12 / (variance1 * variance2);
 }
 
-// probable todos: progress indicator, multithreading
+// probable todo: multithreading
 PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const char* tag_fname, uint32_t list_all, uint32_t mode2, uint32_t bp_radius, double r2_thresh, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -15452,6 +15489,11 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
       goto ShowTags_ret_NOMEM;
     }
 
+    uint32_t completed_variant_ct = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_idx = (kept_variant_ct + 99) / 100;
+    fputs("--show-tags: 0%", stdout);
+    fflush(stdout);
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
@@ -15567,8 +15609,19 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
           }
         }
         BigstackReset(tagbuf_mark);
+        if (cidx + completed_variant_ct >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = ((cidx + completed_variant_ct) * 100LLU) / kept_variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, kept_variant_ct) + 99) / 100;
+        }
       }
+      completed_variant_ct += chr_variant_ct;
     }
+    putc_unlocked('\r', stdout);
     if (write_tag_list) {
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
         goto ShowTags_ret_WRITE_FAIL;

@@ -11919,6 +11919,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t chr_ct = cip->chr_ct;
+    uint32_t completed_variant_ct = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_idx = (variant_ct + 99) / 100;
     fputs("--homozyg: 0%", stdout);
     fflush(stdout);
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
@@ -11932,6 +11935,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
       if (chr_variant_ct < window_size) {
         // PLINK 1.9 skips chromosomes that can't fill one scanning window.
+        completed_variant_ct += chr_variant_ct;
         continue;
       }
       uintptr_t variant_uidx_base;
@@ -11983,7 +11987,17 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
           goto HomozygReport_ret_THREAD_CREATE_FAIL;
         }
         JoinThreads(&tg);
+        if (block_start + completed_variant_ct >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = ((block_start + completed_variant_ct) * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+        }
       }
+      completed_variant_ct += chr_variant_ct;
     }
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       if (unlikely(ctx.nomem[tidx])) {
