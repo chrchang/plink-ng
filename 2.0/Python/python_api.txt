@@ -43,10 +43,16 @@ class PvarReader:
 
 
 class PgenReader:
-* PgenReader(bytes filename, raw_sample_ct = None, variant_ct = None,
+* PgenReader(filename, raw_sample_ct = None, variant_ct = None,
              sample_subset = None, allele_idx_offsets = None, pvar = None)
   Constructor, opens the .pgen or .bed file.  Requires a filename (exception is
   thrown if file doesn't exist or it's invalid).
+  - filename can be bytes, str, or os.PathLike.  It can also be a binary
+    file-like object with read() and seek() methods (readinto() is used when
+    present), e.g. io.BytesIO, an open file, or an fsspec/s3fs file; only the
+    byte ranges actually needed are requested from it.  The object is not
+    closed by the reader.  A .pgen with an external .pgi index can't be read
+    this way.  File-like objects are not supported on Windows.
   - raw_sample_ct is required for a .bed file (otherwise an exception will be
     thrown), and optional for a .pgen file.  If it's provided for a .pgen file,
     an exception is thrown if sample_ct does not match the value in the .pgen.
