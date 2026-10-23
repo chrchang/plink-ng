@@ -13381,46 +13381,84 @@ typedef struct LdScoreCtxStruct {
 // lets the reader slide instead of reloading.
 static uint32_t LdScoreWindowStart(const LdScoreCtx* ctx, uint32_t cidx) {
   const uint32_t* uidxs = ctx->chr_variant_uidxs;
-  uint32_t start = 0;
+  uint32_t start_idx = 0;
   if (ctx->var_ct_radius < cidx) {
-    start = cidx - ctx->var_ct_radius;
+    start_idx = cidx - ctx->var_ct_radius;
   }
-  if (ctx->bp_radius != UINT32_MAX) {
-    const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
-    while ((start < cidx) && (cur_bp - ctx->variant_bps[uidxs[start]] > ctx->bp_radius)) {
-      ++start;
+  const uint32_t bp_radius = ctx->bp_radius;
+  if (bp_radius != UINT32_MAX) {
+    const uint32_t* variant_bps = ctx->variant_bps;
+    const uint32_t cur_bp = variant_bps[uidxs[cidx]];
+    if (cur_bp > bp_radius) {
+      const uint32_t min_bp = cur_bp - bp_radius;
+      // Binary search for smallest cidx_first where
+      // variant_bps[uidxs[cidx_first]] >= min_bp (where we know cidx satisfies
+      // this).
+      // Loop invariants: variant_bps[uidxs[end_idx]] >= min_bp; either this is
+      // untrue for start_idx, or start_idx==end_idx.
+      uint32_t end_idx = cidx;
+      while (start_idx < end_idx) {
+        const uint32_t mid_idx = (start_idx + end_idx) / 2;
+        if (variant_bps[uidxs[mid_idx]] < min_bp) {
+          start_idx = mid_idx + 1;
+        } else {
+          end_idx = mid_idx;
+        }
+      }
     }
   }
-  if (ctx->variant_cms) {
-    const double cur_cm = ctx->variant_cms[uidxs[cidx]];
-    while ((start < cidx) && (cur_cm - ctx->variant_cms[uidxs[start]] > ctx->cm_radius)) {
-      ++start;
+  const double* variant_cms = ctx->variant_cms;
+  if (variant_cms) {
+    const double min_cm = variant_cms[uidxs[cidx]] - ctx->cm_radius;
+    uint32_t end_idx = cidx;
+    while (start_idx < end_idx) {
+      const uint32_t mid_idx = (start_idx + end_idx) / 2;
+      if (variant_cms[uidxs[mid_idx]] < min_cm) {
+        start_idx = mid_idx + 1;
+      } else {
+        end_idx = mid_idx;
+      }
     }
   }
-  return start;
+  return start_idx;
 }
 
 // One past the last index cidx must be compared against.  Also monotonic.
 static uint32_t LdScoreWindowEnd(const LdScoreCtx* ctx, uint32_t cidx) {
   const uint32_t* uidxs = ctx->chr_variant_uidxs;
-  const uint32_t chr_variant_ct = ctx->chr_variant_ct;
-  uint32_t end = chr_variant_ct;
-  if (ctx->var_ct_radius < chr_variant_ct - cidx - 1) {
-    end = cidx + ctx->var_ct_radius + 1;
+  const uint32_t chr_variant_ct_m1 = ctx->chr_variant_ct - 1;
+  uint32_t end_idx = chr_variant_ct_m1;
+  if (ctx->var_ct_radius < chr_variant_ct_m1 - cidx) {
+    end_idx = cidx + ctx->var_ct_radius;
   }
-  if (ctx->bp_radius != UINT32_MAX) {
-    const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
-    while ((end > cidx + 1) && (ctx->variant_bps[uidxs[end - 1]] - cur_bp > ctx->bp_radius)) {
-      --end;
+  const uint32_t bp_radius = ctx->bp_radius;
+  if (bp_radius != UINT32_MAX) {
+    const uint32_t* variant_bps = ctx->variant_bps;
+    const uint32_t max_bp = variant_bps[uidxs[cidx]] + bp_radius;
+    uint32_t start_idx = cidx;
+    while (start_idx < end_idx) {
+      const uint32_t mid_idx = (start_idx + end_idx + 1) / 2;
+      if (variant_bps[uidxs[mid_idx]] <= max_bp) {
+        start_idx = mid_idx;
+      } else {
+        end_idx = mid_idx - 1;
+      }
     }
   }
-  if (ctx->variant_cms) {
-    const double cur_cm = ctx->variant_cms[uidxs[cidx]];
-    while ((end > cidx + 1) && (ctx->variant_cms[uidxs[end - 1]] - cur_cm > ctx->cm_radius)) {
-      --end;
+  const double* variant_cms = ctx->variant_cms;
+  if (variant_cms) {
+    const double max_cm = variant_cms[uidxs[cidx]] + ctx->cm_radius;
+    uint32_t start_idx = cidx;
+    while (start_idx < end_idx) {
+      const uint32_t mid_idx = (start_idx + end_idx + 1) / 2;
+      if (variant_cms[uidxs[mid_idx]] <= max_cm) {
+        start_idx = mid_idx;
+      } else {
+        end_idx = mid_idx - 1;
+      }
     }
   }
-  return end;
+  return end_idx + 1;
 }
 
 // L2 for the index variants in [cidx_start, cidx_end).  Every variant it needs
