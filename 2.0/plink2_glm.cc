@@ -2446,23 +2446,33 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const uint32_t perm_adapt = (glm_perm_flags / kfGlmPermAdaptive) & 1;
     const uint32_t perms_total = perm_adapt? perm_config_ptr->aperm_max : glm_info_ptr->mperm_ct;
     // <output prefix>.<pheno name>.glm.logistic.hybrid{.perm,.mperm,.mperm.dump.best,.mperm.dump.all}[.zst]
-    uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
+    // or .adjusted[.zst] (--adjust) or .x.id/.y.id ('pheno-ids') appended to
+    // the main extension; only the longest extra extension matters.
+    uint32_t longest_ext_incr = 0;
+    if (adjust_info_ptr->flags & kfAdjustColAll) {
+      // .zst was already counted
+      longest_ext_incr = 9;
+    }
+    if ((glm_flags & kfGlmPhenoIds) && (longest_ext_incr < 5 - (4 * output_zst))) {
+      // .x.id doesn't take .zst, so it can use that space
+      longest_ext_incr = 5 - (4 * output_zst);
+    }
     if (perms_total) {
-      if (perm_adapt) {
-        pheno_name_blen_capacity -= 5;
-      } else {
-        uint32_t longest_ext_incr = 6;
+      uint32_t perm_ext_incr = 5;
+      if (!perm_adapt) {
+        perm_ext_incr = 6;
         if (perm_flags & kfPermMpermSaveBest) {
           // .zst does not apply to .mperm.save.best since there is no
           // per-variant dimension
-          longest_ext_incr = 16 - (4 * output_zst);
+          perm_ext_incr = 16 - (4 * output_zst);
         }
-        if ((perm_flags & kfPermMpermSaveAll) && (longest_ext_incr < 15)) {
-          longest_ext_incr = 15;
+        if ((perm_flags & kfPermMpermSaveAll) && (perm_ext_incr < 15)) {
+          perm_ext_incr = 15;
         }
-        pheno_name_blen_capacity -= longest_ext_incr;
       }
+      longest_ext_incr = MAXV(longest_ext_incr, perm_ext_incr);
     }
+    const uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - longest_ext_incr - S_CAST(uintptr_t, outname_end - outname);
     if (unlikely(max_pheno_name_blen > pheno_name_blen_capacity)) {
       logerrputs("Error: Phenotype name and/or --out argument too long.\n");
       goto GlmMain_ret_INCONSISTENT_INPUT;
