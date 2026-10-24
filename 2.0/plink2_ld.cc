@@ -17615,7 +17615,7 @@ static PglErr FlipScanLoadPanel(const uintptr_t* variant_include, const char* co
   return reterr;
 }
 
-PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t allow_bad_ld, LoadFilterLogFlags load_filter_log_flags, char input_missing_geno_char, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t max_allele_slen, uint32_t allow_bad_ld, LoadFilterLogFlags load_filter_log_flags, char input_missing_geno_char, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* cswritep = nullptr;
@@ -17928,7 +17928,8 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto FlipScan_ret_NOMEM;
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen * (2 + max_neg_ct) + 256;
+    // REF and ALT1, or the last ALT and A1, can be pending at once.
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen * (2 + max_neg_ct) + 2 * S_CAST(uintptr_t, max_allele_slen) + 256;
     OutnameZstSet(".flipscan", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
@@ -18008,7 +18009,8 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     AppendBinaryEoln(&cswritep);
     if (verbose) {
       OutnameZstSet(".flipscan.verbose", output_zst, outname_end);
-      reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + 4 * kMaxIdSlen + 256, &css_verbose, &cswritep_verbose);
+      // Each line has both variants' A1 alleles.
+      reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + 4 * kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 256, &css_verbose, &cswritep_verbose);
       if (unlikely(reterr)) {
         goto FlipScan_ret_1;
       }
