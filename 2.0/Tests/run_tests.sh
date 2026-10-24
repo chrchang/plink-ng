@@ -48,4 +48,9 @@ cd TEST_DOSAGE_ROUND_TRIP
 cd ..
 echo "TEST_DOSAGE_ROUND_TRIP passed."
 
+cd TEST_GLM_LINEAR_BATCH
+./run_tests.sh $d $2 $3 > TEST_GLM_LINEAR_BATCH.log
+cd ..
+echo "TEST_GLM_LINEAR_BATCH passed."
+
 echo "All tests passed."
