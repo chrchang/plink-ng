@@ -15359,17 +15359,24 @@ static void TagRange(const TagCtx* ctx, uint32_t cidx_start, uint32_t cidx_end) 
   const uint32_t ring_size = ctx->ring_size;
   const uintptr_t tag_row_word_ct = ctx->tag_row_word_ct;
   uintptr_t* tag_rows = ctx->tag_rows;
-  for (uint32_t cidx = cidx_start; cidx != cidx_end; ++cidx) {
-    const uint32_t index_slot = cidx % ring_size;
+  uint32_t index_slot = cidx_start % ring_size;
+  for (uint32_t cidx = cidx_start; cidx != cidx_end; ++cidx, ++index_slot) {
+    if (index_slot == ring_size) {
+      index_slot = 0;
+    }
     uintptr_t* tag_row = &(tag_rows[index_slot * tag_row_word_ct]);
     const uint32_t window_end = TagWindowEnd(ctx, cidx);
     ZeroWArr(BitCtToWordCt(window_end - cidx - 1), tag_row);
     const uint32_t index_is_target = (!target_variants) || IsSet(target_variants, uidxs[cidx]);
+    uint32_t other_index_slot = index_slot;
     for (uint32_t other_cidx = cidx + 1; other_cidx != window_end; ++other_cidx) {
+      if (++other_index_slot == ring_size) {
+        other_index_slot = 0;
+      }
       if ((!index_is_target) && (!IsSet(target_variants, uidxs[other_cidx]))) {
         continue;
       }
-      if (TagPairR2(ctx, index_slot, other_cidx % ring_size) >= r2_thresh) {
+      if (TagPairR2(ctx, index_slot, other_index_slot) >= r2_thresh) {
         SetBit(other_cidx - cidx - 1, tag_row);
       }
     }
@@ -15652,8 +15659,11 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
         if (loaded_end < need_start) {
           loaded_end = need_start;
         }
-        for (; loaded_end != need_end; ++loaded_end) {
-          const uint32_t slot_idx = loaded_end % ring_size;
+        uint32_t slot_idx = loaded_end % ring_size;
+        for (; loaded_end != need_end; ++loaded_end, ++slot_idx) {
+          if (slot_idx == ring_size) {
+            slot_idx = 0;
+          }
           uintptr_t* cur_genobuf = &(genobufs[slot_idx * variant_buf_word_ct]);
           const uint32_t load_variant_uidx = chr_variant_uidxs[loaded_end];
           reterr = PgrGetInv1(founder_info, pssi, founder_ct, load_variant_uidx, maj_alleles[load_variant_uidx], simple_pgrp, genovec);
@@ -15685,9 +15695,13 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
           ReinitThreads(&tg);
         }
 
-        for (uint32_t cidx = block_start; cidx != block_end; ++cidx) {
+        uint32_t cidx_rem = block_start % ring_size;
+        for (uint32_t cidx = block_start; cidx != block_end; ++cidx, ++cidx_rem) {
+          if (cidx_rem == ring_size) {
+            cidx_rem = 0;
+          }
           const uint32_t index_uidx = chr_variant_uidxs[cidx];
-          const uintptr_t* fwd_row = &(tag_rows[(cidx % ring_size) * tag_row_word_ct]);
+          const uintptr_t* fwd_row = &(tag_rows[cidx_rem * tag_row_word_ct]);
           const uint32_t fwd_word_ct = BitCtToWordCt(TagWindowEnd(&ctx, cidx) - cidx - 1);
           if (!all_mode) {
             // In file mode we want the variants tagging a target.  Leftward
@@ -15714,8 +15728,12 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
           }
           uint32_t ntag = 0;
           const uint32_t window_start = TagWindowStart(&ctx, cidx);
-          for (uint32_t other_cidx = window_start; other_cidx != cidx; ++other_cidx) {
-            if (IsSet(&(tag_rows[(other_cidx % ring_size) * tag_row_word_ct]), cidx - other_cidx - 1)) {
+          uint32_t other_cidx_rem = window_start % ring_size;
+          for (uint32_t other_cidx = window_start; other_cidx != cidx; ++other_cidx, ++other_cidx_rem) {
+            if (other_cidx_rem == ring_size) {
+              other_cidx_rem = 0;
+            }
+            if (IsSet(&(tag_rows[other_cidx_rem * tag_row_word_ct]), cidx - other_cidx - 1)) {
               tag_cidxs[ntag++] = other_cidx;
             }
           }
