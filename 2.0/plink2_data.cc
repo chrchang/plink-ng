@@ -4297,7 +4297,16 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
         }
       }
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    // A generated ID can hold two truncated alleles and exceed kMaxIdSlen;
+    // leave room for it, so that it can be rejected after it's written.
+    uint32_t max_id_slen = kMaxIdSlen;
+    if (varid_templatep) {
+      const uint32_t worst_case_id_slen = VaridWorstCaseSlen(varid_templatep, max_chr_blen - 1, MINV(max_allele_slen, new_variant_id_max_allele_slen));
+      if (worst_case_id_slen > max_id_slen) {
+        max_id_slen = worst_case_id_slen;
+      }
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_id_slen + 512 + 2 * max_allele_slen;
     reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteBimSplit_ret_1;
@@ -4373,14 +4382,22 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
+            char* id_start = cswritep;
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+            if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+              goto WriteBimSplit_ret_ID_TOO_LONG;
+            }
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = Strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
+              char* id_start = cswritep;
               cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+              if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+                goto WriteBimSplit_ret_ID_TOO_LONG;
+              }
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -4443,6 +4460,11 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
     break;
   WriteBimSplit_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
+    break;
+  WriteBimSplit_ret_ID_TOO_LONG:
+    logputs("\n");
+    logerrprintfww("Error: --set-%s-var-ids generated a variant ID longer than " MAX_ID_SLEN_STR " characters while splitting multiallelic variants. Use a smaller --new-id-max-allele-len limit.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+    reterr = kPglRetInconsistentInput;
     break;
   WriteBimSplit_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
@@ -4636,7 +4658,16 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
       }
     }
 
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    // A generated ID can hold two truncated alleles and exceed kMaxIdSlen;
+    // leave room for it, so that it can be rejected after it's written.
+    uint32_t max_id_slen = kMaxIdSlen;
+    if (varid_templatep) {
+      const uint32_t worst_case_id_slen = VaridWorstCaseSlen(varid_templatep, max_chr_blen - 1, MINV(max_allele_slen, new_variant_id_max_allele_slen));
+      if (worst_case_id_slen > max_id_slen) {
+        max_id_slen = worst_case_id_slen;
+      }
+    }
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_id_slen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -4946,14 +4977,22 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
+            char* id_start = cswritep;
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+            if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+              goto WritePvarSplit_ret_ID_TOO_LONG;
+            }
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = Strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
+              char* id_start = cswritep;
               cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+              if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+                goto WritePvarSplit_ret_ID_TOO_LONG;
+              }
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -5118,6 +5157,11 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     WordWrapB(0);
     logerrputsb();
     reterr = kPglRetMalformedInput;
+    break;
+  WritePvarSplit_ret_ID_TOO_LONG:
+    logputs("\n");
+    logerrprintfww("Error: --set-%s-var-ids generated a variant ID longer than " MAX_ID_SLEN_STR " characters while splitting multiallelic variants. Use a smaller --new-id-max-allele-len limit.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+    reterr = kPglRetInconsistentInput;
     break;
   WritePvarSplit_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
