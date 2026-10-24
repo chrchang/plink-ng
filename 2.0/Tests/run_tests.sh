@@ -243,6 +243,11 @@ cd TEST_GLM_MULTINOMIAL
 cd ..
 echo "TEST_GLM_MULTINOMIAL passed."
 
+cd TEST_GLM_LINEAR_BATCH
+./run_tests.sh $d $2 $3 > TEST_GLM_LINEAR_BATCH.log
+cd ..
+echo "TEST_GLM_LINEAR_BATCH passed."
+
 cd TEST_OUTPUT_CHR_INFER
 ./run_tests.sh $d $2 $3 > TEST_OUTPUT_CHR_INFER.log
 cd ..
