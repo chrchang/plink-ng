@@ -5691,6 +5691,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   }
                   --cswritep;
                 } else {
+                  // The overflow buffer has room for two alleles beyond the
+                  // ID; REF and ALT1 may already be pending.
+                  if (unlikely(Cswrite(&css, &cswritep))) {
+                    goto GlmLogistic_ret_WRITE_FAIL;
+                  }
                   cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
                 }
                 if (omitted_col) {

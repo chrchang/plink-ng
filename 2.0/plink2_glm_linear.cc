@@ -2226,6 +2226,11 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                   --cswritep;
                 } else {
+                  // The overflow buffer has room for two alleles beyond the
+                  // ID; REF and ALT1 may already be pending.
+                  if (unlikely(Cswrite(&css, &cswritep))) {
+                    goto GlmLinear_ret_WRITE_FAIL;
+                  }
                   cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
                 }
                 if (omitted_col) {
@@ -4694,6 +4699,12 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                       --cswritep;
                     } else {
+                      // The overflow buffer has room for two alleles beyond
+                      // the ID; REF and ALT1 may already be pending.
+                      if (unlikely(Cswrite(&(css_arr[fidx]), &cswritep))) {
+                        cswritep_arr[fidx] = cswritep;
+                        goto GlmLinearBatch_ret_WRITE_FAIL;
+                      }
                       cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
                     }
                     if (omitted_col) {
