@@ -418,6 +418,12 @@ BoolErr WritePermReportBody(const uintptr_t* orig_variant_include, const ChrInfo
         *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
         *cswritep++ = '\t';
       }
+      // The overflow buffer has room for two alleles; REF and ALT1 may
+      // already be pending, and A1 and OMITTED follow.
+      if (unlikely(Cswrite(css_ptr, &cswritep))) {
+        *cswritep_ptr = cswritep;
+        return 1;
+      }
       cswritep = strcpyax(cswritep, cur_alleles[aidx], '\t');
       if (omitted_col) {
         cswritep = strcpyax(cswritep, cur_alleles[omitted_allele_idx], '\t');

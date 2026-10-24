@@ -5486,7 +5486,18 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     const uint32_t varid_join = (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1;
     const uint32_t max_block_size = JoinMaxBlockSize(variant_include, cip, variant_bps, variant_ct);
 
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + S_CAST(uintptr_t, max_block_size) * (max_filter_slen + info_reload_slen + 2);
+    // A generated ID can hold two truncated alleles and exceed kMaxIdSlen;
+    // leave room for it, so that it can be rejected after it's written.
+    uint32_t max_id_slen = kMaxIdSlen;
+    for (uint32_t template_idx = 0; template_idx != 3; ++template_idx) {
+      if (varid_templates[template_idx]) {
+        const uint32_t worst_case_id_slen = VaridWorstCaseSlen(varid_templates[template_idx], max_chr_blen - 1, MINV(max_allele_slen, new_variant_id_max_allele_slen));
+        if (worst_case_id_slen > max_id_slen) {
+          max_id_slen = worst_case_id_slen;
+        }
+      }
+    }
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_id_slen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + S_CAST(uintptr_t, max_block_size) * (max_filter_slen + info_reload_slen + 2);
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -5837,7 +5848,11 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                 cur_varid_templatep = varid_templates[2];
               }
             }
+            char* id_start = cswritep;
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, alt_token_buf, cur_bp, ref_allele_slen, extra_alt_ct, alt_token_slen, &max_allele_overflow_slen, cswritep);
+            if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+              goto WritePvarJoin_ret_ID_TOO_LONG;
+            }
           } else {
             cswritep = memcpya(cswritep, missing_varid_match, missing_varid_slen);
           }
@@ -6301,6 +6316,11 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     WordWrapB(0);
     logerrputsb();
     reterr = kPglRetMalformedInput;
+    break;
+  WritePvarJoin_ret_ID_TOO_LONG:
+    logputs("\n");
+    logerrprintfww("Error: --set-%s-var-ids generated a variant ID longer than " MAX_ID_SLEN_STR " characters while joining multiallelic variants. Use a smaller --new-id-max-allele-len limit.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+    reterr = kPglRetInconsistentInput;
     break;
   WritePvarJoin_ret_INCONSISTENT_INPUT_WW:
     logputs("\n");
