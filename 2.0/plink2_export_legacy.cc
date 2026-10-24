@@ -1040,7 +1040,9 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
   {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    // A line starts with the chromosome, variant ID, and two alleles; each
+    // sample ID (FID+IID) appended to it is followed by a flush.
+    const uintptr_t writebuf_blen = kMaxMediumLine + GetMaxChrSlen(cip) + siip->max_sample_id_blen + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
     uint32_t* sample_id_slens;
@@ -1187,7 +1189,9 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
   {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    // A line starts with the variant ID and two alleles; each sample ID
+    // (FID+IID) appended to it is followed by a flush.
+    const uintptr_t writebuf_blen = kMaxMediumLine + siip->max_sample_id_blen + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
     uint32_t* sample_id_slens;
