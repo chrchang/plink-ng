@@ -2604,24 +2604,34 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
     if (beta_col) {
       for (uint32_t level_idx = 1; level_idx != level_ct; ++level_idx) {
         const char* level_name = level_names[level_idx];
+        // Level names can be kMaxIdSlen long, so flush after each one.
         cswritep = strcpya_k(cswritep, "\tBETA_");
         cswritep = strcpya(cswritep, level_name);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto GlmMultinomial_ret_WRITE_FAIL;
+        }
         if (se_col) {
           cswritep = strcpya_k(cswritep, "\tSE_");
           cswritep = strcpya(cswritep, level_name);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto GlmMultinomial_ret_WRITE_FAIL;
+          }
         }
         if (ci_col) {
           cswritep = strcpya_k(cswritep, "\tL");
           cswritep = dtoa_g(ci_size * 100, cswritep);
           *cswritep++ = '_';
           cswritep = strcpya(cswritep, level_name);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto GlmMultinomial_ret_WRITE_FAIL;
+          }
           cswritep = strcpya_k(cswritep, "\tU");
           cswritep = dtoa_g(ci_size * 100, cswritep);
           *cswritep++ = '_';
           cswritep = strcpya(cswritep, level_name);
-        }
-        if (unlikely(Cswrite(&css, &cswritep))) {
-          goto GlmMultinomial_ret_WRITE_FAIL;
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto GlmMultinomial_ret_WRITE_FAIL;
+          }
         }
       }
     }
@@ -2789,6 +2799,11 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
               *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, write_variant_uidx)))? 'Y' : 'N';
               *cswritep++ = '\t';
             }
+            // The overflow buffer has room for two alleles beyond the ID; REF
+            // and ALT1 may already be pending.
+            if (unlikely(Cswrite(&css, &cswritep))) {
+              goto GlmMultinomial_ret_WRITE_FAIL;
+            }
             cswritep = strcpya(cswritep, cur_alleles[row_a1_allele_idx]);
             if (omitted_col) {
               *cswritep++ = '\t';
@@ -2818,9 +2833,9 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
               for (uint32_t level_idx = 0; level_idx != level_ct; ++level_idx) {
                 *cswritep++ = '\t';
                 cswritep = u32toa(level_allele_obs[level_idx], cswritep);
-              }
-              if (unlikely(Cswrite(&css, &cswritep))) {
-                goto GlmMultinomial_ret_WRITE_FAIL;
+                if (unlikely(Cswrite(&css, &cswritep))) {
+                  goto GlmMultinomial_ret_WRITE_FAIL;
+                }
               }
             }
             if (a1_freq_col) {
