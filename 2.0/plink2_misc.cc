@@ -563,6 +563,10 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
         cur_alleles[old_allele1_match] = K_CAST(char*, &(g_one_char_strs[ctou32(new_allele1_start[0]) * 2]));
       } else {
         // reuse old storage if we can, allocate when we must
+        if (new_slen1 > max_allele_slen) {
+          // later writers size their buffers from this
+          max_allele_slen = new_slen1;
+        }
         if (old_slen1 < new_slen1) {
           if (PtrWSubCk(tmp_alloc_base, new_slen1 + 1, &tmp_alloc_end)) {
             goto UpdateVarAlleles_ret_NOMEM;
@@ -574,6 +578,9 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
       if (new_slen2 == 1) {
         cur_alleles[old_allele2_match] = K_CAST(char*, &(g_one_char_strs[ctou32(new_allele2_start[0]) * 2]));
       } else {
+        if (new_slen2 > max_allele_slen) {
+          max_allele_slen = new_slen2;
+        }
         if (old_slen2 < new_slen2) {
           if (PtrWSubCk(tmp_alloc_base, new_slen2 + 1, &tmp_alloc_end)) {
             goto UpdateVarAlleles_ret_NOMEM;
