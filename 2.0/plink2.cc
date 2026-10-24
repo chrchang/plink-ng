@@ -2663,6 +2663,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               continue;
             }
           }
+        } else if (smaj_missing_geno_report_requested && (!sample_missing_cts_needed_early)) {
+          // No frequency pass for the sample counts to ride along with.
+          reterr = LoadSampleMissingCts(sample_include, sex_nm, sex_male, variant_include, cip, "sample missingness", raw_variant_ct, variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
         }
         if (allele_freqs) {
           if (afreqcalc_variant_ct) {

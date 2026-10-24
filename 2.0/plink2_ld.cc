@@ -11923,6 +11923,10 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
           }
         }
 
+        // The overflow buffer has room for one variant's alleles.
+        if (unlikely(Cswrite(cssp, &cswritep))) {
+          goto VcorTableWriteThread_ret_WRITE_FAIL;
+        }
         if (chr_col) {
           cswritep = memcpya(cswritep, col_chr_buf, col_chr_blen);
         }
@@ -12317,11 +12321,15 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
       if (id_col) {
         overflow_buf_size += 2 * (max_variant_id_slen + 1);
       }
+      // Most alleles pending at once within one variant's columns: REF, ALT1
+      // and MAJ; the last ALT and MAJ; or one NONMAJ.  (There's a flush
+      // between the two variants.)
       uintptr_t n_allele = ref_col + alt1_col + maj_col;
-      if (!n_allele) {
-        if (alt_col || nonmaj_col) {
-          n_allele = 1;
-        }
+      if (alt_col && (n_allele < 1 + maj_col)) {
+        n_allele = 1 + maj_col;
+      }
+      if (nonmaj_col && (!n_allele)) {
+        n_allele = 1;
       }
       overflow_buf_size += n_allele * (max_allele_slen + 1);
       const uint32_t output_zst = (flags / kfVcorZs) & 1;
