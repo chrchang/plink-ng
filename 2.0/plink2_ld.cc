@@ -13701,23 +13701,27 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     const uintptr_t variant_buf_word_ct = 2 * founder_ctaw;
     ctx.variant_buf_word_ct = variant_buf_word_ct;
     const uintptr_t per_slot_byte_ct = variant_buf_word_ct * sizeof(intptr_t) + sizeof(VariantAggs);
-    // The ring has to hold the widest window plus a whole block of index
-    // variants, since a block's leftmost and rightmost windows don't overlap.
+    // The ring has to hold everything from the start of the block's first
+    // window to the end of its last one.  That's the block plus up to
+    // (max_window_ct - 1) variants on either side: the first index variant's
+    // window can lie entirely to its left while the last one's lies entirely
+    // to its right, so max_window_ct + block_size is not enough.
     uintptr_t avail = bigstack_left();
     avail -= MINV(avail / 8, 1024 * 1024);
-    if (unlikely(avail / per_slot_byte_ct < S_CAST(uintptr_t, max_window_ct) + 1)) {
+    const uintptr_t slot_overhead = 2 * S_CAST(uintptr_t, max_window_ct - 1);
+    if (unlikely(avail / per_slot_byte_ct < slot_overhead + 1)) {
       goto LdScore_ret_NOMEM;
     }
     uint32_t block_size = 1;
     {
       const uintptr_t slot_cap = avail / per_slot_byte_ct;
-      uintptr_t block_cap = slot_cap - max_window_ct;
+      uintptr_t block_cap = slot_cap - slot_overhead;
       if (block_cap > 65536) {
         block_cap = 65536;
       }
       block_size = block_cap;
     }
-    const uint32_t ring_size = max_window_ct + block_size;
+    const uint32_t ring_size = block_size + slot_overhead;
     ctx.ring_size = ring_size;
     uintptr_t* genobufs;
     VariantAggs* vaggs;
