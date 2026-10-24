@@ -1359,8 +1359,10 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
       AppendBinaryEoln(&l_cswritep);
 
       if (big_report) {
+        // .mendel rows also start with the kid's FID/IID/SID.
+        const uintptr_t big_overflow_buf_size = overflow_buf_size + fid_col * family_info.max_fid_blen + family_info.max_iid_blen + sid_col * family_info.max_sid_blen;
         OutnameZstSet(".mendel", output_zst, outname_end);
-        reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &big_css, &big_cswritep);
+        reterr = InitCstreamAlloc(outname, 0, output_zst, 1, big_overflow_buf_size, &big_css, &big_cswritep);
         if (unlikely(reterr)) {
           goto MendelErrorScan_ret_1;
         }
@@ -1380,10 +1382,10 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
         }
         big_cswritep = strcpya_k(big_cswritep, "ID");
         if (ref_col) {
-          l_cswritep = strcpya_k(l_cswritep, "\tREF");
+          big_cswritep = strcpya_k(big_cswritep, "\tREF");
         }
         if (alt_col) {
-          l_cswritep = strcpya_k(l_cswritep, "\tALT");
+          big_cswritep = strcpya_k(big_cswritep, "\tALT");
         }
         if (ecode_col) {
           big_cswritep = strcpya_k(big_cswritep, "\tCODE");
