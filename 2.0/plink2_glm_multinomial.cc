@@ -1475,12 +1475,10 @@ static uintptr_t MultinomialWorkspaceLayout(uint32_t sample_ct, uint32_t covar_c
   return tot_byte_ct;
 }
 
-// Number of genotype predictors a regression can have: in the additive model,
-// every non-omitted allele (tested jointly); otherwise the tested columns plus
+// Number of genotype predictors a regression can have: the tested columns plus
 // the other non-omitted alleles as additive nuisance columns.
 static inline uint32_t MultinomialGenoPredMax(const GlmMultinomialCtx* ctx) {
-  const uint32_t max_extra_allele_ct = ctx->common->max_extra_allele_ct;
-  return ctx->is_additive? (max_extra_allele_ct + 1) : (max_extra_allele_ct + ctx->model_col_ct);
+  return ctx->common->max_extra_allele_ct + ctx->model_col_ct;
 }
 
 // Classifies a predictor column over the samples of the current regression:
@@ -1616,11 +1614,9 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
   const uint32_t is_additive = ctx->is_additive;
   const uint32_t model_col_ct = ctx->model_col_ct;
   const uint32_t max_row_ct = ctx->max_row_ct;
-  const uint32_t max_a1_ct = ctx->max_a1_ct;
-  const uint32_t max_tested_ct = ctx->max_tested_ct;
   const uint32_t max_allele_ct = common->max_extra_allele_ct + 2;
   const uint32_t geno_pred_max = MultinomialGenoPredMax(ctx);
-  const uintptr_t row_beta_se_stride = 2 * S_CAST(uintptr_t, nonref_level_ct) * max_tested_ct;
+  const uintptr_t row_beta_se_stride = 2 * S_CAST(uintptr_t, nonref_level_ct) * model_col_ct;
   // the Wald test and the coefficient columns need the full fit's inverse
   // information matrix
   const uint32_t need_cov = save_coefs || (test_type == kGlmMultinomialTestWald);
@@ -1643,8 +1639,8 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
     BitIter1Start(variant_include, common->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
 
     MultinomialAuxResult* block_aux_iter = &(ctx->block_aux[variant_bidx * S_CAST(uintptr_t, max_row_ct)]);
-    double* a1_dosage_iter = &(ctx->block_a1_dosage[variant_bidx * S_CAST(uintptr_t, max_row_ct) * max_a1_ct]);
-    double* level_a1_iter = &(ctx->block_level_a1[variant_bidx * S_CAST(uintptr_t, max_row_ct) * level_ct * max_a1_ct]);
+    double* a1_dosage_iter = &(ctx->block_a1_dosage[variant_bidx * S_CAST(uintptr_t, max_row_ct)]);
+    double* level_a1_iter = &(ctx->block_level_a1[variant_bidx * S_CAST(uintptr_t, max_row_ct) * level_ct]);
     uint32_t* level_allele_obs_iter = &(ctx->block_level_allele_obs[variant_bidx * S_CAST(uintptr_t, level_ct)]);
     double* beta_se_iter = &(ctx->block_beta_se[variant_bidx * max_row_ct * row_beta_se_stride]);
     while (variant_bidx < variant_bidx_end) {
@@ -1905,27 +1901,6 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
         }
         const uint32_t nonref_class_ct = class_ct - 1;
         const double allele_obs_d = u31tod(allele_obs_ct);
-        // Allele totals, for MIN_EXPECTED: the smallest expected cell of the
-        // allele x level table under independence.  (In the additive model the
-        // table has a row per allele; otherwise its rows are A1 and the other
-        // alleles combined.)
-        double min_allele_total = DBL_MAX;
-        if (is_additive) {
-          double non_omitted_total = 0.0;
-          for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-            if (allele_idx == omitted_allele_idx) {
-              continue;
-            }
-            const double* col = &(allele_cols[allele_idx * sample_ctav]);
-            double total = 0.0;
-            for (uint32_t nm_idx = 0; nm_idx != nm_sample_ct; ++nm_idx) {
-              total += col[nm_idx];
-            }
-            non_omitted_total += total;
-            min_allele_total = MINV(min_allele_total, total);
-          }
-          min_allele_total = MINV(min_allele_total, allele_obs_d - non_omitted_total);
-        }
         const double* const* pred_rows = ws.pred_rows;
         {
           const double** pred_rows_w = ws.pred_rows;
@@ -1936,12 +1911,11 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
             pred_rows_w[base_pred_ct + geno_pred_idx] = &(ws.geno_preds[geno_pred_idx * sample_ctav]);
           }
         }
-        const uint32_t row_ct = is_additive? 1 : (allele_ct - 1);
+        const uint32_t row_ct = allele_ct - 1;
         uint32_t row_a1_allele_idx = (omitted_allele_idx == 0);
         for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
           MultinomialAuxResult* auxp = &(block_aux_iter[row_idx]);
-          double* row_a1_dosages = &(a1_dosage_iter[row_idx * max_a1_ct]);
-          double* row_level_a1 = &(level_a1_iter[row_idx * S_CAST(uintptr_t, level_ct) * max_a1_ct]);
+          double* row_level_a1 = &(level_a1_iter[row_idx * S_CAST(uintptr_t, level_ct)]);
           double* row_beta_se = &(beta_se_iter[row_idx * row_beta_se_stride]);
           if (row_idx) {
             ++row_a1_allele_idx;
@@ -1958,28 +1932,19 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           for (uintptr_t ulii = 0; ulii != row_beta_se_stride; ulii += 2) {
             row_beta_se[ulii + 1] = -9.0;
           }
-          // A1 totals, overall and per level.
+          // A1 totals, overall and per level, and MIN_EXPECTED: the smallest
+          // expected cell of the (A1, other alleles) x level table under
+          // independence.
           {
-            uint32_t a1_idx = 0;
-            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-              if ((allele_idx == omitted_allele_idx) || ((!is_additive) && (allele_idx != row_a1_allele_idx))) {
-                continue;
-              }
-              const double* col = &(allele_cols[allele_idx * sample_ctav]);
-              for (uint32_t level_idx = 0; level_idx != level_ct; ++level_idx) {
-                row_level_a1[level_idx * max_a1_ct + a1_idx] = 0.0;
-              }
-              double total = 0.0;
-              for (uint32_t nm_idx = 0; nm_idx != nm_sample_ct; ++nm_idx) {
-                row_level_a1[nm_levels[nm_idx] * max_a1_ct + a1_idx] += col[nm_idx];
-                total += col[nm_idx];
-              }
-              row_a1_dosages[a1_idx] = total;
-              ++a1_idx;
+            const double* col = &(allele_cols[row_a1_allele_idx * sample_ctav]);
+            ZeroDArr(level_ct, row_level_a1);
+            double total = 0.0;
+            for (uint32_t nm_idx = 0; nm_idx != nm_sample_ct; ++nm_idx) {
+              row_level_a1[nm_levels[nm_idx]] += col[nm_idx];
+              total += col[nm_idx];
             }
-            if (!is_additive) {
-              min_allele_total = MINV(row_a1_dosages[0], allele_obs_d - row_a1_dosages[0]);
-            }
+            a1_dosage_iter[row_idx] = total;
+            const double min_allele_total = MINV(total, allele_obs_d - total);
             auxp->min_expected = allele_obs_ct? (min_allele_total * u31tod(min_level_allele_obs) / allele_obs_d) : -9.0;
           }
           GlmErr glm_err = 0;
@@ -1997,7 +1962,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           uint32_t* geno_pred_alleles = ws.geno_pred_alleles;
           uint32_t* geno_pred_slots = ws.geno_pred_slots;
           {
-            const uint32_t max_geno_pred_ct = is_additive? (allele_ct - 1) : (allele_ct - 2 + model_col_ct);
+            const uint32_t max_geno_pred_ct = allele_ct - 2 + model_col_ct;
             if (nm_sample_ct <= base_pred_ct + max_geno_pred_ct) {
               glm_err = SetGlmErr0(kGlmErrcodeSampleCtLtePredictorCt);
               goto GlmMultinomialThread_skip_regression;
@@ -2008,23 +1973,22 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
             goto GlmMultinomialThread_skip_regression;
           }
           // Genotype predictors: the nuisance alleles, then the tested
-          // columns.  Constant nuisance alleles, and in the additive model
-          // constant tested alleles, are left out.
-          if (!is_additive) {
-            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-              if ((allele_idx == omitted_allele_idx) || (allele_idx == row_a1_allele_idx)) {
-                continue;
-              }
-              const double* col = &(allele_cols[allele_idx * sample_ctav]);
-              if (ClassifyPredictor(col, nm_classes, nm_sample_ct, class_ct, ws.class_min, ws.class_max) == 1) {
-                continue;
-              }
-              CopyCentered(col, nm_sample_ct, &(ws.geno_preds[geno_pred_ct * sample_ctav]));
-              geno_pred_alleles[geno_pred_ct] = allele_idx;
-              geno_pred_slots[geno_pred_ct] = UINT32_MAX;
-              ++geno_pred_ct;
+          // columns.  Constant nuisance alleles are left out.
+          for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+            if ((allele_idx == omitted_allele_idx) || (allele_idx == row_a1_allele_idx)) {
+              continue;
             }
-            nuisance_ct = geno_pred_ct;
+            const double* col = &(allele_cols[allele_idx * sample_ctav]);
+            if (ClassifyPredictor(col, nm_classes, nm_sample_ct, class_ct, ws.class_min, ws.class_max) == 1) {
+              continue;
+            }
+            CopyCentered(col, nm_sample_ct, &(ws.geno_preds[geno_pred_ct * sample_ctav]));
+            geno_pred_alleles[geno_pred_ct] = allele_idx;
+            geno_pred_slots[geno_pred_ct] = UINT32_MAX;
+            ++geno_pred_ct;
+          }
+          nuisance_ct = geno_pred_ct;
+          {
             // Recode A1 per the model.
             const double* a1_col = &(allele_cols[row_a1_allele_idx * sample_ctav]);
             double* main_col = &(ws.geno_preds[geno_pred_ct * sample_ctav]);
@@ -2042,7 +2006,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
               } else if (glm_flags & kfGlmHetonly) {
                 main_col[nm_idx] = domdev_val;
               } else {
-                // genotypic
+                // additive or genotypic
                 main_col[nm_idx] = cur_val;
               }
               if (model_col_ct == 2) {
@@ -2059,25 +2023,6 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
               geno_pred_alleles[geno_pred_ct] = row_a1_allele_idx;
               geno_pred_slots[geno_pred_ct] = col_idx;
               ++geno_pred_ct;
-            }
-          } else {
-            uint32_t slot_idx = 0;
-            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-              if (allele_idx == omitted_allele_idx) {
-                continue;
-              }
-              const double* col = &(allele_cols[allele_idx * sample_ctav]);
-              if (ClassifyPredictor(col, nm_classes, nm_sample_ct, class_ct, ws.class_min, ws.class_max) != 1) {
-                CopyCentered(col, nm_sample_ct, &(ws.geno_preds[geno_pred_ct * sample_ctav]));
-                geno_pred_alleles[geno_pred_ct] = allele_idx;
-                geno_pred_slots[geno_pred_ct] = slot_idx;
-                ++geno_pred_ct;
-              }
-              ++slot_idx;
-            }
-            if (!geno_pred_ct) {
-              glm_err = SetGlmErr0(kGlmErrcodeConstAllele);
-              goto GlmMultinomialThread_skip_regression;
             }
           }
           tested_ct = geno_pred_ct - nuisance_ct;
@@ -2128,8 +2073,8 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
             }
             if ((sep_allele_idx == UINT32_MAX) && is_additive && (allele_ct > 2)) {
               // With an intercept, the omitted allele's count is in the span
-              // of the tested ones, so it can separate too: e.g. a level whose
-              // samples all carry two non-omitted alleles.
+              // of A1's and the nuisance alleles', so it can separate too:
+              // e.g. a level whose samples all carry two non-omitted alleles.
               const uint32_t classification = ClassifyPredictor(&(allele_cols[omitted_allele_idx * sample_ctav]), nm_classes, nm_sample_ct, class_ct, ws.class_min, ws.class_max);
               if (classification >= 2) {
                 if (!is_score_test) {
@@ -2326,7 +2271,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
             // relative to the requested reference level.
             const double* cov = ws.cov;
             for (uint32_t class_idx = 1; class_idx != class_ct; ++class_idx) {
-              double* level_beta_se = &(row_beta_se[(class_levels[class_idx] - 1) * 2 * S_CAST(uintptr_t, max_tested_ct)]);
+              double* level_beta_se = &(row_beta_se[(class_levels[class_idx] - 1) * 2 * S_CAST(uintptr_t, model_col_ct)]);
               for (uint32_t tested_idx = 0; tested_idx != tested_ct; ++tested_idx) {
                 const uintptr_t param_idx = (class_idx - 1) * alt_pred_ct + null_pred_ct + tested_idx;
                 double* dst = &(level_beta_se[2 * geno_pred_slots[nuisance_ct + tested_idx]]);
@@ -2343,8 +2288,8 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           }
         }
         block_aux_iter = &(block_aux_iter[max_row_ct]);
-        a1_dosage_iter = &(a1_dosage_iter[max_row_ct * max_a1_ct]);
-        level_a1_iter = &(level_a1_iter[max_row_ct * S_CAST(uintptr_t, level_ct) * max_a1_ct]);
+        a1_dosage_iter = &(a1_dosage_iter[max_row_ct]);
+        level_a1_iter = &(level_a1_iter[max_row_ct * S_CAST(uintptr_t, level_ct)]);
         level_allele_obs_iter = &(level_allele_obs_iter[level_ct]);
         beta_se_iter = &(beta_se_iter[max_row_ct * row_beta_se_stride]);
       }
@@ -2387,15 +2332,11 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     const uint32_t is_additive = !(glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmGenotypic | kfGlmHethom));
     const uint32_t model_col_ct = 1 + ((glm_flags & (kfGlmGenotypic | kfGlmHethom)) != 0);
-    const uint32_t max_row_ct = is_additive? 1 : (max_extra_allele_ct + 1);
-    const uint32_t max_a1_ct = is_additive? (max_extra_allele_ct + 1) : 1;
-    const uint32_t max_tested_ct = is_additive? (max_extra_allele_ct + 1) : model_col_ct;
-    const uintptr_t row_beta_se_stride = 2 * S_CAST(uintptr_t, nonref_level_ct) * max_tested_ct;
+    const uint32_t max_row_ct = max_extra_allele_ct + 1;
+    const uintptr_t row_beta_se_stride = 2 * S_CAST(uintptr_t, nonref_level_ct) * model_col_ct;
     ctx->is_additive = is_additive;
     ctx->model_col_ct = model_col_ct;
     ctx->max_row_ct = max_row_ct;
-    ctx->max_a1_ct = max_a1_ct;
-    ctx->max_tested_ct = max_tested_ct;
     const char* test_name = "ADD";
     if (glm_flags & kfGlmDominant) {
       test_name = "DOM";
@@ -2447,7 +2388,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
     // +1 is for top-level common->workspace_bufs
     const uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
-    const uintptr_t per_variant_xalloc_byte_ct = max_row_ct * (sizeof(MultinomialAuxResult) + max_a1_ct * (1 + level_ct) * sizeof(double) + row_beta_se_stride * sizeof(double)) + level_ct * sizeof(int32_t);
+    const uintptr_t per_variant_xalloc_byte_ct = max_row_ct * (sizeof(MultinomialAuxResult) + (1 + level_ct) * sizeof(double) + row_beta_se_stride * sizeof(double)) + level_ct * sizeof(int32_t);
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     common->thread_mhc = nullptr;
     common->dosage_presents = nullptr;
@@ -2468,8 +2409,8 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
     const uintptr_t block_row_ct = read_block_size * S_CAST(uintptr_t, max_row_ct);
     for (uint32_t uii = 0; uii != 2; ++uii) {
       if (unlikely(BIGSTACK_ALLOC_X(MultinomialAuxResult, block_row_ct, &(block_aux_bufs[uii])) ||
-                   bigstack_alloc_d(block_row_ct * max_a1_ct, &(block_a1_dosage_bufs[uii])) ||
-                   bigstack_alloc_d(block_row_ct * level_ct * max_a1_ct, &(block_level_a1_bufs[uii])) ||
+                   bigstack_alloc_d(block_row_ct, &(block_a1_dosage_bufs[uii])) ||
+                   bigstack_alloc_d(block_row_ct * level_ct, &(block_level_a1_bufs[uii])) ||
                    bigstack_alloc_u32(read_block_size * S_CAST(uintptr_t, level_ct), &(block_level_allele_obs_bufs[uii])) ||
                    bigstack_alloc_d(block_row_ct * row_beta_se_stride, &(block_beta_se_bufs[uii])))) {
         goto GlmMultinomial_ret_NOMEM;
@@ -2710,12 +2651,9 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
           }
           const uint32_t omitted_allele_idx = omitted_alleles? omitted_alleles[write_variant_uidx] : 0;
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-          const uint32_t row_ct = is_additive? 1 : (allele_ct - 1);
-          const uint32_t row_a1_ct = is_additive? (allele_ct - 1) : 1;
-          const uint32_t row_tested_ct = is_additive? (allele_ct - 1) : model_col_ct;
+          const uint32_t row_ct = allele_ct - 1;
           const uint32_t* level_allele_obs = &(block_level_allele_obs[variant_bidx * S_CAST(uintptr_t, level_ct)]);
           uint32_t variant_is_valid = 0;
-          // in the additive model, the first non-omitted allele
           uint32_t row_a1_allele_idx = (omitted_allele_idx == 0);
           for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
             if (row_idx) {
@@ -2724,8 +2662,8 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
             }
             const uintptr_t row_uidx = variant_bidx * S_CAST(uintptr_t, max_row_ct) + row_idx;
             const MultinomialAuxResult* auxp = &(block_aux[row_uidx]);
-            const double* a1_dosages = &(block_a1_dosage[row_uidx * max_a1_ct]);
-            const double* level_a1 = &(block_level_a1[row_uidx * level_ct * max_a1_ct]);
+            const double a1_dosage = block_a1_dosage[row_uidx];
+            const double* level_a1 = &(block_level_a1[row_uidx * level_ct]);
             const double* beta_se = &(block_beta_se[row_uidx * row_beta_se_stride]);
             const uint32_t is_valid = (auxp->chisq != -9.0);
             double ln_pval = kLnPvalError;
@@ -2773,17 +2711,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
               *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, write_variant_uidx)))? 'Y' : 'N';
               *cswritep++ = '\t';
             }
-            // A1: every non-omitted allele in the additive model
-            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-              if ((allele_idx == omitted_allele_idx) || ((!is_additive) && (allele_idx != row_a1_allele_idx))) {
-                continue;
-              }
-              if (unlikely(Cswrite(&css, &cswritep))) {
-                goto GlmMultinomial_ret_WRITE_FAIL;
-              }
-              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
-            }
-            --cswritep;
+            cswritep = strcpya(cswritep, cur_alleles[row_a1_allele_idx]);
             if (omitted_col) {
               *cswritep++ = '\t';
               cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
@@ -2791,14 +2719,9 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
             if (unlikely(Cswrite(&css, &cswritep))) {
               goto GlmMultinomial_ret_WRITE_FAIL;
             }
-            // Per-A1 values are comma-separated lists, in A1 order.
             if (a1_ct_col) {
               *cswritep++ = '\t';
-              for (uint32_t a1_idx = 0; a1_idx != row_a1_ct; ++a1_idx) {
-                cswritep = dtoa_g(a1_dosages[a1_idx], cswritep);
-                *cswritep++ = ',';
-              }
-              --cswritep;
+              cswritep = dtoa_g(a1_dosage, cswritep);
             }
             if (tot_allele_col) {
               *cswritep++ = '\t';
@@ -2807,11 +2730,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
             if (a1_ct_level_col) {
               for (uint32_t level_idx = 0; level_idx != level_ct; ++level_idx) {
                 *cswritep++ = '\t';
-                for (uint32_t a1_idx = 0; a1_idx != row_a1_ct; ++a1_idx) {
-                  cswritep = dtoa_g(level_a1[level_idx * max_a1_ct + a1_idx], cswritep);
-                  *cswritep++ = ',';
-                }
-                --cswritep;
+                cswritep = dtoa_g(level_a1[level_idx], cswritep);
                 if (unlikely(Cswrite(&css, &cswritep))) {
                   goto GlmMultinomial_ret_WRITE_FAIL;
                 }
@@ -2829,11 +2748,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
             if (a1_freq_col) {
               *cswritep++ = '\t';
               if (auxp->allele_obs_ct) {
-                for (uint32_t a1_idx = 0; a1_idx != row_a1_ct; ++a1_idx) {
-                  cswritep = dtoa_g(a1_dosages[a1_idx] / u31tod(auxp->allele_obs_ct), cswritep);
-                  *cswritep++ = ',';
-                }
-                --cswritep;
+                cswritep = dtoa_g(a1_dosage / u31tod(auxp->allele_obs_ct), cswritep);
               } else {
                 cswritep = strcpya_k(cswritep, "NA");
               }
@@ -2843,11 +2758,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
                 *cswritep++ = '\t';
                 const uint32_t cur_allele_obs = level_allele_obs[level_idx];
                 if (cur_allele_obs) {
-                  for (uint32_t a1_idx = 0; a1_idx != row_a1_ct; ++a1_idx) {
-                    cswritep = dtoa_g(level_a1[level_idx * max_a1_ct + a1_idx] / u31tod(cur_allele_obs), cswritep);
-                    *cswritep++ = ',';
-                  }
-                  --cswritep;
+                  cswritep = dtoa_g(level_a1[level_idx] / u31tod(cur_allele_obs), cswritep);
                 } else {
                   cswritep = strcpya_k(cswritep, "NA");
                 }
@@ -2884,16 +2795,16 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
               cswritep = strcpya_k(cswritep, "NA");
             }
             if (beta_col) {
-              // one entry per tested column: A1 alleles in the additive
-              // model, (ADD, DOMDEV) or (HOM, HET) for genotypic/hethom
+              // one entry per tested column: (ADD, DOMDEV) or (HOM, HET) for
+              // genotypic/hethom
               for (uint32_t nonref_level_idx = 0; nonref_level_idx != nonref_level_ct; ++nonref_level_idx) {
-                const double* level_beta_se = &(beta_se[nonref_level_idx * 2 * S_CAST(uintptr_t, max_tested_ct)]);
+                const double* level_beta_se = &(beta_se[nonref_level_idx * 2 * S_CAST(uintptr_t, model_col_ct)]);
                 for (uint32_t col_type = 0; col_type != 4; ++col_type) {
                   if (((col_type == 1) && (!se_col)) || ((col_type >= 2) && (!ci_col))) {
                     continue;
                   }
                   *cswritep++ = '\t';
-                  for (uint32_t tested_idx = 0; tested_idx != row_tested_ct; ++tested_idx) {
+                  for (uint32_t tested_idx = 0; tested_idx != model_col_ct; ++tested_idx) {
                     const double beta = level_beta_se[2 * tested_idx];
                     const double se = level_beta_se[2 * tested_idx + 1];
                     if (se == -9.0) {

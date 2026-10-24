@@ -28,13 +28,13 @@ namespace plink2 {
 #endif
 
 // Multinomial logistic regression of a categorical phenotype with K levels on
-// the covariates and m genotype columns G, one omnibus test per variant (or
-// per allele) on (K-1) m degrees of freedom:
+// the covariates and m genotype columns G, one omnibus test per non-omitted
+// allele on (K-1) m degrees of freedom:
 //   log(P(y = k) / P(y = ref)) = Z beta_k + G gamma_k,  k != ref
 //   H0: gamma_k = 0 for every k.
-// G is the additive dosage of each non-omitted allele (all tested jointly),
-// or one allele's dominant/recessive/hetonly column or genotypic/hethom pair,
-// with the other non-omitted alleles as additive nuisance columns in Z.
+// G is one allele's additive/dominant/recessive/hetonly column or
+// genotypic/hethom pair, with the other non-omitted alleles as additive
+// nuisance columns in Z (as in --glm logistic).
 //
 // "Level" indices are global to the phenotype, with 0 always the reference
 // level.  A given sample set may not contain every level (e.g. chrY), and a
@@ -65,10 +65,8 @@ typedef struct MultinomialSetStruct {
   uint32_t firth_null;
 } MultinomialSet;
 
-// One per output row.  In the additive model, a variant has one row, which
-// tests all its non-omitted alleles jointly; in the other models, it has one
-// row per non-omitted allele (A1), with the other non-omitted alleles as
-// additive nuisance predictors.
+// One per output row: a variant has one row per non-omitted allele (A1), with
+// the other non-omitted alleles as additive nuisance predictors.
 typedef struct {
   uint32_t sample_obs_ct;
   uint32_t allele_obs_ct;
@@ -101,21 +99,18 @@ typedef struct GlmMultinomialCtxStruct {
   // genotype columns per allele: 1, or 2 for 'genotypic' (ADD, DOMDEV) and
   // 'hethom' (HOM, HET)
   uint32_t model_col_ct;
-  // per-variant slot sizes: rows, A1 alleles per row, coefficient slots per
-  // row and non-reference level
+  // rows per variant
   uint32_t max_row_ct;
-  uint32_t max_a1_ct;
-  uint32_t max_tested_ct;
 
   // max_row_ct entries per variant
   MultinomialAuxResult* block_aux;
-  // max_row_ct * max_a1_ct entries per variant
+  // max_row_ct entries per variant
   double* block_a1_dosage;
-  // max_row_ct * level_ct * max_a1_ct entries per variant
+  // max_row_ct * level_ct entries per variant
   double* block_level_a1;
   // level_ct entries per variant
   uint32_t* block_level_allele_obs;
-  // max_row_ct * (level_ct - 1) * max_tested_ct (beta, se) pairs per variant,
+  // max_row_ct * (level_ct - 1) * model_col_ct (beta, se) pairs per variant,
   // se -9.0 if unavailable
   double* block_beta_se;
 } GlmMultinomialCtx;

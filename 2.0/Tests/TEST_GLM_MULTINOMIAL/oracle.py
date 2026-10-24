@@ -8,10 +8,9 @@
 # * On chrX, the SEX covariate is added (1 = male, 2 = female) and male
 #   haploid calls are coded 0/2.  The non-additive models skip chrX (the
 #   fixture has males).
-# * Additive model: one row per variant, testing every ALT allele jointly
-#   (constant ones left out).  Other models: one row per ALT allele A1, whose
-#   recoded column(s) are tested, with the other non-constant ALT alleles as
-#   additive nuisance predictors in both fits.
+# * One row per ALT allele A1, whose (recoded) column(s) are tested, with the
+#   other non-constant ALT alleles as additive nuisance predictors in both
+#   fits.
 # * When a predictor's values in some level all lie at or below (or at or
 #   above) its values in every other level, the maximum-likelihood estimate
 #   does not exist: SEP (plink2's SEPARATION) for the likelihood ratio and
@@ -19,9 +18,8 @@
 #   one.  Like plink2, this also checks two columns that are not predictors
 #   but lie in their span: the omitted allele's count for a multiallelic
 #   variant in the additive model, and whichever of ADD and HOM the
-#   genotypic/hethom basis leaves out.  A constant tested column
-#   (non-additive models), or no nonconstant
-#   ALT allele (additive), gives CONST (CONST_ALLELE).
+#   genotypic/hethom basis leaves out.  A constant tested column gives CONST
+#   (CONST_ALLELE).
 # * With 'firth', every fit maximizes Firth's penalized log-likelihood
 #   l*(b) = l(b) + 0.5 log det I(b) instead (--glm multinomial firth), so
 #   there is no separation check.  LRT is the penalized likelihood ratio
@@ -210,28 +208,19 @@ with open(out_fname, "w") as fo:
             base.append((zz - zz.mean(0)) / zz.std(0))
         X0base = np.column_stack(base)
         alt_counts = counts[1:, nm]
-        if model == "add":
-            rows = [(",".join(alleles[1:]), [], list(range(len(alleles) - 1)))]
-        else:
-            rows = [(alleles[a + 1], [b for b in range(len(alleles) - 1) if b != a], [a]) for a in range(len(alleles) - 1)]
+        rows = [(alleles[a + 1], [b for b in range(len(alleles) - 1) if b != a], [a]) for a in range(len(alleles) - 1)]
         for a1_label, nuisance_idxs, a1_idxs in rows:
-            df_slots = len(a1_idxs) if model == "add" else len(recode(alt_counts[0]))
+            df_slots = len(recode(alt_counts[0]))
             na_cells = "\t".join(fmt_list([None] * df_slots) + "\t" + fmt_list([None] * df_slots) for _ in level_names[1:])
 
             def emit(df, lr, score, wald, coef_cells):
                 fo.write("%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n" % (vid, a1_label, nm.sum(), df, lr, score, wald, coef_cells))
 
             nuisance = [alt_counts[b] for b in nuisance_idxs if alt_counts[b].min() != alt_counts[b].max()]
-            if model == "add":
-                tested = [(slot, alt_counts[a]) for slot, a in enumerate(a1_idxs) if alt_counts[a].min() != alt_counts[a].max()]
-                if not tested:
-                    emit("NA", "CONST", "CONST", "CONST", na_cells)
-                    continue
-            else:
-                tested = list(enumerate(recode(alt_counts[a1_idxs[0]])))
-                if any(c.min() == c.max() for _, c in tested):
-                    emit("NA", "CONST", "CONST", "CONST", na_cells)
-                    continue
+            tested = list(enumerate(recode(alt_counts[a1_idxs[0]])))
+            if any(c.min() == c.max() for _, c in tested):
+                emit("NA", "CONST", "CONST", "CONST", na_cells)
+                continue
             # plink2's correlation / VIF check on the non-intercept predictors
             preds = ([X0base[:, 1:]] if X0base.shape[1] > 1 else []) + [c[:, None] for c in nuisance] + [c[:, None] for _, c in tested]
             corr = np.corrcoef(np.column_stack(preds), rowvar=False)
@@ -247,8 +236,8 @@ with open(out_fname, "w") as fo:
                 continue
             separation_cols = [c for _, c in tested]
             if model == "add" and len(alleles) > 2:
-                # the omitted (REF) allele's count is in the span of the tested
-                # ones; plink2 checks it too
+                # the omitted (REF) allele's count is in the span of A1's and
+                # the nuisance alleles'; plink2 checks it too
                 separation_cols.append(counts[0, nm])
             if model in ("genotypic", "hethom"):
                 # (ADD, DOMDEV) and (HOM, HET) span the same space; plink2 also

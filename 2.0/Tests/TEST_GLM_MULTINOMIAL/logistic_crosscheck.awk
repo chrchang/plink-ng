@@ -7,8 +7,7 @@
 # terms is the logistic TEST name of each tested column: ADD, DOM, REC, or
 # HET, or ADD,DOMDEV for 'genotypic' and HOM,HET for 'hethom'.
 # * BETA_hi and SE_hi must match the logistic BETA and SE of each tested
-#   column; in the additive model, a multiallelic variant's A1 list matches
-#   one logistic row per allele (one joint fit on both sides).
+#   column, with one row per A1 allele on both sides.
 # * The Wald statistic must match Z^2 for a single column, and the logistic
 #   joint test's statistic times 2 (it is reported as chi-square / df) for
 #   two.

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --glm multinomial: multinomial logistic regression of a categorical
-# phenotype, one omnibus test per variant (or per allele).
+# phenotype, one omnibus test per non-omitted allele.
 #
 # The fixture (mn.vcf.gz, mn_multi.vcf.gz, pheno.txt, covar.txt, sex.txt)
 # comes from make_fixture.py, and the ref_*.txt reference values from
@@ -36,10 +36,9 @@ run_both() {
     tail -n +2 ${out}_multi.*.glm.multinomial* >> $out.txt
 }
 
-# 1. Every model and test, with coefficients, against statsmodels.  In the
-#    additive model, a multiallelic variant's ALT alleles are tested jointly;
-#    in the others, each ALT allele gets its own row, with the other ALT
-#    alleles as nuisance predictors.
+# 1. Every model and test, with coefficients, against statsmodels.  As with
+#    --glm logistic, each ALT allele of a multiallelic variant gets its own
+#    row, with the other ALT alleles as nuisance predictors.
 for model in add dominant recessive hetonly genotypic hethom; do
     modifier=$model
     if [ $model = add ]; then
@@ -124,52 +123,26 @@ if $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt
 fi
 
 # 8. Per-level columns: the A1 counts add up, and MIN_EXPECTED is the smallest
-#    expected cell of the allele-by-level table.  (Biallelic variants, where
-#    each column holds one value.)
+#    expected cell of the (A1, other alleles) x level table.
 $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth cols=+a1count,+totallele,+a1countcc,+totallelecc,+a1freqcc --out tmp_cols > /dev/null
-awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
-     {
-       a1_sum = 0; obs_sum = 0; min_obs = -1
-       split("alpha beta delta gamma", lv, " ")
-       for (k = 1; k <= 4; ++k) {
-         a1_sum += $c["A1_CT_" lv[k]]
-         obs = $c["ALLELE_CT_" lv[k]]
-         obs_sum += obs
-         if ((min_obs < 0) || (obs < min_obs)) { min_obs = obs }
-       }
-       if ((a1_sum - $c["A1_CT"]) ^ 2 > 1e-6 || obs_sum != $c["ALLELE_CT"]) { print $3 ": per-level counts do not add up"; exit 1 }
-       a1 = $c["A1_CT"]; other = $c["ALLELE_CT"] - a1
-       expected = ((a1 < other)? a1 : other) * min_obs / $c["ALLELE_CT"]
-       if ((expected - $c["MIN_EXPECTED"]) ^ 2 > (1e-5 * expected) ^ 2 + 1e-12) { print $3 ": MIN_EXPECTED " $c["MIN_EXPECTED"] ", expected " expected; exit 1 }
-     }' tmp_cols.CAT.glm.multinomial
-# Multiallelic, additive: one comma-separated entry per ALT allele, and
-# MIN_EXPECTED over the full allele-by-level table.
 $plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth omit-ref cols=+a1count,+totallele,+a1countcc,+totallelecc --out tmp_multi_cols > /dev/null
-awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
-     {
-       alt_ct = split($c["A1"], alts, ",")
-       if (split($c["A1_CT"], a1, ",") != alt_ct) { print $3 ": A1_CT entry count"; exit 1 }
-       split("alpha beta delta gamma", lv, " ")
-       min_obs = -1
-       for (k = 1; k <= 4; ++k) {
-         split($c["A1_CT_" lv[k]], per_level, ",")
-         for (j = 1; j <= alt_ct; ++j) { level_sum[j] += per_level[j] }
-         obs = $c["ALLELE_CT_" lv[k]]
-         if ((min_obs < 0) || (obs < min_obs)) { min_obs = obs }
-       }
-       min_total = $c["ALLELE_CT"]
-       for (j = 1; j <= alt_ct; ++j) {
-         if (level_sum[j] != a1[j]) { print $3 ": per-level A1 counts do not add up"; exit 1 }
-         if (a1[j] < min_total) { min_total = a1[j] }
-         ref_ct -= a1[j]
-         level_sum[j] = 0
-       }
-       ref_ct += $c["ALLELE_CT"]
-       if (ref_ct < min_total) { min_total = ref_ct }
-       ref_ct = 0
-       expected = min_total * min_obs / $c["ALLELE_CT"]
-       if ((expected - $c["MIN_EXPECTED"]) ^ 2 > (1e-5 * expected) ^ 2 + 1e-12) { print $3 ": MIN_EXPECTED " $c["MIN_EXPECTED"] ", expected " expected; exit 1 }
-     }' tmp_multi_cols.CAT.glm.multinomial
+for f in tmp_cols tmp_multi_cols; do
+    awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
+         {
+           a1_sum = 0; obs_sum = 0; min_obs = -1
+           split("alpha beta delta gamma", lv, " ")
+           for (k = 1; k <= 4; ++k) {
+             a1_sum += $c["A1_CT_" lv[k]]
+             obs = $c["ALLELE_CT_" lv[k]]
+             obs_sum += obs
+             if ((min_obs < 0) || (obs < min_obs)) { min_obs = obs }
+           }
+           if ((a1_sum - $c["A1_CT"]) ^ 2 > 1e-6 || obs_sum != $c["ALLELE_CT"]) { print $3 ": per-level counts do not add up"; exit 1 }
+           a1 = $c["A1_CT"]; other = $c["ALLELE_CT"] - a1
+           expected = ((a1 < other)? a1 : other) * min_obs / $c["ALLELE_CT"]
+           if ((expected - $c["MIN_EXPECTED"]) ^ 2 > (1e-5 * expected) ^ 2 + 1e-12) { print $3 ": MIN_EXPECTED " $c["MIN_EXPECTED"] ", expected " expected; exit 1 }
+         }' $f.CAT.glm.multinomial
+done
 
 # 9. Results do not depend on the thread count.  (Without $2/$3, which may
 #    set --threads themselves.)
@@ -180,12 +153,13 @@ for th in 1 3; do
     cmp tmp_threads${th}_multi.CAT.glm.multinomial tmp_genotypic_lrt_multi.CAT.glm.multinomial
 done
 
-# 10. --adjust reports every row with a valid statistic, one per ALT allele
-#     in the non-additive models.
+# 10. --adjust reports every row with a valid statistic, one per ALT allele.
 $plink2 --pfile tmp_data --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth --adjust --out tmp_adjust > /dev/null
 test "$(tail -n +2 tmp_adjust.CAT.glm.multinomial.adjusted | wc -l)" -eq "$(awk -F '\t' 'NR > 1 && $NF == "."' tmp_adjust.CAT.glm.multinomial | wc -l)"
-$plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth dominant --adjust --out tmp_adjust_multi > /dev/null
-test "$(tail -n +2 tmp_adjust_multi.CAT.glm.multinomial.adjusted | wc -l)" -eq "$(awk -F '\t' 'NR > 1 && $NF == "."' tmp_adjust_multi.CAT.glm.multinomial | wc -l)"
+for modifier in "" dominant; do
+    $plink2 --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial no-firth $modifier --adjust --out tmp_adjust_multi > /dev/null
+    test "$(tail -n +2 tmp_adjust_multi.CAT.glm.multinomial.adjusted | wc -l)" -eq "$(awk -F '\t' 'NR > 1 && $NF == "."' tmp_adjust_multi.CAT.glm.multinomial | wc -l)"
+done
 
 # 11. Without 'multinomial', categorical phenotypes are still skipped, and the
 #     modifier leaves other phenotypes' results alone.

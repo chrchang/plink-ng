@@ -238,10 +238,10 @@ cd TEST_SCORE_DOMREC
 cd ..
 echo "TEST_SCORE_DOMREC passed."
 
-# cd TEST_GLM_MULTINOMIAL
-# ./run_tests.sh $d $2 $3 > TEST_GLM_MULTINOMIAL.log
-# cd ..
-# echo "TEST_GLM_MULTINOMIAL passed."
+cd TEST_GLM_MULTINOMIAL
+./run_tests.sh $d $2 $3 > TEST_GLM_MULTINOMIAL.log
+cd ..
+echo "TEST_GLM_MULTINOMIAL passed."
 
 cd TEST_OUTPUT_CHR_INFER
 ./run_tests.sh $d $2 $3 > TEST_OUTPUT_CHR_INFER.log
