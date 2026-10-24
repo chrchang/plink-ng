@@ -5050,6 +5050,11 @@ PglErr FlushBiallelicVarWts(const uintptr_t* variant_include, const ChrInfo* cip
       cswritep = strcpya(cswritep, cur_alleles[1]);
     }
     if (alt_col) {
+      // The overflow buffer has room for two alleles; REF and ALT1 may
+      // already be pending.
+      if (unlikely(Cswrite(cssp, &cswritep))) {
+        return kPglRetWriteFail;
+      }
       *cswritep++ = '\t';
       // guaranteed biallelic
       cswritep = strcpya(cswritep, cur_alleles[1]);

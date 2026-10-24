@@ -89,6 +89,9 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
 
 char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, char* dst);
 
+// Upper bound on the length of an ID generated from *vtp.
+uint32_t VaridWorstCaseSlen(const VaridTemplate* vtp, uint32_t max_chr_slen, uint32_t max_allele_slen);
+
 // These functions assume info_token[-1] is safe to read
 // They may set info_token[info_slen] to \0, since they need to use strstr()
 // (todo: try memmem()... except it isn't available on 32-bit mingw?)
