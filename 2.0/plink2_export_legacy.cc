@@ -871,7 +871,8 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
   {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    const uintptr_t writebuf_blen = kMaxMediumLine + 2 * kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    // .lgen line: FID+IID, variant ID, and two alleles.
+    const uintptr_t writebuf_blen = kMaxMediumLine + siip->max_sample_id_blen + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
     uint32_t* sample_id_slens;
