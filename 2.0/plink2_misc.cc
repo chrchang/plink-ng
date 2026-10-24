@@ -780,6 +780,10 @@ PglErr UpdateVarAlleles(const uintptr_t* variant_include, const char* const* var
           orig_alleles[aidx] = K_CAST(char*, &(g_one_char_strs[ctou32(cc) * 2]));
         } else {
           // reuse old storage if we can, allocate when we must
+          if (new_slen > max_allele_slen) {
+            // later writers size their buffers from this
+            max_allele_slen = new_slen;
+          }
           if (strlen(orig_alleles[aidx]) < new_slen) {
             if (PtrWSubCk(tmp_alloc_base, new_slen + 1, &tmp_alloc_end)) {
               goto UpdateVarAlleles_ret_NOMEM;

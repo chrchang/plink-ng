@@ -488,6 +488,11 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
       }
       if (a1_col) {
+        // The overflow buffer has room for two alleles beyond the ID; REF and
+        // ALT1 may already be pending.
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto Multcomp_ret_WRITE_FAIL;
+        }
         *cswritep++ = '\t';
         const char* cur_allele;
         if (loaded_a1) {
