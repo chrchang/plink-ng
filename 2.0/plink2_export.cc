@@ -9447,9 +9447,11 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto Export012Smaj_ret_OPEN_FAIL;
     }
+    // Between flushes: one header field, '<ID>_<allele>' plus delimiters.
     char* writebuf = g_textbuf;
-    if (max_allele_slen > kMaxMediumLine - 5) {
-      if (unlikely(bigstack_alloc_c(kMaxMediumLine + 5 + max_allele_slen, &writebuf))) {
+    const uintptr_t max_field_blen = kMaxIdSlen + max_allele_slen + 8;
+    if (max_field_blen > kTextbufSize - kMaxMediumLine) {
+      if (unlikely(bigstack_alloc_c(kMaxMediumLine + max_field_blen, &writebuf))) {
         goto Export012Smaj_ret_NOMEM;
       }
     }
