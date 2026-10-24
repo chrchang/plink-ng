@@ -4226,6 +4226,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (writebuf_blen < writebuf_blen_lbound) {
       writebuf_blen = writebuf_blen_lbound;
     }
+    // The #CHROM header line flushes after each sample ID, which can have
+    // FID, IID, and SID pasted together.
+    const uintptr_t sample_id_blen_ubound = siip->max_sample_id_blen + (siip->sids? siip->max_sid_blen : 0) + 32;
+    if (writebuf_blen < sample_id_blen_ubound) {
+      writebuf_blen = sample_id_blen_ubound;
+    }
     writebuf_blen += kMaxMediumLine;
     char* writebuf;
     if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
