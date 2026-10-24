@@ -58,4 +58,9 @@ cd TEST_ONE_WAY_EXPORT
 cd ..
 echo "TEST_ONE_WAY_EXPORT passed."
 
+cd TEST_GLM_LINEAR_BATCH
+./run_tests.sh $d $2 $3 > TEST_GLM_LINEAR_BATCH.log
+cd ..
+echo "TEST_GLM_LINEAR_BATCH passed."
+
 echo "All tests passed."

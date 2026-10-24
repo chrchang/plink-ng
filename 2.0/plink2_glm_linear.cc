@@ -4649,7 +4649,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       if (!allele_test_idx) {
                         test_idx = primary_reported_test_idx;
                       } else {
-                        ++test_idx;
+                        // same as GlmLinear(): only correct to add 1 here in
+                        // include_intercept case
+                        test_idx += include_intercept;
                       }
                     }
                     if (chr_col) {
