@@ -12309,7 +12309,12 @@ PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sam
     // BEAGLE 3.3's unphased and phased marker files.  One file for the whole
     // dataset: the chromosome-split form PLINK 1.x wrote is retired, and
     // there is no .map, so nothing here needs the chromosome at all.
-    const uintptr_t writebuf_blen = kMaxMediumLine + 4 * S_CAST(uintptr_t, sample_ct) * (max_allele_slen + 1) + kMaxIdSlen + 64;
+    // Between flushes: a marker row's ID plus up to 32 samples' two allele
+    // codes, or a header row's phenotype name plus one sample's two IDs or
+    // phenotype values (a category name can be kMaxIdSlen long).
+    const uintptr_t marker_seg_ubound = 4 * S_CAST(uintptr_t, sample_ct) * (max_allele_slen + 1) + kMaxIdSlen + 64;
+    const uintptr_t header_seg_ubound = max_pheno_name_blen + 2 * (MAXV(siip->max_sample_id_blen, kMaxIdSlen + 64) + 1) + 64;
+    const uintptr_t writebuf_blen = kMaxMediumLine + MAXV(marker_seg_ubound, header_seg_ubound);
     char* writebuf;
     PgenVariant pgv;
     if (unlikely(BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, kfPgenGlobalHardcallPhasePresent, &pgv) ||
