@@ -255,3 +255,32 @@ for th in 1 3; do
     $1/plink2 --threads $th --pfile tmp_multi --pheno pheno.txt --pheno-name CAT --covar covar.txt --glm multinomial=wald firth omit-ref genotypic cols=+beta --out tmp_firth_threads${th}_multi > /dev/null
     cmp tmp_firth_threads${th}_multi.CAT.glm.multinomial.firth tmp_firth_genotypic_wald_multi.CAT.glm.multinomial.firth
 done
+
+# 18. Constant alleles, as with --glm logistic: a constant omitted allele (a
+#     monomorphic variant, or with omit-ref, a multiallelic one with no REF
+#     call) rules out every row (CONST_OMITTED_ALLELE), and a constant ALT
+#     allele just its own row (CONST_ALLELE).  In 'noG', that is the first
+#     row, so with the Wald test, the second row fits the model the third
+#     row reuses.
+zcat < mn_multi.vcf.gz | awk -F '\t' -v OFS='\t' '/^#/ { print; next }
+  $3 == "m1" { m1 = $0 }
+  $3 == "m3" {
+    for (i = 10; i <= NF; ++i) { gsub(/1/, "2", $i) }
+    $3 = "noG"; print
+    $0 = m1; $2 = 42001; $3 = "noref"
+    for (i = 10; i <= NF; ++i) { gsub(/0/, "1", $i) }
+    print
+    $2 = 42002; $3 = "mono"; $5 = "G"
+    for (i = 10; i <= NF; ++i) { $i = "0/0" }
+    print
+  }' > tmp_const.vcf
+$plink2 --vcf tmp_const.vcf --update-sex sex.txt --make-pgen --out tmp_const > /dev/null
+$plink2 --pfile tmp_const --pheno pheno.txt --pheno-name BIN --covar covar.txt --glm no-firth omit-ref hide-covar cols=+beta --out tmp_const_logistic > /dev/null
+$plink2 --pfile tmp_const --pheno pheno.txt --pheno-name CAT2 --covar covar.txt --glm multinomial=wald no-firth multinomial-ref=lo omit-ref cols=+beta --out tmp_const_two_levels > /dev/null
+awk -F '\t' 'FNR == 1 { ++file_idx; for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
+     { key = $c["ID"] "\t" $c["A1"] }
+     file_idx == 1 { err[key] = $c["ERRCODE"]; next }
+     { ++ct
+       if (err[key] != $c["ERRCODE"]) { print key ": ERRCODE " $c["ERRCODE"] ", logistic " err[key]; exit 1 } }
+     END { if (ct != 6) { print ct " rows, expected 6"; exit 1 } }' tmp_const_logistic.BIN.glm.logistic tmp_const_two_levels.CAT2.glm.multinomial
+awk -v terms=ADD -v min_ct=2 -f logistic_crosscheck.awk tmp_const_logistic.BIN.glm.logistic tmp_const_two_levels.CAT2.glm.multinomial

@@ -1377,6 +1377,9 @@ typedef struct {
   double* null_coefs;
   double* alt_coefs;
   double* cov;
+  // Wald test in the additive model: each genotype predictor's statistic in
+  // the fit that a multiallelic variant's rows share
+  double* fused_chisqs;
   double* fit_wkspace;
   double* chunk_buf;
   MatrixInvertBuf1* mi_buf;
@@ -1423,6 +1426,7 @@ static uintptr_t MultinomialWorkspaceLayout(uint32_t sample_ct, uint32_t covar_c
     max_param_ct * sizeof(double),
     max_param_ct * sizeof(double),
     max_param_ct * max_param_ct * sizeof(double),
+    geno_pred_max * sizeof(double),
     MultinomialFitWkspaceDoubleCt(max_param_ct) * sizeof(double),
     MultinomialChunkBufDoubleCt(max_pred_ct, nonref_level_ct) * sizeof(double),
     max_param_ct * kMatrixInvertBuf1CheckedAlloc,
@@ -1453,6 +1457,7 @@ static uintptr_t MultinomialWorkspaceLayout(uint32_t sample_ct, uint32_t covar_c
     R_CAST(void**, &wsp->null_coefs),
     R_CAST(void**, &wsp->alt_coefs),
     R_CAST(void**, &wsp->cov),
+    R_CAST(void**, &wsp->fused_chisqs),
     R_CAST(void**, &wsp->fit_wkspace),
     R_CAST(void**, &wsp->chunk_buf),
     R_CAST(void**, &wsp->mi_buf),
@@ -1545,22 +1550,22 @@ static void CopyCentered(const double* src, uint32_t ct, double* dst) {
   }
 }
 
-// Wald statistic gamma' Cov(gamma)^{-1} gamma over the tested columns (the
-// last tested_ct predictors of each class), given the full inverse
-// information matrix cov[] of a fit with class_ct non-reference classes and
-// pred_ct predictors, the first null_pred_ct untested.  wkspace needs
+// Wald statistic gamma' Cov(gamma)^{-1} gamma over the tested columns
+// (predictors [first_tested_idx, first_tested_idx + tested_ct) of each
+// class), given the full inverse information matrix cov[] of a fit with
+// class_ct non-reference classes and pred_ct predictors.  wkspace needs
 // (class_ct * tested_ct) * (class_ct * tested_ct + 1) doubles.  Returns 1 if
 // the tested block of cov[] is singular.
-static BoolErr MultinomialWaldChisq(const double* coefs, const double* cov, uint32_t class_ct, uint32_t pred_ct, uint32_t null_pred_ct, uint32_t tested_ct, double* wkspace, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf, double* chisq_ptr) {
+static BoolErr MultinomialWaldChisq(const double* coefs, const double* cov, uint32_t class_ct, uint32_t pred_ct, uint32_t first_tested_idx, uint32_t tested_ct, double* wkspace, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf, double* chisq_ptr) {
   const uintptr_t param_ct = class_ct * S_CAST(uintptr_t, pred_ct);
   const uint32_t wald_dim = class_ct * tested_ct;
   double* wald_cov = wkspace;
   double* wald_coefs = &(wald_cov[wald_dim * wald_dim]);
   for (uint32_t wald_idx1 = 0; wald_idx1 != wald_dim; ++wald_idx1) {
-    const uintptr_t param_idx1 = (wald_idx1 / tested_ct) * pred_ct + null_pred_ct + (wald_idx1 % tested_ct);
+    const uintptr_t param_idx1 = (wald_idx1 / tested_ct) * pred_ct + first_tested_idx + (wald_idx1 % tested_ct);
     wald_coefs[wald_idx1] = coefs[param_idx1];
     for (uint32_t wald_idx2 = 0; wald_idx2 != wald_dim; ++wald_idx2) {
-      const uintptr_t param_idx2 = (wald_idx2 / tested_ct) * pred_ct + null_pred_ct + (wald_idx2 % tested_ct);
+      const uintptr_t param_idx2 = (wald_idx2 / tested_ct) * pred_ct + first_tested_idx + (wald_idx2 % tested_ct);
       wald_cov[wald_idx1 * wald_dim + wald_idx2] = cov[param_idx1 * param_ct + param_idx2];
     }
   }
@@ -1573,6 +1578,27 @@ static BoolErr MultinomialWaldChisq(const double* coefs, const double* cov, uint
     chisq += wald_coefs[wald_idx] * DotprodD(&(wald_cov[wald_idx * wald_dim]), wald_coefs, wald_dim);
   }
   *chisq_ptr = chisq;
+  return 0;
+}
+
+// Wald statistic of a row's tested columns, the last tested_ct predictors.
+// With fused_chisqs non-null (the additive model, where a multiallelic
+// variant's rows share one fit, and tested_ct == 1), also fills
+// fused_chisqs[] with the statistic of every genotype predictor, starting at
+// predictor index first_geno_pred_idx; as with --glm logistic's validity
+// check, any of them being unavailable (or nonfinite) makes the whole fit
+// unusable.
+static BoolErr MultinomialRowWaldChisq(const double* coefs, const double* cov, uint32_t class_ct, uint32_t pred_ct, uint32_t tested_ct, uint32_t first_geno_pred_idx, double* wkspace, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf, double* fused_chisqs, double* chisq_ptr) {
+  if (!fused_chisqs) {
+    return MultinomialWaldChisq(coefs, cov, class_ct, pred_ct, pred_ct - tested_ct, tested_ct, wkspace, mi_buf, dbl_2d_buf, chisq_ptr);
+  }
+  for (uint32_t pred_idx = first_geno_pred_idx; pred_idx != pred_ct; ++pred_idx) {
+    double* cur_chisq_ptr = &(fused_chisqs[pred_idx - first_geno_pred_idx]);
+    if (MultinomialWaldChisq(coefs, cov, class_ct, pred_ct, pred_idx, 1, wkspace, mi_buf, dbl_2d_buf, cur_chisq_ptr) || (!isfinite(*cur_chisq_ptr))) {
+      return 1;
+    }
+  }
+  *chisq_ptr = fused_chisqs[pred_ct - 1 - first_geno_pred_idx];
   return 0;
 }
 
@@ -1912,6 +1938,18 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           }
         }
         const uint32_t row_ct = allele_ct - 1;
+        // As with --glm logistic, a constant omitted allele (judged by the
+        // calls, before haploid scaling) rules out every row.
+        const uint32_t omitted_is_const = DosageIsConstant(machr2_dosage_sums[omitted_allele_idx], machr2_dosage_ssqs[omitted_allele_idx], nm_sample_ct);
+        // With the Wald test in the additive model, every row of a
+        // multiallelic variant fits the same model (all nonconstant
+        // non-omitted alleles), so as with --glm logistic, it is fitted once,
+        // and each allele's statistic and coefficients are read from that fit.
+        // fused_row_idx is the row that fitted it.
+        const uint32_t fuse_rows = (test_type == kGlmMultinomialTestWald) && is_additive && (row_ct > 1);
+        uint32_t fused_row_idx = UINT32_MAX;
+        uint32_t fused_alt_pred_ct = 0;
+        uint32_t fused_geno_pred_ct = 0;
         uint32_t row_a1_allele_idx = (omitted_allele_idx == 0);
         for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
           MultinomialAuxResult* auxp = &(block_aux_iter[row_idx]);
@@ -1968,9 +2006,44 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
               goto GlmMultinomialThread_skip_regression;
             }
           }
+          if (omitted_is_const) {
+            glm_err = SetGlmErr0(kGlmErrcodeConstOmittedAllele);
+            goto GlmMultinomialThread_skip_regression;
+          }
           if (class_ct < 2) {
             glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
             goto GlmMultinomialThread_skip_regression;
+          }
+          if (fused_row_idx != UINT32_MAX) {
+            const MultinomialAuxResult* fused_auxp = &(block_aux_iter[fused_row_idx]);
+            // A1's position among the fit's genotype predictors; a constant
+            // A1 is not among them.
+            uint32_t geno_pred_idx = 0;
+            while ((geno_pred_idx != fused_geno_pred_ct) && (geno_pred_alleles[geno_pred_idx] != row_a1_allele_idx)) {
+              ++geno_pred_idx;
+            }
+            if (geno_pred_idx == fused_geno_pred_ct) {
+              glm_err = SetGlmErr0(kGlmErrcodeConstAllele);
+              goto GlmMultinomialThread_skip_regression;
+            }
+            auxp->is_firth = fused_auxp->is_firth;
+            auxp->is_unfinished = fused_auxp->is_unfinished;
+            if (fused_auxp->chisq == -9.0) {
+              memcpy(&glm_err, &(fused_auxp->glm_err), 8);
+              goto GlmMultinomialThread_skip_regression;
+            }
+            auxp->df = nonref_class_ct;
+            auxp->chisq = ws.fused_chisqs[geno_pred_idx];
+            if (save_coefs && (ws.cov[0] >= 0.0) && (!class_levels[0])) {
+              const uintptr_t fused_param_ct = nonref_class_ct * S_CAST(uintptr_t, fused_alt_pred_ct);
+              for (uint32_t class_idx = 1; class_idx != class_ct; ++class_idx) {
+                const uintptr_t param_idx = (class_idx - 1) * fused_alt_pred_ct + base_pred_ct + geno_pred_idx;
+                double* dst = &(row_beta_se[(class_levels[class_idx] - 1) * 2 * S_CAST(uintptr_t, model_col_ct)]);
+                dst[0] = alt_coefs[param_idx];
+                dst[1] = sqrt(ws.cov[param_idx * fused_param_ct + param_idx]);
+              }
+            }
+            continue;
           }
           // Genotype predictors: the nuisance alleles, then the tested
           // columns.  Constant nuisance alleles are left out.
@@ -2030,6 +2103,11 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           alt_pred_ct = null_pred_ct + tested_ct;
           alt_param_ct = nonref_class_ct * S_CAST(uintptr_t, alt_pred_ct);
           auxp->df = nonref_class_ct * tested_ct;
+          if (fuse_rows) {
+            fused_row_idx = row_idx;
+            fused_alt_pred_ct = alt_pred_ct;
+            fused_geno_pred_ct = geno_pred_ct;
+          }
           {
             // Correlation and VIF check on the non-intercept predictors.
             const uint32_t check_pred_ct = alt_pred_ct - 1;
@@ -2184,7 +2262,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
                   // rounding
                   chisq = 0.0;
                 }
-              } else if ((ws.cov[0] < 0.0) || MultinomialWaldChisq(alt_coefs, ws.cov, nonref_class_ct, alt_pred_ct, null_pred_ct, tested_ct, ws.fit_wkspace, ws.mi_buf, ws.dbl_2d_buf, &chisq)) {
+              } else if ((ws.cov[0] < 0.0) || MultinomialRowWaldChisq(alt_coefs, ws.cov, nonref_class_ct, alt_pred_ct, tested_ct, base_pred_ct, ws.fit_wkspace, ws.mi_buf, ws.dbl_2d_buf, fuse_rows? ws.fused_chisqs : nullptr, &chisq)) {
                 if (firth_mode) {
                   goto GlmMultinomialThread_firth;
                 }
@@ -2256,7 +2334,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
               if (chisq < 0.0) {
                 chisq = 0.0;
               }
-            } else if ((ws.cov[0] < 0.0) || MultinomialWaldChisq(alt_coefs, ws.cov, nonref_class_ct, alt_pred_ct, null_pred_ct, tested_ct, ws.fit_wkspace, ws.mi_buf, ws.dbl_2d_buf, &chisq)) {
+            } else if ((ws.cov[0] < 0.0) || MultinomialRowWaldChisq(alt_coefs, ws.cov, nonref_class_ct, alt_pred_ct, tested_ct, base_pred_ct, ws.fit_wkspace, ws.mi_buf, ws.dbl_2d_buf, fuse_rows? ws.fused_chisqs : nullptr, &chisq)) {
               glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
               goto GlmMultinomialThread_skip_regression;
             }
