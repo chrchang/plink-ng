@@ -5148,6 +5148,11 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
             *cswritep++ = '\t';
             *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
           }
+          // The overflow buffer has room for two alleles; REF and ALT1 may
+          // already be pending.
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto HardyReport_ret_WRITE_FAIL;
+          }
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
           if (ax_col) {
@@ -5363,6 +5368,11 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           if (provref_col) {
             *cswritep++ = '\t';
             *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+          }
+          // The overflow buffer has room for two alleles; REF and ALT1 may
+          // already be pending.
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto HardyReport_ret_WRITE_FAIL;
           }
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
