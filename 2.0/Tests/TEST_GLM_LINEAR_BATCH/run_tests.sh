@@ -86,7 +86,8 @@ awk -F '\t' 'NR == 1 { for (i = 1; i <= NF; ++i) { c[$i] = i }; next }
        ++per_variant_ct[id]
      }
      END {
-       if (length(alt_ct) != 8) { print "expected 8 multiallelic variants"; exit 1 }
+       count = 0; for (i in alt_ct) count++
+       if (count != 8) { print "expected 8 multiallelic variants"; exit 1 }
        for (id in alt_ct) {
          if (per_variant_ct[id] != alt_ct[id] + 3) { print id ": " per_variant_ct[id] " rows, expected " (alt_ct[id] + 3); exit 1 }
          for (cv = 1; cv <= 3; ++cv) {
