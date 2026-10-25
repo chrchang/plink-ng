@@ -2029,7 +2029,7 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
             auxp->is_firth = fused_auxp->is_firth;
             auxp->is_unfinished = fused_auxp->is_unfinished;
             if (fused_auxp->chisq == -9.0) {
-              memcpy(&glm_err, &(fused_auxp->glm_err), 8);
+              glm_err = fused_auxp->glm_err;
               goto GlmMultinomialThread_skip_regression;
             }
             auxp->df = nonref_class_ct;
