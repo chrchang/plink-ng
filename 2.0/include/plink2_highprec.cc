@@ -803,8 +803,8 @@ dd_real ddr_logspace_add(dd_real a, dd_real b) {
     swap_ddr(&a, &b);
   }
   const dd_real diff = ddr_sub(b, a);
-  // (ilogb - 54) could be nan or -inf, that's ok
-  if (diff.x[0] < (ilogb(a.x[1] / a.x[0]) - 54) * kLn2) {
+  // ilogb can be INT_MAX or INT_MIN, that's ok
+  if (diff.x[0] < (ilogb(a.x[1] / a.x[0]) - 54.0) * kLn2) {
     // exp(b-a) is too small to affect even lowest bit of a.x[1]
     return a;
   }
@@ -814,7 +814,7 @@ dd_real ddr_logspace_add(dd_real a, dd_real b) {
 dd_real ddr_logspace_sub(dd_real a, dd_real b) {
   // log(exp(a) - exp(b)) = a + log(-expm1(b-a))
   const dd_real diff = ddr_sub(b, a);
-  if (diff.x[0] < (ilogb(a.x[1] / a.x[0]) - 54) * kLn2) {
+  if (diff.x[0] < (ilogb(a.x[1] / a.x[0]) - 54.0) * kLn2) {
     return a;
   }
   return ddr_add(a, ddr_log(ddr_negate(ddr_expm1(diff))));
@@ -913,8 +913,8 @@ int32_t dd_real_abs_cmp(const void* aa, const void* bb) {
   // Ensure deterministic results (without nans, anyway) by defining a total
   // ordering.
   // We arbitrarily define |x| as having smaller magnitude than -|x|.
-  const uint32_t aa_was_neg = (aa0 < 0);
-  const uint32_t bb_was_neg = (bb0 < 0);
+  const uint32_t aa_was_neg = (aa_ddr.x[0] < 0);
+  const uint32_t bb_was_neg = (bb_ddr.x[0] < 0);
   if (aa_was_neg) {
     aa_ddr = ddr_negate(aa_ddr);
   }
@@ -1278,8 +1278,8 @@ int32_t td_real_abs_cmp(const void* aa, const void* bb) {
   // Ensure deterministic results (without nans, anyway) by defining a total
   // ordering.
   // We arbitrarily define |x| as having smaller magnitude than -|x|.
-  const uint32_t aa_was_neg = (aa0 < 0);
-  const uint32_t bb_was_neg = (bb0 < 0);
+  const uint32_t aa_was_neg = (aa_tdr.x[0] < 0);
+  const uint32_t bb_was_neg = (bb_tdr.x[0] < 0);
   if (aa_was_neg) {
     aa_tdr = tdr_negate(aa_tdr);
   }
