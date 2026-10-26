@@ -39,7 +39,7 @@ typedef struct MakeSetRangeStruct {
   uint32_t uidx_end;
 } MakeSetRange;
 
-PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t collapse_group, uintptr_t subset_ct, uintptr_t max_subset_id_blen, TextStream* txsp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
+PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t collapse_group, uint32_t allow_absent_extra_chr, uintptr_t subset_ct, uintptr_t max_subset_id_blen, TextStream* txsp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
   // In plink 1.9, this was named load_range_list() and called directly by
   // ExtractExcludeRange(), define_sets(), and indirectly by annotate(),
   // gene_report(), and clump_reports().  That function required set IDs in
@@ -49,6 +49,12 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
   // read when collapse_group is set, which is --make-set-collapse-group and
   // --make-set-complement-group.  (collapse_group requires track_set_names,
   // and is only supported with variant_bps.)
+  //
+  // allow_absent_extra_chr: a line naming a nonstandard contig absent from
+  // the dataset still defines its set, which is then empty unless other lines
+  // contribute to it, as in plink 1.9.  (Lines like that are skipped outright
+  // when set names aren't tracked.)  Requires variant_bps, since the set-name
+  // prefix needs a chromosome index otherwise.
   //
   // Assumes caller will reset g_bigstack_end later.
   PglErr reterr = kPglRetSuccess;
@@ -83,8 +89,10 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
           if (likely((!set_ct_ptr) && (cur_chr_code == UINT32_MAX))) {
             continue;
           }
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-          goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
+          if (unlikely((!allow_absent_extra_chr) || (cur_chr_code != UINT32_MAX))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+            goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
+          }
         }
         // chr_mask check removed, we want to track empty sets
         const uint32_t cur_set_id_slen = strlen_se(cur_set_id);
@@ -223,7 +231,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
       *first_token_end = '\0';
       const uint32_t cur_chr_code = GetChrCode(line_start, cip, chr_name_slen);
       if (IsI32Neg(cur_chr_code)) {
-        if (likely((!set_ct_ptr) && (cur_chr_code == UINT32_MAX))) {
+        if (likely(((!set_ct_ptr) || allow_absent_extra_chr) && (cur_chr_code == UINT32_MAX))) {
           continue;
         }
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
@@ -399,7 +407,7 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
         fname_txs = fnames_iter;
       }
       MakeSetRange** range_arr = nullptr;
-      reterr = LoadIntervalBed(cip, variant_bps, nullptr, fname_txs, zero_based, 0, bed_border_bp, 0, 0, 0, 0, 0, &txs, nullptr, nullptr, nullptr, nullptr, &range_arr);
+      reterr = LoadIntervalBed(cip, variant_bps, nullptr, fname_txs, zero_based, 0, bed_border_bp, 0, 0, 0, 0, 0, 0, &txs, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (unlikely(reterr)) {
         goto ExtractExcludeRange_ret_1;
       }
@@ -1057,7 +1065,7 @@ static PglErr DefineSetsFromRanges(const SetInfo* sip, const ChrInfo* cip, const
     MakeSetRange** make_set_range_arr = nullptr;
     // --set-collapse-all/--make-set-complement-all merge every range into one
     // set, so there are no names to track in that case.
-    reterr = LoadIntervalBed(cip, variant_bps, sorted_subset_ids, fname, 0, (merged_set_name == nullptr), sip->make_set_border, 0, c_prefix, collapse_group, subset_ct, max_subset_id_blen, &txs, &set_ct, &set_names, &max_set_name_blen, nullptr, &make_set_range_arr);
+    reterr = LoadIntervalBed(cip, variant_bps, sorted_subset_ids, fname, 0, (merged_set_name == nullptr), sip->make_set_border, 0, c_prefix, collapse_group, !(sip->flags & kfSetStrictExtraChr), subset_ct, max_subset_id_blen, &txs, &set_ct, &set_names, &max_set_name_blen, nullptr, &make_set_range_arr);
     if (unlikely(reterr)) {
       goto DefineSetsFromRanges_ret_1;
     }
@@ -1479,7 +1487,7 @@ PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char*
     uintptr_t max_gene_id_blen = 0;
     uint64_t* range_sort_buf;
     MakeSetRange** gene_arr;
-    reterr = LoadIntervalBed(cip, nullptr, sorted_subset_ids, fname, zero_based, 1, border_extend, 0, 0, 0, subset_ct, max_subset_id_blen, &txs, &gene_ct, gene_names_ptr, &max_gene_id_blen, &range_sort_buf, &gene_arr);
+    reterr = LoadIntervalBed(cip, nullptr, sorted_subset_ids, fname, zero_based, 1, border_extend, 0, 0, 0, 0, subset_ct, max_subset_id_blen, &txs, &gene_ct, gene_names_ptr, &max_gene_id_blen, &range_sort_buf, &gene_arr);
     if (unlikely(reterr)) {
       goto LoadAndSortIntervalBed_ret_1;
     }

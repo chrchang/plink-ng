@@ -10945,6 +10945,11 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.set_info.flags |= kfSetMakeFromRanges;
+          // flags are processed in alphabetical order, so --allow-extra-chr
+          // has already been seen
+          if (pc.misc_flags & kfMiscProhibitExtraChr) {
+            pc.set_info.flags |= kfSetStrictExtraChr;
+          }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-set-border")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {

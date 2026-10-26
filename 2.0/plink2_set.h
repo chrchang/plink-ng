@@ -64,7 +64,11 @@ FLAGSET_DEF_START()
   kfSetCPrefix = (1 << 7),
 
   // --gene-all; --gene names its sets in genekeep_flattened instead.
-  kfSetGeneAll = (1 << 8)
+  kfSetGeneAll = (1 << 8),
+
+  // --strict-extra-chr: a --make-set range on a nonstandard contig absent
+  // from the dataset is an error, rather than a range that matches nothing.
+  kfSetStrictExtraChr = (1 << 9)
 FLAGSET_DEF_END(SetFlags);
 
 typedef struct SetInfoStruct {

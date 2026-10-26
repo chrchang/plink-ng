@@ -181,10 +181,11 @@ printf 'geneA\nsv_0\nEND\nEND\n' > tmp_extra_end.txt
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_extra_end.txt --write-set --out plink2_bad
 printf 'geneA\nsv_0\n' > tmp_no_end.txt
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_no_end.txt --write-set --out plink2_bad
-# a --make-set line without a set ID, and one naming an unknown chromosome
+# a --make-set line without a set ID, and one naming an invalid chromosome
+# code (a nonstandard contig absent from the dataset is covered by section 16)
 printf '1 2 4\n' > tmp_short_range.txt
 fails $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_short_range.txt --write-set --out plink2_bad
-printf '1 2 4 geneA\nnosuchchr 2 4 geneB\n' > tmp_bad_chr.txt
+printf '1 2 4 geneA\n27 2 4 geneB\n' > tmp_bad_chr.txt
 fails $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_bad_chr.txt --write-set --out plink2_bad
 # --make-set-collapse-group needs the fifth column
 printf '1 2 4 geneA\n' > tmp_nogroup.txt
@@ -228,3 +229,30 @@ $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges_split.txt --write-set --o
 diff -q tmp_ms_split_expected.set plink2_ms_split.set
 plink --bfile tmp_data --make-set tmp_ranges_split.txt --write-set --out plink19_ms_split > /dev/null
 diff -q plink19_ms_split.set plink2_ms_split.set
+
+# 16. A --make-set range on a nonstandard contig absent from the dataset
+#     matches nothing, but its set is still defined, as in 1.9 with
+#     --allow-extra-chr.  This used to be an "Invalid chromosome code" error,
+#     unlike the same range on an absent standard chromosome.  The contig
+#     names include a 15000-character one.
+long_ctg=q$(printf '%*s' 14999 '' | tr ' ' 'x')
+{
+    printf '1 2 4 geneA grp1\n'
+    printf '%s 2 4 geneA grp1\n' "$long_ctg"
+    printf '1 10 12 geneB grp2\n'
+    printf '%s 1 30 geneE grp2\n' "$long_ctg"
+    printf 'ctgAbsent 1 30 geneF grp3\n'
+    printf '5 1 30 geneG grp3\n'
+} > tmp_ranges_absent.txt
+for extra_flags in "" "--make-set-collapse-group" "--complement-sets" "--make-set-complement-group" "--set-names geneE,geneB"; do
+    $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges_absent.txt $extra_flags --write-set --out plink2_absent
+    plink --bfile tmp_data --allow-extra-chr --make-set tmp_ranges_absent.txt $(echo $extra_flags | tr ',' ' ') --write-set --out plink19_absent > /dev/null
+    diff -q plink19_absent.set plink2_absent.set
+done
+printf 'geneA\nsv_1\nsv_2\nsv_3\nEND\n\ngeneB\nsv_9\nsv_10\nsv_11\nEND\n\ngeneE\nEND\n\ngeneF\nEND\n\ngeneG\nEND\n\n' > tmp_absent_expected.set
+$1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges_absent.txt --write-set --out plink2_absent
+diff -q tmp_absent_expected.set plink2_absent.set
+$1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges_absent.txt --set-table --out plink2_absent_tbl
+head -n 1 plink2_absent_tbl.set.table | grep -qx $'#CHROM\tPOS\tID\tgeneA\tgeneB\tgeneE\tgeneF\tgeneG'
+# --strict-extra-chr still rejects it.
+fails $1/plink2 $2 $3 --bfile tmp_data --strict-extra-chr --make-set tmp_ranges_absent.txt --write-set --out plink2_bad
