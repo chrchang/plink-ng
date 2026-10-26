@@ -2054,7 +2054,7 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* ex
       goto GeneReport_ret_1;
     }
     if (skipped_chr_ct) {
-      logerrprintfww("Warning: %" PRIuPTR " line%s in %s skipped due to unrecognized chromosome code%s.\n", skipped_chr_ct, (skipped_chr_ct == 1)? "" : "s", report_fname, (skipped_chr_ct == 1)? "" : "s");
+      logerrprintfww("Warning: %" PRIuPTR " line%s in %s skipped due to invalid or excluded chromosome code%s.\n", skipped_chr_ct, (skipped_chr_ct == 1)? "" : "s", report_fname, (skipped_chr_ct == 1)? "" : "s");
     }
 
     // Saved-line index -> record lookup table, placed just below the match
