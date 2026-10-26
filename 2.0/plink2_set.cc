@@ -1741,6 +1741,54 @@ PglErr LoadSortedIdBox(const char* fname, const char* file_descrip, uint32_t max
   return reterr;
 }
 
+PglErr ScrapeIntervalBedChrs(const char* fname, const char* file_descrip, uint32_t max_thread_ct, ChrInfo* cip) {
+  // Registers the nonstandard chromosome/contig names in an interval-BED
+  // file's first column, for callers like --gene-report that have no main
+  // dataset to take them from.  (plink 1.9 scrape_extra_chroms().)  Not
+  // called under --strict-extra-chr; malformed lines are left for
+  // LoadIntervalBed() to report.
+  PglErr reterr = kPglRetSuccess;
+  uintptr_t line_idx = 0;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = InitTextStreamEx(fname, 1, kMaxLongLine, kTextStreamBlenFast, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto ScrapeIntervalBedChrs_ret_TSTREAM_FAIL;
+    }
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      char* first_token_end = CurTokenEnd(line_start);
+      const uint32_t chr_name_slen = first_token_end - line_start;
+      const char orig_char = *first_token_end;
+      *first_token_end = '\0';
+      uint32_t cur_chr_code = GetChrCode(line_start, cip, chr_name_slen);
+      if (cur_chr_code == UINT32_MAX) {
+        reterr = TryToAddChrName(line_start, file_descrip, line_idx, chr_name_slen, 0, &cur_chr_code, cip);
+        if (unlikely(reterr)) {
+          goto ScrapeIntervalBedChrs_ret_1;
+        }
+      }
+      *first_token_end = orig_char;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto ScrapeIntervalBedChrs_ret_TSTREAM_FAIL;
+    }
+  }
+  while (0) {
+  ScrapeIntervalBedChrs_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(file_descrip, &txs);
+    break;
+  }
+ ScrapeIntervalBedChrs_ret_1:
+  CleanupTextStream2(file_descrip, &txs, &reterr);
+  return reterr;
+}
+
 // Recovers the chromosome index from the fixed-width prefix LoadIntervalBed()
 // prepends to each set name.  Mirrors the decoder in
 // LoadAndSortIntervalBed().
@@ -1921,7 +1969,9 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* ex
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, report_fname);
         goto GeneReport_ret_MALFORMED_INPUT_WW;
       }
-      const uint32_t chr_idx = GetChrCode(token_ptrs[0], cip, token_slens[0]);
+      // tokens aren't null-terminated, and nonstandard chromosome names are
+      // looked up with strcmp(); line_start is mutable, so the cast is safe
+      const uint32_t chr_idx = GetChrCodeCounted(cip, token_slens[0], K_CAST(char*, token_ptrs[0]));
       if (IsI32Neg(chr_idx)) {
         ++skipped_chr_ct;
         continue;
@@ -2113,7 +2163,12 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* ex
       cswritep = memcpya(cswritep, &(record[kGeneReportRecordHeaderSize]), id_slen);
       if (p_col) {
         *cswritep++ = '\t';
-        cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+        if (ln_pval == kLnPvalError) {
+          // NA/nan in the report
+          cswritep = strcpya_k(cswritep, "NA");
+        } else {
+          cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+        }
       }
       AppendBinaryEoln(&cswritep);
       if (unlikely(Cswrite(&css, &cswritep))) {

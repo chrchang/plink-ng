@@ -145,6 +145,8 @@ void InitGeneReport(GeneReportInfo* grip);
 
 void CleanupGeneReport(GeneReportInfo* grip);
 
+PglErr ScrapeIntervalBedChrs(const char* fname, const char* file_descrip, uint32_t max_thread_ct, ChrInfo* cip);
+
 PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* extract_fnames, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus

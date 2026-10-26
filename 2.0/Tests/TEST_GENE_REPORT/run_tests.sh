@@ -115,3 +115,64 @@ diff -q flat_cols.txt flat_gid.txt
 $1/plink2 $2 $3 --gene-report report20.txt genes.txt zs --out plink2_zs
 $1/plink2 $2 $3 --zst-decompress plink2_zs.gene.report.zst > plink2_zs.gene.report
 diff -q plink2_zs.gene.report plink2_gr.gene.report
+
+# Nonstandard contigs, including two 15000-character names that differ only in
+# their last character.  No main dataset is loaded, so the contig names must be
+# taken from the gene range file.  One contig appears only in the gene list and
+# another only in the report, and some p-values are NA.
+awk 'BEGIN {
+  long = "q"
+  for (i = 1; i < 15000; ++i) long = long substr("ACGTxyz_", 1 + (i * 7) % 8, 1)
+  longb = substr(long, 1, 14999) "Q"
+  n = split("ctgA " long " " longb " ctgGenesOnly", c, " ")
+  s = 4242
+  for (i = 0; i < 120; ++i) {
+    s = (1103515245 * s + 12345) % 2147483648
+    k = 1 + (int(s / 512) % n)
+    s = (1103515245 * s + 12345) % 2147483648
+    start = 1 + (int(s / 512) % 900000)
+    s = (1103515245 * s + 12345) % 2147483648
+    end = start + 1 + (int(s / 512) % 200000)
+    s = (1103515245 * s + 12345) % 2147483648
+    printf "%s %d %d XGENE%d\n", c[k], start, end, int(s / 512) % 30 > "genes_extra.txt"
+  }
+  c[4] = "ctgReportOnly"
+  for (i = 0; i < 2000; ++i) {
+    s = (1103515245 * s + 12345) % 2147483648
+    k = 1 + (int(s / 512) % n)
+    s = (1103515245 * s + 12345) % 2147483648
+    bp = 1 + (int(s / 512) % 1100000)
+    s = (1103515245 * s + 12345) % 2147483648
+    p = (int(s / 512) % 1000000) / 1000000.0
+    if (i % 97 == 0) p = "NA"
+    printf "%s %d xs%d %s\n", c[k], bp, i, p > "report_rows_extra19.txt"
+    printf "%s\t%d\txs%d\t%s\n", c[k], bp, i, p > "report_rows_extra20.txt"
+  }
+}'
+cat genes.txt genes_extra.txt > genes_all.txt
+cat report19.txt report_rows_extra19.txt > report_extra19.txt
+cat report20.txt report_rows_extra20.txt > report_extra20.txt
+
+plink --gene-report report_extra19.txt genes_all.txt --allow-extra-chr --out plink_gr
+$1/plink2 $2 $3 --gene-report report_extra20.txt genes_all.txt --out plink2_gr
+check
+# Both long contigs must have matched.
+test $(awk -F'\t' 'length($2) == 15000' flat20.txt | cut -f 2 | sort -u | wc -l) -eq 2
+# NA p-values must be written as NA, not as exp(kLnPvalError).
+test $(awk -F'\t' 'NR > 1 && $NF == "NA"' plink2_gr.gene.report | wc -l) -ge 10
+test $(awk -F'\t' 'NR > 1 && $NF != "NA" && $NF > 1' plink2_gr.gene.report | wc -l) -eq 0
+
+plink --gene-report report_extra19.txt genes_all.txt --allow-extra-chr --gene-list-border 25 --pfilter 0.5 --out plink_gr
+$1/plink2 $2 $3 --gene-report report_extra20.txt genes_all.txt --gene-list-border 25 --pfilter 0.5 --out plink2_gr
+check
+
+plink --gene-report report_extra19.txt genes_all.txt --allow-extra-chr --chr ctgA --out plink_gr
+$1/plink2 $2 $3 --gene-report report_extra20.txt genes_all.txt --chr ctgA --out plink2_gr
+diff -q <(awk -f flatten19.awk plink_gr.range.report) <(awk 'NR > 1 {print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $8}' plink2_gr.gene.report)
+test $(awk 'NR > 1' plink2_gr.gene.report | wc -l) -ge 100
+test $(awk 'NR > 1 {print $2}' plink2_gr.gene.report | sort -u) = ctgA
+
+# --strict-extra-chr still rejects them.
+if $1/plink2 $2 $3 --strict-extra-chr --gene-report report_extra20.txt genes_all.txt --out plink2_strict; then
+    exit 1
+fi

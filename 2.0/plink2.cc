@@ -16024,6 +16024,15 @@ int main(int argc, char** argv) {
         // No main dataset is loaded on this code path, so the chromosome set
         // still needs to be finalized.
         FinalizeChrset(kfLoadFilterLog0, &chr_info);
+        // Likewise, nonstandard contig names must come from the gene range
+        // file.  Report lines on contigs absent from it can't match any gene,
+        // so the report doesn't need to be scanned.
+        if (!(pc.misc_flags & kfMiscProhibitExtraChr)) {
+          reterr = ScrapeIntervalBedChrs(gene_report_info.glist_fname, "--gene-report range file", pc.max_thread_ct, &chr_info);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        }
         // PLINK 1.x honours --extract here, but only its plain ID-list form;
         // the interval forms have no variant positions to work against on this
         // path, since no dataset is loaded.
