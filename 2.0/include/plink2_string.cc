@@ -1043,16 +1043,12 @@ BoolErr ScanmovU64Capped(uint64_t cap, const char** str_iterp, uint64_t* valp) {
   *valp = ctou32(*str_iter++) - 48;
   if (*valp >= 10) {
     if (unlikely(*valp != 0xfffffffbU)) {
+      // currently doesn't accept "-0", etc.
       return 1;
     }
+    // accept leading '+'
     *valp = ctou32(*str_iter++) - 48;
     if (unlikely(*valp >= 10)) {
-      return 1;
-    }
-  }
-  while (!(*valp)) {
-    *valp = ctou32(*str_iter++) - 48;
-    if (unlikely((*valp) >= 10)) {
       return 1;
     }
   }
