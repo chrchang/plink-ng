@@ -1380,7 +1380,7 @@ intptr_t CompareFactorialProducts(uint32_t ffac_ct, td_real odds_ratio_tdr, int6
       denom_bit_bound += CeilLog2U64(denom_factorial_arg) * ffac_size;
     }
   }
-  if (((odds_ratio_pow == 0) || (tdr_is(odds_ratio_tdr, 2) && (abs_i64(odds_ratio_pow < 64)))) && (numer_bit_bound < 64) && (denom_bit_bound < 64)) {
+  if (((odds_ratio_pow == 0) || (tdr_is(odds_ratio_tdr, 2) && (abs_i64(odds_ratio_pow) < 64))) && (numer_bit_bound < 64) && (denom_bit_bound < 64)) {
     uint64_t numer = 1;
     uint64_t denom = 1;
     for (uint32_t ffac_idx = 0; ffac_idx != ffac_ct; ++ffac_idx) {
