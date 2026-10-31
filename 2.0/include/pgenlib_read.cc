@@ -8706,6 +8706,11 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     all_dosages[1] = alt1_dosage;
     const uint32_t nondosage_nm_ct = sample_ct - genocounts[3] - replaced_ct;
     const uint32_t new_sample_nm_ct = dosage_ct + nondosage_nm_ct;
+    // Every dosage is in [0, 32768] in a valid file, so this can only fire on
+    // corrupt input; it would otherwise wrap all_dosages[0].
+    if (unlikely(alt1_dosage > new_sample_nm_ct * 32768LLU)) {
+      return kPglRetMalformedInput;
+    }
     all_dosages[0] = new_sample_nm_ct * 32768LLU - alt1_dosage;
     if (!imp_r2_ptr) {
       return kPglRetSuccess;
@@ -9014,6 +9019,9 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   all_dosages[1] = alt1_dosage;
   const uint32_t nondosage_nm_ct = sample_ct - genocounts[3] - replaced_ct;
   const uint32_t new_sample_nm_ct = dosage_ct + nondosage_nm_ct;
+  if (unlikely(alt1_dosage > new_sample_nm_ct * 32768LLU)) {
+    return kPglRetMalformedInput;
+  }
   all_dosages[0] = new_sample_nm_ct * 32768LLU - alt1_dosage;
   hap_ssq_x2 += (remaining_het_ct + phased_hc_het_ct) * 0x10000000LLU + remaining_hom_alt_ct * 0x40000000LLU;
   *imp_r2_ptr = BiallelicDiploidMinimac3R2(alt1_dosage, hap_ssq_x2, new_sample_nm_ct);
