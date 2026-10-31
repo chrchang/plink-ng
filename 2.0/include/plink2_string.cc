@@ -1033,6 +1033,10 @@ static inline BoolErr ScanmovU64CappedFinish(uint64_t cap, const char** str_iter
       return 1;
     }
   }
+  // a lone digit hasn't been checked yet
+  if (unlikely(val > cap)) {
+    return 1;
+  }
   *valp = val;
   *str_iterp = &(str_iter[-1]);
   return 0;
@@ -1079,6 +1083,10 @@ static inline BoolErr ScanmovUintCappedFinish(uint64_t cap, const char** str_ite
     if (unlikely(val > cap)) {
       return 1;
     }
+  }
+  // a lone digit hasn't been checked yet
+  if (unlikely(val > cap)) {
+    return 1;
   }
   *valp = val;
   *str_iterp = &(str_iter[-1]);
@@ -1145,7 +1153,8 @@ BoolErr ScanmovIntBounded(uint64_t abs_floor, uint64_t cap, const char** str_ite
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (unlikely(*valp >= 10)) {
+    // must be an unsigned comparison: ' ', '\t', '\n', etc. are below '0'
+    if (unlikely(ctou32(*valp) >= 10)) {
       return 1;
     }
   }
@@ -1170,7 +1179,7 @@ BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const ch
     }
   }
   while (!val) {
-    val = ctou32(*str_iter++);
+    val = ctou32(*str_iter++) - 48;
     if (unlikely(val >= 10)) {
       return 1;
     }
@@ -1178,6 +1187,10 @@ BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const ch
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > cap_div_10 * 10 + cap_mod_10)) {
+        return 1;
+      }
       *valp = val;
       *str_iterp = str_iter;
       return 0;
@@ -1210,6 +1223,10 @@ BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > cap_div_10 * 10 + cap_mod_10)) {
+        return 1;
+      }
       *valp = val;
       *str_iterp = str_iter;
       return 0;
@@ -1241,6 +1258,10 @@ BoolErr ScanmovIntBounded32(uint32_t abs_floor_div_10, uint32_t abs_floor_mod_10
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > cap_div_10 * 10 + cap_mod_10)) {
+        return 1;
+      }
       *valp = sign * S_CAST(int32_t, val);
       *str_iterp = str_iter;
       return 0;
@@ -1512,7 +1533,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
           // overflow check
           // last digits are "54" instead of "57" since that's the threshold
           // beyond which multiply-by-1e256 overflows
-          if ((pos_exp > 31) || (dxx > 1.7976931348623154e52)) {
+          if ((pos_exp > 31) || (fabs(dxx) > 1.7976931348623154e52)) {
             return nullptr;
           }
           dxx *= 1.0e256;
@@ -1788,7 +1809,7 @@ BoolErr ScanIntAbsBoundedx(const char* str_iter, int64_t bound, int32_t* valp) {
 
 BoolErr ScanPosintptrx(const char* str_iter, uintptr_t* valp) {
   double val;
-  if ((!ScantokDouble(str_iter, &val)) || (val < 1.0) || (val > S_CAST(double, ~k0LU))) {
+  if ((!ScantokDouble(str_iter, &val)) || (val < 1.0) || (val >= S_CAST(double, ~k0LU) + 1.0)) {
     return 1;
   }
   *valp = S_CAST(uintptr_t, val);
