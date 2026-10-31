@@ -60,7 +60,7 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WriteMapOrBim_ret_NOMEM;
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen;
     reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteMapOrBim_ret_1;
@@ -944,7 +944,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
         goto WritePvar_ret_NOMEM;
       }
     }
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -4306,7 +4306,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
         max_id_slen = worst_case_id_slen;
       }
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_id_slen + 512 + 2 * max_allele_slen;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_id_slen + 512 + 2 * max_allele_slen;
     reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteBimSplit_ret_1;
@@ -4667,7 +4667,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
         max_id_slen = worst_case_id_slen;
       }
     }
-    uintptr_t overflow_buf_size = kCompressStreamBlock + max_id_slen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_id_slen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -5497,7 +5497,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
         }
       }
     }
-    uintptr_t overflow_buf_size = kCompressStreamBlock + max_id_slen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + S_CAST(uintptr_t, max_block_size) * (max_filter_slen + info_reload_slen + 2);
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_id_slen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + S_CAST(uintptr_t, max_block_size) * (max_filter_slen + info_reload_slen + 2);
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -10847,7 +10847,7 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WriteBimResorted_ret_NOMEM;
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen;
     reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteBimResorted_ret_1;
@@ -11428,7 +11428,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
         goto WritePvarResorted_ret_NOMEM;
       }
     }
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -12122,7 +12122,7 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     char* idbuf;
     uintptr_t* already_seen;
     if (unlikely(bigstack_alloc_u32(raw_sample_ct, new_sample_idx_to_old_ptr) ||
-                 bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+                 bigstack_alloc_c(siip->max_sample_id_blen + siip->max_sid_blen, &idbuf) ||
                  bigstack_calloc_w(BitCtToWordCt(raw_sample_ct), &already_seen))) {
       goto SampleSortFileMap_ret_NOMEM;
     }

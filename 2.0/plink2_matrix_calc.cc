@@ -11558,7 +11558,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     char* idbuf;
     uint32_t* sample_uidx_order;
-    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen + siip->max_sid_blen, &idbuf) ||
                  bigstack_alloc_u32(sample_ct, &sample_uidx_order))) {
       goto Vscore_ret_NOMEM;
     }

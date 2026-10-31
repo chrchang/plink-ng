@@ -3566,7 +3566,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (output_zst) {
       snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + MAXV(2 * max_allele_slen + max_qualfilterinfo_slen + kMaxIdSlen + 32, kCompressStreamBlock);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + MAXV(2 * max_allele_slen + max_qualfilterinfo_slen + 2 * kMaxIdSlen + 32, kCompressStreamBlock);
     reterr = InitCstreamAlloc(outname, 0, output_zst, sample_ct? 1 : MAXV(1, max_thread_ct - decompress_thread_ct), overflow_buf_size, &pvar_css, &pvar_cswritep);
     if (unlikely(reterr)) {
       goto VcfToPgen_ret_1;
@@ -13927,6 +13927,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               }
             }
             AppendBinaryEoln(&pvar_cswritep);
+            if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+              goto OxBgenToPgen_ret_WRITE_FAIL;
+            }
 
             compressed_geno_starts[block_vidx] = bgen_geno_iter;
             if (compression_mode) {
@@ -14449,6 +14452,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
 
         AppendBinaryEoln(&pvar_cswritep);
+        if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+          goto OxBgenToPgen_ret_WRITE_FAIL;
+        }
         *allele_idx_offsets_iter++ = tot_allele_ct;
         tot_allele_ct += cur_allele_ct;
         if (cur_allele_ct > max_allele_ct) {
@@ -19112,7 +19118,7 @@ PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname
     if (output_zst) {
       snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
     }
-    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + 64 + max_line_blen, &pvar_css, &pvar_cswritep);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + kMaxIdSlen + 64 + max_line_blen, &pvar_css, &pvar_cswritep);
     if (unlikely(reterr)) {
       goto MgfToPgen_ret_1;
     }
