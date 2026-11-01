@@ -9555,6 +9555,8 @@ THREAD_FUNC_DECL Export012SmajFmtThread(void* raw_arg) {
 
 // Per-parity budget for the formatted-line buffers.
 CONSTI32(kExport012SmajFmtByteCt, 64 * 1048576);
+static const uint64_t kExport012SmajMinBufByteCt = 1LLU << 30;
+static const uint64_t kExport012SmajMaxExtraPassCt = 4;
 
 PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* export_allele, const char* const* export_allele_missing, const char* legacy_output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t include_dom, uint32_t include_uncounted, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, PgenFileInfo* pgfip) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -9801,6 +9803,15 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     uint32_t read_sample_ct = sample_ct;
     uint32_t pass_ct = 1;
     const uintptr_t bytes_per_sample = calc_thread_ct * (kDosagePerCacheline / 8) * (3LLU + 8 * sizeof(Dosage)) + stride * sizeof(Dosage);
+    // Don't fill the whole workspace when a few passes over the .pgen are
+    // nearly free.  Passes are capped, since each one rereads the file.
+    {
+      const uint64_t bytes_needed = sample_ct * S_CAST(uint64_t, bytes_per_sample);
+      const uint64_t bytes_cap = MAXV(kExport012SmajMinBufByteCt, bytes_needed / kExport012SmajMaxExtraPassCt);
+      if (bytes_avail > bytes_cap) {
+        bytes_avail = bytes_cap;
+      }
+    }
     if ((sample_ct * S_CAST(uint64_t, bytes_per_sample)) > bytes_avail) {
       read_sample_ct = bytes_avail / bytes_per_sample;
       if (unlikely(!read_sample_ct)) {
