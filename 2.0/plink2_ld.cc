@@ -374,6 +374,30 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
 }
 #else  // !USE_AVX2
 static inline int32_t DotprodVecsNm(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc_both = vecw_setzero();
+  VecW acc_neg = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc_both = vecw_setzero();
+    VecW inner_acc_neg = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const VecW cur_both = hom1_iter[vec_idx] & hom2_iter[vec_idx];
+      inner_acc_both = inner_acc_both + vecw_popcount8(cur_both);
+      inner_acc_neg = inner_acc_neg + vecw_popcount8(cur_both & (ref2het1_iter[vec_idx] ^ ref2het2_iter[vec_idx]));
+    }
+    hom1_iter = &(hom1_iter[cur_incr]);
+    ref2het1_iter = &(ref2het1_iter[cur_incr]);
+    hom2_iter = &(hom2_iter[cur_incr]);
+    ref2het2_iter = &(ref2het2_iter[cur_incr]);
+    acc_both = acc_both + vecw_bytesum(inner_acc_both, m0);
+    acc_neg = acc_neg + vecw_bytesum(inner_acc_neg, m0);
+    vec_ct -= cur_incr;
+  }
+  return HsumW(acc_both) - 2 * HsumW(acc_neg);
+#else
   // popcount(hom1 & hom2) - 2 * popcount(hom1 & hom2 & (ref2het1 ^ ref2het2))
   // ct must be a multiple of 3.
   assert(!(vec_ct % 3));
@@ -428,6 +452,7 @@ static inline int32_t DotprodVecsNm(const VecW* __restrict hom1_iter, const VecW
     acc_both = acc_both + vecw_bytesum(inner_acc_both, m0);
     acc_neg = acc_neg + vecw_bytesum(inner_acc_neg, m0);
   }
+#endif
 }
 
 int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restrict ref2het1, const uintptr_t* __restrict hom2, const uintptr_t* __restrict ref2het2, uintptr_t word_ct) {
@@ -450,6 +475,31 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
 
 #ifndef USE_SSE42
 static inline void SumSsqVecs(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc_ssq2 = vecw_setzero();
+  VecW acc_plus2 = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc_ssq = vecw_setzero();
+    VecW inner_acc_plus = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const VecW cur_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
+      inner_acc_ssq = inner_acc_ssq + vecw_popcount8(cur_ssq);
+      inner_acc_plus = inner_acc_plus + vecw_popcount8(cur_ssq & ref2het2_iter[vec_idx]);
+    }
+    hom1_iter = &(hom1_iter[cur_incr]);
+    ref2het1_iter = &(ref2het1_iter[cur_incr]);
+    hom2_iter = &(hom2_iter[cur_incr]);
+    ref2het2_iter = &(ref2het2_iter[cur_incr]);
+    acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
+    acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
+    vec_ct -= cur_incr;
+  }
+  *ssq2_ptr = HsumW(acc_ssq2);
+  *plus2_ptr = HsumW(acc_plus2);
+#else
   // popcounts (nm1 & hom2) and (nm1 & hom2 & ref2het2).  ct is multiple of 3.
   assert(!(vec_ct % 3));
   const VecW m1 = VCONST_W(kMask5555);
@@ -505,6 +555,7 @@ static inline void SumSsqVecs(const VecW* __restrict hom1_iter, const VecW* __re
     acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
     acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
   }
+#endif
 }
 #endif
 
@@ -531,6 +582,39 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
 
 #if defined(USE_AVX2) || !defined(USE_SSE42)
 static inline void SumSsqNmVecs(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict nm_ptr, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc_nm = vecw_setzero();
+  VecW acc_ssq2 = vecw_setzero();
+  VecW acc_plus2 = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc_nm = vecw_setzero();
+    VecW inner_acc_ssq = vecw_setzero();
+    VecW inner_acc_plus = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const VecW nm1 = hom1_iter[vec_idx] | ref2het1_iter[vec_idx];
+      const VecW hom2 = hom2_iter[vec_idx];
+      const VecW ref2het2 = ref2het2_iter[vec_idx];
+      const VecW cur_ssq = nm1 & hom2;
+      inner_acc_nm = inner_acc_nm + vecw_popcount8(nm1 & (hom2 | ref2het2));
+      inner_acc_ssq = inner_acc_ssq + vecw_popcount8(cur_ssq);
+      inner_acc_plus = inner_acc_plus + vecw_popcount8(cur_ssq & ref2het2);
+    }
+    hom1_iter = &(hom1_iter[cur_incr]);
+    ref2het1_iter = &(ref2het1_iter[cur_incr]);
+    hom2_iter = &(hom2_iter[cur_incr]);
+    ref2het2_iter = &(ref2het2_iter[cur_incr]);
+    acc_nm = acc_nm + vecw_bytesum(inner_acc_nm, m0);
+    acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
+    acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
+    vec_ct -= cur_incr;
+  }
+  *nm_ptr = HsumW(acc_nm);
+  *ssq2_ptr = HsumW(acc_ssq2);
+  *plus2_ptr = HsumW(acc_plus2);
+#else
   // vec_ct must be a multiple of 3.
   assert(!(vec_ct % 3));
   const VecW m1 = VCONST_W(kMask5555);
@@ -611,6 +695,7 @@ static inline void SumSsqNmVecs(const VecW* __restrict hom1_iter, const VecW* __
     acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
     acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
   }
+#endif
 }
 #endif  // __LP64__
 
