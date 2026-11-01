@@ -517,7 +517,6 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags loa
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, mapname);
             goto LoadMap_ret_MALFORMED_INPUT_WW;
           }
-          at_least_one_nzero_cm = (cur_cm != 0.0);
           linebuf_iter = NextToken(cm_end);
           if (unlikely(!linebuf_iter)) {
             goto LoadMap_ret_MISSING_TOKENS;
@@ -532,6 +531,9 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags loa
         if (cur_bp < 0) {
           neg_bp_seen = 1;
           goto LoadMap_skip_variant;
+        }
+        if (cur_cm != 0.0) {
+          at_least_one_nzero_cm = 1;
         }
 
         const uint32_t variant_idx_lowbits = variant_ct % kLoadMapBlockSize;
@@ -1862,7 +1864,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
           }
           ctx.plink1_smaj_loadbuf_iter = &(plink1_smaj_loadbuf[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWordD2)]);
           if (allele_flips) {
-            ctx.allele_flips_iter = &(allele_flips[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWord)]);
+            ctx.allele_flips_iter = &(allele_flips[cur_vidx_base / kBitsPerWord + load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWord)]);
           }
           if (++load_idx == vblock_group_ct) {
             DeclareLastThreadBlock(&tg);
@@ -1990,11 +1992,12 @@ static BoolErr LgenWriteBlock(const uintptr_t* ref_seen, uint32_t sample_ct, uin
       allele_codes[variant_idx * 2 + 1] = tmp_allele_code;
       GenovecInvertUnsafe(sample_ct, cur_genovec);
       ZeroTrailingNyps(sample_ct, cur_genovec);
-    } else if (allele_codes[variant_idx * 2 + 1] == null_str) {
+    }
+    if (allele_codes[variant_idx * 2 + 1] == null_str) {
       allele_codes[variant_idx * 2 + 1] = nullptr;
-      if (allele_codes[variant_idx * 2] == null_str) {
-        allele_codes[variant_idx * 2] = nullptr;
-      }
+    }
+    if (allele_codes[variant_idx * 2] == null_str) {
+      allele_codes[variant_idx * 2] = nullptr;
     }
     if (unlikely(SpgwAppendBiallelicGenovec(cur_genovec, spgwp))) {
       return 1;
@@ -2336,10 +2339,10 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
           cur_geno = is_het;
           if (is_het) {
             if (!strequal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen)) {
+              if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
+                goto LgenToPgen_ret_HALF_MISSING;
+              }
               if (unlikely(prov_alt_allele != null_str)) {
-                if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
-                  goto LgenToPgen_ret_HALF_MISSING;
-                }
                 goto LgenToPgen_ret_MULTIALLELIC;
               }
               if (second_allele_slen == 1) {
@@ -2752,10 +2755,10 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
             cur_geno = 3 - is_het;
             if (is_het) {
               if (!allele_equal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen)) {
+                if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
+                  goto PedmapToPgen_ret_HALF_MISSING;
+                }
                 if (unlikely(prov_alt_allele != null_str)) {
-                  if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
-                    goto PedmapToPgen_ret_HALF_MISSING;
-                  }
                   goto PedmapToPgen_ret_MULTIALLELIC;
                 }
                 if (second_allele_slen == 1) {
@@ -2854,10 +2857,10 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
             cur_geno = 3 - is_het;
             if (is_het) {
               if (prov_alt_char != second_allele_char) {
+                if ((second_allele_char == '.') || (second_allele_char == input_missing_geno_char)) {
+                  goto PedmapToPgen_ret_HALF_MISSING;
+                }
                 if (unlikely(prov_alt_char)) {
-                  if ((second_allele_char == '.') || (second_allele_char == input_missing_geno_char)) {
-                    goto PedmapToPgen_ret_HALF_MISSING;
-                  }
                   goto PedmapToPgen_ret_MULTIALLELIC;
                 }
                 allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_char) * 2]);

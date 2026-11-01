@@ -74,7 +74,7 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
         nonref_flags[widx] |= cur_mask;
         ++widx;
       }
-      assert(widx > widx_full_end);
+      assert(widx <= widx_full_end);
       for (; widx != widx_full_end; ++widx) {
         downgraded_incr += PopcountWord(variant_include[widx] & (~nonref_flags[widx]));
         nonref_flags[widx] = ~k0LU;
@@ -403,14 +403,13 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
         continue;
       }
       const uint32_t orig_alen = alen_buf[aidx];
-      if (orig_alen <= rtrim) {
-        // Must be single-character from .fa.
-        cur_alleles[aidx] = &(g_one_char_strs[2 * ctou32(prev_ref[S_CAST(int32_t, orig_alen - rtrim)])]);
-      } else {
+      {
         uint32_t new_slen = orig_alen + lshift - rtrim - ltrim;
         const char* cur_allele = &(cur_alleles[aidx][ltrim]);
         if (new_slen == 1) {
-          cur_alleles[aidx] = &(g_one_char_strs[2 * ctou32(cur_allele[0])]);
+          // If the allele was entirely right-trimmed, it's the single
+          // character from .fa.
+          cur_alleles[aidx] = &(g_one_char_strs[2 * ctou32((orig_alen <= rtrim)? shifted_ref[0] : cur_allele[0])]);
         } else {
           if (S_CAST(uintptr_t, alloc_end - alloc_base) <= new_slen) {
             return kPglRetNomem;
@@ -802,6 +801,16 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       }
       seq_iter = memcpya(seq_iter, line_start, cur_seq_slen);
       // seq_iter = memcpya_toupper(seq_iter, loadbuf, cur_seq_slen);
+    }
+    if (contig_lens && (chr_fo_idx != UINT32_MAX) && (!(skipped_base_ct >> 63))) {
+      // Last contig; see header-line handling above.
+      const uint64_t contig_len = S_CAST(uintptr_t, seq_iter - seqbuf) + skipped_base_ct - 1;
+      if (unlikely(contig_len > UINT32_MAX)) {
+        logerrputs("Error: " PROG_NAME_STR " does not currently support contigs >= 2^32 bases.\n");
+        reterr = kPglRetNotYetSupported;
+        goto ProcessFa_ret_1;
+      }
+      contig_lens[chr_idx] = S_CAST(uint32_t, contig_len);
     }
     if (flags & kfFaRefFrom) {
       const uint32_t ref_from_fa_force = flags & kfFaRefFromForce;

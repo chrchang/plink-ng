@@ -108,7 +108,8 @@ int32_t AdjAssocCmp(const void* aa, const void* bb) {
 static inline void adjust_print_ln(const char* output_min_p_str, double ln_pval, double output_min_ln, uint32_t output_min_p_slen, uint32_t is_neglog10, char** bufpp) {
   **bufpp = '\t';
   *bufpp += 1;
-  if (ln_pval <= output_min_ln) {
+  if (ln_pval <= (is_neglog10? -DBL_MAX : output_min_ln)) {
+    // (-log10(p) output ignores --output-min-p; only the sentinel remains.)
     *bufpp = memcpya(*bufpp, output_min_p_str, output_min_p_slen);
   } else {
     if (!is_neglog10) {
@@ -1157,8 +1158,16 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     double* re2_betas = nullptr;
     double* re2_vars = nullptr;
     if (re2) {
-      if (unlikely(bigstack_alloc_d(file_ct, &re2_betas) ||
-                   bigstack_alloc_d(file_ct, &re2_vars))) {
+      // A file may contain the same ID more than once, so size by the largest
+      // group rather than by file_ct.
+      uintptr_t max_group_rec_ct = file_ct;
+      for (uintptr_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+        if (groups[group_idx].rec_ct > max_group_rec_ct) {
+          max_group_rec_ct = groups[group_idx].rec_ct;
+        }
+      }
+      if (unlikely(bigstack_alloc_d(max_group_rec_ct, &re2_betas) ||
+                   bigstack_alloc_d(max_group_rec_ct, &re2_vars))) {
         goto MetaAnalysis_ret_NOMEM;
       }
     }
@@ -1548,6 +1557,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     if (check_a1 && (!(found_type_bitset & 0x40))) {
       snprintf(g_logbuf, kLogbufSize, "Warning: No A1 column in %s. Omitting from output.\n", in_fname);
+      WordWrapB(0);
+      logerrputsb();
       check_a1 = 0;
     }
 

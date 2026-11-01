@@ -16,6 +16,7 @@ def main():
         offset = 3
         if sys.argv[3].startswith("raw_sample_ct="):
             specified_sample_ct = int(sys.argv[3][14:])
+            offset = 4
         if arg_ct > offset:
             sample_ct = arg_ct - offset
             sample_subset = np.empty(sample_ct, np.uint32)

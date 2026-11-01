@@ -711,7 +711,12 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
       char* info_start = &(filter_end[1]);
       char* info_end = strchrnul_n(info_start, '\t');
       if (!erase_info) {
-        write_iter = memcpya(write_iter, line_start, info_end - line_start);
+        // CR-LF: don't copy the '\r' when INFO is the last column.
+        const char* info_copy_end = info_end;
+        if ((*info_end == '\n') && (info_copy_end[-1] == '\r')) {
+          --info_copy_end;
+        }
+        write_iter = memcpya(write_iter, line_start, info_copy_end - line_start);
       } else {
         write_iter = memcpyax(write_iter, line_start, info_start - line_start, '.');
       }
@@ -1158,6 +1163,10 @@ int main(int argc, char** argv) {
     }
     if (indv_str && keeppath) {
       fputs("Error: --indv and --keep cannot be used simultaneously.\n", stderr);
+      goto main_ret_INVALID_CMDLINE;
+    }
+    if (no_samples && (indv_str || keeppath)) {
+      fputs("Error: --no-samples cannot be used with --indv or --keep.\n", stderr);
       goto main_ret_INVALID_CMDLINE;
     }
 

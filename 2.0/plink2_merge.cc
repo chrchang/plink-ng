@@ -1188,7 +1188,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
         goto MergePsams_ret_NOMEM;
       }
       const uint32_t hashval = Hashceil(missing_catname, missing_catname_slen, category_names_htable_size);
-      category_names_htable[0] = hashval;
+      category_names_htable[hashval] = 0;
       category_names_ct = 1;
     }
     arena_bottom = g_bigstack_base;
@@ -1360,7 +1360,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
                     memcpyx(mom_id_dst, mom_id, mom_slen, '\0');
                   } else {
                     strcpy_k(mom_id_dst, "0");
-                    SetBit(sample_idx * 2, parents_locked);
+                    SetBit(sample_idx * 2 + 1, parents_locked);
                   }
                 }
               } else {
@@ -1626,7 +1626,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
                       const uintptr_t sample_uidx = BitIter1(pheno_zero_seen, &zero_seen_uidx_base, &cur_bits) - bit_offset;
                       if (IsSet(nonmiss, sample_uidx)) {
                         ClearBit(sample_uidx, nonmiss);
-                      } else {
+                      } else if (!IsSet(pheno_locked, bit_offset + sample_uidx)) {
                         SetBit(sample_uidx, nonmiss);
                         qt[sample_uidx] = 0.0;
                       }
@@ -2568,7 +2568,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
       cur_fileset->nz_cm_present = 0;
 
       info_pr_exists_here = info_pr_exists_here && info_col_present;
-      if (unlikely((cur_fileset->nonref_flags_storage == 0) && info_pr_exists_here)) {
+      if (unlikely((cur_fileset->nonref_flags_storage == 0) && (!info_pr_exists_here))) {
         // Provisional-vs.-not REF status is directly relevant during merge.
         // It's of limited importance for most other operations, so
         // Plink2Core() only prints a warning.
@@ -2858,9 +2858,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
         arena_bottom = arena_bottom_mark;
         filesets_iterp = &((*filesets_iterp)->next);
       } else {
-        PmergeInputFilesetLl** next_filesets_iterp = &((*filesets_iterp)->next);
         *filesets_iterp = cur_fileset->next;
-        filesets_iterp = next_filesets_iterp;
         ++null_fileset_ct;
       }
     }
@@ -3337,6 +3335,7 @@ PglErr DetectConcatJob(const uint32_t* chr_idx_to_foidx, uintptr_t fileset_ct, S
             break;
           }
         }
+        prev_last_coord = sorted_filesets[fileset_idx].last_coord;
         continue;
       }
       prev_last_coord = sorted_filesets[fileset_idx].last_coord;
@@ -4378,7 +4377,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               merged_alleles[merged_allele_ct] = allele_iter;
               merged_allele_idx = merged_allele_ct;
               ++merged_allele_ct;
-              if (merged_allele_ct == allele_ct_limit) {
+              if (merged_allele_ct == allele_ct_capacity) {
                 // Too many alleles.
                 if (unlikely(allele_ct_limit == kPglMaxAlleleCt + 1)) {
                   logputs("\n");
@@ -6279,12 +6278,15 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
         }
         if (read_allele_idx != read_allele_ct) {
           // Allele rotation may be needed.
-          if ((cur_allele_remap[0] == kMissingAlleleCode) || (cur_allele_remap[1] == kMissingAlleleCode)) {
+          const uint32_t missing_code_present = (cur_allele_remap[0] == kMissingAlleleCode) || (cur_allele_remap[1] == kMissingAlleleCode);
+          if (missing_code_present) {
             reterr = ValidateBiallelicVariantWithMissingCode(cur_allele_remap, read_sample_ct, (write_allele_ct == 2), pgvp);
             if (unlikely(reterr)) {
               goto MergePgenVariant_ret_1;
             }
-          } else {
+            ZeroTrailingNyps(read_sample_ct, pgvp->genovec);
+          }
+          if ((!missing_code_present) || (write_allele_ct > 2)) {
             const uint32_t read_sample_ctl = BitCtToWordCt(read_sample_ct);
             if (write_allele_ct == 2) {
               // Only possibility is cur_allele_remap[0] == 1,
@@ -7745,15 +7747,30 @@ uint32_t CountMergedAlleles(SamePosPvarRecord** same_id_records, uintptr_t merge
       const uint32_t info_offset = other_field_offsets[4];
       is_pr = PrInInfo(other_field_offsets[5] - info_offset - 1, &(cur_variant_id[info_offset]));
     }
+    if (!is_pr) {
+      // MergePvariant() always makes this REF allele 0, even when
+      // provisional-REF records precede it.
+      const char* ref_allele = &(cur_variant_id[other_field_offsets[0]]);
+      merged_alleles[0] = ref_allele;
+      HtableAddNondup(ref_allele, strlen(ref_allele), htable_size, 0, merged_alleles_htable);
+      merged_allele_ct = 1;
+      break;
+    }
+  }
+  for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
+    SamePosPvarRecord* cur_record = same_id_records[rec_idx];
+    const uint32_t* other_field_offsets = cur_record->other_field_offsets;
+    char* cur_variant_id = cur_record->variant_id;
+    const uint32_t pgen_pr_status = cur_record->pgen_pr_status;
+    uint32_t is_pr = pgen_pr_status & 1;
+    if ((!is_pr) && (pgen_pr_status & 2)) {
+      const uint32_t info_offset = other_field_offsets[4];
+      is_pr = PrInInfo(other_field_offsets[5] - info_offset - 1, &(cur_variant_id[info_offset]));
+    }
     const char* allele_iter = &(cur_variant_id[other_field_offsets[0]]);
     const uint32_t allele_ct = cur_record->allele_ct;
     uint32_t allele_idx = 0;
     if (!is_pr) {
-      if (!merged_allele_ct) {
-        merged_alleles[0] = allele_iter;
-        HtableAddNondup(allele_iter, strlen(allele_iter), htable_size, 0, merged_alleles_htable);
-        merged_allele_ct = 1;
-      }
       allele_idx = 1;
       allele_iter = &(cur_variant_id[other_field_offsets[1]]);
     }
@@ -9813,6 +9830,16 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         goto PgenDiff_ret_1;
       }
 
+      if (cur_allele_ct1 == 2) {
+        // PgrGet()/PgrGetD() don't reset these.
+        pgv1.patch_01_ct = 0;
+        pgv1.patch_10_ct = 0;
+      }
+      if (cur_allele_ct2 == 2) {
+        pgv2.patch_01_ct = 0;
+        pgv2.patch_10_ct = 0;
+      }
+
       uintptr_t* genovec1 = pgv1.genovec;
       uintptr_t* genovec2 = pgv2.genovec;
       uint32_t merged_allele_ct = 0;
@@ -9943,7 +9970,8 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             }
           }
         }
-        const uint32_t cur_max_merged_alleles = 1 + cur_allele_ct1 + cur_allele_ct2 - allele1_alt_start - allele2_alt_start;
+        // cap matches max_merged_allele_ct, which determined the allocation
+        const uint32_t cur_max_merged_alleles = MINV(1 + cur_allele_ct1 + cur_allele_ct2 - allele1_alt_start - allele2_alt_start, kPglMaxAlleleCt);
         const uint32_t cur_htable_size = (cur_max_merged_alleles * 9) / 2;
         SetAllU32Arr(cur_htable_size, merged_alleles_htable);
         // See e.g. PopulateStrboxHtable().
@@ -10221,7 +10249,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
               const DoubleAlleleCode dac1 = wc1_alias[sample_idx];
               const uint32_t sample_idx2 = sample1_idx_to_2[sample_idx];
               const DoubleAlleleCode dac2 = wc2_alias[sample_idx2];
-              if ((dac1 == dac2) || (((dac1 == kMissingAlleleCode) || (dac2 == kMissingAlleleCode)) && (!include_missing))) {
+              if ((dac1 == dac2) || (((dac1 == kMissingDoubleAlleleCode) || (dac2 == kMissingDoubleAlleleCode)) && (!include_missing))) {
                 continue;
               }
               diff_sample_idxs[diff_ct] = sample_idx;

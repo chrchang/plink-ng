@@ -1341,6 +1341,10 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
       cur_char_code = ctou32(*(++str_iter));
     }
     cur_digit = cur_char_code - 48;
+    if (cur_digit >= 10) {
+      // dangling exponent marker
+      return nullptr;
+    }
     int32_t cur_exp = 0;
     while (cur_digit < 10) {
       if (cur_exp >= 214748364) {
@@ -1454,6 +1458,10 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
       cur_char_code = ctou32(*(++str_iter));
     }
     cur_digit = cur_char_code - 48;
+    if (cur_digit >= 10) {
+      // dangling exponent marker
+      return nullptr;
+    }
     int32_t cur_exp = 0;
     while (cur_digit < 10) {
       if (cur_exp >= 107374182) {
@@ -1606,6 +1614,10 @@ CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr) {
       cur_char_code = ctou32(*(++str_iter));
     }
     cur_digit = cur_char_code - 48;
+    if (cur_digit >= 10) {
+      // dangling exponent marker
+      return nullptr;
+    }
     int32_t cur_exp = 0;
     while (cur_digit < 10) {
       if (cur_exp >= 214748364) {
@@ -1722,6 +1734,10 @@ CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr) {
       cur_char_code = ctou32(*(++str_iter));
     }
     cur_digit = cur_char_code - 48;
+    if (cur_digit >= 10) {
+      // dangling exponent marker
+      return nullptr;
+    }
     int32_t cur_exp = 0;
     while (cur_digit < 10) {
       if (cur_exp >= 107374182) {

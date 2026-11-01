@@ -706,7 +706,7 @@ double didonato_sn_a2(double x, uint32_t nn) {
   // a=2, nn>=1, tolerance=1e-4 hardcoded
   const double tolerance = 1e-4;
   double sum = 1;
-  double partial = x * (1 / 3);
+  double partial = x * (1.0 / 3);
   sum += partial;
   for (uint32_t i = 2; i <= nn; ++i) {
     partial *= x / u31tod(2 + i);
@@ -737,9 +737,9 @@ double find_inverse_gamma_df4_shared(double pp, double qq, double lnq, uint32_t*
   const double ra = kSqrt2;
 
   // refer to Boost code if adapting to other dfs
-  double w = 2 + s * ra + (s * s - 1) * (1 / 3);
+  double w = 2 + s * ra + (s * s - 1) * (1.0 / 3);
   w += (s_3 - 7 * s) / (36 * ra);
-  w -= (3 * s_4 + 7 * s_2 - 16) * (1 / (810 * 2));
+  w -= (3 * s_4 + 7 * s_2 - 16) * (1.0 / (810 * 2));
   w += (9 * s_5 + 256 * s_3 - 433 * s) * (1 / (38880 * 2 * ra));
 
   if (qq < 0.5) {
@@ -763,12 +763,12 @@ double find_inverse_gamma_df4_shared(double pp, double qq, double lnq, uint32_t*
 
       const double c2 = 1 + c1;
       const double c3 = (-(c1_2 * 0.5) + 1 * 0.5);
-      const double c4 = ((c1_3 / 3) - c1_2 * 0.5 - c1 - 1 / 6);
+      const double c4 = ((c1_3 / 3) - c1_2 * 0.5 - c1 - 1.0 / 6);
       const double c5 = (-(c1_4 * 0.25)
-                         + c1_3 * (5 / 6)
+                         + c1_3 * (5.0 / 6)
                          + c1_2
                          - c1 * 0.5
-                         - 5 / 12);
+                         - 5.0 / 12);
 
       const double y_2 = y * y;
       const double y_3 = y_2 * y;
@@ -785,11 +785,11 @@ double find_inverse_gamma_df4_shared(double pp, double qq, double lnq, uint32_t*
     // DiDonato and Morris Eq 35
     v = log(pp) + kLn2;
     z = exp((v + w) * 0.5);
-    s = log1p(z * (1 / 3) * (1 + z * 0.25));
+    s = log1p(z * (1.0 / 3) * (1 + z * 0.25));
     z = exp((v + z - s) * 0.5);
-    s = log1p(z * (1 / 3) * (1 + z * 0.25));
+    s = log1p(z * (1.0 / 3) * (1 + z * 0.25));
     z = exp((v + z - s) * 0.5);
-    s = log1p(z * (1 / 3) * (1 + z * 0.25 * (1 + z * 0.2)));
+    s = log1p(z * (1.0 / 3) * (1 + z * 0.25 * (1 + z * 0.2)));
     z = exp((v + z - s) * 0.5);
   }
 
@@ -1397,8 +1397,9 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     return binomial_ccdf_ln(nn, kk, xx, yy, inv);
   }
   // Changed from b*x <= 0.7 since BGRAT has problems with small x, while BPSER
-  // can handle this larger b*x case since b<40 is guaranteed.
-  if (xx <= 0.7) {
+  // can handle this larger b*x case since b<40 is guaranteed.  (But BPSER is
+  // an alternating series, and loses all precision when b*x gets large.)
+  if ((xx <= 0.7) && (bb * xx <= 5.0)) {
     return ibeta_series_ln(aa, bb, xx, inv);
   }
   const uint32_t nn = (df2 - 1) / 2;
@@ -2725,7 +2726,7 @@ uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
     homc_t2 -= 1;
     scaled_one_plus_eps += kExactTestBias * 2 * k2m52;
     if (lik2 < scaled_one_plus_eps) {
-      if (lik2 <= 2 - scaled_one_plus_eps) {
+      if (lik2 <= 2 * kExactTestBias - scaled_one_plus_eps) {
         tail_sum2 = lik2;
         break;
       }

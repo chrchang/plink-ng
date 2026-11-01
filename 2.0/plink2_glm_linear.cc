@@ -1050,11 +1050,13 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           }
         }
         const double mach_r2 = MultiallelicDiploidMachR2(machr2_dosage_sums, machr2_dosage_ssqs, nm_sample_ct, allele_ct);
+        const uint32_t cur_const_allele_ct = PopcountWords(const_alleles, allele_ctl);
         for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
           if (allele_idx == omitted_allele_idx) {
             continue;
           }
           block_aux_iter->sample_obs_ct = nm_sample_ct;
+          block_aux_iter->const_allele_ct = cur_const_allele_ct;
           block_aux_iter->allele_obs_ct = allele_obs_ct;
           double a1_dosage = u63tod(machr2_dosage_sums[allele_idx]) * kRecipDosageMid;
           if (is_xchr_model_1) {
@@ -1259,7 +1261,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                   if (covar_idx < local_covar_ct) {
                     cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
                   } else {
-                    cur_covar_col = &(cur_covars_cmaj[covar_idx * cur_sample_ct]);
+                    cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * cur_sample_ct]);
                   }
                   if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                     uintptr_t sample_midx_base = 0;
@@ -2159,7 +2161,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
             }
-            suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
+            suppress_mach_r2 = (chr_idx == cip->xymt_codes[kChrOffsetX]) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
               primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
             }
@@ -2211,10 +2213,10 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     primary_ln_pval = -DBL_MAX;
                   } else {
                     const double primary_tstat = primary_beta / primary_se;
-                    primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
+                    primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                 } else {
-                  primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
+                  primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                 }
                 if (primary_ln_pval > ln_pfilter) {
                   if (orig_ln_pvals) {
@@ -2371,7 +2373,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   test_is_valid = (se != -9.0);
                   if (test_is_valid) {
                     tstat = beta / se;
-                    ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
+                    ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                   if (beta_col) {
                     *cswritep++ = '\t';
@@ -2430,7 +2432,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                   // could avoid recomputing
                   if (test_is_valid) {
-                    ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
+                    ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                 }
                 if (p_col) {
@@ -2951,7 +2953,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           genocounts[difflist_common_geno] = cur_sample_ct - difflist_len;
           missing_ct = genocounts[3];
         } else {
-          if (difflist_common_geno <= 2) {
+          if (difflist_common_geno != UINT32_MAX) {
             PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, cur_sample_ct, difflist_len, pgv.genovec);
             difflist_common_geno = UINT32_MAX;
           }
@@ -3331,11 +3333,13 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           }
         }
         const double mach_r2 = MultiallelicDiploidMachR2(machr2_dosage_sums, machr2_dosage_ssqs, nm_sample_ct, allele_ct);
+        const uint32_t cur_const_allele_ct = PopcountWords(const_alleles, allele_ctl);
         for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
           if (allele_idx == omitted_allele_idx) {
             continue;
           }
           block_aux_iter->sample_obs_ct = nm_sample_ct;
+          block_aux_iter->const_allele_ct = cur_const_allele_ct;
           block_aux_iter->allele_obs_ct = allele_obs_ct;
           double a1_dosage = u63tod(machr2_dosage_sums[allele_idx]) * kRecipDosageMid;
           if (is_xchr_model_1) {
@@ -3543,7 +3547,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   if (covar_idx < local_covar_ct) {
                     cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
                   } else {
-                    cur_covar_col = &(cur_covars_cmaj[covar_idx * cur_sample_ct]);
+                    cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * cur_sample_ct]);
                   }
                   if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                     uintptr_t sample_midx_base = 0;
@@ -4648,7 +4652,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                 cur_constraint_ct = constraint_ct;
                 cur_test_names = test_names;
               }
-              suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
+              suppress_mach_r2 = (chr_idx == cip->xymt_codes[kChrOffsetX]) || (chr_idx == mt_code);
               if (cur_constraint_ct) {
                 primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
               }
@@ -4704,10 +4708,10 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                         primary_ln_pval = -DBL_MAX;
                       } else {
                         const double primary_tstat = primary_beta / primary_se;
-                        primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
+                        primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                       }
                     } else {
-                      primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
+                      primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                     }
                     if (primary_ln_pval > ln_pfilter) {
                       goto GlmLinearBatch_allele_iterate;
@@ -4866,7 +4870,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       test_is_valid = (se != -9.0);
                       if (test_is_valid) {
                         tstat = beta / se;
-                        ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
+                        ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                       }
                       if (beta_col) {
                         *cswritep++ = '\t';
@@ -4925,7 +4929,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                       // could avoid recomputing
                       if (test_is_valid) {
-                        ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
+                        ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                       }
                     }
                     if (p_col) {
@@ -5126,9 +5130,9 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
-    uint32_t max_orig_covar_ct = MAXV(orig_covar_ct, orig_covar_ct_x);
-    if (max_orig_covar_ct < orig_covar_ct_y) {
-      max_orig_covar_ct = orig_covar_ct_y;
+    uint32_t max_orig_covar_ct = MAXV(orig_covar_ct + extra_cat_ct, orig_covar_ct_x + extra_cat_ct_x);
+    if (max_orig_covar_ct < orig_covar_ct_y + extra_cat_ct_y) {
+      max_orig_covar_ct = orig_covar_ct_y + extra_cat_ct_y;
     }
     uint32_t* local_sample_idx_order = nullptr;
     uint32_t local_line_idx = 0;
@@ -5603,15 +5607,15 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
             FillPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[pidx * sample_ct_y]));
           }
         } else {
-          if (unlikely(FillResidualizedPhenoAndXtY(sample_include, pheno_qt_tmp, late_qtr_covars_cmaj_d, sample_ct, domdev_third_p1, orig_covar_ct, &(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_d[pidx * sample_ct])))) {
+          if (unlikely(FillResidualizedPhenoAndXtY(sample_include, pheno_qt_tmp, late_qtr_covars_cmaj_d, sample_ct, domdev_third_p1, orig_covar_ct + extra_cat_ct, &(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_d[pidx * sample_ct])))) {
             assert(0);
             goto GlmLinearPerm_ret_NOMEM;
           }
           if (sample_ct_x) {
-            FillResidualizedPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, late_qtr_covars_cmaj_x_d, sample_ct_x, domdev_third_p1, orig_covar_ct_x, &(common->nm_precomp_x->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_x_d[pidx * sample_ct_x]));
+            FillResidualizedPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, late_qtr_covars_cmaj_x_d, sample_ct_x, domdev_third_p1, orig_covar_ct_x + extra_cat_ct_x, &(common->nm_precomp_x->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_x_d[pidx * sample_ct_x]));
           }
           if (sample_ct_y) {
-            FillResidualizedPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, late_qtr_covars_cmaj_y_d, sample_ct_y, domdev_third_p1, orig_covar_ct_y, &(common->nm_precomp_y->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_y_d[pidx * sample_ct_y]));
+            FillResidualizedPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, late_qtr_covars_cmaj_y_d, sample_ct_y, domdev_third_p1, orig_covar_ct_y + extra_cat_ct_y, &(common->nm_precomp_y->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_y_d[pidx * sample_ct_y]));
           }
         }
       }
@@ -5780,10 +5784,10 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
                       primary_ln_pval = -DBL_MAX;
                     } else {
                       const double primary_tstat = primary_beta / primary_se;
-                      primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
+                      primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                     }
                   } else {
-                    primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
+                    primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                   const double orig_ln_pval = orig_ln_pvals[valid_allele_idx];
                   if (orig_ln_pval >= primary_ln_pval) {

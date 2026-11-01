@@ -394,7 +394,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
     GwasSsfInternal_main_loop_start:
       ;
       const uint32_t chr_code_raw = GetChrCodeRaw(line_iter);
-      if ((!chr_code_raw) || ((chr_code_raw > 26) && (chr_code_raw < kMaxContigs))) {
+      if ((!chr_code_raw) || ((chr_code_raw > 26) && (chr_code_raw < kMaxContigs)) || (chr_code_raw >= kChrRawEnd)) {
         line_iter = AdvPastDelim(line_iter, '\n');
         continue;
       }
@@ -678,9 +678,16 @@ PglErr GwasSsfOneFile(const GwasSsfInfo* gsip, const char* in_fname, uint32_t ma
 
     uint32_t force_rsid = 0;
     uint32_t force_ref = 0;
-    do {
+    while (1) {
       reterr = GwasSsfInternal(gsip, in_fname, out_fname, max_line_blen, max_thread_ct, &txs, &force_rsid, &force_ref);
-    } while (reterr == kPglRetRetry);
+      if (reterr != kPglRetRetry) {
+        break;
+      }
+      reterr = TextRewind(&txs);
+      if (unlikely(reterr)) {
+        goto GwasSsfOneFile_ret_TSTREAM_FAIL;
+      }
+    }
     if (unlikely(reterr)) {
       goto GwasSsfOneFile_ret_1;
     }
@@ -842,6 +849,10 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     }
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto GlmLocalOpen_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!local_sample_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: No samples in %s.\n", local_psam_fname);
+      goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
     }
     BigstackFinalizeU32(local_sample_uidx_order, local_sample_ct);
     *local_sample_uidx_order_ptr = local_sample_uidx_order;
@@ -1010,7 +1021,8 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         if (cur_chr_code_u != prev_chr_code) {
           const uint32_t first_variant_uidx_in_chr = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[cur_chr_code_u]];
           if (first_variant_uidx_in_chr < prev_variant_uidx) {
-            if (unlikely(new_variant_ct)) {
+            // no error if this chromosome has no included variants
+            if (unlikely(new_variant_ct && PopcountBitRange(orig_variant_include, first_variant_uidx_in_chr, cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[cur_chr_code_u] + 1]))) {
               // not worth the trouble of handling this
               snprintf(g_logbuf, kLogbufSize, "Error: Chromosome order in %s is different from chromosome order in main dataset.\n", local_pvar_fname);
               goto GlmLocalOpen_ret_INCONSISTENT_INPUT_WW;
@@ -1710,7 +1722,8 @@ uint32_t CheckForSeparatedQtCovar(const uintptr_t* pheno_cc, const uintptr_t* cu
           return 0;
         }
         case_min = cur_covar_val;
-      } else if (cur_covar_val > case_max) {
+      }
+      if (cur_covar_val > case_max) {
         if ((ctrl_max > case_min) && (cur_covar_val > ctrl_min)) {
           return 0;
         }
@@ -1722,7 +1735,8 @@ uint32_t CheckForSeparatedQtCovar(const uintptr_t* pheno_cc, const uintptr_t* cu
           return 0;
         }
         ctrl_min = cur_covar_val;
-      } else if (cur_covar_val > ctrl_max) {
+      }
+      if (cur_covar_val > ctrl_max) {
         if ((case_max > ctrl_min) && (cur_covar_val > case_min)) {
           return 0;
         }
@@ -2595,6 +2609,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         variant_ct_x = 0;
       }
       uintptr_t* variant_include_nohap = nullptr;
+      uintptr_t* local_variant_include_nohap = nullptr;
       const uint32_t chr_ct = cip->chr_ct;
       uint32_t removed_variant_ct = 0;
       for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
@@ -2612,6 +2627,19 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 goto GlmMain_ret_NOMEM;
               }
               memcpy(variant_include_nohap, early_variant_include, raw_variant_ctl * sizeof(intptr_t));
+              if (local_variant_include) {
+                if (unlikely(bigstack_alloc_w(local_variant_ctl, &local_variant_include_nohap))) {
+                  goto GlmMain_ret_NOMEM;
+                }
+                memcpy(local_variant_include_nohap, local_variant_include, local_variant_ctl * sizeof(intptr_t));
+              }
+            }
+            if (local_variant_include) {
+              // bugfix: local-covar lines of removed variants must be skipped
+              const uint32_t variant_ct_before = PopcountBitRange(early_variant_include, 0, variant_uidx_start);
+              const uint32_t local_uidx_first = IdxToUidxBasic(local_variant_include, variant_ct_before);
+              const uint32_t local_uidx_last = FindNth1BitFrom(local_variant_include, local_uidx_first, cur_chr_variant_ct);
+              ClearBitsNz(local_uidx_first, local_uidx_last + 1, local_variant_include_nohap);
             }
             ClearBitsNz(variant_uidx_start, variant_uidx_end, variant_include_nohap);
             removed_variant_ct += cur_chr_variant_ct;
@@ -2625,6 +2653,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         variant_ct -= removed_variant_ct;
         early_variant_include = variant_include_nohap;
+        if (local_variant_include) {
+          local_variant_include = local_variant_include_nohap;
+        }
         max_variant_ct = variant_ct;
       }
     } else {
@@ -2784,7 +2815,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         uintptr_t sample_uidx_base = 0;
         uintptr_t cur_bits = sex_nm[0];
-        for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx) {
+        for (uint32_t sample_idx = 0; sample_idx != sex_nm_ct; ++sample_idx) {
           const uintptr_t sample_uidx = BitIter1(sex_nm, &sample_uidx_base, &cur_bits);
           // 1/2 instead of 1/0 coding; user shouldn't have to worry about
           // signs changing when they use --sex instead of using the sex column
@@ -2929,7 +2960,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           goto GlmMain_ret_NOMEM;
         }
         if (glm_info_ptr->tests_range_list.name_ct) {
-          if (unlikely(NumericRangeListToBitarr(&(glm_info_ptr->tests_range_list), raw_param_ct, 0, 0, tests_buf))) {
+          if (unlikely(NumericRangeListToBitarr(&(glm_info_ptr->tests_range_list), raw_param_ct, 0, 1, tests_buf))) {
             logerrputs("Error: Invalid --tests expression.\n");
             goto GlmMain_ret_INVALID_CMDLINE;
           }
@@ -3249,10 +3280,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
               biallelic_predictor_ct_x = 2 + domdev_third + (covar_ct_x + extra_cat_ct_x) * (1 + add_interactions * domdev_third_p1);
               if (raw_parameter_subset) {
-                biallelic_predictor_ct_x = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.parameter_subset_x);
+                biallelic_predictor_ct_x = CollapseParamOrTestSubset(covar_include_x, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.parameter_subset_x);
               }
               if (raw_joint_test_params) {
-                common.constraint_ct_x = CollapseParamOrTestSubset(covar_include, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.joint_test_params_x);
+                common.constraint_ct_x = CollapseParamOrTestSubset(covar_include_x, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.joint_test_params_x);
                 if (raw_parameter_subset) {
                   memcpy(joint_test_params_buf, common.joint_test_params_x, biallelic_raw_predictor_ctl * sizeof(intptr_t));
                   ZeroWArr(biallelic_raw_predictor_ctl, common.joint_test_params_x);
@@ -3301,7 +3332,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               if (sample_ct_x && (covar_ct_x < initial_nonx_covar_ct + 1)) {
                 uintptr_t covar_uidx_base = 0;
                 uintptr_t cur_bits = initial_covar_include[0];
-                for (uint32_t covar_idx = 0; covar_idx != covar_ct_x; ++covar_idx) {
+                for (uint32_t covar_idx = 0; covar_idx != initial_nonx_covar_ct + 1; ++covar_idx) {
                   const uintptr_t covar_uidx = BitIter1(initial_covar_include, &covar_uidx_base, &cur_bits);
                   if (!IsSet(covar_include_x, covar_uidx)) {
                     logerrprintfww("Warning: On chrX, not including covariate '%s' in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", &(covar_names[covar_uidx * max_covar_name_blen]), first_pheno_name);
@@ -3344,11 +3375,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
               biallelic_predictor_ct_y = 2 + domdev_third + (covar_ct_y + extra_cat_ct_y) * (1 + add_interactions * domdev_third_p1);
               if (raw_parameter_subset) {
-                biallelic_predictor_ct_y = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.parameter_subset_y);
+                biallelic_predictor_ct_y = CollapseParamOrTestSubset(covar_include_y, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.parameter_subset_y);
               }
               if (raw_joint_test_params) {
                 assert(common.tests_flag);
-                common.constraint_ct_y = CollapseParamOrTestSubset(covar_include, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.joint_test_params_y);
+                common.constraint_ct_y = CollapseParamOrTestSubset(covar_include_y, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.joint_test_params_y);
                 if (raw_parameter_subset) {
                   memcpy(joint_test_params_buf, common.joint_test_params_y, biallelic_raw_predictor_ctl * sizeof(intptr_t));
                   ZeroWArr(biallelic_raw_predictor_ctl, common.joint_test_params_y);
@@ -3394,7 +3425,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               if (sample_ct_y && (covar_ct_y < initial_y_covar_ct)) {
                 uintptr_t covar_uidx_base = 0;
                 uintptr_t cur_bits = initial_covar_include[0];
-                for (uint32_t covar_idx = 0; covar_idx != covar_ct_y; ++covar_idx) {
+                for (uint32_t covar_idx = 0; covar_idx != initial_y_covar_ct; ++covar_idx) {
                   const uintptr_t covar_uidx = BitIter1(initial_covar_include, &covar_uidx_base, &cur_bits);
                   if (!IsSet(covar_include_y, covar_uidx)) {
                     logerrprintfww("Warning: On chrY, not including covariate '%s' in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", &(covar_names[covar_uidx * max_covar_name_blen]), first_pheno_name);
@@ -3837,10 +3868,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             biallelic_predictor_ct_x = 2 + domdev_third + (covar_ct_x + extra_cat_ct_x) * (1 + add_interactions * domdev_third_p1);
             if (raw_parameter_subset) {
-              biallelic_predictor_ct_x = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.parameter_subset_x);
+              biallelic_predictor_ct_x = CollapseParamOrTestSubset(covar_include_x, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.parameter_subset_x);
             }
             if (raw_joint_test_params) {
-              common.constraint_ct_x = CollapseParamOrTestSubset(covar_include, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.joint_test_params_x);
+              common.constraint_ct_x = CollapseParamOrTestSubset(covar_include_x, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_x, add_interactions, common.joint_test_params_x);
               if (raw_parameter_subset) {
                 memcpy(joint_test_params_buf, common.joint_test_params_x, biallelic_raw_predictor_ctl * sizeof(intptr_t));
                 ZeroWArr(biallelic_raw_predictor_ctl, common.joint_test_params_x);
@@ -3877,7 +3908,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               const uint32_t case_ct_x = PopcountWordsIntersect(cur_sample_include_x, cur_pheno_col->data.cc, raw_sample_ctl);
               if ((!case_ct_x) || (case_ct_x == sample_ct_x)) {
                 if (unlikely(!skip_invalid_pheno)) {
-                  logerrprintfww("Error: All remaining samples on chrX for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
+                  logerrprintfww("Error: All remaining samples on chrX for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct_x? "cases" : "controls");
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
                 logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_x? "cases" : "controls");
@@ -3913,7 +3944,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (sample_ct_x && (covar_ct_x < initial_nonx_covar_ct + 1)) {
               uintptr_t covar_uidx_base = 0;
               uintptr_t cur_bits = initial_covar_include[0];
-              for (uint32_t covar_idx = 0; covar_idx != covar_ct_x; ++covar_idx) {
+              for (uint32_t covar_idx = 0; covar_idx != initial_nonx_covar_ct + 1; ++covar_idx) {
                 const uintptr_t covar_uidx = BitIter1(initial_covar_include, &covar_uidx_base, &cur_bits);
                 if (!IsSet(covar_include_x, covar_uidx)) {
                   logerrprintfww("Warning: On chrX, not including covariate '%s' in --glm regression on phenotype '%s'.\n", &(covar_names[covar_uidx * max_covar_name_blen]), cur_pheno_name);
@@ -3956,11 +3987,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             biallelic_predictor_ct_y = 2 + domdev_third + (covar_ct_y + extra_cat_ct_y) * (1 + add_interactions * domdev_third_p1);
             if (raw_parameter_subset) {
-              biallelic_predictor_ct_y = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.parameter_subset_y);
+              biallelic_predictor_ct_y = CollapseParamOrTestSubset(covar_include_y, raw_parameter_subset, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.parameter_subset_y);
             }
             if (raw_joint_test_params) {
               assert(common.tests_flag);
-              common.constraint_ct_y = CollapseParamOrTestSubset(covar_include, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.joint_test_params_y);
+              common.constraint_ct_y = CollapseParamOrTestSubset(covar_include_y, raw_joint_test_params, domdev_third, raw_covar_ct, covar_ct_y, add_interactions, common.joint_test_params_y);
               if (raw_parameter_subset) {
                 memcpy(joint_test_params_buf, common.joint_test_params_y, biallelic_raw_predictor_ctl * sizeof(intptr_t));
                 ZeroWArr(biallelic_raw_predictor_ctl, common.joint_test_params_y);
@@ -3969,14 +4000,14 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             if (sample_ct_y <= biallelic_predictor_ct_y) {
               if (unlikely(!skip_invalid_pheno)) {
-                if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
+                if ((!is_sometimes_firth) && logistic_ctx.separation_found_y) {
                   logerrprintfww("Error: (Quasi-)separated covariate(s) were present for --glm phenotype '%s' on chrY. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
                 } else {
                   logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s' on chrY.\n", cur_pheno_name);
                 }
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
-              if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
+              if ((!is_sometimes_firth) && logistic_ctx.separation_found_y) {
                 logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' on chrY, since (quasi-)separated covariate(s) were present. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
               } else {
                 logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
@@ -3995,7 +4026,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               const uint32_t case_ct_y = PopcountWordsIntersect(cur_sample_include_y, cur_pheno_col->data.cc, raw_sample_ctl);
               if ((!case_ct_y) || (case_ct_y == sample_ct_y)) {
                 if (unlikely(!skip_invalid_pheno)) {
-                  logerrprintfww("Error: All remaining samples on chrY for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
+                  logerrprintfww("Error: All remaining samples on chrY for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct_y? "cases" : "controls");
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
                 logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_y? "cases" : "controls");
@@ -4031,7 +4062,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (sample_ct_y && (covar_ct_y < initial_y_covar_ct)) {
               uintptr_t covar_uidx_base = 0;
               uintptr_t cur_bits = initial_covar_include[0];
-              for (uint32_t covar_idx = 0; covar_idx != covar_ct_y; ++covar_idx) {
+              for (uint32_t covar_idx = 0; covar_idx != initial_y_covar_ct; ++covar_idx) {
                 const uintptr_t covar_uidx = BitIter1(initial_covar_include, &covar_uidx_base, &cur_bits);
                 if (!IsSet(covar_include_y, covar_uidx)) {
                   logerrprintfww("Warning: On chrY, not including covariate '%s' in --glm regression on phenotype '%s'.\n", &(covar_names[covar_uidx * max_covar_name_blen]), cur_pheno_name);

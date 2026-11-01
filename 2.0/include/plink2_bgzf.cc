@@ -309,6 +309,10 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
           is_eof = feof_unlocked(ff);
         }
         remaining_end = remaining_read_start + nbytes;
+      } else {
+        // bytes already loaded (e.g. by move-construction) past the target
+        // must not be dropped
+        remaining_end = remaining_read_start;
       }
       cwr->remaining_start = locked_end;
       cwr->remaining_end = remaining_end;
@@ -677,7 +681,9 @@ THREAD_FUNC_DECL BgzfCompressWriterThread(void* raw_arg) {
         if (unlikely(!fwrite_unlocked(kBgzfEofBlock, 28, 1, ff))) {
           context->write_errno = errno;
         }
-        fclose(ff);
+        if (unlikely(fclose(ff)) && (!context->write_errno)) {
+          context->write_errno = errno ? errno : EIO;
+        }
         ff = nullptr;
         context->ff = nullptr;
       }
@@ -1118,8 +1124,12 @@ BoolErr CleanupBgzfCompressStream(BgzfCompressStream* cstream_ptr, PglErr* reter
       fclose(bgzfp->ff);
       bgzfp->ff = nullptr;
       // don't need to clear bgzfp->unfinished_init_state
-    } else {
+    } else if (bgzfp->write_errno) {
       errno = bgzfp->write_errno;
+      if (*reterrp == kPglRetSuccess) {
+        *reterrp = kPglRetWriteFail;
+        return 1;
+      }
     }
   } else if (bgzfp->ff) {  // uncompressed case
     if (unlikely(fclose(bgzfp->ff))) {
