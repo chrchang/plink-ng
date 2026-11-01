@@ -1492,7 +1492,6 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   char* bufptr;
   char* bufptr2;
   char* wptr;
-  unsigned char* ucptr;
   double* dptr;
   double* dptr2;
   double* dptr3;
@@ -1704,13 +1703,12 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    continue;
 	  }
 	}
-	ucptr = cov_type_arr;
         bufptr2 = wptr;
 	for (cov_idx = 0; cov_idx < non_null_cov_ct; cov_idx++) {
 	  slen = strlen(bufptr);
 	  uii = strlen(bufptr2);
 	  if (slen && uii) {
-	    if (*ucptr++ == 1) {
+	    if (cov_type_arr[cov_idx] == 1) {
 	      // negative match
 	      if ((slen == uii) && (!memcmp(bufptr, bufptr2, uii))) {
 		break;
@@ -2966,7 +2964,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   }
   if (is_mds_cluster) {
     if (bigstack_calloc_d(final_cluster_ct * final_cluster_ct, &main_matrix) ||
-        bigstack_alloc_ui(final_cluster_ct, &final_cluster_sizes)) {
+        bigstack_calloc_ui(final_cluster_ct, &final_cluster_sizes)) {
       goto mds_plot_ret_NOMEM;
     }
     dptr = dists;
@@ -2979,7 +2977,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
 	clidx2 = final_cluster_remap[ujj];
 	if (clidx2 < clidx1) {
 	  dptr2[clidx2] += (*dptr);
-	} else if (clidx1 > clidx2) {
+	} else if (clidx2 > clidx1) {
           main_matrix[clidx2 * final_cluster_ct + clidx1] += (*dptr);
 	}
 	dptr++;
@@ -3288,7 +3286,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
 	clidx2 = final_cluster_remap[ujj];
 	if (clidx2 < clidx1) {
 	  dptr2[clidx2] += (*dptr);
-	} else if (clidx1 > clidx2) {
+	} else if (clidx2 > clidx1) {
           main_matrix[clidx2 * final_cluster_ct + clidx1] += (*dptr);
 	}
 	dptr++;

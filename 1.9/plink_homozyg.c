@@ -982,9 +982,6 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
   if (words_left >= 11) {
     vptrl = (__m128i*)roh_slot_idxl;
     vptrs = (__m128i*)roh_slot_idxs;
-    if (words_left % 12 == 11) {
-      words_left++;
-    }
     words_left -= words_left % 12;
     while (words_left >= 120) {
       words_left -= 120;
@@ -1531,7 +1528,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     }
   }
   if (bigstack_alloc_ui(max_pool_size, &allelic_match_cts) ||
-      bigstack_alloc_ul((((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2, &allelic_match_matrix)) {
+      bigstack_alloc_ul(BITCT_TO_WORDCT((((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2), &allelic_match_matrix)) {
     goto roh_pool_ret_NOMEM;
   }
   // roh_slot_map / roh_slot_cidx_start... not used at the same time as
@@ -1725,7 +1722,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     // an extra slot because this is a "1-terminated" list
     fill_ulong_one((max_pool_size + 1) * (sizeof(int64_t) / sizeof(intptr_t)), (uintptr_t*)roh_slot_map);
     fill_uint_zero(max_pool_size, roh_slot_end_uidx);
-    fill_ulong_zero((((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2, allelic_match_matrix);
+    fill_ulong_zero(BITCT_TO_WORDCT((((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2), allelic_match_matrix);
     lookahead_end_uidx = next_unset_unsafe(marker_exclude, chrom_start);
     cur_lookahead_start = 0;
     cur_lookahead_size = 0;
@@ -2231,8 +2228,10 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 
-	  allele_strs[0] = marker_allele_ptrs[marker_uidx1 * 2];
-	  allele_strs[1] = marker_allele_ptrs[marker_uidx1 * 2 + 1];
+	  allele_strs[2] = marker_allele_ptrs[marker_uidx1 * 2];
+	  allele_strs[3] = marker_allele_ptrs[marker_uidx1 * 2 + 1];
+	  allele_strs[0] = allele_strs[2 + IS_SET(marker_reverse, marker_uidx1)];
+	  allele_strs[1] = allele_strs[3 - IS_SET(marker_reverse, marker_uidx1)];
 	  slot_idx1 = 0;
 	  do {
 	    group_slot_end = slot_idx1 + 1;
@@ -2576,6 +2575,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       uii = (uintptr_t)(wptr - output_missing_pheno);
       if (missing_pheno_len - uii < 4) {
 	memset(&(missing_pheno_str[missing_pheno_len]), '0', uii + 4 - missing_pheno_len);
+	missing_pheno_len = uii + 4;
       } else {
 	missing_pheno_len = uii + 4;
       }

@@ -503,7 +503,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   int32_t bp_old;
   int32_t bp_new;
   {
-    at_sign_ptr = strchr(cm_map_fname, '@');
+    at_sign_ptr = cm_map_chrname? nullptr : strchr(cm_map_fname, '@');
     if (cm_map_chrname) {
       const uint32_t chrom_name_slen = strlen(cm_map_chrname);
       int32_t cur_chrom_code = get_chrom_code(cm_map_chrname, chrom_info_ptr, chrom_name_slen);
@@ -5865,7 +5865,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    }
 	  }
 	}
-	if (scan_double(token_ptrs[1], &cur_beta) || (cur_beta == INFINITY) || ((!input_beta) && (!(cur_beta >= 0))) || (input_beta && ((cur_beta != cur_beta) || (cur_beta == -INFINITY)))) {
+	if (scan_double(token_ptrs[1], &cur_beta) || (cur_beta == INFINITY) || ((!input_beta) && (!(cur_beta > 0))) || (input_beta && ((cur_beta != cur_beta) || (cur_beta == -INFINITY)))) {
 	  problem_mask |= 0x10;
 	}
 	// A zero standard error is as unusable as a negative one: the
@@ -5881,7 +5881,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
           // update (13 Sep 2026): SE=0 isn't really salvageable, but treating
           // cur_p<DBL_MIN as cur_p=DBL_MIN should prevent the latter type of
           // significant result from getting lost.
-          if (cur_p < 2.2250738585072014e-308) {
+          if ((!(problem_mask & 0x80)) && (cur_p < 2.2250738585072014e-308)) {
             ++p_underflow_ct;
             cur_p = 2.2250738585072014e-308;
           }
@@ -6303,8 +6303,11 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    continue;
 	  }
 	  if (weighted_z) {
-	    if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p > 0.0)) || (cur_p > 1.0)) {
+	    if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p >= 0.0)) || (cur_p > 1.0)) {
 	      continue;
+	    }
+	    if (cur_p < 2.2250738585072014e-308) {
+	      cur_p = 2.2250738585072014e-308;
 	    }
 	    if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
 	      continue;
@@ -6359,7 +6362,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    set_bit(file_idx, (uintptr_t*)cur_data_ptr);
 	  }
 	  if (weighted_z) {
-	    dxx = ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);
+	    dxx = -ltqnorm(cur_p * 0.5) * sqrt(cur_ess);
 	    if (cur_beta > 0.0) {
 	      cur_data_ptr[-2] += dxx;
 	    } else {

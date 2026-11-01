@@ -1997,6 +1997,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (uii == cluster_ct) {
 	  break;
 	}
+	if (strlen(&(cluster_ids[uii * max_cluster_id_len])) > (uintptr_t)(&(outname[FNAMESIZE - 32]) - &(outname_end[1]))) {
+	  logerrprint("Error: --loop-assoc cluster name too long for output filename.\n");
+	  goto plink_ret_INVALID_FORMAT;
+	}
 	outname_end2 = strcpya(&(outname_end[1]), &(cluster_ids[uii * max_cluster_id_len]));
 	fill_ulong_zero(unfiltered_sample_ctl, pheno_c);
 	ukk = cluster_starts[uii + 1];
@@ -2126,14 +2130,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (!(cluster_ptr->modifier & CLUSTER_CMH2)) {
           retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
 	} else {
-          retval = cmh2_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+          retval = cmh2_assoc(bedfile, bed_offset, outname, outname_end2, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
 	}
         if (retval) {
           goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_HOMOG) && pheno_c) {
-	retval = homog_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+	retval = homog_assoc(bedfile, bed_offset, outname, outname_end2, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
           goto plink_ret_1;
 	}
@@ -2345,6 +2349,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
   uint32_t re_len;
   int32_t chrom_code_start;
   int32_t chrom_code_end;
+  char delim_char;
   if (param_ct) {
     cur_arg_ptr = argv[1];
     while (1) {
@@ -2357,6 +2362,9 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
       }
       chrom_code_start = get_chrom_code_counted(chrom_info_ptr, rs_len, range_start);
       if (chrom_code_start < 0) {
+	// restore the delimiter after push_ll_str(), since cur_arg_ptr may
+	// point to it
+	delim_char = range_start[rs_len];
 	range_start[rs_len] = '\0';
 	if (!allow_extra_chroms) {
 	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid --%s chromosome code '%s'.\n", cur_flag_str, range_start);
@@ -2367,6 +2375,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
         if (push_ll_str(range_start, &(chrom_info_ptr->incl_excl_name_stack))) {
 	  goto parse_chrom_ranges_ret_NOMEM;
 	}
+	range_start[rs_len] = delim_char;
       } else if (range_end) {
         chrom_code_end = get_chrom_code_counted(chrom_info_ptr, re_len, range_end);
 	if (chrom_code_end < 0) {
@@ -2516,7 +2525,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
       memcpyx(cur_name_str, range_end, re_len, 0);
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
-	if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
+	if (!memcmp(dup_check, cur_name_str, re_len + 1)) {
 	  LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
 	  return RET_INVALID_CMDLINE;
 	}
@@ -3515,7 +3524,7 @@ int32_t main(int32_t argc, char** argv) {
       }
       rewind(scriptfile);
       ujj = (uint32_t)((uint64_t)llxx);
-      script_buf = (char*)malloc(ujj);
+      script_buf = (char*)malloc(ujj + 1);
       if (!script_buf) {
 	goto main_ret_NOMEM_NOLOG;
       }
@@ -3523,6 +3532,7 @@ int32_t main(int32_t argc, char** argv) {
       if (ukk < ujj) {
 	goto main_ret_READ_FAIL_NOLOG;
       }
+      script_buf[ujj] = '\0';
       fclose_null(&scriptfile);
       num_params = 0;
       in_param = 0;
@@ -5678,7 +5688,7 @@ int32_t main(int32_t argc, char** argv) {
             snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid --cnv-write parameter '%s'.\n", argv[cur_arg + 1]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-	  if (!(cnv_freq_val & CNV_FREQ_METHOD2)) {
+	  if (!(cnv_freq_type & CNV_FREQ_METHOD2)) {
 	    logerrprint("Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.\n");
 	    goto main_ret_INVALID_CMDLINE_A;
 	  }
@@ -5690,7 +5700,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logerrprint("Error: --cnv-write freq cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
-	} else if (!(cnv_freq_val & CNV_FREQ_METHOD2)) {
+	} else if (!(cnv_freq_type & CNV_FREQ_METHOD2)) {
 	  logerrprint("Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (!(cnv_calc_type & CNV_WRITE)) {
@@ -9078,7 +9088,7 @@ int32_t main(int32_t argc, char** argv) {
 	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid --mc parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-      } else if (!memcmp(argptr2, "cc", 2)) {
+      } else if (!memcmp(argptr2, "cc", 3)) {
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  logerrprint("Error: --mcc must be used with --cluster.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -9625,6 +9635,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "eta-analysis-report-dups", 25)) {
 	if (!metaanal_fnames) {
 	  logerrprint("Error: --meta-analysis-report-dups must be used with --meta-analysis.\n");
+	  goto main_ret_INVALID_CMDLINE;
 	}
 	metaanal_flags |= METAANAL_REPORT_DUPS;
 	goto main_param_zero;
@@ -10339,6 +10350,9 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
           retval = alloc_fname(&score_info.data_fname, argv[cur_arg + 2], argptr, 0);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
 	  ujj = 0; // number of numeric parameters
 	  for (uii = 3; uii <= param_ct; uii++) {
 	    if (!strcmp(argv[cur_arg + uii], "header")) {
@@ -10648,6 +10662,9 @@ int32_t main(int32_t argc, char** argv) {
 	      if (recode_type_set(&recode_modifier, RECODE_HV_1CHR)) {
 	        goto main_ret_INVALID_CMDLINE_A;
 	      }
+	    } else {
+	      snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid --recode parameter '%s'.%s\n", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "tab")) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
@@ -11405,7 +11422,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	set_info.set_p = dxx;
-      } else if (!memcmp(argptr2, "et-r2", 5)) {
+      } else if (!memcmp(argptr2, "et-r2", 6)) {
 	if (!set_info.fname) {
 	  logerrprint("Error: --set-r2 must be used with --set/--make-set.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -11441,7 +11458,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "et-r2-phase", 11)) {
         logerrprint("Error: --set-r2-phase is provisionally retired.  Contact the developers if you\nneed this function.\n");
 	goto main_ret_INVALID_CMDLINE;
-      } else if (!memcmp(argptr2, "et-max", 5)) {
+      } else if (!memcmp(argptr2, "et-max", 7)) {
 	if (!set_info.fname) {
 	  logerrprint("Error: --set-max must be used with --set/--make-set.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -12120,7 +12137,7 @@ int32_t main(int32_t argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_POOPERM_PAT;
-	  } else if (!strcmp(argv[cur_arg + uii], "parentdt2")) {
+	  } else if (!strcmp(argv[cur_arg + uii], "mat")) {
 	    if (family_info.tdt_modifier & TDT_POOPERM_PAT) {
 	      logerrprint("Error: --tdt 'pat' and 'mat' modifiers cannot be used together.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -12187,7 +12204,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	ld_info.show_tags_r2 = dxx;
-      } else if (!memcmp(argptr2, "ag-mode2", 8)) {
+      } else if (!memcmp(argptr2, "ag-mode2", 9)) {
         if (!(calculation_type & CALC_SHOW_TAGS)) {
 	  logerrprint("Error: --tag-mode2 must be used with --show-tags.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -12462,7 +12479,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'v':
       if (!memcmp(argptr2, "if", 3)) {
-	if (((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) && (!((calculation_type & CALC_EPI) || (!(epi_info.modifier & EPI_REG))))) {
+	if (((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) && (!((calculation_type & CALC_EPI) && (epi_info.modifier & EPI_REG)))) {
 	  logerrprint("Error: --vif must be used with --linear/--epistasis.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -12745,7 +12762,7 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_WRITE_SET;
 	set_info.modifier |= SET_WRITE_LIST;
         goto main_param_zero;
-      } else if (!memcmp(argptr2, "rite-set-r2", 11)) {
+      } else if (!memcmp(argptr2, "rite-set-r2", 12)) {
         if (!set_info.fname) {
 	  logerrprint("Error: --write-set-r2 must be used with --set/--make-set.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -12900,7 +12917,8 @@ int32_t main(int32_t argc, char** argv) {
       logerrprint("Error: --all-pheno must be used with --pheno.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-  } else if (read_dists_fname && (!(calculation_type & (CALC_CLUSTER | CALC_IBS_TEST | CALC_GROUPDIST | CALC_NEIGHBOR | CALC_REGRESS_DISTANCE)))) {
+  }
+  if (read_dists_fname && (!(calculation_type & (CALC_CLUSTER | CALC_IBS_TEST | CALC_GROUPDIST | CALC_NEIGHBOR | CALC_REGRESS_DISTANCE)))) {
     logerrprint("Error: --read-dists cannot be used without --cluster, --ibs-test/--groupdist,\n--neighbour, or --regress-distance.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
@@ -13003,10 +13021,10 @@ int32_t main(int32_t argc, char** argv) {
       if ((recode_modifier & RECODE_23) && (misc_flags & MISC_ALLOW_EXTRA_CHROMS) && (!chrom_info.zero_extra_chroms)) {
 	logerrprint("Error: --allow-extra-chr requires the '0' modifier when used with --recode 23.\n");
 	goto main_ret_INVALID_CMDLINE;
-      } else if ((recode_modifier & RECODE_BEAGLE) && chrom_info.zero_extra_chroms) {
-        logerrprint("Error: --allow-extra-chr cannot have the '0' modifier when used with\n--recode beagle.\n");
-	goto main_ret_INVALID_CMDLINE;
       }
+    } else if ((recode_modifier & RECODE_BEAGLE) && chrom_info.zero_extra_chroms) {
+      logerrprint("Error: --allow-extra-chr cannot have the '0' modifier when used with\n--recode beagle.\n");
+      goto main_ret_INVALID_CMDLINE;
     } else if ((recode_modifier & RECODE_BIMBAM) && (misc_flags & MISC_ALLOW_EXTRA_CHROMS) && (!chrom_info.zero_extra_chroms)) {
       logerrprint("Error: --allow-extra-chr requires the '0' modifier when used with\n--recode bimbam.\n");
       goto main_ret_INVALID_CMDLINE;
@@ -13514,6 +13532,9 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (annot_info.fname) {
     retval = annotate(&annot_info, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, outname, outname_end, pfilter, &chrom_info);
+    if (retval) {
+      goto main_ret_1;
+    }
   }
   if (gene_report_fname) {
     retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);

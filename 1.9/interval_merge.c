@@ -174,5 +174,5 @@ int32_t main(int32_t argc, char** argv) {
     retval = 2;
     break;
   }
-  return 0;
+  return retval;
 }
