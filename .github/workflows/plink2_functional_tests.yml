@@ -26,12 +26,18 @@ on:
 
 jobs:
   run_tests:
-    name: 2.0/Tests on ${{ matrix.os }}
+    name: 2.0/Tests on ${{ matrix.os }} ${{ matrix.simd }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        simd: ['']
+        # The Makefile default leaves out the AVX2 and SSE4.2 code paths.
+        include:
+          - os: ubuntu-latest
+            simd: avx2
+            make_flags: NO_AVX2= NO_SSE42=
 
     steps:
       - name: Checkout repository
@@ -54,7 +60,7 @@ jobs:
 
       - name: Build PLINK 2.0 and pgen_compress
         working-directory: 2.0/build_dynamic
-        run: make -j"$NPROC"
+        run: make -j"$NPROC" ${{ matrix.make_flags }}
 
       - name: Build PLINK 1.9
         working-directory: 1.9
@@ -81,6 +87,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: plink2-test-logs-${{ matrix.os }}
+          name: plink2-test-logs-${{ matrix.os }}-${{ matrix.simd }}
           path: 2.0/Tests/**/*.log
           if-no-files-found: ignore
