@@ -595,6 +595,33 @@ def test_phased_dosages_hds(tmp_path):
     check_phased_dosage_fixture(tmp_path, "ds", DS_PGEN_B64, DS_WANT)
 
 
+def test_argument_checks(tmp_path):
+    path = bytes(tmp_path / "b.pgen")
+    geno = np.array([0, 1, 2, 0], np.int8)
+    with pgenlib.PgenWriter(path, 4, variant_ct=1, nonref_flags=False) as w:
+        w.append_biallelic(geno)
+        with pytest.raises(RuntimeError):
+            w.append_biallelic(geno)
+    r = pgenlib.PgenReader(path)
+    got = np.empty([4], np.int8)
+    got_dosages = np.empty([4], np.float64)
+    with pytest.raises(RuntimeError):
+        r.read(0, got, allele_idx=7)
+    with pytest.raises(RuntimeError):
+        r.read_dosages(0, got_dosages, allele_idx=256)
+    readonly = np.empty([4], np.int8)
+    readonly.flags.writeable = False
+    with pytest.raises(RuntimeError):
+        r.read(0, readonly)
+    r.read(0, got)
+    assert got.tolist() == geno.tolist()
+    r.close()
+    with pytest.raises(RuntimeError):
+        r.read(0, got)
+    with pytest.raises(RuntimeError):
+        r.change_sample_subset()
+
+
 def test_phased_dosages_errors(tmp_path):
     test_pgen_path = tmp_path / "hds.pgen"
     test_pgen_path.write_bytes(base64.b64decode(HDS_PGEN_B64))
