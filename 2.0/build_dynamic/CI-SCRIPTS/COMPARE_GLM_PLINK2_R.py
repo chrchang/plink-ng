@@ -15,14 +15,14 @@ def COMPARE_GLM_PLINK2_R(plink_file, R_file):
         R_file (str): Path to R glm output file (comma-delimited).
 
     Returns:
-        tuple: (correlation_beta, correlation_p)
+        tuple: (correlation_beta, correlation_p, differences_ok)
     """
     # --- Read input files ---
     df_plink = pd.read_csv(plink_file, sep="\t", dtype=str)
     df_R = pd.read_csv(R_file, sep=",", dtype=str)
 
     # --- Convert numeric columns ---
-    for col in ["OR", "BETA", "SE", "Z_STAT", "P"]:
+    for col in ["OR", "BETA", "SE", "LOG(OR)_SE", "Z_STAT", "P"]:
         if col in df_plink.columns:
             df_plink[col] = pd.to_numeric(df_plink[col], errors="coerce")
 
@@ -59,12 +59,26 @@ def COMPARE_GLM_PLINK2_R(plink_file, R_file):
     corr_beta = merged[["beta_plink", "beta"]].corr().iloc[0,1]
     corr_p = merged[["P", "p"]].corr().iloc[0,1]
 
+    # --- Correlation ignores scale, so also compare the values themselves ---
+    # Medians, since a few variants may legitimately differ near separation.
+    se_col = "SE" if "SE" in merged.columns else "LOG(OR)_SE"
+    diff_beta = (merged["beta_plink"] - merged["beta"]).abs().median() / merged["beta"].abs().median()
+    diff_se = (merged[se_col] - merged["se"]).abs().median() / merged["se"].abs().median()
+    diff_p = (merged["P"] - merged["p"]).abs().median()
+    # shortcut: 5% was not calibrated against CI data, tighten it once the weekly job has reported values
+    differences_ok = bool(diff_beta <= 0.05 and diff_se <= 0.05 and diff_p <= 0.05)
+
     # --- Print quick summary ---
     print(f"\n🔹 Correlation between PLINK and R betas/log(OR): {corr_beta:.4f}")
     print(f"🔹 Correlation between p-values: {corr_p:.4f}")
 
+    # No decimal point: the shell caller reads any decimal in this output as a correlation.
+    print(f"\n🔹 Median differences: beta {diff_beta:.0%}, SE {diff_se:.0%}, P {diff_p:.0%} (limit 5%)")
+    if not differences_ok:
+        print("❌ PLINK and R values differ by more than the limit.")
+
     # --- Return ---
-    return corr_beta, corr_p
+    return corr_beta, corr_p, differences_ok
 
 
 # --- Command-line execution ---
@@ -76,4 +90,6 @@ if __name__ == "__main__":
     plink_file = sys.argv[1]
     R_file = sys.argv[2]
 
-    corr_beta, corr_p = COMPARE_GLM_PLINK2_R(plink_file, R_file)
+    corr_beta, corr_p, differences_ok = COMPARE_GLM_PLINK2_R(plink_file, R_file)
+    if not differences_ok:
+        sys.exit(1)
