@@ -11218,6 +11218,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
               }
             }
             geno_start = K_CAST(char*, NextTokenMult(FirstNonTspace(&(chr_code_end[1])), 4 + is_v2));
+            if (unlikely(!geno_start)) {
+              goto OxGenToPgen_ret_MISSING_TOKENS;
+            }
             line_iter = AdvPastDelim(geno_start, '\n');
             geno_blen = line_iter - geno_start;
             cur_line_idx = line_idx;
