@@ -688,7 +688,7 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
 }
 
 static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase1().");
-PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
+PglErr PgfiInitPhase1Ff(FILE* shared_ff, const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
   pgfip->var_fpos = nullptr;
   pgfip->vrtypes = nullptr;
   pgfip->allele_idx_offsets = nullptr;
@@ -707,7 +707,6 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   uint64_t fsize;
   const unsigned char* fread_ptr;
   unsigned char small_readbuf[3];
-  FILE* shared_ff = fopen(fname, FOPEN_RB);
   pgfip->shared_ff = shared_ff;
   if (unlikely(!shared_ff)) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
@@ -1007,6 +1006,10 @@ void FillPgenReadErrstr(FILE* ff, char* errstr_buf) {
 // to first byte of footer-extension-set varint on successful exit.  If
 // preprocessing footer_exts, footer_fpos_ptr must be non-null, will be filled
 // if footer exists, and ff will be advanced past that on successful exit.
+PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
+  return PgfiInitPhase1Ff(fopen(fname, FOPEN_RB), fname, pgi_fname, raw_variant_ct, raw_sample_ct, header_ctrl_ptr, pgfip, pgfi_alloc_cacheline_ct_ptr, errstr_buf);
+}
+
 PglErr PgfiInitPhase2PreprocessExts(uint32_t is_pgi, FILE* ff, PgenExtensionLl* exts_iter, uint64_t* footer_fpos_ptr, char* errstr_buf) {
   uint32_t cur_type_idx = exts_iter? exts_iter->type_idx : UINT32_MAX;
   uint32_t type_idx_start = 0;

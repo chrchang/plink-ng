@@ -2,11 +2,13 @@
 # from libc.stdlib cimport malloc, free
 from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint16_t, int16_t, uint8_t, int8_t
 from libc.string cimport memcpy
+from libc.stdio cimport FILE
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from cpython.view cimport array as cvarray
 from cython.parallel import prange
 import numpy as np
 cimport numpy as cnp
+import os
 import sys
 
 __version__ = "0.95.1"
@@ -200,6 +202,8 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
 
+    PglErr PgfiInitPhase1Ff(FILE* shared_ff, const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
+
     PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf)
 
     cdef struct PgenReaderStruct:
@@ -243,6 +247,9 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
     BoolErr CleanupPgfi(PgenFileInfo* pgfip, PglErr* reterrp)
     BoolErr CleanupPgr(PgenReaderStruct* pgr_ptr, PglErr* reterrp)
 
+
+cdef extern from "pystream.h":
+    FILE* PgenlibPyStreamOpen(object obj, object errors) except NULL
 
 cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
     cdef cppclass PgenWriterCommon:
@@ -416,6 +423,16 @@ cdef class PgenReader:
     # for read_phased_dosages*() on multiallelic variants
     cdef int32_t* _allele_codes_buf
     cdef unsigned char* _phasebytes_buf
+    # Exceptions raised by a file-like object's read()/seek(), if one was
+    # passed to the constructor; None otherwise.
+    cdef object _stream_errors
+
+    cdef _read_error(self, msg):
+        exc = RuntimeError(msg)
+        if self._stream_errors:
+            exc.__cause__ = self._stream_errors[0]
+            self._stream_errors.clear()
+        return exc
 
     cdef set_allele_idx_offsets_internal(self, cnp.ndarray[cnp.uintp_t,mode="c",ndim=1] allele_idx_offsets):
         # Make a copy instead of trying to share this with the caller.
@@ -465,7 +482,7 @@ cdef class PgenReader:
         return
 
 
-    def __cinit__(self, bytes filename, object raw_sample_ct = None,
+    def __cinit__(self, object filename, object raw_sample_ct = None,
                   object variant_ct = None, object sample_subset = None,
                   object allele_idx_offsets = None, object pvar = None):
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
@@ -474,7 +491,11 @@ cdef class PgenReader:
         PreinitPgfi(self._info_ptr)
         # this depends on pgenlib_internal implementation.  could save
         # pgfi_alloc and pgr_alloc instead.
+        # __dealloc__ frees these, so they must be null if we raise before
+        # PgfiInitPhase1() sets them.
         self._info_ptr[0].vrtypes = NULL
+        self._info_ptr[0].allele_idx_offsets = NULL
+        self._info_ptr[0].nonref_flags = NULL
         cdef uint32_t cur_sample_ct = 0xffffffffU
         if raw_sample_ct is not None:
             cur_sample_ct = raw_sample_ct
@@ -491,12 +512,27 @@ cdef class PgenReader:
                 allele_idx_offsets = pr.get_allele_idx_offsets()
         if variant_ct is not None:
             cur_variant_ct = variant_ct
-        cdef const char* fname = <const char*>filename
+        cdef bytes fname_bytes
+        cdef FILE* stream_ff = NULL
+        if isinstance(filename, (bytes, str, os.PathLike)):
+            fname_bytes = os.fsencode(filename)
+        else:
+            # Binary file-like object.  The name only appears in error
+            # messages.
+            fname_bytes = b"<file-like object>"
+            self._stream_errors = []
+            stream_ff = PgenlibPyStreamOpen(filename, self._stream_errors)
+        cdef const char* fname = <const char*>fname_bytes
         cdef PgenHeaderCtrl header_ctrl
         cdef uintptr_t pgfi_alloc_cacheline_ct
         cdef char errstr_buf[kPglErrstrBufBlen]
-        if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
-            raise RuntimeError(errstr_buf[7:])
+        cdef PglErr phase1_reterr
+        if stream_ff:
+            phase1_reterr = PgfiInitPhase1Ff(stream_ff, fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf)
+        else:
+            phase1_reterr = PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf)
+        if phase1_reterr != kPglRetSuccess:
+            raise self._read_error(errstr_buf[7:])
         cdef uint32_t file_variant_ct = self._info_ptr[0].raw_variant_ct
         if allele_idx_offsets is not None:
             self.set_allele_idx_offsets_internal(allele_idx_offsets)
@@ -523,7 +559,7 @@ cdef class PgenReader:
         if PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, file_variant_ct, &max_vrec_width, self._info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf):
             if pgfi_alloc and not self._info_ptr[0].vrtypes:
                 aligned_free(pgfi_alloc)
-            raise RuntimeError(errstr_buf[7:])
+            raise self._read_error(errstr_buf[7:])
         if self._info_ptr[0].gflags & kfPgenGlobalMultiallelicHardcallFound:
             if self._info_ptr[0].allele_idx_offsets == NULL:
                 raise RuntimeError("PgenReader: multiallelic variants present, but allele_idx_offsets not provided")
@@ -556,7 +592,7 @@ cdef class PgenReader:
         if reterr != kPglRetSuccess:
             if not PgrGetFreadBuf(self._state_ptr):
                 aligned_free(pgr_alloc)
-            raise RuntimeError("PgrInit() error " + str(reterr))
+            raise self._read_error("PgrInit() error " + str(reterr))
         cdef unsigned char* pgr_alloc_iter = &(pgr_alloc[pgr_alloc_main_byte_ct])
         self._subset_include_vec = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
@@ -654,7 +690,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGet1(self._subset_include_vec, self._subset_index, subset_size, variant_idx, allele_idx, self._state_ptr, genovec)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read() error " + str(reterr))
+            raise self._read_error("read() error " + str(reterr))
         cdef int8_t* data8_ptr
         cdef int32_t* data32_ptr
         cdef int64_t* data64_ptr
@@ -686,7 +722,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGet1D(self._subset_include_vec, self._subset_index, subset_size, variant_idx, allele_idx, self._state_ptr, self._pgv.genovec, self._pgv.dosage_present, self._pgv.dosage_main, &dosage_ct)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_dosages() error " + str(reterr))
+            raise self._read_error("read_dosages() error " + str(reterr))
         cdef float* data32_ptr
         cdef double* data64_ptr
         if floatarr_out.dtype == np.float32:
@@ -711,7 +747,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_alleles() error " + str(reterr))
+            raise self._read_error("read_alleles() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
         GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, NULL, main_data_ptr)
         return
@@ -730,7 +766,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_alleles_and_phasepresent() error " + str(reterr))
+            raise self._read_error("read_alleles_and_phasepresent() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
         cdef unsigned char* phasepresent_data_ptr = <unsigned char*>(&(phasepresent_out[0]))
         GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, phasepresent_data_ptr, main_data_ptr)
@@ -763,7 +799,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data_ptr = &(geno_int8_view[(variant_idx - variant_idx_start), 0])
                 GenoarrToBytesMinus9(genovec, subset_size, data_ptr)
             return
@@ -796,7 +832,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
             sample_batch_size = kPglNypTransposeBatch
             vmaj_iter = multivar_vmaj_geno_buf
@@ -832,7 +868,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data_ptr = &(geno_int32_view[(variant_idx - variant_idx_start), 0])
                 GenoarrToInt32sMinus9(genovec, subset_size, data_ptr)
             return
@@ -865,7 +901,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
             sample_batch_size = kPglNypTransposeBatch
             vmaj_iter = multivar_vmaj_geno_buf
@@ -901,7 +937,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data_ptr = &(geno_int64_view[(variant_idx - variant_idx_start), 0])
                 GenoarrToInt64sMinus9(genovec, subset_size, data_ptr)
             return
@@ -934,7 +970,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
             sample_batch_size = kPglNypTransposeBatch
             vmaj_iter = multivar_vmaj_geno_buf
@@ -990,7 +1026,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data_ptr = &(geno_int8_view[variant_list_idx, 0])
                 GenoarrToBytesMinus9(genovec, subset_size, data_ptr)
             return
@@ -1025,7 +1061,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_list() error " + str(reterr))
+                        raise self._read_error("read_list() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
             sample_batch_size = kPglNypTransposeBatch
             vmaj_iter = multivar_vmaj_geno_buf
@@ -1067,7 +1103,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data_ptr = &(geno_int32_view[variant_list_idx, 0])
                 GenoarrToInt32sMinus9(genovec, subset_size, data_ptr)
             return
@@ -1102,7 +1138,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_list() error " + str(reterr))
+                        raise self._read_error("read_list() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
             sample_batch_size = kPglNypTransposeBatch
             vmaj_iter = multivar_vmaj_geno_buf
@@ -1144,7 +1180,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data_ptr = &(geno_int64_view[variant_list_idx, 0])
                 GenoarrToInt64sMinus9(genovec, subset_size, data_ptr)
             return
@@ -1179,7 +1215,7 @@ cdef class PgenReader:
                 reterr = PgrGet1(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_list() error " + str(reterr))
+                        raise self._read_error("read_list() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
             sample_batch_size = kPglNypTransposeBatch
             vmaj_iter = multivar_vmaj_geno_buf
@@ -1235,7 +1271,7 @@ cdef class PgenReader:
                 reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_range() error " + str(reterr))
+                        raise self._read_error("variant_idx " + str(variant_idx) + " read_alleles_range() error " + str(reterr))
                 main_data_ptr = &allele_int32_view[(variant_idx - variant_idx_start), 0]
                 GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, NULL, main_data_ptr)
             return
@@ -1282,7 +1318,7 @@ cdef class PgenReader:
                 reterr = PgrGetP(subset_include_vec, subset_index, subset_size, uii + variant_idx_offset, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("variant_idx " + str(uii + variant_idx_offset) + " read_alleles_range() error " + str(reterr))
+                        raise self._read_error("variant_idx " + str(uii + variant_idx_offset) + " read_alleles_range() error " + str(reterr))
                 if phasepresent_ct == 0:
                     ZeroWArr(sample_ctaw, vmaj_phaseinfo_iter)
                 # else:
@@ -1345,7 +1381,7 @@ cdef class PgenReader:
                 reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_alleles_list() error " + str(reterr))
+                        raise self._read_error("read_alleles_list() error " + str(reterr))
                 main_data_ptr = &(allele_int32_view[variant_list_idx, 0])
                 GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, NULL, main_data_ptr)
             return
@@ -1393,7 +1429,7 @@ cdef class PgenReader:
                 reterr = PgrGetP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_alleles_list() error " + str(reterr))
+                        raise self._read_error("read_alleles_list() error " + str(reterr))
                 if phasepresent_ct == 0:
                     ZeroWArr(sample_ctaw, vmaj_phaseinfo_iter)
                 # else:
@@ -1454,7 +1490,7 @@ cdef class PgenReader:
                 reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_and_phasepresent_range() error " + str(reterr))
+                        raise self._read_error("variant_idx " + str(variant_idx) + " read_alleles_and_phasepresent_range() error " + str(reterr))
                 main_data_ptr = &(allele_int32_view[(variant_idx - variant_idx_start), 0])
                 phasepresent_data_ptr = &(phasepresent_view[(variant_idx - variant_idx_start), 0])
                 GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, phasepresent_data_ptr, main_data_ptr)
@@ -1500,7 +1536,7 @@ cdef class PgenReader:
                 reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_alleles_and_phasepresent_list() error " + str(reterr))
+                        raise self._read_error("read_alleles_and_phasepresent_list() error " + str(reterr))
                 main_data_ptr = &(allele_int32_view[variant_list_idx, 0])
                 phasepresent_data_ptr = &(phasepresent_view[variant_list_idx, 0])
                 GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, phasepresent_data_ptr, main_data_ptr)
@@ -1527,7 +1563,7 @@ cdef class PgenReader:
                 reterr = PgrGet1D(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_dosages_range() error " + str(reterr))
+                        raise self._read_error("read_dosages_range() error " + str(reterr))
                 data32_ptr = &(floatarr_view[(variant_idx - variant_idx_start), 0])
                 Dosage16ToFloatsMinus9(genovec, dosage_present, dosage_main, subset_size, dosage_ct, data32_ptr)
             return
@@ -1553,7 +1589,7 @@ cdef class PgenReader:
                 reterr = PgrGet1D(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_dosages_range() error " + str(reterr))
+                        raise self._read_error("read_dosages_range() error " + str(reterr))
                 data64_ptr = &(floatarr_view[(variant_idx - variant_idx_start), 0])
                 Dosage16ToDoublesMinus9(genovec, dosage_present, dosage_main, subset_size, dosage_ct, data64_ptr)
             return
@@ -1601,7 +1637,7 @@ cdef class PgenReader:
                 reterr = PgrGet1D(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data32_ptr = &(floatarr_view[variant_list_idx, 0])
                 Dosage16ToFloatsMinus9(genovec, dosage_present, dosage_main, subset_size, dosage_ct, data32_ptr)
             return
@@ -1637,7 +1673,7 @@ cdef class PgenReader:
                 reterr = PgrGet1D(subset_include_vec, subset_index, subset_size, variant_idx, allele_idx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct)
                 if reterr != kPglRetSuccess:
                     with gil:
-                        raise RuntimeError("read_range() error " + str(reterr))
+                        raise self._read_error("read_range() error " + str(reterr))
                 data64_ptr = &(floatarr_view[variant_list_idx, 0])
                 Dosage16ToDoublesMinus9(genovec, dosage_present, dosage_main, subset_size, dosage_ct, data64_ptr)
             return
@@ -1702,7 +1738,7 @@ cdef class PgenReader:
             raise RuntimeError(func_name + "() allele_idx too large (" + str(allele_idx) + "; variant_idx " + str(variant_idx) + " has fewer alleles).")
         if reterr == kPglRetNotYetSupported:
             raise RuntimeError(func_name + "() does not support multiallelic dosages yet (variant_idx " + str(variant_idx) + ").")
-        raise RuntimeError("variant_idx " + str(variant_idx) + " " + func_name + "() error " + str(reterr))
+        raise self._read_error("variant_idx " + str(variant_idx) + " " + func_name + "() error " + str(reterr))
 
 
     cpdef read_phased_dosages(self, uint32_t variant_idx, cnp.ndarray floatarr_out, uint32_t allele_idx = 1):
@@ -1846,7 +1882,7 @@ cdef class PgenReader:
                 with nogil:
                     reterr = PgrGetM(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
-                    raise RuntimeError("count() error " + str(reterr))
+                    raise self._read_error("count() error " + str(reterr))
                 genovec = self._pgv.genovec
                 ZeroTrailingNyps(subset_size, genovec)
                 GenoarrCountFreqsUnsafe(genovec, subset_size, data_ptr)
@@ -1875,7 +1911,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetCounts(subset_include_vec, self._subset_include_interleaved_vec, subset_index, subset_size, variant_idx, pgrp, data_ptr)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("count() error " + str(reterr))
+            raise self._read_error("count() error " + str(reterr))
         if allele_idx != 0:
             return
         cdef uint32_t tmp = data_ptr[0]
@@ -1913,7 +1949,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetDifflistOrGenovec(self._subset_include_vec, self._subset_index, subset_size, max_difflist_len, variant_idx, self._state_ptr, self._pgv.genovec, &difflist_common_geno, raregeno_buf, difflist_sample_ids_buf, &difflist_len)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_sparse8() error " + str(reterr))
+            raise self._read_error("read_sparse8() error " + str(reterr))
         if allele_idx == 0:
             if difflist_common_geno != 2:
                 raise RuntimeError("read_sparse8(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
@@ -1944,7 +1980,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetDifflistOrGenovec(self._subset_include_vec, self._subset_index, subset_size, max_difflist_len, variant_idx, self._state_ptr, self._pgv.genovec, &difflist_common_geno, raregeno_buf, difflist_sample_ids_buf, &difflist_len)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_sparse32() error " + str(reterr))
+            raise self._read_error("read_sparse32() error " + str(reterr))
         if allele_idx == 0:
             if difflist_common_geno != 2:
                 raise RuntimeError("read_sparse32(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
@@ -1975,7 +2011,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetDifflistOrGenovec(self._subset_include_vec, self._subset_index, subset_size, max_difflist_len, variant_idx, self._state_ptr, self._pgv.genovec, &difflist_common_geno, raregeno_buf, difflist_sample_ids_buf, &difflist_len)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_sparse64() error " + str(reterr))
+            raise self._read_error("read_sparse64() error " + str(reterr))
         if allele_idx == 0:
             if difflist_common_geno != 2:
                 raise RuntimeError("read_sparse64(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
@@ -2029,7 +2065,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetDMaybeSparse(self._subset_include_vec, self._subset_index, subset_size, variant_idx, max_difflist_len, self._state_ptr, self._pgv.genovec, self._pgv.dosage_present, dosage_main, &dosage_ct, &difflist_common_dosage, difflist_sample_ids_buf)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_sparse_dosages32() error " + str(reterr))
+            raise self._read_error("read_sparse_dosages32() error " + str(reterr))
         if allele_idx == 0:
             if difflist_common_dosage != 32768:
                 raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
@@ -2060,7 +2096,7 @@ cdef class PgenReader:
         with nogil:
             reterr = PgrGetDMaybeSparse(self._subset_include_vec, self._subset_index, subset_size, variant_idx, max_difflist_len, self._state_ptr, self._pgv.genovec, self._pgv.dosage_present, dosage_main, &dosage_ct, &difflist_common_dosage, difflist_sample_ids_buf)
         if reterr != kPglRetSuccess:
-            raise RuntimeError("read_sparse_dosages64() error " + str(reterr))
+            raise self._read_error("read_sparse_dosages64() error " + str(reterr))
         if allele_idx == 0:
             if difflist_common_dosage != 32768:
                 raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
@@ -2103,7 +2139,7 @@ cdef class PgenReader:
             PyMem_Free(self._info_ptr)
             self._info_ptr = NULL
             if reterr != kPglRetSuccess:
-                raise RuntimeError("close() error " + str(reterr))
+                raise self._read_error("close() error " + str(reterr))
         return
 
 

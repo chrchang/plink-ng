@@ -3,10 +3,12 @@ import pgenlib
 import numpy as np
 import base64
 import csv
+import io
 import os
 import pytest
 import random
 import string
+import sys
 
 def generate_unphased_biallelic_test_genotypes(nsample, nvariant):
     geno_buf = np.zeros([nvariant, nsample], dtype=np.int8)
@@ -612,3 +614,108 @@ def test_phased_dosages_errors(tmp_path):
             r.read_phased_dosages_range(0, 5, np.empty([5, 9], np.float32))
         with pytest.raises(RuntimeError):
             r.read_phased_dosages_list(np.asarray([0, 5], np.uint32), np.empty([2, 10], np.float32))
+
+
+file_like_supported = pytest.mark.skipif(sys.platform == "win32", reason="file-like objects need funopen() or fopencookie()")
+
+
+class ReadOnlyStream:
+    # Minimal file-like object: read() and seek(), but no readinto().
+    def __init__(self, data):
+        self._buf = io.BytesIO(data)
+        self.read_ct = 0
+
+    def read(self, size=-1):
+        self.read_ct += 1
+        return self._buf.read(size)
+
+    def seek(self, offset, whence=0):
+        return self._buf.seek(offset, whence)
+
+
+class FailingStream(io.BytesIO):
+    # Raises from every readinto() call while armed.
+    def __init__(self, data, armed):
+        super().__init__(data)
+        self.armed = armed
+
+    def readinto(self, buf):
+        if self.armed:
+            raise ValueError("simulated network failure")
+        return super().readinto(buf)
+
+
+def write_unphased_biallelic_pgen(path, nsample, nvariant):
+    test_genotypes = generate_unphased_biallelic_test_genotypes(nsample, nvariant)
+    with pgenlib.PgenWriter(path, nsample, variant_ct=nvariant, nonref_flags=False) as w:
+        w.append_biallelic_batch(test_genotypes)
+    return test_genotypes
+
+
+@file_like_supported
+def test_file_like(tmp_path):
+    random.seed(1)
+    nsample = 300
+    nvariant = 280
+    test_pgen_path = tmp_path / "file_like.pgen"
+    test_genotypes = write_unphased_biallelic_pgen(bytes(test_pgen_path), nsample, nvariant)
+    pgen_bytes = test_pgen_path.read_bytes()
+    sample_subset = sorted(random.sample(range(nsample), k=(nsample+1) // 2))
+    with open(test_pgen_path, "rb") as f:
+        streams = [io.BytesIO(pgen_bytes), ReadOnlyStream(pgen_bytes), f]
+        for stream in streams:
+            with pgenlib.PgenReader(stream) as r:
+                check_unphased_biallelic_read_concordance(r, nsample, nvariant, test_genotypes, None)
+                r.change_sample_subset(np.asarray(sample_subset, np.uint32))
+                check_unphased_biallelic_read_concordance(r, nsample, nvariant, test_genotypes, sample_subset)
+        # The reader must not close the caller's file.
+        assert not f.closed
+    assert streams[1].read_ct > 0
+
+    # str and os.PathLike filenames work too.
+    for name in (str(test_pgen_path), test_pgen_path):
+        with pgenlib.PgenReader(name) as r:
+            assert r.get_variant_ct() == nvariant
+
+
+@file_like_supported
+def test_file_like_errors(tmp_path):
+    random.seed(2)
+    nsample = 4000
+    nvariant = 200
+    test_pgen_path = tmp_path / "file_like_errors.pgen"
+    write_unphased_biallelic_pgen(bytes(test_pgen_path), nsample, nvariant)
+    pgen_bytes = test_pgen_path.read_bytes()
+    # The variant records must extend well past what stdio buffers during
+    # construction (8 KiB with glibc), or the armed stream below is never read.
+    assert len(pgen_bytes) > 32768
+
+    with pytest.raises(TypeError, match="read"):
+        pgenlib.PgenReader(object())
+    # Same early-exit path as above, already reachable before file-like
+    # support: __dealloc__ used to free uninitialized pointers here.
+    with pytest.raises(RuntimeError, match="pvar cannot be specified"):
+        pgenlib.PgenReader(bytes(test_pgen_path), variant_ct=nvariant, pvar=object())
+    with pytest.raises(RuntimeError, match="not a .pgen file"):
+        pgenlib.PgenReader(io.BytesIO(b"not a pgen file"))
+
+    # An exception raised by the stream during construction is chained.
+    with pytest.raises(RuntimeError) as excinfo:
+        pgenlib.PgenReader(FailingStream(pgen_bytes, True))
+    assert isinstance(excinfo.value.__cause__, ValueError)
+
+    # ...and so is one raised while reading a variant.
+    buf = np.empty(nsample, np.int8)
+    stream = FailingStream(pgen_bytes, False)
+    r = pgenlib.PgenReader(stream)
+    stream.armed = True
+    with pytest.raises(RuntimeError) as excinfo:
+        for vidx in range(nvariant):
+            r.read(vidx, buf)
+    assert isinstance(excinfo.value.__cause__, ValueError)
+    # Whether close() then reports the stream's error state again depends on
+    # the platform's fclose() (macOS does, glibc doesn't).
+    try:
+        r.close()
+    except RuntimeError:
+        pass
