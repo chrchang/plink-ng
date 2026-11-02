@@ -2658,28 +2658,53 @@ static inline void ComputeTwoPlusOneTripleProductD(const double* bb, const doubl
 }
 #endif
 
+// Product of the likelihoods with exponents tracked separately, then one log.
 double ComputeLoglikD(const double* yy, const double* pp, uint32_t sample_ct) {
-  // possible todo: look for a high-precision way to accelerate this.
+  const uint64_t kMantMask = (1LLU << 52) - 1;
+  const uint64_t kOneBits = 0x3ff0000000000000LLU;
+  double accs[4] = {1.0, 1.0, 1.0, 1.0};
+  int64_t expos[4] = {0, 0, 0, 0};
   double loglik = 0.0;
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const double new_pi = pp[sample_idx];
-    loglik += (yy[sample_idx] != 0.0)? log(new_pi) : log1p(-new_pi);
+    const uint32_t is_case = (yy[sample_idx] != 0.0);
+    const double ctrl_q = 1.0 - new_pi;
+    uint64_t pi_bits;
+    uint64_t ctrl_bits;
+    memcpy(&pi_bits, &new_pi, 8);
+    memcpy(&ctrl_bits, &ctrl_q, 8);
+    // Bitwise select, as gcc turns a ternary here into an unpredictable branch
+    const uint64_t case_mask = -S_CAST(uint64_t, is_case);
+    const uint64_t qbits = (pi_bits & case_mask) | (ctrl_bits & (~case_mask));
+    const uint64_t biased_expo = qbits >> 52;
+    if ((!biased_expo) || (biased_expo >= 1023)) {
+      loglik += is_case? log(new_pi) : log1p(-new_pi);
+      continue;
+    }
+    const uint32_t acc_idx = sample_idx & 3;
+    double qmant;
+    const uint64_t qmant_bits = (qbits & kMantMask) | kOneBits;
+    memcpy(&qmant, &qmant_bits, 8);
+    const double prod = accs[acc_idx] * qmant;
+    uint64_t prod_bits;
+    memcpy(&prod_bits, &prod, 8);
+    expos[acc_idx] += S_CAST(int64_t, (qbits >> 52) + (prod_bits >> 52)) - 2046;
+    const uint64_t prod_mant_bits = (prod_bits & kMantMask) | kOneBits;
+    memcpy(&(accs[acc_idx]), &prod_mant_bits, 8);
   }
-  return loglik;
+  const int64_t expo_sum = expos[0] + expos[1] + expos[2] + expos[3];
+  return loglik + log((accs[0] * accs[1]) * (accs[2] * accs[3])) + S_CAST(double, expo_sum) * kLn2;
 }
 
 BoolErr ComputeLoglikCheckedD(const double* yy, const double* pp, uint32_t sample_ct, double* loglik_ptr) {
-  // possible todo: look for a high-precision way to accelerate this.
-  double loglik = 0.0;
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const double new_pi = pp[sample_idx];
     // Imitate logistf stopping condition.
     if ((new_pi == 0.0) || (new_pi == 1.0)) {
       return 1;
     }
-    loglik += (yy[sample_idx] != 0.0)? log(new_pi) : log1p(-new_pi);
   }
-  *loglik_ptr = loglik;
+  *loglik_ptr = ComputeLoglikD(yy, pp, sample_ct);
   return 0;
 }
 
