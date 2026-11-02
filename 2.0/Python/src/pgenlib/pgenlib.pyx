@@ -12,7 +12,7 @@ import sys
 
 __version__ = "0.95.1"
 
-cdef extern from "../plink2/plink2_s3.h" namespace "plink2":
+cdef extern from "../plink2/include/plink2_s3.h" namespace "plink2":
     uint32_t IsS3Uri(const char* path)
     void EnsureS3Ready()
     void S3SetNoSignRequest(uint32_t no_sign)

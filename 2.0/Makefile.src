@@ -50,10 +50,10 @@ ZSSRC = zstd/lib/decompress/huf_decompress_amd64.S
 # pgenlib_read.cc and plink2_text.cc call OpenMaybeS3(), so anything built
 # from PGENLIB_CCSRC or TEXTLIB_CCSRC needs these too -- not just plink2.
 # Without S3STREAM_ENABLE they compile to stubs and pull in no dependencies.
-S3_CCSRC = plink2_s3.cc \
-           s3stream/s3stream.cc \
-           s3stream/s3stream_creds.cc \
-           s3stream/s3stream_http.cc
+S3_CCSRC = include/plink2_s3.cc \
+           include/s3stream/s3stream.cc \
+           include/s3stream/s3stream_creds.cc \
+           include/s3stream/s3stream_http.cc
 
 PGENLIB_CCSRC = include/plink2_base.cc \
                 include/plink2_bits.cc \
@@ -177,7 +177,7 @@ PGCSRC2 = $(foreach fname,$(PGCSRC),../$(fname))
 
 CLEAN = *.o \
         include/*.o \
-        s3stream/*.o \
+        include/s3stream/*.o \
         libdeflate/lib/*.o \
         libdeflate/lib/arm/*.o \
         libdeflate/lib/x86/*.o \

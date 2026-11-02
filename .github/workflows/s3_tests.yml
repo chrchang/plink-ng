@@ -3,9 +3,8 @@ name: PLINK2 S3 TESTS
 on:
   push:
     paths:
-      - 2.0/plink2_s3.cc
-      - 2.0/plink2_s3.h
-      - 2.0/s3stream/**
+      - 2.0/include/**
+      - 2.0/Python/**
       - 2.0/Makefile*
       - 2.0/build_dynamic/Makefile
       - 2.0/plink2.cc
@@ -15,9 +14,8 @@ on:
       - .github/workflows/s3_tests.yml
   pull_request:
     paths:
-      - 2.0/plink2_s3.cc
-      - 2.0/plink2_s3.h
-      - 2.0/s3stream/**
+      - 2.0/include/**
+      - 2.0/Python/**
       - 2.0/Makefile*
       - 2.0/build_dynamic/Makefile
       - 2.0/plink2.cc

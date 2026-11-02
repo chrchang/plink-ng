@@ -22,7 +22,7 @@
 #include <string.h>
 
 #include "plink2_simd.h"
-#include "../plink2_s3.h"
+#include "plink2_s3.h"
 
 // Uncomment this during e.g. pgenlibr development to enable error-throwing.
 // #include <stdexcept>

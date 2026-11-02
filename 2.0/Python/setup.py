@@ -73,10 +73,10 @@ ext_modules = [
                          # pgenlib.pyx; without PGENLIB_USE_S3 these compile
                          # to no-ops that don't pull in libcurl, but they
                          # still need to be compiled in.
-                         'src/plink2/plink2_s3.cc',
-                         'src/plink2/s3stream/s3stream.cc',
-                         'src/plink2/s3stream/s3stream_creds.cc',
-                         'src/plink2/s3stream/s3stream_http.cc'],
+                         'src/plink2/include/plink2_s3.cc',
+                         'src/plink2/include/s3stream/s3stream.cc',
+                         'src/plink2/include/s3stream/s3stream_creds.cc',
+                         'src/plink2/include/s3stream/s3stream_http.cc'],
               language = "c++",
               # Cython doesn't yet support overload of e.g. uint32_t operator,
               # so it's necessary to compile plink2 with

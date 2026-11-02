@@ -16,7 +16,7 @@
 
 
 #include "plink2_cmdline.h"
-#include "plink2_s3.h"
+#include "include/plink2_s3.h"
 
 #include <errno.h>
 #include <fcntl.h>  // open()

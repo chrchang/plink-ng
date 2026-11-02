@@ -28,7 +28,7 @@
 
 #include <stdio.h>
 
-#include "include/plink2_base.h"
+#include "plink2_base.h"
 
 #ifdef __cplusplus
 namespace plink2 {

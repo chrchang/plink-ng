@@ -48,7 +48,7 @@
 #include "plink2_psam.h"
 #include "plink2_pvar.h"
 #include "plink2_random.h"
-#include "plink2_s3.h"
+#include "include/plink2_s3.h"
 #include "plink2_set.h"
 
 #include <assert.h>

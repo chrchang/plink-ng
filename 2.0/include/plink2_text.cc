@@ -22,7 +22,7 @@
 #include <string.h>
 
 #include "plink2_simd.h"
-#include "../plink2_s3.h"
+#include "plink2_s3.h"
 
 #ifdef __cplusplus
 namespace plink2 {
