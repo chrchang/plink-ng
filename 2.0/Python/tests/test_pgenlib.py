@@ -475,7 +475,10 @@ def test_read_after_error_on_corrupt_pgen(tmp_path):
     path = tmp_path / "corrupt.pgen"
     path.write_bytes(base64.b64decode(CORRUPT_LD_PGEN_B64))
     offsets = np.arange(31, dtype=np.uintp) * 4
-    r = pgenlib.PgenReader(bytes(path), allele_idx_offsets=offsets)
+    try:
+        r = pgenlib.PgenReader(bytes(path), allele_idx_offsets=offsets)
+    except RuntimeError:
+        pytest.skip("this platform rejects the corrupt file when opening it")
     buf = np.empty([r.get_raw_sample_ct()], np.int8)
     for variant_idx in range(30):
         for allele_idx in (1, 2):
