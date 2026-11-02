@@ -739,8 +739,17 @@ dd_real ddr_log(const dd_real a) {
     return ddr_maked(0.0);
   }
 
-  if (a.x[0] <= 0.0) {
+  if (!(a.x[0] > 0.0)) {
     return ddr_make(0.0 / 0.0, 0.0 / 0.0);
+  }
+
+  // The Newton step below needs exp(-log(a)) to be representable with full
+  // accuracy, so rescale extreme values.
+  if ((a.x[0] < k2m512) || (a.x[0] >= 2 * k2p512)) {
+    int32_t exponent;
+    frexp(a.x[0], &exponent);
+    const dd_real scaled = ddr_make(ldexp(a.x[0], -exponent), ldexp(a.x[1], -exponent));
+    return ddr_add(ddr_log(scaled), ddr_muld(_ddr_log2, exponent));
   }
 
   dd_real x;
@@ -776,7 +785,9 @@ dd_real ddr_expm1(const dd_real a) {
 
 dd_real ddr_log1p(const dd_real a) {
   // Currently gives up ~2 more bits than ddr_expm1.
-  if (fabs(a.x[0]) >= 0.03125) {
+  // Negated comparison so that nan takes this branch; the series below would
+  // never terminate.
+  if (!(fabs(a.x[0]) < 0.03125)) {
     return ddr_log(ddr_addd(a, 1.0));
   }
   // log(1+x) = x - (x^2)/2 + (x^3)/3 - ...
@@ -802,9 +813,13 @@ dd_real ddr_logspace_add(dd_real a, dd_real b) {
   if (ddr_lt(a, b)) {
     swap_ddr(&a, &b);
   }
+  if (b.x[0] == -INFINITY_D) {
+    // log(0) term; b - a would be nan if a is also infinite
+    return a;
+  }
   const dd_real diff = ddr_sub(b, a);
   // ilogb can be INT_MAX or INT_MIN, that's ok
-  if (diff.x[0] < (ilogb(a.x[1] / a.x[0]) - 54.0) * kLn2) {
+  if (diff.x[0] < (ilogb(a.x[1]) - 54.0) * kLn2) {
     // exp(b-a) is too small to affect even lowest bit of a.x[1]
     return a;
   }
@@ -813,8 +828,11 @@ dd_real ddr_logspace_add(dd_real a, dd_real b) {
 
 dd_real ddr_logspace_sub(dd_real a, dd_real b) {
   // log(exp(a) - exp(b)) = a + log(-expm1(b-a))
+  if (b.x[0] == -INFINITY_D) {
+    return a;
+  }
   const dd_real diff = ddr_sub(b, a);
-  if (diff.x[0] < (ilogb(a.x[1] / a.x[0]) - 54.0) * kLn2) {
+  if (diff.x[0] < (ilogb(a.x[1]) - 54.0) * kLn2) {
     return a;
   }
   return ddr_add(a, ddr_log(ddr_negate(ddr_expm1(diff))));
@@ -1178,11 +1196,19 @@ td_real tdr_log(const td_real a) {
     return tdr_make1(0.0);
   }
 
-  if (a.x[0] <= 0.0) {
+  if (!(a.x[0] > 0.0)) {
     return tdr_make(0.0 / 0.0, 0.0 / 0.0, 0.0 / 0.0);
   }
 
   // No need to check == 0.0 after we just checked <= 0.0 above.
+
+  // See ddr_log().
+  if ((a.x[0] < k2m512) || (a.x[0] >= 2 * k2p512)) {
+    int32_t exponent;
+    frexp(a.x[0], &exponent);
+    const td_real scaled = tdr_make(ldexp(a.x[0], -exponent), ldexp(a.x[1], -exponent), ldexp(a.x[2], -exponent));
+    return tdr_add(tdr_log(scaled), tdr_muld(_tdr_log2, exponent));
+  }
 
   td_real x = tdr_make1(log(a.x[0]));  // Initial approximation
 
@@ -1193,7 +1219,8 @@ td_real tdr_log(const td_real a) {
 }
 
 td_real tdr_log1p(const td_real a) {
-  if (fabs(a.x[0]) >= 0.03125) {
+  // nan must take this branch, see ddr_log1p()
+  if (!(fabs(a.x[0]) < 0.03125)) {
     return tdr_log(tdr_addd(a, 1.0));
   }
   // log(1+x) = x - (x^2)/2 + (x^3)/3 - ...
@@ -1287,8 +1314,8 @@ int32_t td_real_abs_cmp(const void* aa, const void* bb) {
     bb_tdr = tdr_negate(bb_tdr);
   }
   for (uint32_t limb_idx = 1; limb_idx < 3; ++limb_idx) {
-    const double aa_limb = fabs(aa_tdr.x[limb_idx]);
-    const double bb_limb = fabs(bb_tdr.x[limb_idx]);
+    const double aa_limb = aa_tdr.x[limb_idx];
+    const double bb_limb = bb_tdr.x[limb_idx];
     if (aa_limb != bb_limb) {
       return (aa_limb < bb_limb)? -1 : 1;
     }
@@ -1373,10 +1400,10 @@ intptr_t CompareFactorialProducts(uint32_t ffac_ct, td_real odds_ratio_tdr, int6
     const uint64_t numer_factorial_arg = numer_factorial_args[ffac_idx];
     const uint64_t denom_factorial_arg = denom_factorial_args[ffac_idx];
     if (numer_factorial_arg > denom_factorial_arg) {
-      const uint32_t ffac_size = numer_factorial_arg - denom_factorial_arg;
+      const uint64_t ffac_size = numer_factorial_arg - denom_factorial_arg;
       numer_bit_bound += CeilLog2U64(numer_factorial_arg) * ffac_size;
     } else {
-      const uint32_t ffac_size = denom_factorial_arg - numer_factorial_arg;
+      const uint64_t ffac_size = denom_factorial_arg - numer_factorial_arg;
       denom_bit_bound += CeilLog2U64(denom_factorial_arg) * ffac_size;
     }
   }
@@ -1448,7 +1475,7 @@ intptr_t CompareFactorialProducts(uint32_t ffac_ct, td_real odds_ratio_tdr, int6
   double lnprobv_diff = ddr_sub(lnprobv_ddr, starting_lnprobv_ddr).x[0];
   // We don't necessarily know epsilon_base for starting_lnprobv, but it
   // shouldn't be much larger than that for lnprobv.
-  double epsilon = (16.0 / k2p100) * epsilon_base;
+  double epsilon = (16.0 / k2p100) * fabs(epsilon_base);
   if (lnprobv_diff > epsilon) {
     *dbl_ptr = exp(lnprobv_diff);
     return 1;
@@ -1476,7 +1503,7 @@ intptr_t CompareFactorialProducts(uint32_t ffac_ct, td_real odds_ratio_tdr, int6
     }
   }
   lnprobv_diff = tdr_sub(lnprobv_tdr, starting_lnprobv_tdr).x[0];
-  epsilon = (128.0 / (k2p100 * k2p50)) * epsilon_base;
+  epsilon = (128.0 / (k2p100 * k2p50)) * fabs(epsilon_base);
   *dbl_ptr = exp(lnprobv_diff);
   if (lnprobv_diff < -epsilon) {
     return -1;

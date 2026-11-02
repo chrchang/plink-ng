@@ -63,7 +63,7 @@
 namespace plink2 {
 #endif
 
-static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1.3"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1.4-dev"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -91,10 +91,10 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1.3"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (31 Oct 2026)";
+  " (1 Nov 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -119,7 +119,7 @@ static PREFER_CONSTEXPR char ver_str2[] =
 #  endif
 #endif
 
-  "     cog-genomics.org/plink/2.0/\n"
+  " cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2026 S Purcell, C Chang, B Demaille      GNU General Public License v3\n";
 #ifdef HAS_CONSTEXPR
 static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_str/ver_str2 must be updated");
@@ -7198,6 +7198,24 @@ int main(int argc, char** argv) {
               if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf | kfExportfMgf)))) {
                 logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], mgf,\noxford, and vcf output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(pc.exportf_info.flags & kfExportfBgz)) {
+                logerrputs("Error: Multiple --export bgz modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.exportf_info.flags |= kfExportfBgz;
+            } else if (StrStartsWith(cur_modif, "bgz=", cur_modif_slen)) {
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf | kfExportfBcf | kfExportfMgf)))) {
+                logerrputs("Error: The 'bgz=' modifier only applies to --export's bcf, haps[legend], mgf,\noxford, and vcf output formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(pc.exportf_info.flags & kfExportfBgz)) {
+                logerrputs("Error: Multiple --export bgz modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (unlikely(ScanPosintCappedx(&(cur_modif[strlen("bgz=")]), 12, &pc.exportf_info.bgz_clvl))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export bgz= compression level '%s' (must be in 1..12).\n", &(cur_modif[strlen("bgz=")]));
+                goto main_ret_INVALID_CMDLINE_WWA;
               }
               pc.exportf_info.flags |= kfExportfBgz;
             } else if (strequal_k(cur_modif, "spaces", cur_modif_slen)) {
