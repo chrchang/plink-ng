@@ -9074,6 +9074,24 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
   return retval;
 }
 
+// Masks match the GT loops in bcf_to_bed(), which use these values as offsets.
+static uint32_t bcf_gt_index_out_of_range(const void* gt_vals, uint32_t val_ct, uint32_t type_code, uintptr_t allele_ct) {
+  for (uint32_t uii = 0; uii < val_ct; uii++) {
+    uintptr_t cur_val;
+    if (type_code == 1) {
+      cur_val = ((const unsigned char*)gt_vals)[uii] & 0x7e;
+    } else if (type_code == 2) {
+      cur_val = ((const uint16_t*)gt_vals)[uii] & 0x7ffe;
+    } else {
+      cur_val = ((const uint32_t*)gt_vals)[uii] & 0x7ffffffe;
+    }
+    if (cur_val / 2 > allele_ct) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 int32_t bcf_header_line_idx_check(char* line_iter, char* line_end, uint32_t* gt_idx_ptr) {
   // adapted from plink 2.0 BcfHeaderLineIdxCheck()
   while (1) {
@@ -9369,6 +9387,17 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	ll_ptr->next = contig_list;
 	memcpyx(ll_ptr->ss, bufptr, slen, '\0');
 	contig_list = ll_ptr;
+	// Contig IDs are assigned in line order, so an IDX= that disagrees would
+	// silently mislabel variants.
+	for (bufptr2 = bufptr; &(bufptr2[5]) < linebuf_end; bufptr2++) {
+	  if (!memcmp(bufptr2, ",IDX=", 5)) {
+	    if (scan_uint_defcap(&(bufptr2[5]), &uii) || (uii != contig_ct)) {
+	      logerrprint("Error: --bcf does not support contig IDX= values out of header line order.\n");
+	      goto bcf_to_bed_ret_INVALID_FORMAT;
+	    }
+	    break;
+	  }
+	}
 	contig_ct++;
       }
       linebuf = &(linebuf_end[1]);
@@ -9712,6 +9741,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       // ujj * umm <= 12 and sample_ct < 2^24, so no uint64_t cast needed there
       if ((uint32_t)((uint64_t)gzread(gz_infile, loadbuf, ujj * umm * sample_ct)) < ujj * umm * sample_ct) {
 	goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+      }
+      if (bcf_gt_index_out_of_range(loadbuf, ujj * sample_ct, ukk, (n_allele < 2)? 2 : n_allele)) {
+	logerrprint("Error: GT allele index in .bcf file is out of range.\n");
+	goto bcf_to_bed_ret_INVALID_FORMAT;
       }
       if (n_allele < 2) {
 	fill_ulong_zero(2 * sample_ctv2, base_bitfields);
