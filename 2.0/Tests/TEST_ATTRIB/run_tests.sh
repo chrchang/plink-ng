@@ -73,11 +73,11 @@ for cond in "" "attr0" "attr0,attr3" ",-attr1" "attr0,-attr1" "attr2,attr4,-attr
 done
 
 # An attribute name which appears nowhere keeps nothing.
-plink --bfile tmp_data --attrib vattr.txt nosuchattr --write-snplist --out plink_va && false || true
-$1/plink2 $2 $3 --bfile tmp_data --attrib vattr.txt nosuchattr --write-snplist --out plink2_va && false || true
+plink --bfile tmp_data --attrib vattr.txt nosuchattr --write-snplist --out plink_va && exit 1 || true
+$1/plink2 $2 $3 --bfile tmp_data --attrib vattr.txt nosuchattr --write-snplist --out plink2_va && exit 1 || true
 
 fails() {
-    "$@" && false || true
+    "$@" && exit 1 || true
 }
 
 # Malformed conditions.
