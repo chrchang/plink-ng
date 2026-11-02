@@ -83,3 +83,8 @@ run_case dphase_value ds 'u16:1:61=0x7000' '--export vcf vcf-dosage=HDS-force' '
 # PgrGetInv1D() used to invert dosage_main before looking at the error code,
 # with dosage_ct never set.
 run_case dosage_value_r2 ds 'u16:0:6=0x9000' '--r2-unphased --ld-window-r2 0' 'Failed to unpack'
+# All dosages of a fixed-width track above 32768: the count-only readers don't
+# copy dosages, and the ref allele count used to wrap below zero, making --freq
+# report a frequency above 1 and tripping an assertion when --glm needed it.
+dosage_total_edits=$(for i in $(seq 0 23); do printf 'u16:0:%d=0xf000 ' $((6 + 2 * i)); done)
+run_case dosage_total ds "$dosage_total_edits" '--freq' 'Failed to'

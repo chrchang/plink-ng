@@ -374,6 +374,30 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
 }
 #else  // !USE_AVX2
 static inline int32_t DotprodVecsNm(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc_both = vecw_setzero();
+  VecW acc_neg = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc_both = vecw_setzero();
+    VecW inner_acc_neg = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const VecW cur_both = hom1_iter[vec_idx] & hom2_iter[vec_idx];
+      inner_acc_both = inner_acc_both + vecw_popcount8(cur_both);
+      inner_acc_neg = inner_acc_neg + vecw_popcount8(cur_both & (ref2het1_iter[vec_idx] ^ ref2het2_iter[vec_idx]));
+    }
+    hom1_iter = &(hom1_iter[cur_incr]);
+    ref2het1_iter = &(ref2het1_iter[cur_incr]);
+    hom2_iter = &(hom2_iter[cur_incr]);
+    ref2het2_iter = &(ref2het2_iter[cur_incr]);
+    acc_both = acc_both + vecw_bytesum(inner_acc_both, m0);
+    acc_neg = acc_neg + vecw_bytesum(inner_acc_neg, m0);
+    vec_ct -= cur_incr;
+  }
+  return HsumW(acc_both) - 2 * HsumW(acc_neg);
+#else
   // popcount(hom1 & hom2) - 2 * popcount(hom1 & hom2 & (ref2het1 ^ ref2het2))
   // ct must be a multiple of 3.
   assert(!(vec_ct % 3));
@@ -428,6 +452,7 @@ static inline int32_t DotprodVecsNm(const VecW* __restrict hom1_iter, const VecW
     acc_both = acc_both + vecw_bytesum(inner_acc_both, m0);
     acc_neg = acc_neg + vecw_bytesum(inner_acc_neg, m0);
   }
+#endif
 }
 
 int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restrict ref2het1, const uintptr_t* __restrict hom2, const uintptr_t* __restrict ref2het2, uintptr_t word_ct) {
@@ -450,6 +475,31 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
 
 #ifndef USE_SSE42
 static inline void SumSsqVecs(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc_ssq2 = vecw_setzero();
+  VecW acc_plus2 = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc_ssq = vecw_setzero();
+    VecW inner_acc_plus = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const VecW cur_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
+      inner_acc_ssq = inner_acc_ssq + vecw_popcount8(cur_ssq);
+      inner_acc_plus = inner_acc_plus + vecw_popcount8(cur_ssq & ref2het2_iter[vec_idx]);
+    }
+    hom1_iter = &(hom1_iter[cur_incr]);
+    ref2het1_iter = &(ref2het1_iter[cur_incr]);
+    hom2_iter = &(hom2_iter[cur_incr]);
+    ref2het2_iter = &(ref2het2_iter[cur_incr]);
+    acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
+    acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
+    vec_ct -= cur_incr;
+  }
+  *ssq2_ptr = HsumW(acc_ssq2);
+  *plus2_ptr = HsumW(acc_plus2);
+#else
   // popcounts (nm1 & hom2) and (nm1 & hom2 & ref2het2).  ct is multiple of 3.
   assert(!(vec_ct % 3));
   const VecW m1 = VCONST_W(kMask5555);
@@ -505,6 +555,7 @@ static inline void SumSsqVecs(const VecW* __restrict hom1_iter, const VecW* __re
     acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
     acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
   }
+#endif
 }
 #endif
 
@@ -531,6 +582,39 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
 
 #if defined(USE_AVX2) || !defined(USE_SSE42)
 static inline void SumSsqNmVecs(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict nm_ptr, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc_nm = vecw_setzero();
+  VecW acc_ssq2 = vecw_setzero();
+  VecW acc_plus2 = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc_nm = vecw_setzero();
+    VecW inner_acc_ssq = vecw_setzero();
+    VecW inner_acc_plus = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const VecW nm1 = hom1_iter[vec_idx] | ref2het1_iter[vec_idx];
+      const VecW hom2 = hom2_iter[vec_idx];
+      const VecW ref2het2 = ref2het2_iter[vec_idx];
+      const VecW cur_ssq = nm1 & hom2;
+      inner_acc_nm = inner_acc_nm + vecw_popcount8(nm1 & (hom2 | ref2het2));
+      inner_acc_ssq = inner_acc_ssq + vecw_popcount8(cur_ssq);
+      inner_acc_plus = inner_acc_plus + vecw_popcount8(cur_ssq & ref2het2);
+    }
+    hom1_iter = &(hom1_iter[cur_incr]);
+    ref2het1_iter = &(ref2het1_iter[cur_incr]);
+    hom2_iter = &(hom2_iter[cur_incr]);
+    ref2het2_iter = &(ref2het2_iter[cur_incr]);
+    acc_nm = acc_nm + vecw_bytesum(inner_acc_nm, m0);
+    acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
+    acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
+    vec_ct -= cur_incr;
+  }
+  *nm_ptr = HsumW(acc_nm);
+  *ssq2_ptr = HsumW(acc_ssq2);
+  *plus2_ptr = HsumW(acc_plus2);
+#else
   // vec_ct must be a multiple of 3.
   assert(!(vec_ct % 3));
   const VecW m1 = VCONST_W(kMask5555);
@@ -611,6 +695,7 @@ static inline void SumSsqNmVecs(const VecW* __restrict hom1_iter, const VecW* __
     acc_ssq2 = acc_ssq2 + vecw_bytesum(inner_acc_ssq, m0);
     acc_plus2 = acc_plus2 + vecw_bytesum(inner_acc_plus, m0);
   }
+#endif
 }
 #endif  // __LP64__
 
@@ -10066,6 +10151,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     char* range_group_names = nullptr;
     uintptr_t* rg_chr_bounds = nullptr;
     uint32_t** rg_setdefs = nullptr;
+    uint64_t* rg_starts = nullptr;
+    uint32_t* rg_end_cummaxs = nullptr;
+    uint32_t* rg_hits = nullptr;
     uintptr_t max_range_group_id_blen = 0;
     if (range_fname) {
       uintptr_t ignored_group_ct;
@@ -10073,6 +10161,34 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       reterr = LoadAndSortIntervalBed(range_fname, cip, nullptr, (flags / kfClumpRange0) & 1, clump_ip->range_border, 0, 0, max_thread_ct, &ignored_group_ct, &range_group_names, &max_range_group_id_blen, &rg_chr_bounds, &rg_setdefs, &ignored_chr_max_group_ct);
       if (unlikely(reterr)) {
         goto ClumpReports_ret_1;
+      }
+      // Within each chromosome, sort (start, range_group_idx) and keep the
+      // running maximum of the ends, so that each clump only needs to look at
+      // range groups it can overlap.
+      const uint32_t chr_idx_end = cip->max_code + 1 + cip->name_ct;
+      const uintptr_t range_group_ct = rg_chr_bounds[chr_idx_end];
+      if (unlikely(bigstack_alloc_u64(range_group_ct, &rg_starts) ||
+                   bigstack_alloc_u32(range_group_ct, &rg_end_cummaxs) ||
+                   bigstack_alloc_u32(range_group_ct, &rg_hits))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      for (uint32_t chr_idx = 0; chr_idx != chr_idx_end; ++chr_idx) {
+        const uintptr_t chr_rg_start = rg_chr_bounds[chr_idx];
+        const uintptr_t chr_rg_end = rg_chr_bounds[chr_idx + 1];
+        for (uintptr_t rg_idx = chr_rg_start; rg_idx != chr_rg_end; ++rg_idx) {
+          const uint32_t* setdef = rg_setdefs[rg_idx];
+          const uint32_t cur_start = setdef[0]? setdef[1] : UINT32_MAX;
+          rg_starts[rg_idx] = (S_CAST(uint64_t, cur_start) << 32) | (rg_idx - chr_rg_start);
+        }
+        STD_SORT(chr_rg_end - chr_rg_start, u64cmp, &(rg_starts[chr_rg_start]));
+        uint32_t cur_end_cummax = 0;
+        for (uintptr_t sort_idx = chr_rg_start; sort_idx != chr_rg_end; ++sort_idx) {
+          const uint32_t* setdef = rg_setdefs[chr_rg_start + S_CAST(uint32_t, rg_starts[sort_idx])];
+          if (setdef[0]) {
+            cur_end_cummax = MAXV(cur_end_cummax, setdef[2 * setdef[0]]);
+          }
+          rg_end_cummaxs[sort_idx] = cur_end_cummax;
+        }
       }
     }
 
@@ -10459,14 +10575,28 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           const char* cur_rg_names = &(range_group_names[cur_rg_start_idx * max_range_group_id_blen + kMaxChrCodeDigits]);
           const uintptr_t cur_rg_ct = rg_chr_bounds[chr_idx + 1] - cur_rg_start_idx;
           const uint32_t end_bp = last_bp + 1;
-          for (uintptr_t rg_idx = 0; rg_idx != cur_rg_ct; ++rg_idx) {
-            if (IntervalInSetdef(cur_rg_setdefs[rg_idx], first_bp, end_bp)) {
-              if (unlikely(Cswrite(&css, &cswritep))) {
-                goto ClumpReports_ret_WRITE_FAIL;
-              }
-              nonempty = 1;
-              cswritep = strcpyax(cswritep, &(cur_rg_names[rg_idx * max_range_group_id_blen]), ',');
+          uintptr_t sort_idx = cur_rg_ct;
+          if (cur_rg_ct) {
+            sort_idx = LowerBoundNonemptyU64(&(rg_starts[cur_rg_start_idx]), cur_rg_ct, S_CAST(uint64_t, end_bp) << 32);
+          }
+          uintptr_t hit_ct = 0;
+          while (sort_idx) {
+            --sort_idx;
+            if (rg_end_cummaxs[cur_rg_start_idx + sort_idx] <= first_bp) {
+              break;
             }
+            const uint32_t rg_idx = S_CAST(uint32_t, rg_starts[cur_rg_start_idx + sort_idx]);
+            if (IntervalInSetdef(cur_rg_setdefs[rg_idx], first_bp, end_bp)) {
+              rg_hits[hit_ct++] = rg_idx;
+            }
+          }
+          STD_SORT(hit_ct, u32cmp, rg_hits);
+          for (uintptr_t hit_idx = 0; hit_idx != hit_ct; ++hit_idx) {
+            if (unlikely(Cswrite(&css, &cswritep))) {
+              goto ClumpReports_ret_WRITE_FAIL;
+            }
+            nonempty = 1;
+            cswritep = strcpyax(cswritep, &(cur_rg_names[rg_hits[hit_idx] * max_range_group_id_blen]), ',');
           }
         }
         if (nonempty) {
@@ -12061,6 +12191,38 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
 // Assumes chr_start_uidx <= uidx_start <= uidx_end on entry, and that
 // uidx_start and uidx_end are not greater than their true values for the
 // current variant.
+// Upper bound on the number of variants following a row-variant in its --r2
+// window.  (--ld-window-cm can only make the true window smaller.)
+uint32_t VcorMaxForwardWindow(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t var_ct_radius, uint32_t bp_radius) {
+  const uint32_t chr_ct = cip->chr_ct;
+  uint32_t max_window_ct = 0;
+  for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+    const uint32_t chr_start = cip->chr_fo_vidx_start[chr_fo_idx];
+    const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+    const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_start, chr_end);
+    uint32_t left_uidx = chr_start;
+    uint32_t right_uidx = chr_start;
+    uint32_t right_cidx = 0;
+    for (uint32_t left_cidx = 0; left_cidx != chr_variant_ct; ++left_cidx, ++left_uidx) {
+      left_uidx = AdvTo1Bit(variant_include, left_uidx);
+      const uint64_t bp_stop = S_CAST(uint64_t, variant_bps[left_uidx]) + bp_radius;
+      while (right_cidx != chr_variant_ct) {
+        right_uidx = AdvTo1Bit(variant_include, right_uidx);
+        if (variant_bps[right_uidx] > bp_stop) {
+          break;
+        }
+        ++right_cidx;
+        ++right_uidx;
+      }
+      const uint32_t window_ct = right_cidx - left_cidx - 1;
+      if (window_ct > max_window_ct) {
+        max_window_ct = window_ct;
+      }
+    }
+  }
+  return MINV(max_window_ct, var_ct_radius);
+}
+
 void UpdateVcorWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, const double* variant_cms, uint32_t row_snp_subset, uint32_t var_ct_radius, uint32_t bp_radius, double cm_radius, uint32_t chr_end_uidx, uint32_t center_uidx, uint32_t* uidx_startp, uint32_t* uidx_endp) {
   const uint32_t cur_bp = variant_bps[center_uidx];
   if (row_snp_subset) {
@@ -12106,6 +12268,7 @@ void UpdateVcorWindow(const uintptr_t* variant_include, const uint32_t* variant_
 // applied.
 CONSTI32(kVcorTableMinBlockResultCt, 1 << 22);
 CONSTI32(kVcorTableMinBlockRowCt, 128);
+CONSTI32(kVcorTableMinUvCapacity, 1 << 16);
 
 PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, const char* flagname, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -12727,6 +12890,16 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
       }
       if (uv_capacity > variant_ct) {
         uv_capacity = variant_ct;
+      }
+      if (!inter_chr) {
+        // Every unpacked-variant slot gets touched, so a fixed-size window
+        // shouldn't make peak memory proportional to variant_ct.  Each block
+        // only has to hold its rows plus one column window.
+        const uintptr_t max_window_ct = VcorMaxForwardWindow(variant_include, cip, variant_bps, var_ct_radius, bp_radius);
+        const uintptr_t uv_capacity_cap = MAXV(kVcorTableMinUvCapacity, 4 * (1 + !!row_snp_subset) * (max_window_ct + 1));
+        if (uv_capacity > uv_capacity_cap) {
+          uv_capacity = uv_capacity_cap;
+        }
       }
       // shouldn't be possible for these allocations to fail
       if (unlikely(bigstack_alloc_uc(uv_capacity * unpacked_variant_byte_stride, &(ctx.unpacked_variants[0])) ||
@@ -13604,6 +13777,9 @@ static void LdScoreRange(const LdScoreCtx* ctx, uint32_t cidx_start, uint32_t ci
   }
 }
 
+// (window variants) * (block variants) * founders
+static const uint64_t kLdScoreInlineWorkMax = 1LLU << 26;
+
 THREAD_FUNC_DECL LdScoreThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
@@ -13929,7 +14105,9 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
         }
         ctx.block_start = block_start;
         ctx.block_end = block_end;
-        if (cur_thread_ct == 1) {
+        // Waking the workers isn't worth it for the tiny blocks produced by
+        // e.g. tens of thousands of small contigs.
+        if ((cur_thread_ct == 1) || (S_CAST(uint64_t, need_end - need_start) * cur_block_size * founder_ct < kLdScoreInlineWorkMax)) {
           LdScoreRange(&ctx, block_start, block_end);
         } else {
           DeclareLastThreadBlock(&tg);
@@ -15634,7 +15812,7 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
     if (write_tag_list) {
       // Tags are flushed one at a time, so the overflow only has to cover the
       // fixed columns or one ID.
-      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_variant_id_slen + 128;
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + 2 * max_variant_id_slen + 128;
       OutnameZstSet(".tags.list", output_zst, outname_end);
       reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (unlikely(reterr)) {

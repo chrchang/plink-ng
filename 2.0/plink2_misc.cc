@@ -12361,7 +12361,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     {
       const uint32_t output_zst = (flags / kfHomozygZs) & 1;
       OutnameZstSet(".hom.summary", output_zst, outname_end);
-      uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512;
+      uintptr_t overflow_buf_size = kCompressStreamBlock + GetMaxChrSlen(cip) + kMaxIdSlen + 512;
       if (pheno_col) {
         if (pheno_col->type_code == kPhenoDtypeCc) {
           if (unlikely(CatFromBinaryPheno(raw_sample_ct, &pheno_col))) {

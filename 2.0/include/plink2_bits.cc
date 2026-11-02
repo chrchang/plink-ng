@@ -1243,6 +1243,22 @@ void CopyBitarrSubsetToUnaligned(const uintptr_t* __restrict raw_bitarr, const u
 
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
 uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW* bit_vvec_iter = bit_vvec;
+  const VecW m0 = vecw_setzero();
+  VecW acc = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      inner_acc = inner_acc + vecw_popcount8(*bit_vvec_iter++);
+    }
+    acc = acc + vecw_bytesum(inner_acc, m0);
+    vec_ct -= cur_incr;
+  }
+  return HsumW(acc);
+#else
   // popcounts vptr[0..(vec_ct-1)].  Assumes vec_ct is a multiple of 3 (0 ok).
   assert(!(vec_ct % 3));
   const VecW m0 = vecw_setzero();
@@ -1292,9 +1308,25 @@ uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
     acc = acc + prev_sad_result;
     prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
+#endif
 }
 
 static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      inner_acc = inner_acc + vecw_popcount8((*vvec1_iter++) & (*vvec2_iter++));
+    }
+    acc = acc + vecw_bytesum(inner_acc, m0);
+    vec_ct -= cur_incr;
+  }
+  return HsumW(acc);
+#else
   // popcounts vvec1 AND vvec2[0..(ct-1)].  ct is a multiple of 3.
   assert(!(vec_ct % 3));
   const VecW m0 = vecw_setzero();
@@ -1331,6 +1363,7 @@ static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1
     acc = acc + prev_sad_result;
     prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
+#endif
 }
 
 uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {
@@ -1347,6 +1380,21 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
 }
 
 static inline uintptr_t PopcountVecsNoAvx2Xor(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  VecW acc = vecw_setzero();
+  while (vec_ct) {
+    const uintptr_t cur_incr = MINV(vec_ct, 30);
+    VecW inner_acc = vecw_setzero();
+    for (uintptr_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      inner_acc = inner_acc + vecw_popcount8((*vvec1_iter++) ^ (*vvec2_iter++));
+    }
+    acc = acc + vecw_bytesum(inner_acc, m0);
+    vec_ct -= cur_incr;
+  }
+  return HsumW(acc);
+#else
   // popcounts vvec1 XOR vvec2[0..(ct-1)].  ct is a multiple of 3.
   assert(!(vec_ct % 3));
   const VecW m0 = vecw_setzero();
@@ -1383,6 +1431,7 @@ static inline uintptr_t PopcountVecsNoAvx2Xor(const VecW* __restrict vvec1_iter,
     acc = acc + prev_sad_result;
     prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
+#endif
 }
 
 uintptr_t PopcountWordsXor(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {

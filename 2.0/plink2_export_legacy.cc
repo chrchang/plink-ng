@@ -1575,6 +1575,10 @@ PglErr ExportFastphase(const char* outname, char* outname_end, const uintptr_t* 
       } else {
         char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
         *chr_name_end = '\0';
+        if (unlikely(S_CAST(uintptr_t, chr_name_end - chr_buf) + S_CAST(uintptr_t, outname_end - outname) + kMaxOutfnameExtBlen > kPglFnamesize)) {
+          logerrputs("Error: Chromosome name and/or --out argument too long for --export fastphase.\n");
+          goto ExportFastphase_ret_INCONSISTENT_INPUT;
+        }
         fname_end = strcpya_k(outname_end, ".chr-");
         fname_end = strcpya(fname_end, chr_buf);
         fname_end = strcpya_k(fname_end, ".phase.inp");

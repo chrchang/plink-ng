@@ -3,3 +3,4 @@ tmp_data.*
 trimmed_alts.*
 plink2_ri.pvar
 tmp_ri.*
+plink2_bgz*

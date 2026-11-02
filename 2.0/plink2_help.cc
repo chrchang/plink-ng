@@ -486,7 +486,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    improperly.  If you have any doubt, stick with --make-[b]pgen/--make-bed.\n\n"
               );
     HelpPrint("export\0recode\0", &help_ctrl, 1,
-"  --export <output format(s)...> [{01 | 12}] ['bgz'] ['id-delim='<char>]\n"
+"  --export <output format(s)...> [{01 | 12}] [{bgz | bgz=<level>}]\n"
+"                                 ['id-delim='<char>]\n"
 "                                 ['id-paste='<col set descrip>] ['include-alt']\n"
 "                                 ['omit-nonmale-y'] ['spaces']\n"
 "                                 ['vcf-dosage='<field>] ['ref-first']\n"
@@ -561,6 +562,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      'bcf',       handling of chromosome codes and male ploidy.\n"
 "      'bcf-4.2'    When the 'bgz' modifier is present, the VCF file is\n"
 "                   block-gzipped.  (This always happens with BCF output.)\n"
+"                   'bgz=' also sets the compression level, from 1 (fastest) to\n"
+"                   12 (smallest); the default is 6.  It works with all formats\n"
+"                   accepting 'bgz', and BCF.\n"
 "                   The 'id-paste' modifier controls which .psam columns are\n"
 "                   used to construct sample IDs (choices are maybefid, fid,\n"
 "                   iid, maybesid, and sid; default is maybefid,iid,maybesid),\n"
