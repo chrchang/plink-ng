@@ -12071,7 +12071,7 @@ PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample
     }
     // ",0.000" per sample in the dosage case, ",XY" otherwise.
     const uintptr_t per_sample_blen = dosage_present_in_file? 8 : 4;
-    uintptr_t writebuf_blen = per_sample_blen * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 2 * max_allele_slen + 64;
+    uintptr_t writebuf_blen = per_sample_blen * S_CAST(uintptr_t, sample_ct) + GetMaxChrSlen(cip) + kMaxIdSlen + 2 * max_allele_slen + 64;
     uint32_t noncat_pheno_ct = 0;
     for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
       noncat_pheno_ct += (pheno_cols[pheno_idx].type_code != kPhenoDtypeCat);
@@ -12782,6 +12782,10 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
         if (!hv_1chr) {
           char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf_hv);
           *chr_name_end = '\0';
+          if (unlikely(S_CAST(uintptr_t, chr_name_end - chr_buf_hv) + S_CAST(uintptr_t, outname_end - outname) + kMaxOutfnameExtBlen > kPglFnamesize)) {
+            logerrputs("Error: Chromosome name and/or --out argument too long for --export HV.\n");
+            goto Exportf_ret_INCONSISTENT_INPUT;
+          }
           fname_end = strcpya_k(outname_end, ".chr-");
           fname_end = strcpya(fname_end, chr_buf_hv);
         }

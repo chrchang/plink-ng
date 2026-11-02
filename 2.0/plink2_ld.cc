@@ -15582,7 +15582,7 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
     if (write_tag_list) {
       // Tags are flushed one at a time, so the overflow only has to cover the
       // fixed columns or one ID.
-      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_variant_id_slen + 128;
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + 2 * max_variant_id_slen + 128;
       OutnameZstSet(".tags.list", output_zst, outname_end);
       reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (unlikely(reterr)) {
