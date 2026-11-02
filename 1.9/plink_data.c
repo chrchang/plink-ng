@@ -12107,6 +12107,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t uii;
   int32_t ii;
   pzwrite_init_null(&ps);
+  if (recode_modifier & (RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_HV)) {
+    // These write one file per chromosome, with its name in the filename.
+    if ((uintptr_t)(outname_end - outname) + get_max_chrom_slen(chrom_info_ptr) + 32 > FNAMESIZE) {
+      logerrprint("Error: Chromosome name and/or --out argument too long for --recode.\n");
+      goto recode_ret_INVALID_CMDLINE;
+    }
+  }
   if (!hh_exists) {
     set_hh_missing = 0;
   }

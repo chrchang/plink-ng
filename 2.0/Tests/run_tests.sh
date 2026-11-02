@@ -423,4 +423,9 @@ cd TEST_ALLELE_UNIQUENESS
 cd ..
 echo "TEST_ALLELE_UNIQUENESS passed."
 
+cd TEST_19_LONG_CONTIG
+./run_tests.sh $d $2 $3 > TEST_19_LONG_CONTIG.log
+cd ..
+echo "TEST_19_LONG_CONTIG passed."
+
 echo "All tests passed."
