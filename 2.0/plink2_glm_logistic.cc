@@ -5678,7 +5678,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
             }
-            suppress_mach_r2 = (chr_idx == cip->xymt_codes[kChrOffsetX]) || (chr_idx == mt_code);
+            suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
               // bugfix (17 May 2018): this was using reported_test_ct instead
               // of cur_reported_test_ct.

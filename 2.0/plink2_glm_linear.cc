@@ -2161,7 +2161,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
             }
-            suppress_mach_r2 = (chr_idx == cip->xymt_codes[kChrOffsetX]) || (chr_idx == mt_code);
+            suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
               primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
             }
@@ -4652,7 +4652,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                 cur_constraint_ct = constraint_ct;
                 cur_test_names = test_names;
               }
-              suppress_mach_r2 = (chr_idx == cip->xymt_codes[kChrOffsetX]) || (chr_idx == mt_code);
+              suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
               if (cur_constraint_ct) {
                 primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
               }
