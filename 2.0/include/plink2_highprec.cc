@@ -745,13 +745,11 @@ dd_real ddr_log(const dd_real a) {
 
   // The Newton step below needs exp(-log(a)) to be representable with full
   // accuracy, so rescale extreme values.
-  if (a.x[0] <= DBL_MAX) {
+  if ((a.x[0] < k2m512) || (a.x[0] >= 2 * k2p512)) {
     int32_t exponent;
     frexp(a.x[0], &exponent);
-    if ((exponent > 512) || (exponent < -512)) {
-      const dd_real scaled = ddr_make(ldexp(a.x[0], -exponent), ldexp(a.x[1], -exponent));
-      return ddr_add(ddr_log(scaled), ddr_muld(_ddr_log2, exponent));
-    }
+    const dd_real scaled = ddr_make(ldexp(a.x[0], -exponent), ldexp(a.x[1], -exponent));
+    return ddr_add(ddr_log(scaled), ddr_muld(_ddr_log2, exponent));
   }
 
   dd_real x;
@@ -815,7 +813,7 @@ dd_real ddr_logspace_add(dd_real a, dd_real b) {
   if (ddr_lt(a, b)) {
     swap_ddr(&a, &b);
   }
-  if (b.x[0] == -HUGE_VAL) {
+  if (b.x[0] == -INFINITY_D) {
     // log(0) term; b - a would be nan if a is also infinite
     return a;
   }
@@ -830,7 +828,7 @@ dd_real ddr_logspace_add(dd_real a, dd_real b) {
 
 dd_real ddr_logspace_sub(dd_real a, dd_real b) {
   // log(exp(a) - exp(b)) = a + log(-expm1(b-a))
-  if (b.x[0] == -HUGE_VAL) {
+  if (b.x[0] == -INFINITY_D) {
     return a;
   }
   const dd_real diff = ddr_sub(b, a);
@@ -1205,13 +1203,11 @@ td_real tdr_log(const td_real a) {
   // No need to check == 0.0 after we just checked <= 0.0 above.
 
   // See ddr_log().
-  if (a.x[0] <= DBL_MAX) {
+  if ((a.x[0] < k2m512) || (a.x[0] >= 2 * k2p512)) {
     int32_t exponent;
     frexp(a.x[0], &exponent);
-    if ((exponent > 512) || (exponent < -512)) {
-      const td_real scaled = tdr_make(ldexp(a.x[0], -exponent), ldexp(a.x[1], -exponent), ldexp(a.x[2], -exponent));
-      return tdr_add(tdr_log(scaled), tdr_muld(_tdr_log2, exponent));
-    }
+    const td_real scaled = tdr_make(ldexp(a.x[0], -exponent), ldexp(a.x[1], -exponent), ldexp(a.x[2], -exponent));
+    return tdr_add(tdr_log(scaled), tdr_muld(_tdr_log2, exponent));
   }
 
   td_real x = tdr_make1(log(a.x[0]));  // Initial approximation

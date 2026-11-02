@@ -93,9 +93,6 @@ static inline BoolErr ScanUintCappedFinish(const char* str_iter, uint64_t cap, u
     const uint64_t cur_digit2 = ctou64(*str_iter++) - 48;
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
-      if (unlikely(val > cap)) {
-        return 1;
-      }
       break;
     }
     val = val * 100 + cur_digit * 10 + cur_digit2;
