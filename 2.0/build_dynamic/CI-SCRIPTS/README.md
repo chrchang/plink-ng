@@ -200,9 +200,8 @@ For local development, contact maintainer for test data access or download from 
      - **Linux:** libopenblas-dev, liblapack-dev, liblapacke-dev, build-essential, zlib1g-dev, unzip, bc
      - **macOS:** Uses native system libraries
 
-3. **Restore Batch Counter**
-   - Load cached `.batch_counter` file (tracks current batch number)
-   - Increment batch: `NEXT_BATCH = (CURRENT_BATCH % 12) + 1`
+3. **Determine Batch Number**
+   - Derived from the date: `BATCH = (ISO week % 12) + 1`
    - Cycles through batches 1→2→...→12→1
    - Set as environment variable `GLM_BATCH_NUM`
 
@@ -229,15 +228,10 @@ For local development, contact maintainer for test data access or download from 
    - Removes test data, results, build artifacts
    - Saves disk space on CI runners
 
-8. **Save Batch Counter**
-   - Cache updated `.batch_counter` for next run
-   - Persists even if workflow fails (always saves)
-
 **Batch Rotation Logic:**
-- Uses GitHub Actions cache to persist batch counter between runs
-- Each workflow run increments the counter
+- Keeps no state, so a failed run or an evicted cache cannot skip a batch
 - Ensures all 108 tests run over ~12 weeks
-- Independent tracking per platform (Linux/macOS may differ slightly)
+- Linux and macOS run the same batch
 
 ### Test Coverage
 
@@ -495,13 +489,6 @@ pip install pandas numpy
 **Manual Trigger:**
 - Navigate to Actions → "PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST"
 - Click "Run workflow" → Select branch → "Run workflow"
-
-**Batch Counter Issues:**
-- **Symptom:** Same batch runs repeatedly
-- **Solution:**
-  1. Check batch counter cache in workflow runs
-  2. Verify `.batch_counter` file is being saved/restored
-  3. Manually increment by editing cache or waiting for next run
 
 ### Build Failures
 
