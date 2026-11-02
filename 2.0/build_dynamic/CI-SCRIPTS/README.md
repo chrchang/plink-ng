@@ -22,7 +22,6 @@ Continuous integration framework for validating PLINK2 GLM implementations again
 - [Scripts Reference](#scripts-reference)
 - [Directory Structure](#directory-structure)
 - [Troubleshooting](#troubleshooting)
-- [Archive](#archive)
 
 ## Overview
 
@@ -363,7 +362,6 @@ correlation_threshold=0.8          # Minimum correlation for pass (0.0-1.0)
 | `PLINK2_GLM_TEST_CONFIG.sh` | Configuration | Defines paths, batch selection, correlation threshold, loads batch parameters from files |
 | `COMPARE_GLM_PLINK2_R.py` | Validation script | Compares PLINK2 vs R outputs, calculates correlations (beta, SE, p-values), outputs pass/fail status |
 | `glm_test_batches.py` | Batch generator | Generates batch files from master list, ensures even distribution across batches |
-| `checkglm.py` | GLM checker utility | Validates GLM output file format and contents |
 | `CLEANUP.sh` | Cleanup utility | Removes test_data, results directories, cleans build artifacts with `make clean` |
 | `DYNAMICBUILD_LINUXMAC_ROOT.sh` | Build script | Compiles PLINK2 from source using system libraries (LAPACK, OpenBLAS) |
 
@@ -389,7 +387,6 @@ CI-SCRIPTS/
 │
 ├── Validation & Analysis
 │   ├── COMPARE_GLM_PLINK2_R.py               # PLINK2 vs R comparison
-│   ├── checkglm.py                           # GLM output checker
 │   └── glm_test_batches.py                   # Batch file generator
 │
 ├── Utilities
@@ -403,18 +400,8 @@ CI-SCRIPTS/
 │   ├── BATCH_12_PARAMS.txt                   # Batch 12 (9 tests)
 │   └── ALL_BATCHES_MASTER_LIST.txt           # All 108 tests
 │
-├── results/                                  # Test outputs (gitignored)
-│   └── *.glm.{linear,logistic,logistic.hybrid}
-│
-└── archive/                                  # Deprecated scripts
-    ├── GLM_TESTS_old.sh
-    ├── GLM_TESTS_old2.sh
-    ├── local_plink2_glm_testruns_old.sh
-    ├── glm_tests_2_R.sh
-    ├── test_glm.sh
-    ├── hello.sh
-    ├── testsv2.sh
-    └── local_linux_testing_env.sh
+└── results/                                  # Test outputs (gitignored)
+    └── *.glm.{linear,logistic,logistic.hybrid}
 ```
 
 ## Troubleshooting
@@ -522,23 +509,3 @@ sudo apt-get install -y libopenblas-dev liblapack-dev liblapacke-dev
 - Clean build artifacts: `make -C 2.0/build_dynamic/ clean`
 - Rebuild from scratch
 
-## Archive
-
-The `archive/` directory contains deprecated scripts kept for historical reference:
-
-**Archived Scripts:**
-- `GLM_TESTS_old.sh`, `GLM_TESTS_old2.sh` - Previous test framework versions
-- `local_plink2_glm_testruns_old.sh` - Old test runner implementation
-- `glm_tests_2_R.sh` - R-based test script (superseded)
-- `test_glm.sh` - Early test script prototype
-- `hello.sh` - Simple debug script
-- `testsv2.sh` - Test parameter template
-- `local_linux_testing_env.sh` - Linux dependency setup script
-
-**Note:** These scripts are **not actively maintained** and should **not be used** for current testing. Use the current scripts listed in [Scripts Reference](#scripts-reference) instead.
-
-**Why Archived:**
-- Superseded by current testing framework
-- Retained for historical context and reference
-- Useful for understanding test evolution
-- May contain ideas for future improvements
