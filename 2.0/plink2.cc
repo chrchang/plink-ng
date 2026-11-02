@@ -7199,6 +7199,24 @@ int main(int argc, char** argv) {
                 logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], mgf,\noxford, and vcf output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
+              if (unlikely(pc.exportf_info.flags & kfExportfBgz)) {
+                logerrputs("Error: Multiple --export bgz modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.exportf_info.flags |= kfExportfBgz;
+            } else if (StrStartsWith(cur_modif, "bgz=", cur_modif_slen)) {
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf | kfExportfBcf | kfExportfMgf)))) {
+                logerrputs("Error: The 'bgz=' modifier only applies to --export's bcf, haps[legend], mgf,\noxford, and vcf output formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(pc.exportf_info.flags & kfExportfBgz)) {
+                logerrputs("Error: Multiple --export bgz modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (unlikely(ScanPosintCappedx(&(cur_modif[strlen("bgz=")]), 12, &pc.exportf_info.bgz_clvl))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export bgz= compression level '%s' (must be in 1..12).\n", &(cur_modif[strlen("bgz=")]));
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
               pc.exportf_info.flags |= kfExportfBgz;
             } else if (strequal_k(cur_modif, "spaces", cur_modif_slen)) {
               pc.exportf_info.flags |= kfExportfSpaces;
