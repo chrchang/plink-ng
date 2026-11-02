@@ -1347,9 +1347,11 @@ CONSTI32(kKingMultiplexVecs, kKingMultiplex / kBitsPerVec);
 // expensive PopcountWord().  Use Lauradoux/Walisch accumulators, since
 // Harley-Seal requires too many variables.
 void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+#ifndef SIMDE_ARM_NEON_A32V8_NATIVE
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
+#endif
   for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
@@ -1366,6 +1368,21 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
       acc_hethet.vw = vecw_setzero();
       acc_het2hom1.vw = vecw_setzero();
       acc_het1hom2.vw = vecw_setzero();
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+      for (uint32_t vec_idx = 0; vec_idx != kKingMultiplexVecs; ++vec_idx) {
+        const VecW hom1 = first_hom_iter[vec_idx];
+        const VecW hom2 = second_hom[vec_idx];
+        const VecW ref2het1 = first_ref2het_iter[vec_idx];
+        const VecW ref2het2 = second_ref2het[vec_idx];
+        const VecW homhom = hom1 & hom2;
+        const VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+        const VecW het2 = vecw_and_notfirst(hom2, ref2het2);
+        acc_ibs0.vw = acc_ibs0.vw + vecw_popcount8((ref2het1 ^ ref2het2) & homhom);
+        acc_hethet.vw = acc_hethet.vw + vecw_popcount8(het1 & het2);
+        acc_het2hom1.vw = acc_het2hom1.vw + vecw_popcount8(hom1 & het2);
+        acc_het1hom2.vw = acc_het1hom2.vw + vecw_popcount8(hom2 & het1);
+      }
+#else
       for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
         VecW hom1 = first_hom_iter[vec_idx];
         VecW hom2 = second_hom[vec_idx];
@@ -1411,6 +1428,7 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
         acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
         acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
       }
+#endif
       const VecW m8 = VCONST_W(kMask00FF);
       acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
       acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
@@ -1429,9 +1447,11 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
 }
 
 void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+#ifndef SIMDE_ARM_NEON_A32V8_NATIVE
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
+#endif
   for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
@@ -1450,6 +1470,22 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
       acc_hethet.vw = vecw_setzero();
       acc_het2hom1.vw = vecw_setzero();
       acc_het1hom2.vw = vecw_setzero();
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+      for (uint32_t vec_idx = 0; vec_idx != kKingMultiplexVecs; ++vec_idx) {
+        const VecW hom1 = first_hom_iter[vec_idx];
+        const VecW hom2 = second_hom[vec_idx];
+        const VecW ref2het1 = first_ref2het_iter[vec_idx];
+        const VecW ref2het2 = second_ref2het[vec_idx];
+        const VecW homhom = hom1 & hom2;
+        const VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+        const VecW het2 = vecw_and_notfirst(hom2, ref2het2);
+        acc_homhom.vw = acc_homhom.vw + vecw_popcount8(homhom);
+        acc_ibs0.vw = acc_ibs0.vw + vecw_popcount8((ref2het1 ^ ref2het2) & homhom);
+        acc_hethet.vw = acc_hethet.vw + vecw_popcount8(het1 & het2);
+        acc_het2hom1.vw = acc_het2hom1.vw + vecw_popcount8(hom1 & het2);
+        acc_het1hom2.vw = acc_het1hom2.vw + vecw_popcount8(hom2 & het1);
+      }
+#else
       for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
         VecW hom1 = first_hom_iter[vec_idx];
         VecW hom2 = second_hom[vec_idx];
@@ -1502,6 +1538,7 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
         acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
         acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
       }
+#endif
       const VecW m8 = VCONST_W(kMask00FF);
       acc_homhom.vw = (acc_homhom.vw & m8) + (vecw_srli(acc_homhom.vw, 8) & m8);
       acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
