@@ -1933,7 +1933,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       }
       if (local_covar_ct) {
         // bugfix (5 Mar 2018): don't want sizeof(double) here
-        if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+        if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
           goto GlmLinear_ret_NOMEM;
         }
       } else {
@@ -4353,7 +4353,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         }
       }
       if (local_covar_ct) {
-        if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+        if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
           assert(0);
           goto GlmLinearBatch_ret_NOMEM;
         }
@@ -5542,7 +5542,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
         }
       }
       if (local_covar_ct) {
-        if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+        if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
           assert(0);
           goto GlmLinearPerm_ret_NOMEM;
         }

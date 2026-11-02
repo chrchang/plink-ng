@@ -5422,11 +5422,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       if (local_covar_ct) {
         // bugfix (18 May 2018): don't want sizeof(float) here
         if (is_single_prec) {
-          if (unlikely(bigstack_alloc_f(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_f[uii])))) {
+          if (unlikely(bigstack_alloc_f(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_f[uii])))) {
             goto GlmLogistic_ret_NOMEM;
           }
         } else {
-          if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+          if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
             goto GlmLogistic_ret_NOMEM;
           }
         }
@@ -6557,11 +6557,11 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
       }
       if (local_covar_ct) {
         if (is_single_prec) {
-          if (unlikely(bigstack_alloc_f(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_f[uii])))) {
+          if (unlikely(bigstack_alloc_f(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_f[uii])))) {
             goto GlmFirthPerm_ret_NOMEM;
           }
         } else {
-          if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+          if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
             goto GlmFirthPerm_ret_NOMEM;
           }
         }
