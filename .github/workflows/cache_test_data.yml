@@ -3,6 +3,9 @@ name: Cache Test Data
 on:
   workflow_dispatch:  # Manual trigger
 
+permissions:
+  contents: read
+
 jobs:
   cache-test-data:
     runs-on: ubuntu-latest

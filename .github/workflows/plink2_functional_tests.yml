@@ -24,6 +24,9 @@ on:
       - '.github/workflows/plink2_functional_tests.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   run_tests:
     name: 2.0/Tests on ${{ matrix.os }}

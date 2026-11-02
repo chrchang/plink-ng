@@ -8,6 +8,9 @@ name: plink2 help vs website
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   compare:
     runs-on: ubuntu-latest

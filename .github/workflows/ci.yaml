@@ -12,6 +12,9 @@ on:
       - 2.0/Python/**
       - .github/workflows/ci.yaml
 
+permissions:
+  contents: read
+
 jobs:
   wheel:
     runs-on: ${{ matrix.os }}

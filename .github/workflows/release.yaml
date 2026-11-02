@@ -2,6 +2,9 @@ name: Release pgenlib
 
 on: [workflow_dispatch]
 
+permissions:
+  contents: read
+
 jobs:
   build_wheels:
     name: Build wheels for ${{ matrix.arch }} ${{ matrix.os }} py3.${{ matrix.python }}
@@ -25,12 +28,12 @@ jobs:
 
       - name: Set up QEMU for aarch64 emulation
         if: runner.os == 'Linux' && matrix.arch == 'aarch64'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v4.1.1
+        uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
         with:
           package-dir: ./2.0/Python
         env:
@@ -105,11 +108,11 @@ jobs:
           path: dist
 
       - name: Publish distribution to Test PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         if: github.ref != 'refs/heads/master'
         with:
           repository-url: https://test.pypi.org/legacy/
 
       - name: Publish distribution to PyPI
         if: github.ref == 'refs/heads/master'
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1

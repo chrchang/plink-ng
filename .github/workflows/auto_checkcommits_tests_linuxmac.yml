@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: '0 0 * * 0'  # every Sunday at midnight
 
+permissions:
+  contents: read
+
 jobs:
   # Step 1: Single commit check job
   # COMMENTED OUT - Workflow now runs every week regardless of new commits
