@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - master
+      - dev
     paths:
       - 2.0/Python/**
       - .github/workflows/ci.yaml
