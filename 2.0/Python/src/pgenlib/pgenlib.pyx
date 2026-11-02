@@ -390,6 +390,14 @@ cdef class PvarReader:
         return
 
 
+cdef invert_sparse_dosages(uint32_t dosage_ct, uint16_t* dosage_main):
+    # 65535 means missing in PgrGetDMaybeSparse() output, and
+    # BiallelicDosage16Invert() would turn it into 32769.
+    for i in range(dosage_ct):
+        if dosage_main[i] != 65535:
+            dosage_main[i] = 32768 - dosage_main[i]
+
+
 cdef class PgenReader:
     cdef PgenFileInfo* _info_ptr
     cdef PgenReaderStruct* _state_ptr
@@ -2033,7 +2041,7 @@ cdef class PgenReader:
         if allele_idx == 0:
             if difflist_common_dosage != 32768:
                 raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
-            BiallelicDosage16Invert(dosage_ct, dosage_main)
+            invert_sparse_dosages(dosage_ct, dosage_main)
         elif difflist_common_dosage != 0:
             raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
         cdef cnp.ndarray[cnp.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([dosage_ct], dtype=np.uint32)
@@ -2064,7 +2072,7 @@ cdef class PgenReader:
         if allele_idx == 0:
             if difflist_common_dosage != 32768:
                 raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
-            BiallelicDosage16Invert(dosage_ct, dosage_main)
+            invert_sparse_dosages(dosage_ct, dosage_main)
         elif difflist_common_dosage != 0:
             raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
         cdef cnp.ndarray[cnp.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([dosage_ct], dtype=np.uint32)

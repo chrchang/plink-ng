@@ -485,6 +485,21 @@ def bim_case(tmp_path, case_idx, nvariant_min, nvariant_limit):
     with pgenlib.PvarReader(test_bim_path) as bimr:
         check_bim_concordance(bimr, chrom_list, pos_list, id_list, ref_list, alt_list)
 
+def test_sparse_dosages_ref_missing(tmp_path):
+    path = bytes(tmp_path / "ref.pgen")
+    geno = np.full(1000, 2, np.int8)
+    geno[[3, 500]] = 0
+    geno[7] = 1
+    geno[9] = -9
+    with pgenlib.PgenWriter(path, 1000, variant_ct=1, nonref_flags=False) as w:
+        w.append_biallelic(geno)
+    with pgenlib.PgenReader(path) as r:
+        for read_sparse_dosages in (r.read_sparse_dosages32, r.read_sparse_dosages64):
+            sample_idxs, dosages = read_sparse_dosages(0, 0)
+            assert sample_idxs.tolist() == [3, 7, 9, 500]
+            assert dosages.tolist() == [2, 1, -9, 2]
+
+
 def test_bim(tmp_path):
     ncase = 5
     for case_idx in range(0, ncase):
