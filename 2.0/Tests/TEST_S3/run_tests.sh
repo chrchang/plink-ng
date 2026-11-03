@@ -61,6 +61,18 @@ fail() {
     exit 1
 }
 
+echo "=== s3stream core ==="
+CORE_DIR=$(cd "$TEST_DIR/../../include/s3stream" && pwd)
+CURL_CONFIG=${CURL_CONFIG:-curl-config}
+"${CXX:-c++}" -std=c++11 -DS3STREAM_ENABLE \
+    $("$CURL_CONFIG" --cflags) -I"$CORE_DIR" \
+    "$TEST_DIR/s3stream_test.cc" "$CORE_DIR/s3stream.cc" \
+    "$CORE_DIR/s3stream_creds.cc" "$CORE_DIR/s3stream_http.cc" \
+    $("$CURL_CONFIG" --libs) -Wl,-rpath,"$("$CURL_CONFIG" --prefix)/lib" \
+    -pthread -o "$WORK/s3stream_test"
+"$WORK/s3stream_test" || fail "s3stream core regression"
+pass "s3stream errno"
+
 ###########################################################################
 echo "=== public bucket on real S3 ==="
 ###########################################################################
@@ -225,7 +237,11 @@ cd "$WORK"
 echo "=== provisioning MinIO ==="
 ###########################################################################
 
-mc alias set test "$ADMIN_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" > /dev/null
+if [[ $MODE == docker ]]; then
+    mc alias set test http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" > /dev/null
+else
+    mc alias set test "$ADMIN_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" > /dev/null
+fi
 mc mb --ignore-existing "test/$PRIVATE_BUCKET" > /dev/null
 mc mb --ignore-existing "test/$PUBLIC_BUCKET" > /dev/null
 
@@ -286,6 +302,12 @@ expect_failure() {
     set -e
     if [[ $rc -eq 0 ]]; then
         fail "$label: expected nonzero exit, got 0"
+    fi
+    if ! grep -Eq 'HTTP (403|404)' "$out.log"; then
+        fail "$label: HTTP failure detail missing from the log"
+    fi
+    if grep -q 'Undefined error: 0' "$out.log"; then
+        fail "$label: reported an unset errno"
     fi
     pass "$label (exit $rc)"
 }
@@ -529,6 +551,9 @@ expect_failure "nonexistent object" no_such_key "s3://$PRIVATE_BUCKET/data/nope"
 
 expect_failure "nonexistent bucket" no_such_bucket "s3://plink2-does-not-exist/data/ref" \
     "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET"
+
+expect_failure "nonexistent HTTP object" no_such_http_key \
+    "$ADMIN_ENDPOINT/$PUBLIC_BUCKET/data/nope"
 
 expect_failure "private bucket without credentials" no_creds "s3://$PRIVATE_BUCKET/data/ref"
 

@@ -136,6 +136,9 @@ typedef struct TextFileBaseStruct {
   const char* errmsg;
   PglErr reterr;
 
+  char io_error[512];
+  uint32_t is_remote;
+
   FileCompressionType file_type;
   FILE* ff;  // could use e.g. htslib for some network support later
   uint32_t dst_owned_by_consumer;

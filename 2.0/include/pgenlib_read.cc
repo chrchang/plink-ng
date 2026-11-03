@@ -711,7 +711,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   FILE* shared_ff = s3_creds? OpenS3WithCredentials(fname, s3_creds) : OpenMaybeS3(fname);
   pgfip->shared_ff = shared_ff;
   if (unlikely(!shared_ff)) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, InputErrorMessage(IsS3Uri(fname)));
     return kPglRetOpenFail;
   }
   if (unlikely(fseeko(shared_ff, 0, SEEK_END))) {
@@ -827,7 +827,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     header_ff = fopen(header_fname, FOPEN_RB);
     pgfip->pgi_ff = header_ff;
     if (unlikely(!header_ff)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", header_fname, strerror(errno));
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", header_fname, InputErrorMessage(IsS3Uri(header_fname)));
       return kPglRetOpenFail;
     }
     if (unlikely(!fread_unlocked(small_readbuf, 3, 1, header_ff))) {

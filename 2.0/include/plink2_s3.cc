@@ -44,30 +44,21 @@ BoolErr S3SetExpectedBucketOwner(const char* account_id) {
   return s3stream_set_expected_bucket_owner(account_id) != 0;
 }
 
-namespace {
-
-FILE* ReportFailure(const char* path) {
-  fprintf(stderr, "Error: %s\n", s3stream_last_error());
-  (void)path;
-  return nullptr;
+const char* InputErrorMessage(uint32_t is_remote) {
+  const char* detail = is_remote? s3stream_last_error() : nullptr;
+  return (detail && detail[0])? detail : strerror(errno);
 }
-
-}  // namespace
 
 FILE* OpenMaybeS3(const char* path) {
   if (!s3stream_is_remote(path)) {
     return fopen(path, FOPEN_RB);
   }
-  FILE* result = s3stream_open(path);
-  if (!result) {
-    return ReportFailure(path);
-  }
-  return result;
+  return s3stream_open(path);
 }
 
 FILE* OpenS3WithCredentials(const char* path, const S3Credentials* creds) {
   if (!creds) {
-    fprintf(stderr, "Error: OpenS3WithCredentials() called with no credentials.\n");
+    errno = EINVAL;
     return nullptr;
   }
   if (!s3stream_is_remote(path)) {
@@ -86,11 +77,7 @@ FILE* OpenS3WithCredentials(const char* path, const S3Credentials* creds) {
   converted.requester_pays = creds->requester_pays;
   converted.expected_bucket_owner = creds->expected_bucket_owner;
 
-  FILE* result = s3stream_open_with_credentials(path, &converted);
-  if (!result) {
-    return ReportFailure(path);
-  }
-  return result;
+  return s3stream_open_with_credentials(path, &converted);
 }
 
 #ifdef USE_S3

@@ -174,6 +174,7 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
       // token-reading mode.  dst == nullptr not currently supported.
       assert(dst && (dst_capacity == kTokenStreamBlen));
     }
+    trbp->is_remote = IsS3Uri(fname);
     trbp->ff = s3_creds? OpenS3WithCredentials(fname, s3_creds) : OpenMaybeS3(fname);
     if (unlikely(!trbp->ff)) {
       goto TextFileOpenInternal_ret_OPEN_FAIL;
@@ -267,11 +268,13 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
     break;
   TextFileOpenInternal_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    trbp->errmsg = strerror(errno);
+    snprintf(trbp->io_error, sizeof(trbp->io_error), "%s", InputErrorMessage(trbp->is_remote));
+    trbp->errmsg = trbp->io_error;
     break;
   TextFileOpenInternal_ret_READ_FAIL:
     reterr = kPglRetReadFail;
-    trbp->errmsg = strerror(errno);
+    snprintf(trbp->io_error, sizeof(trbp->io_error), "%s", InputErrorMessage(trbp->is_remote));
+    trbp->errmsg = trbp->io_error;
     break;
   }
  TextFileOpenInternal_ret_1:
@@ -1118,12 +1121,14 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       break;
     TextStreamThread_OPEN_FAIL:
       min_interrupt = kTxsInterruptShutdown;
-      syncp->errmsg = strerror(errno);
+      snprintf(basep->io_error, sizeof(basep->io_error), "%s", InputErrorMessage(IsS3Uri(new_fname)));
+      syncp->errmsg = basep->io_error;
       reterr = kPglRetOpenFail;
       break;
     TextStreamThread_READ_FAIL:
       min_interrupt = kTxsInterruptShutdown;
-      syncp->errmsg = strerror(errno);
+      snprintf(basep->io_error, sizeof(basep->io_error), "%s", InputErrorMessage(basep->is_remote));
+      syncp->errmsg = basep->io_error;
       reterr = kPglRetReadFail;
       break;
     TextStreamThread_LONG_LINE:
@@ -1136,6 +1141,10 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       reterr = kPglRetEof;
       break;
     TextStreamThread_MISC_FAIL:
+      if ((reterr == kPglRetReadFail) && basep->is_remote) {
+        snprintf(basep->io_error, sizeof(basep->io_error), "%s", InputErrorMessage(1));
+        syncp->errmsg = basep->io_error;
+      }
       min_interrupt = kTxsInterruptShutdown;
       break;
     }
@@ -1368,6 +1377,9 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
       }
       textFILEMain* txfp = GetTxfp(txf_ptr);
       *txs_basep = txfp->base;  // struct copy
+      if (txs_basep->errmsg == txfp->base.io_error) {
+        txs_basep->errmsg = txs_basep->io_error;
+      }
       // Simplify TextStreamThread() initialization.
       const uint32_t backfill_ct = txs_basep->consume_iter - txs_basep->dst;
       if (backfill_ct) {

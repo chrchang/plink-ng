@@ -82,14 +82,16 @@ struct S3Credentials {
 // (compare to environment variables, which are process-global).  Otherwise
 // behaves like OpenMaybeS3(): streams via range requests, returns nullptr on
 // failure.  `creds` must be non-null.  Always callable regardless of whether
-// USE_S3 was compiled in; without it, prints an error and returns nullptr.
+// USE_S3 was compiled in; without it, sets errno and returns nullptr.
 FILE* OpenS3WithCredentials(const char* path, const S3Credentials* creds);
 
 // Opens a remote object for reading and returns a FILE* that streams data on
 // demand using range requests; local paths fall through to
-// fopen(path, "rb").  Returns nullptr on failure, after printing the reason
-// to stderr.
+// fopen(path, "rb"). Returns nullptr on failure and sets errno.
 FILE* OpenMaybeS3(const char* path);
+
+// Borrowed diagnostic on the calling thread; copy before passing to another thread.
+const char* InputErrorMessage(uint32_t is_remote);
 
 #ifdef USE_S3
 
