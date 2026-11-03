@@ -176,9 +176,8 @@ FLAGSET64_DEF_START()
   kfMiscMakePermPhenoZs = (1LLU << 51),
   kfMiscList23IndelsZs = (1LLU << 52),
   kfMiscList23IndelsAllowDups = (1LLU << 53),
-  kfMiscWriteVarRangesZs = (1LLU << 54),
-  kfMiscWriteVarRangesAllowDups = (1LLU << 55),
-  kfMiscTuccVzs = (1LLU << 56)
+  kfMiscWriteVarRangesAllowDups = (1LLU << 54),
+  kfMiscTuccVzs = (1LLU << 55)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -1292,6 +1291,8 @@ uint32_t IdentifyRemainingCatsAndMostCommon(const uintptr_t* sample_include, con
 uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* cur_cat_samples);
 
 uint32_t RemoveExcludedCats(const uint32_t* data_cat, const uintptr_t* cat_keep_bitarr, uint32_t raw_sample_ct, uint32_t in_sample_ct, uintptr_t* sample_include);
+
+BoolErr CatFromBinaryPheno(uint32_t raw_sample_ct, const PhenoCol** pheno_col_pp);
 
 // pheno_names is also allocated on the heap, but it can be handled with a
 // simple free_cond().

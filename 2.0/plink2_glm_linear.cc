@@ -271,79 +271,6 @@ uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predicto
   return workspace_size;
 }
 
-// Subtraction is only worth it while the result keeps most of its bits.  A
-// covariate that is constant over the variant's nonmissing samples has zero
-// variance there, and subtracting the missing samples leaves rounding noise
-// instead: its correlations with the other predictors then come out as large
-// values rather than as the undefined ones the generic path produces.  Such a
-// variant goes to the generic path, which computes the dot products directly.
-// Returns 1 when that is the case.
-BoolErr MissingLeavesConstantCovar(const uintptr_t* sample_nm, const double* covars_cmaj, const double* xtx_image, uintptr_t sample_ct, uint32_t nm_sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct) {
-  // 2^{-26} is about half the bits of a double's mantissa.
-  const double min_retained_frac = 0x1p-26;
-  const double nm_sample_ct_recip = 1.0 / u31tod(nm_sample_ct);
-  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
-    const double* cur_covar = &(covars_cmaj[covar_idx * sample_ct]);
-    const double* xtx_image_row = &(xtx_image[(covar_idx + covar_pred_start) * predictor_ct]);
-    double missing_sum = 0.0;
-    double missing_ssq = 0.0;
-    uintptr_t sample_midx_base = 0;
-    uintptr_t sample_nm_inv_bits = ~sample_nm[0];
-    for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
-      const uintptr_t sample_midx = BitIter0(sample_nm, &sample_midx_base, &sample_nm_inv_bits);
-      const double cur_covar_val = cur_covar[sample_midx];
-      missing_sum += cur_covar_val;
-      missing_ssq = prefer_fma(cur_covar_val, cur_covar_val, missing_ssq);
-    }
-    const double full_ssq = xtx_image_row[covar_pred_start + covar_idx];
-    const double nm_ssq = full_ssq - missing_ssq;
-    if (nm_ssq <= min_retained_frac * full_ssq) {
-      return 1;
-    }
-    const double nm_sum = xtx_image_row[0] - missing_sum;
-    if (nm_ssq - nm_sum * nm_sum * nm_sample_ct_recip <= min_retained_frac * nm_ssq) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
-// A variant with missing genotype calls has its own intercept and covariate
-// dot products, over its nonmissing samples.  Rather than recompute them, the
-// sparse path subtracts the missing samples' contributions from copies of the
-// full-sample xtx_image (lower triangle) and xt_y_image in xtx and xt_y.
-// Covariates occupy predictor indices covar_pred_start onward, and xt_y has
-// pheno_ct rows.  xtx[0] is left to the caller.  covar_row_buf needs room for
-// covar_ct doubles.
-void SubtractMissingFromCovarDotprods(const uintptr_t* sample_nm, const double* covars_cmaj, const double* pheno_pmaj, uintptr_t sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct, uint32_t pheno_ct, double* __restrict covar_row_buf, double* __restrict xtx, double* __restrict xt_y) {
-  uintptr_t sample_midx_base = 0;
-  uintptr_t sample_nm_inv_bits = ~sample_nm[0];
-  for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
-    const uintptr_t sample_midx = BitIter0(sample_nm, &sample_midx_base, &sample_nm_inv_bits);
-    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
-      covar_row_buf[covar_idx] = covars_cmaj[covar_idx * sample_ct + sample_midx];
-    }
-    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
-      const double neg_covar_val = -covar_row_buf[covar_idx];
-      double* xtx_row = &(xtx[(covar_idx + covar_pred_start) * predictor_ct]);
-      xtx_row[0] += neg_covar_val;
-      double* xtx_covar_row = &(xtx_row[covar_pred_start]);
-      for (uint32_t covar_idx2 = 0; covar_idx2 <= covar_idx; ++covar_idx2) {
-        xtx_covar_row[covar_idx2] = prefer_fma(neg_covar_val, covar_row_buf[covar_idx2], xtx_covar_row[covar_idx2]);
-      }
-    }
-    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-      const double neg_pheno_val = -pheno_pmaj[pheno_idx * sample_ct + sample_midx];
-      double* cur_xt_y = &(xt_y[pheno_idx * predictor_ct]);
-      cur_xt_y[0] += neg_pheno_val;
-      double* xt_y_covar_iter = &(cur_xt_y[covar_pred_start]);
-      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
-        xt_y_covar_iter[covar_idx] = prefer_fma(neg_pheno_val, covar_row_buf[covar_idx], xt_y_covar_iter[covar_idx]);
-      }
-    }
-  }
-}
-
 // Inverts the intercept-and-covariate block of xtx (lower triangle) into
 // covar_inv, laid out like RegressionNmPrecomp.covarx_dotprod_inv.  dbl_2d_buf
 // needs room for max(covar_ct + 1, 3) * (covar_ct + 1) doubles.  Returns 1 if
@@ -773,6 +700,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           }
         }
         uint32_t sparse_optimization = 0;
+        // dosage variant with missing calls whose covariate dot products can
+        // still come from xtx_image; see below
+        uint32_t dosage_downdate = 0;
         double* multi_start = nullptr;
         if (!allele_ct_m2) {
           // When there are no dosages, and either:
@@ -842,6 +772,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
               }
             } else {
+              // The dosage column is filled below as usual, but the covariate
+              // dot products don't need a dsyrk over the nonmissing samples:
+              // as in the hardcall case, xtx_image minus the missing samples'
+              // contributions gives them.
+              dosage_downdate = missing_sparse_eligible && (missing_ct * 2 < nm_sample_ct) && (!MissingLeavesConstantCovar(sample_nm, cur_covars_cmaj, xtx_image, cur_sample_ct, nm_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_biallelic_predictor_ct));
               uintptr_t sample_midx_base = 0;
               uintptr_t sample_nm_bits = sample_nm[0];
               uint32_t dosage_idx = 0;
@@ -1353,11 +1288,15 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             // bugfix (12 Sep 2017): forgot to implement per-variant VIF and
             // max-corr checks
             // DPrintf("\nWorker thread %" PRIuPTR " starting main regression for %u", tidx, variant_uidx);
-            if (xtx_image && (sparse_optimization || (prev_nm && (!allele_ct_m2)))) {
+            if (xtx_image && (sparse_optimization || dosage_downdate || (prev_nm && (!allele_ct_m2)))) {
               // only need to fill in additive and possibly domdev dot
               // products
               memcpy(xtx_inv, xtx_image, cur_predictor_ct * cur_predictor_ct * sizeof(double));
               memcpy(xt_y, xt_y_image, cur_predictor_ct * sizeof(double));
+              if (dosage_downdate) {
+                SubtractMissingFromCovarDotprods(sample_nm, cur_covars_cmaj, cur_pheno, cur_sample_ct, missing_ct, cur_covar_ct, domdev_third + 2, cur_predictor_ct, 1, nm_covar_row_buf, xtx_inv, xt_y);
+                xtx_inv[0] = u31tod(nm_sample_ct);
+              }
               if (sparse_optimization) {
                 // currently does not handle chrX
                 double geno_pheno_prod = 0.0;
@@ -2016,7 +1955,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, glm_cols / kfGlmColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
-    const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t a1_freq_col = glm_cols & kfGlmColA1freq;
@@ -2051,9 +1989,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     cswritep = strcpya_k(cswritep, "\tA1");
     if (omitted_col) {
       cswritep = strcpya_k(cswritep, "\tOMITTED");
-    }
-    if (ax_col) {
-      cswritep = strcpya_k(cswritep, "\tAX");
     }
     if (a1_ct_col) {
       cswritep = strcpya_k(cswritep, "\tA1_CT");
@@ -2358,31 +2293,16 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                   --cswritep;
                 } else {
+                  // The overflow buffer has room for two alleles beyond the
+                  // ID; REF and ALT1 may already be pending.
+                  if (unlikely(Cswrite(&css, &cswritep))) {
+                    goto GlmLinear_ret_WRITE_FAIL;
+                  }
                   cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
                 }
                 if (omitted_col) {
                   *cswritep++ = '\t';
                   cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                }
-                if (ax_col) {
-                  *cswritep++ = '\t';
-                  if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
-                    if (unlikely(Cswrite(&css, &cswritep))) {
-                      goto GlmLinear_ret_WRITE_FAIL;
-                    }
-                    cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                  } else {
-                    for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-                      if (allele_idx == a1_allele_idx) {
-                        continue;
-                      }
-                      if (unlikely(Cswrite(&css, &cswritep))) {
-                        goto GlmLinear_ret_WRITE_FAIL;
-                      }
-                      cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
-                    }
-                    --cswritep;
-                  }
                 }
                 if (a1_ct_col) {
                   *cswritep++ = '\t';
@@ -4458,7 +4378,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, glm_cols / kfGlmColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
-    const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t a1_freq_col = glm_cols & kfGlmColA1freq;
@@ -4526,9 +4445,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         cswritep = strcpya_k(cswritep, "\tA1");
         if (omitted_col) {
           cswritep = strcpya_k(cswritep, "\tOMITTED");
-        }
-        if (ax_col) {
-          cswritep = strcpya_k(cswritep, "\tAX");
         }
         if (a1_ct_col) {
           cswritep = strcpya_k(cswritep, "\tA1_CT");
@@ -4819,7 +4735,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       if (!allele_test_idx) {
                         test_idx = primary_reported_test_idx;
                       } else {
-                        ++test_idx;
+                        // same as GlmLinear(): only correct to add 1 here in
+                        // include_intercept case
+                        test_idx += include_intercept;
                       }
                     }
                     if (chr_col) {
@@ -4869,33 +4787,17 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                       --cswritep;
                     } else {
+                      // The overflow buffer has room for two alleles beyond
+                      // the ID; REF and ALT1 may already be pending.
+                      if (unlikely(Cswrite(&(css_arr[fidx]), &cswritep))) {
+                        cswritep_arr[fidx] = cswritep;
+                        goto GlmLinearBatch_ret_WRITE_FAIL;
+                      }
                       cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
                     }
                     if (omitted_col) {
                       *cswritep++ = '\t';
                       cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                    }
-                    if (ax_col) {
-                      *cswritep++ = '\t';
-                      if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
-                        if (unlikely(Cswrite(&(css_arr[fidx]), &cswritep))) {
-                          cswritep_arr[fidx] = cswritep;
-                          goto GlmLinearBatch_ret_WRITE_FAIL;
-                        }
-                        cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                      } else {
-                        for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-                          if (allele_idx == a1_allele_idx) {
-                            continue;
-                          }
-                          if (unlikely(Cswrite(&(css_arr[fidx]), &cswritep))) {
-                            cswritep_arr[fidx] = cswritep;
-                            goto GlmLinearBatch_ret_WRITE_FAIL;
-                          }
-                          cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
-                        }
-                        --cswritep;
-                      }
                     }
                     if (a1_ct_col) {
                       *cswritep++ = '\t';

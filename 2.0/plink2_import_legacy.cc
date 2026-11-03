@@ -2109,17 +2109,22 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     for (uintptr_t ulii = 0; ulii != 2 * S_CAST(uintptr_t, variant_ct); ++ulii) {
       allele_codes[ulii] = null_str;
     }
+    // The ref_seen bitarray is also an end-of-bigstack allocation, so it has
+    // to exist before tmp_alloc_end is taken; otherwise the allele strings
+    // stored downward from tmp_alloc_end overwrite it.
+    uintptr_t* ref_seen = nullptr;
+    if (refname) {
+      if (unlikely(bigstack_end_calloc_w(BitCtToWordCt(variant_ct), &ref_seen))) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+    }
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
     uint32_t max_allele_slen = 1;
 
     // 4. Optional --reference file: <variant ID> <ref allele> [alt allele].
     //    Every call not present in the .lgen is then homozygous-reference.
-    uintptr_t* ref_seen = nullptr;
     if (refname) {
-      if (unlikely(bigstack_end_calloc_w(BitCtToWordCt(variant_ct), &ref_seen))) {
-        goto LgenToPgen_ret_NOMEM;
-      }
       cur_fname = refname;
       reterr = SizeAndInitTextStream(refname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
       if (unlikely(reterr)) {
@@ -2735,18 +2740,18 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
           }
           const uint32_t first_allele_slen = first_allele_end - first_allele_start;
           const uint32_t second_allele_slen = ped_iter - second_allele_start;
-          const uint32_t is_het = (first_allele_slen != second_allele_slen) || (!memequal(first_allele_start, second_allele_start, first_allele_slen));
+          const uint32_t is_het = (first_allele_slen != second_allele_slen) || ((first_allele_slen == 1)? (first_allele_start[0] != second_allele_start[0]) : (!memequal(first_allele_start, second_allele_start, first_allele_slen)));
           const uint32_t variant_idx_x2 = variant_idx * 2;
           const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
           const char* prov_ref_allele = allele_codes[variant_idx_x2];
           const char* prov_alt_allele = allele_codes[variant_idx_x2_p1];
           // Note that this uses PLINK 1 encoding.
           uintptr_t cur_geno;
-          if (strequal_unsafe(prov_ref_allele, first_allele_start, first_allele_slen)) {
+          if (allele_equal_unsafe(prov_ref_allele, first_allele_start, first_allele_slen)) {
           PedmapToPgen_ref_x:
             cur_geno = 3 - is_het;
             if (is_het) {
-              if (!strequal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen)) {
+              if (!allele_equal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen)) {
                 if (unlikely(prov_alt_allele != null_str)) {
                   if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
                     goto PedmapToPgen_ret_HALF_MISSING;
@@ -2765,11 +2770,11 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
                 }
               }
             }
-          } else if (strequal_unsafe(prov_alt_allele, first_allele_start, first_allele_slen)) {
+          } else if (allele_equal_unsafe(prov_alt_allele, first_allele_start, first_allele_slen)) {
           PedmapToPgen_alt_x:
             cur_geno = is_het * 2;
             if (is_het) {
-              if (unlikely(!strequal_unsafe(prov_ref_allele, second_allele_start, second_allele_slen))) {
+              if (unlikely(!allele_equal_unsafe(prov_ref_allele, second_allele_start, second_allele_slen))) {
                 if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
                   goto PedmapToPgen_ret_HALF_MISSING;
                 }
@@ -3069,6 +3074,7 @@ void CleanupTwentythree(TwentythreeInfo* tip) {
 // calls in the last column; '-' denotes a missing call.  This mirrors PLINK
 // 1.9's bed_from_23(), including its sex-inference rules and its D/I indel
 // convention, but writes .pgen/.pvar/.psam and uses plink2 chromosome codes.
+// TODO: is_splitpar logic
 PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* infile_name = tip->fname;

@@ -854,7 +854,13 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
               for (uint32_t difflist_idx_lowbits = 0; difflist_idx_lowbits != loop_len; ++difflist_idx_lowbits) {
                 const uint32_t sample_idx = *difflist_sample_ids_iter++;
                 const uint32_t cur_geno = raregeno_word & 3;
-                SetBit(child_to_trio_idxs[sample_idx], trio_include_buf);
+                // child_to_trio_idxs[] is UINT32_MAX for samples that aren't
+                // children in any trio; SetBit() on that would write 512 MiB
+                // past trio_include_buf.
+                const uint32_t child_trio_idx = child_to_trio_idxs[sample_idx];
+                if (child_trio_idx != UINT32_MAX) {
+                  SetBit(child_trio_idx, trio_include_buf);
+                }
                 if (cur_geno != 1) {
                   const uint32_t offset_start = parent_to_trio_offsets[sample_idx];
                   const uint32_t offset_end = parent_to_trio_offsets[sample_idx + 1];
@@ -1355,8 +1361,10 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
       AppendBinaryEoln(&l_cswritep);
 
       if (big_report) {
+        // .mendel rows also start with the kid's FID/IID/SID.
+        const uintptr_t big_overflow_buf_size = overflow_buf_size + fid_col * family_info.max_fid_blen + family_info.max_iid_blen + sid_col * family_info.max_sid_blen;
         OutnameZstSet(".mendel", output_zst, outname_end);
-        reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &big_css, &big_cswritep);
+        reterr = InitCstreamAlloc(outname, 0, output_zst, 1, big_overflow_buf_size, &big_css, &big_cswritep);
         if (unlikely(reterr)) {
           goto MendelErrorScan_ret_1;
         }
@@ -1376,10 +1384,10 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
         }
         big_cswritep = strcpya_k(big_cswritep, "ID");
         if (ref_col) {
-          l_cswritep = strcpya_k(l_cswritep, "\tREF");
+          big_cswritep = strcpya_k(big_cswritep, "\tREF");
         }
         if (alt_col) {
-          l_cswritep = strcpya_k(l_cswritep, "\tALT");
+          big_cswritep = strcpya_k(big_cswritep, "\tALT");
         }
         if (ecode_col) {
           big_cswritep = strcpya_k(big_cswritep, "\tCODE");

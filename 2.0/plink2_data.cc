@@ -60,7 +60,7 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WriteMapOrBim_ret_NOMEM;
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen;
     reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteMapOrBim_ret_1;
@@ -944,7 +944,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
         goto WritePvar_ret_NOMEM;
       }
     }
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -3682,17 +3682,13 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
 // - Don't need to do anything different when chr:pos only appears once in a
 //   biallelic variant, or in a multiallelic variant in "+any" mode.  For
 //   multiallelic variants in +both/+snps mode, error out if the variant is
-//   mixed SNP/non-SNP.  In +both case, also error out if the variant is mixed
-//   symbolic/non-symbolic, or it's symbolic and does not satisfy the REF or
-//   INFO/END constraints.
+//   mixed SNP/non-SNP.
+// - Variants with a symbolic ALT allele are never joined, in any mode.
+//   (bcftools norm -m + only joins SNPs and indels.)
 // - When multiple variants have the same chr:pos:
 //   - In +snps mode, also don't need to do anything different for non-SNPs.
-//   - Otherwise, create up to three linked lists of input variant records
-//     (need to distinguish SNPs from non-SNPs in +both mode, and within the
-//     non-SNP category, symbolic alleles are separate from non-symbolic).
-//     The variant with symbolic alleles has additional constraints: a warning
-//     is printed if INFO/END isn't defined, and an error occurs if either REF
-//     is multi-character, or there's an INFO/END mismatch.
+//   - Otherwise, create up to two linked lists of input variant records
+//     (need to distinguish SNPs from non-SNPs in +both mode).
 //   - Error out if any ALT allele is duplicated (note that --pmerge must
 //     support this).
 //   - Final ALT allele order is based on allele frequency (highest first),
@@ -3771,23 +3767,24 @@ ENUM_U31_DEF_END(JoinVtype);
 typedef struct JoinCountsStruct {
   uintptr_t snp_ct;
   uintptr_t nonsnp_ct;
-  uintptr_t symbolic_ct;
   uint32_t missalt_snp_ct;
   uint32_t missalt_nonsnp_ct;
 } JoinCounts;
 
 JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCounts* jcp) {
   jcp->snp_ct = 0;
-  jcp->symbolic_ct = 0;
+  jcp->nonsnp_ct = 0;
   jcp->missalt_snp_ct = 0;
   jcp->missalt_nonsnp_ct = 0;
+  for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+    if (cur_alleles[allele_idx][0] == '<') {
+      return kJoinVtypeSymbolic;
+    }
+  }
   if (cur_alleles[0][1] == '\0') {
-    jcp->nonsnp_ct = 0;
     for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
       const char* cur_allele = cur_alleles[allele_idx];
-      if (cur_allele[0] == '<') {
-        jcp->symbolic_ct += 1;
-      } else if (cur_allele[1] == '\0') {
+      if (cur_allele[1] == '\0') {
         if (cur_allele[0] == '.') {
           if (allele_ct == 2) {
             jcp->missalt_snp_ct = 1;
@@ -3800,9 +3797,6 @@ JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCou
         jcp->nonsnp_ct += 1;
       }
     }
-    if (jcp->symbolic_ct) {
-      return (jcp->symbolic_ct == allele_ct - 1)? kJoinVtypeSymbolic : kJoinVtypeError;
-    }
     if (jcp->nonsnp_ct) {
       return jcp->snp_ct? kJoinVtypeMixedSnpNonsnp : kJoinVtypeNonsnp;
     }
@@ -3810,12 +3804,8 @@ JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCou
   }
   for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
     const char* cur_allele = cur_alleles[allele_idx];
-    if (cur_allele[0] == '<') {
-      return kJoinVtypeError;
-    }
     if (strequal_k_unsafe(cur_allele, ".")) {
       if (allele_ct == 2) {
-        jcp->nonsnp_ct = 0;
         jcp->missalt_nonsnp_ct = 1;
         return kJoinVtypeNonsnp;
       }
@@ -3917,7 +3907,6 @@ uint32_t JoinMaxBlockSize(const uintptr_t* variant_include, const ChrInfo* cip, 
 ENUM_U31_DEF_START()
   kJoinClassSnp,
   kJoinClassNonsnp,
-  kJoinClassSymbolic,
   // Never joined with anything else.
   kJoinClassNone
 ENUM_U31_DEF_END(JoinClass);
@@ -3928,11 +3917,8 @@ JoinClass GetJoinClass(JoinVtype jvt, MakePlink2Flags join_mode) {
   if (jvt == kJoinVtypeSnp) {
     return kJoinClassSnp;
   }
-  if (join_mode == kfMakePlink2MJoinSnps) {
+  if ((join_mode == kfMakePlink2MJoinSnps) || (jvt == kJoinVtypeSymbolic)) {
     return kJoinClassNone;
-  }
-  if (jvt == kJoinVtypeSymbolic) {
-    return kJoinClassSymbolic;
   }
   // In +any mode, SNPs and non-SNPs with the same REF allele are joined.
   return (join_mode == kfMakePlink2MJoinAny)? kJoinClassSnp : kJoinClassNonsnp;
@@ -4069,7 +4055,7 @@ PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip
         JoinCounts jc;
         const JoinVtype jvt = JoinCount(cur_alleles, allele_ct, &jc);
         if (unlikely(jvt == kJoinVtypeError)) {
-          goto PlanMultiallelicJoin_ret_MIXED_SYMBOLIC;
+          goto PlanMultiallelicJoin_ret_MULTIALLELIC_MISSING_ALT;
         }
         if (unlikely((join_mode != kfMakePlink2MJoinAny) && (jvt == kJoinVtypeMixedSnpNonsnp))) {
           logerrprintfww("Error: Variant '%s' is mixed SNP/non-SNP; multiallelics=+both and +snps don't permit this.\n", variant_ids[variant_uidx]);
@@ -4151,8 +4137,8 @@ PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip
   PlanMultiallelicJoin_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  PlanMultiallelicJoin_ret_MIXED_SYMBOLIC:
-    logerrprintfww("Error: Variant '%s' mixes symbolic and non-symbolic alleles in an unsupported manner.\n", variant_ids[variant_uidx]);
+  PlanMultiallelicJoin_ret_MULTIALLELIC_MISSING_ALT:
+    logerrprintfww("Error: Variant '%s' is multiallelic with a missing ALT allele; variant-join doesn't permit this.\n", variant_ids[variant_uidx]);
   PlanMultiallelicJoin_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -4311,7 +4297,16 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
         }
       }
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    // A generated ID can hold two truncated alleles and exceed kMaxIdSlen;
+    // leave room for it, so that it can be rejected after it's written.
+    uint32_t max_id_slen = kMaxIdSlen;
+    if (varid_templatep) {
+      const uint32_t worst_case_id_slen = VaridWorstCaseSlen(varid_templatep, max_chr_blen - 1, MINV(max_allele_slen, new_variant_id_max_allele_slen));
+      if (worst_case_id_slen > max_id_slen) {
+        max_id_slen = worst_case_id_slen;
+      }
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_id_slen + 512 + 2 * max_allele_slen;
     reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteBimSplit_ret_1;
@@ -4387,14 +4382,22 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
+            char* id_start = cswritep;
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+            if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+              goto WriteBimSplit_ret_ID_TOO_LONG;
+            }
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = Strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
+              char* id_start = cswritep;
               cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+              if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+                goto WriteBimSplit_ret_ID_TOO_LONG;
+              }
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -4457,6 +4460,11 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
     break;
   WriteBimSplit_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
+    break;
+  WriteBimSplit_ret_ID_TOO_LONG:
+    logputs("\n");
+    logerrprintfww("Error: --set-%s-var-ids generated a variant ID longer than " MAX_ID_SLEN_STR " characters while splitting multiallelic variants. Use a smaller --new-id-max-allele-len limit.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+    reterr = kPglRetInconsistentInput;
     break;
   WriteBimSplit_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
@@ -4650,7 +4658,16 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
       }
     }
 
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    // A generated ID can hold two truncated alleles and exceed kMaxIdSlen;
+    // leave room for it, so that it can be rejected after it's written.
+    uint32_t max_id_slen = kMaxIdSlen;
+    if (varid_templatep) {
+      const uint32_t worst_case_id_slen = VaridWorstCaseSlen(varid_templatep, max_chr_blen - 1, MINV(max_allele_slen, new_variant_id_max_allele_slen));
+      if (worst_case_id_slen > max_id_slen) {
+        max_id_slen = worst_case_id_slen;
+      }
+    }
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_id_slen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -4960,14 +4977,22 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
+            char* id_start = cswritep;
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+            if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+              goto WritePvarSplit_ret_ID_TOO_LONG;
+            }
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = Strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
+              char* id_start = cswritep;
               cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
+              if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+                goto WritePvarSplit_ret_ID_TOO_LONG;
+              }
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -5132,6 +5157,11 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     WordWrapB(0);
     logerrputsb();
     reterr = kPglRetMalformedInput;
+    break;
+  WritePvarSplit_ret_ID_TOO_LONG:
+    logputs("\n");
+    logerrprintfww("Error: --set-%s-var-ids generated a variant ID longer than " MAX_ID_SLEN_STR " characters while splitting multiallelic variants. Use a smaller --new-id-max-allele-len limit.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+    reterr = kPglRetInconsistentInput;
     break;
   WritePvarSplit_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
@@ -5456,7 +5486,18 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     const uint32_t varid_join = (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1;
     const uint32_t max_block_size = JoinMaxBlockSize(variant_include, cip, variant_bps, variant_ct);
 
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + S_CAST(uintptr_t, max_block_size) * (max_filter_slen + info_reload_slen + 2);
+    // A generated ID can hold two truncated alleles and exceed kMaxIdSlen;
+    // leave room for it, so that it can be rejected after it's written.
+    uint32_t max_id_slen = kMaxIdSlen;
+    for (uint32_t template_idx = 0; template_idx != 3; ++template_idx) {
+      if (varid_templates[template_idx]) {
+        const uint32_t worst_case_id_slen = VaridWorstCaseSlen(varid_templates[template_idx], max_chr_blen - 1, MINV(max_allele_slen, new_variant_id_max_allele_slen));
+        if (worst_case_id_slen > max_id_slen) {
+          max_id_slen = worst_case_id_slen;
+        }
+      }
+    }
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + max_id_slen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + S_CAST(uintptr_t, max_block_size) * (max_filter_slen + info_reload_slen + 2);
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -5609,9 +5650,21 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     fputs("0%", stdout);
     fflush(stdout);
     while (1) {
+      // Index of the block's first variant; jbi.variant_idx is past the block
+      // after JoinNextBlock(), and would print '100%' on the last one.
+      const uint32_t block_start_variant_idx = jbi.variant_idx;
       const uint32_t block_size = JoinNextBlock(&jbi, block_uidxs);
       if (!block_size) {
         break;
+      }
+      if (block_start_variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (block_start_variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       if (jbi.chr_fo_idx != chr_fo_idx) {
         chr_fo_idx = jbi.chr_fo_idx;
@@ -5795,7 +5848,11 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                 cur_varid_templatep = varid_templates[2];
               }
             }
+            char* id_start = cswritep;
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, alt_token_buf, cur_bp, ref_allele_slen, extra_alt_ct, alt_token_slen, &max_allele_overflow_slen, cswritep);
+            if (unlikely(S_CAST(uintptr_t, cswritep - id_start) > kMaxIdSlen)) {
+              goto WritePvarJoin_ret_ID_TOO_LONG;
+            }
           } else {
             cswritep = memcpya(cswritep, missing_varid_match, missing_varid_slen);
           }
@@ -6034,6 +6091,11 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
               }
             }
             for (uint32_t key_pos = 0; key_pos != cur_key_ct; ++key_pos) {
+              // Flush before, not after, each key: the trailing ';' is
+              // removed below, so it must still be in the buffer then.
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto WritePvarJoin_ret_WRITE_FAIL;
+              }
               const uint32_t kidx = info_key_order[key_pos];
               const char* cur_key_str = info_keys[kidx];
               const int32_t knum = const_container_of(cur_key_str, InfoVtype, key)->num;
@@ -6161,9 +6223,6 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
                 --cswritep;
               }
               *cswritep++ = ';';
-              if (unlikely(Cswrite(&css, &cswritep))) {
-                goto WritePvarJoin_ret_WRITE_FAIL;
-              }
             }
           }
           if (!cur_key_ct) {
@@ -6219,15 +6278,6 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
       if (unlikely(Cswrite(&css, &cswritep))) {
         goto WritePvarJoin_ret_WRITE_FAIL;
       }
-      if (jbi.variant_idx >= next_print_variant_idx) {
-        if (pct > 10) {
-          putc_unlocked('\b', stdout);
-        }
-        pct = (jbi.variant_idx * 100LLU) / variant_ct;
-        printf("\b\b%u%%", pct++);
-        fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
-      }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WritePvarJoin_ret_WRITE_FAIL;
@@ -6266,6 +6316,11 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     WordWrapB(0);
     logerrputsb();
     reterr = kPglRetMalformedInput;
+    break;
+  WritePvarJoin_ret_ID_TOO_LONG:
+    logputs("\n");
+    logerrprintfww("Error: --set-%s-var-ids generated a variant ID longer than " MAX_ID_SLEN_STR " characters while joining multiallelic variants. Use a smaller --new-id-max-allele-len limit.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+    reterr = kPglRetInconsistentInput;
     break;
   WritePvarJoin_ret_INCONSISTENT_INPUT_WW:
     logputs("\n");
@@ -7516,7 +7571,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
 
   const uint32_t hard_call_halfdist = mcp->hard_call_halfdist;
   const uint32_t dosage_erase_halfdist = ctx->dosage_erase_halfdist;
-  const uintptr_t dosageraw_word_ct = kWordsPerVec * (BitCtToVecCt(raw_sample_ct) + DivUp(raw_sample_ct, (kBytesPerVec / sizeof(Dosage))));
 
   STPgenWriter* spgwp = ctx->spgwp;
   PgenWriterCommon* pwcp;
@@ -7689,21 +7743,18 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         // multiallelic dosage not implemented yet
         assert(read_allele_ct == 2);
 
-        // this should have length dependent on dosage_ct
+        // PgrGetRaw() packs dosage_main and dphase_delta to their actual
+        // lengths.
         cur_dosagepresent = cur_vrec_end;
         cur_dosagevals = R_CAST(Dosage*, &(cur_dosagepresent[raw_sample_ctaw]));
         read_dosage_ct = PopcountWords(cur_dosagepresent, raw_sample_ctl);
-
-        // temporary
-        cur_vrec_end = &(cur_vrec_end[dosageraw_word_ct]);
+        cur_vrec_end = &(cur_vrec_end[raw_sample_ctaw + DosageCtToAlignedWordCt(read_dosage_ct)]);
 
         if (is_dphase) {
           cur_dphasepresent = cur_vrec_end;
           cur_dphasedelta = R_CAST(SDosage*, &(cur_dphasepresent[raw_sample_ctaw]));
           read_dphase_ct = PopcountWords(cur_dphasepresent, raw_sample_ctl);
-
-          // temporary
-          cur_vrec_end = &(cur_vrec_end[dosageraw_word_ct]);
+          cur_vrec_end = &(cur_vrec_end[raw_sample_ctaw + DosageCtToAlignedWordCt(read_dphase_ct)]);
         }
       }
       uint32_t write_rare01_ct = 0;
@@ -9401,6 +9452,15 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
       if (!block_size) {
         break;
       }
+      if (write_variant_idx >= next_print_write_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (write_variant_idx * 100LLU) / write_variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct) + 99) / 100;
+      }
       uint32_t group_ct = 1;
       group_members[0] = 0;
       group_starts[0] = 0;
@@ -9549,15 +9609,6 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
         if (unlikely(reterr)) {
           goto MakePgenJoin_ret_1;
         }
-      }
-      if (write_variant_idx >= next_print_write_variant_idx) {
-        if (pct > 10) {
-          putc_unlocked('\b', stdout);
-        }
-        pct = (write_variant_idx * 100LLU) / write_variant_ct;
-        printf("\b\b%u%%", pct++);
-        fflush(stdout);
-        next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct) + 99) / 100;
       }
     }
     assert(write_variant_idx == write_variant_ct);
@@ -10796,7 +10847,7 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WriteBimResorted_ret_NOMEM;
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen;
     reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteBimResorted_ret_1;
@@ -11377,7 +11428,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
         goto WritePvarResorted_ret_NOMEM;
       }
     }
-    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
@@ -12071,7 +12122,7 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     char* idbuf;
     uintptr_t* already_seen;
     if (unlikely(bigstack_alloc_u32(raw_sample_ct, new_sample_idx_to_old_ptr) ||
-                 bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+                 bigstack_alloc_c(siip->max_sample_id_blen + siip->max_sid_blen, &idbuf) ||
                  bigstack_calloc_w(BitCtToWordCt(raw_sample_ct), &already_seen))) {
       goto SampleSortFileMap_ret_NOMEM;
     }

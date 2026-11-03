@@ -9074,6 +9074,83 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
   return retval;
 }
 
+// Masks match the GT loops in bcf_to_bed(), which use these values as offsets.
+//
+// In general, plink 1.9 is in maintenance mode, and we're avoiding fancy new
+// code.  However, naive implementation of this new check, essential for memory
+// safety, is relatively expensive.  SWAR strikes a reasonable balance between
+// acceleration and maintainability (no platform-specific code) here.
+static uint32_t bcf_gt_index_out_of_range(const void* gt_vals, uint32_t val_ct, uint32_t type_code, uintptr_t allele_ct) {
+  const uintptr_t allele_ct_x2 = allele_ct * 2;
+  // Guaranteed to be word- (and vector-) aligned.
+  const uintptr_t* gt_vals_w = (const uintptr_t*)gt_vals;
+  uintptr_t fullword_ct;
+  uintptr_t mask_word;
+  // We wish to verify that every masked byte/uint16_t/uint32_t is no larger
+  // than allele_ct_x2.
+  // We check this a word at a time as follows:
+  // (the following discussion assumes bytes, but the same approach works for
+  // uint16_t/uint32_t)
+  // * subtract_from is initialized to contain copies of allele_ct_x2.
+  // * Define test_word := subtract_from - (gt_vals_w[widx] & mask_word).
+  //   Then:
+  //   * If all values are in range, the high bit within each byte of test_word
+  //     will be clear.
+  //   * If any value is out of range, the high bit within that byte of
+  //     test_word will be set (note that mask_word always excludes the high
+  //     bit).
+  // * Therefore, we can bitwise-or all the test_word values, and check if any
+  //   high bits within the bitwise-or are set at the end.
+  uintptr_t subtract_from;
+  if (type_code == 1) {
+    fullword_ct = val_ct / BYTECT;
+    const uint32_t remainder = val_ct % BYTECT;
+    if (remainder) {
+      const unsigned char* trailing_gt_vals = (const unsigned char*)(&(gt_vals_w[fullword_ct]));
+      for (uint32_t uii = 0; uii < remainder; ++uii) {
+        if ((trailing_gt_vals[uii] & 0x7e) > allele_ct_x2) {
+          return 1;
+        }
+      }
+    }
+    mask_word = ((~ZEROLU) / 0xff) * 0x7e;
+    subtract_from = ((~ZEROLU) / 0xff) * allele_ct_x2;
+  } else if (type_code == 2) {
+    fullword_ct = val_ct / (BYTECT / 2);
+    const uint32_t remainder = val_ct % (BYTECT / 2);
+    if (remainder) {
+      const uint16_t* trailing_gt_vals = (const uint16_t*)(&(gt_vals_w[fullword_ct]));
+      for (uint32_t uii = 0; uii < remainder; ++uii) {
+        if ((trailing_gt_vals[uii] & 0x7ffe) > allele_ct_x2) {
+          return 1;
+        }
+      }
+    }
+    mask_word = ((~ZEROLU) / 0xffff) * 0x7ffe;
+    subtract_from = ((~ZEROLU) / 0xffff) * allele_ct_x2;
+  } else {
+    fullword_ct = val_ct / BYTECT4;
+#ifdef __LP64__
+    const uint32_t remainder = val_ct % BYTECT4;
+    if (remainder) {
+      const uint32_t* trailing_gt_vals = (const uint32_t*)(&(gt_vals_w[fullword_ct]));
+      for (uint32_t uii = 0; uii < remainder; ++uii) {
+        if ((trailing_gt_vals[uii] & 0x7ffffffe) > allele_ct_x2) {
+          return 1;
+        }
+      }
+    }
+#endif
+    mask_word = ((~ZEROLU) / 0xffffffffU) * 0x7ffffffe;
+    subtract_from = ((~ZEROLU) / 0xffffffffU) * allele_ct_x2;
+  }
+  uintptr_t bitwise_or = 0;
+  for (uint32_t widx = 0; widx < fullword_ct; ++widx) {
+    bitwise_or |= subtract_from - (gt_vals_w[widx] & mask_word);
+  }
+  return ((bitwise_or & (~mask_word)) != 0);
+}
+
 int32_t bcf_header_line_idx_check(char* line_iter, char* line_end, uint32_t* gt_idx_ptr) {
   // adapted from plink 2.0 BcfHeaderLineIdxCheck()
   while (1) {
@@ -9369,6 +9446,17 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	ll_ptr->next = contig_list;
 	memcpyx(ll_ptr->ss, bufptr, slen, '\0');
 	contig_list = ll_ptr;
+	// Contig IDs are assigned in line order, so an IDX= that disagrees would
+	// silently mislabel variants.
+	for (bufptr2 = bufptr; &(bufptr2[5]) < linebuf_end; bufptr2++) {
+	  if (!memcmp(bufptr2, ",IDX=", 5)) {
+	    if (scan_uint_defcap(&(bufptr2[5]), &uii) || (uii != contig_ct)) {
+	      logerrprint("Error: --bcf does not support contig IDX= values out of header line order.\n");
+	      goto bcf_to_bed_ret_INVALID_FORMAT;
+	    }
+	    break;
+	  }
+	}
 	contig_ct++;
       }
       linebuf = &(linebuf_end[1]);
@@ -9712,6 +9800,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       // ujj * umm <= 12 and sample_ct < 2^24, so no uint64_t cast needed there
       if ((uint32_t)((uint64_t)gzread(gz_infile, loadbuf, ujj * umm * sample_ct)) < ujj * umm * sample_ct) {
 	goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+      }
+      if (bcf_gt_index_out_of_range(loadbuf, ujj * sample_ct, ukk, (n_allele < 2)? 2 : n_allele)) {
+	logerrprint("Error: GT allele index in .bcf file is out of range.\n");
+	goto bcf_to_bed_ret_INVALID_FORMAT;
       }
       if (n_allele < 2) {
 	fill_ulong_zero(2 * sample_ctv2, base_bitfields);
@@ -12107,6 +12199,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t uii;
   int32_t ii;
   pzwrite_init_null(&ps);
+  if (recode_modifier & (RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_HV)) {
+    // These write one file per chromosome, with its name in the filename.
+    if ((uintptr_t)(outname_end - outname) + get_max_chrom_slen(chrom_info_ptr) + 32 > FNAMESIZE) {
+      logerrprint("Error: Chromosome name and/or --out argument too long for --recode.\n");
+      goto recode_ret_INVALID_CMDLINE;
+    }
+  }
   if (!hh_exists) {
     set_hh_missing = 0;
   }

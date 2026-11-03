@@ -61,6 +61,10 @@ for ds in tmp_all tmp_auto tmp_multi; do
     # a sample subset makes the fused path derive the genotype counts itself
     check $ds --missing --keep tmp_keep.txt
     check $ds --missing --keep tmp_keep.txt --freq --hardy
+    # no vcols= column needs counts, so there is no allele-frequency pass for
+    # the sample counts to ride along with
+    check $ds --missing vcols=ref,alt
+    check $ds --missing vcols=chrom,pos $SCOLS
 done
 
 # The autosome-only file needs no separate pass at all; the mixed one still

@@ -137,7 +137,7 @@ void PreinitObligMissingData(ObligMissingData* omdp);
 
 void CleanupObligMissingData(ObligMissingData* omdp);
 
-PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, ObligMissingData* omdp);
+PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, PgenReader* simple_pgrp, ObligMissingData* omdp);
 
 BoolErr ObligMissingVariantCts(const ObligMissingData* omdp, const uintptr_t* sample_include, const uintptr_t* sex_male, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t** variant_oblig_cts_ptr);
 

@@ -289,6 +289,55 @@ diff tmp_expected.txt tmp_got.txt
 grep -v '^#' tmp_pr_reload.pvar | cut -f 6 > tmp_got.txt
 diff tmp_expected.txt tmp_got.txt
 
+# Variants with a symbolic ALT allele are never joined, even with an
+# identical twin (1000 Genomes has those), a multicharacter REF, or a
+# non-symbolic ALT alongside.
+cat > symbolic.vcf << 'EOF2'
+##fileformat=VCFv4.3
+##contig=<ID=1,length=1000>
+##ALT=<ID=INS:ME:ALU,Description="x">
+##ALT=<ID=DEL,Description="x">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="x">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2
+1	100	a	G	C	.	.	.	GT	0/1	0/0
+1	100	b	G	<INS:ME:ALU>	.	.	.	GT	0/1	0/0
+1	100	c	G	<INS:ME:ALU>	.	.	.	GT	0/0	0/1
+1	100	d	G	T	.	.	.	GT	0/0	0/1
+1	100	e	G	A,<DEL>	.	.	.	GT	0/2	0/1
+1	200	f	GA	<DEL>	.	.	.	GT	0/1	0/0
+1	200	g	GA	G	.	.	.	GT	0/0	0/1
+EOF2
+printf '1\t100\ta;d\tG\tC,T\n1\t100\tb\tG\t<INS:ME:ALU>\n1\t100\tc\tG\t<INS:ME:ALU>\n1\t100\te\tG\tA,<DEL>\n1\t200\tf\tGA\t<DEL>\n1\t200\tg\tGA\tG\n' > tmp_expected.txt
+$1/plink2 $2 $3 --vcf symbolic.vcf --make-pgen --out tmp_symbolic
+for mode in both any; do
+    $1/plink2 $2 $3 --pfile tmp_symbolic --make-pgen multiallelics=+$mode varid-join --out tmp_symbolic_$mode
+    grep -v '^#' tmp_symbolic_$mode.pvar | cut -f 1-5 > tmp_got.txt
+    diff tmp_expected.txt tmp_got.txt
+done
+
+# Long INFO values, so that the output buffer is flushed right after the last
+# key of many joined variants; that flush used to drop the variant's newline,
+# leaving the .pvar shorter than the .pgen.
+awk 'BEGIN {
+print "##fileformat=VCFv4.3"
+print "##contig=<ID=1,length=100000000>"
+print "##INFO=<ID=DS,Number=1,Type=String,Description=\"x\">"
+print "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"x\">"
+print "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1"
+val = "x"
+for (i = 0; i < 9; i++) {
+val = val val
+}
+for (pos = 1; pos <= 2000; pos++) {
+print "1\t" pos "\t.\tA\tC\t.\t.\tDS=" pos val "\tGT\t0/1"
+print "1\t" pos "\t.\tA\tG\t.\t.\tDS=" pos val "\tGT\t0/0"
+}
+}' > longinfo.vcf
+$1/plink2 $2 $3 --vcf longinfo.vcf --make-pgen --out tmp_longinfo
+$1/plink2 $2 $3 --pfile tmp_longinfo --make-pgen multiallelics=+ --out tmp_longinfo_join
+test "$(grep -vc '^#' tmp_longinfo_join.pvar)" -eq 2000
+$1/plink2 $2 $3 --pfile tmp_longinfo_join --freq --out tmp_longinfo_join
+
 # Error cases.
 # Duplicate ALT allele at the same position and REF.
 sed 's/^1	100	b	A	G	/1	100	b	A	C	/' fields.vcf > dup.vcf

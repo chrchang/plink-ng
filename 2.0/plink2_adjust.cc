@@ -53,6 +53,7 @@ void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_pt
 }
 
 void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
+  free_cond(adjust_file_info_ptr->test_name);
   free_cond(adjust_file_info_ptr->a1_field);
   free_cond(adjust_file_info_ptr->alt_field);
   free_cond(adjust_file_info_ptr->chr_field);
@@ -462,7 +463,9 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      // allele_storage is null in the --adjust-file case where no allele
+      // columns were requested; avoid pointer arithmetic on it.
+      const char* const* cur_alleles = allele_storage? &(allele_storage[allele_idx_offset_base]) : nullptr;
       if (ref_col) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -486,6 +489,11 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
       }
       if (a1_col) {
+        // The overflow buffer has room for two alleles beyond the ID; REF and
+        // ALT1 may already be pending.
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto Multcomp_ret_WRITE_FAIL;
+        }
         *cswritep++ = '\t';
         const char* cur_allele;
         if (loaded_a1) {
@@ -589,7 +597,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     if (aidx == valid_allele_ct) {
       logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
     } else {
-      logprintfww("%" PRIuPTR " --adjust%s record%s (%" PRIuPTR " test%s, %" PRIuPTR " excluded by --pfilter) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", valid_allele_ct, (valid_allele_ct == 1)? "" : "s", valid_allele_ct - aidx, outname);
+      logprintfww("%" PRIuPTR " --adjust%s record%s (%" PRIuPTR " test%s, %" PRIuPTR " excluded by --pfilter) written to %s .\n", aidx, cip? "" : "-file", (aidx == 1)? "" : "s", valid_allele_ct, (valid_allele_ct == 1)? "" : "s", valid_allele_ct - aidx, outname);
     }
   }
   while (0) {
@@ -737,18 +745,18 @@ int32_t MetaGroupCmp(const void* aa, const void* bb) {
 // Fills col_skips/col_types for one input file; shared by both passes so the
 // two cannot disagree about which columns they are reading.
 static PglErr MetaSetupCols(const MetaInfo* mip, const char* header_start, const char* fname, uint32_t no_map, uint32_t no_allele, uint32_t input_is_beta, uint32_t weighted_z, uint32_t* col_skips, uint32_t* col_types, uint32_t* relevant_col_ct_ptr, uint32_t* has_a2_ptr) {
-  // [0] CHR, [1] SNP, [2] BP, [3] A1, [4] A2, [5] effect, [6] SE, [7] P,
-  // [8] effective sample size
+  // [0] CHROM/CHR, [1] ID/SNP, [2] POS/BP, [3] A1, [4] A2, [5] effect, [6] SE,
+  // [7] P, [8] effective sample size
   const char* col_search_order[9];
-  col_search_order[0] = no_map? "" : (mip->chr_field? mip->chr_field : "CHR\0CHROM\0");
-  col_search_order[1] = mip->snp_field? mip->snp_field : "SNP\0ID\0";
-  col_search_order[2] = no_map? "" : (mip->bp_field? mip->bp_field : "BP\0POS\0");
+  col_search_order[0] = no_map? "" : (mip->chr_field? mip->chr_field : "CHROM\0CHR\0");
+  col_search_order[1] = mip->snp_field? mip->snp_field : "ID\0SNP\0";
+  col_search_order[2] = no_map? "" : (mip->bp_field? mip->bp_field : "POS\0BP\0");
   col_search_order[3] = no_allele? "" : (mip->a1_field? mip->a1_field : "A1\0");
   col_search_order[4] = no_allele? "" : (mip->a2_field? mip->a2_field : "A2\0");
   col_search_order[5] = input_is_beta? "BETA\0" : "OR\0";
   col_search_order[6] = mip->se_field? mip->se_field : "SE\0";
   col_search_order[7] = weighted_z? (mip->p_field? mip->p_field : "P\0") : "";
-  col_search_order[8] = weighted_z? (mip->ess_field? mip->ess_field : "NMISS\0OBS_CT\0") : "";
+  col_search_order[8] = weighted_z? (mip->ess_field? mip->ess_field : "OBS_CT\0NMISS\0") : "";
   uint32_t found_type_bitset;
   PglErr reterr = SearchHeaderLine(header_start, col_search_order, "--meta-analysis", 9, relevant_col_ct_ptr, &found_type_bitset, col_skips, col_types);
   if (unlikely(reterr)) {

@@ -93,15 +93,16 @@ static inline BoolErr ScanUintCappedFinish(const char* str_iter, uint64_t cap, u
     const uint64_t cur_digit2 = ctou64(*str_iter++) - 48;
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
-      if (unlikely(val > cap)) {
-        return 1;
-      }
       break;
     }
     val = val * 100 + cur_digit * 10 + cur_digit2;
     if (unlikely(val > cap)) {
       return 1;
     }
+  }
+  // a lone digit hasn't been checked yet
+  if (unlikely(val > cap)) {
+    return 1;
   }
   *valp = val;
   return 0;
@@ -174,7 +175,8 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (unlikely(*valp >= 10)) {
+    // must be an unsigned comparison: ' ', '\t', '\n', etc. are below '0'
+    if (unlikely(S_CAST(uint32_t, *valp) >= 10)) {
       return 1;
     }
   }
@@ -208,6 +210,10 @@ BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t c
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > cap_div_10 * 10 + cap_mod_10)) {
+        return 1;
+      }
       *valp = val;
       return 0;
     }
@@ -240,6 +246,10 @@ BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > cap_div_10 * 10 + cap_mod_10)) {
+        return 1;
+      }
       *valp = val;
       return 0;
     }
@@ -269,6 +279,10 @@ BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > bound_div_10 * 10 + bound_mod_10)) {
+        return 1;
+      }
       *valp = sign * S_CAST(int32_t, val);
       return 0;
     }

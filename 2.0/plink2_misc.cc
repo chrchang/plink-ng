@@ -98,6 +98,30 @@ void InitCheckSex(CheckSexInfo* check_sex_info_ptr) {
   check_sex_info_ptr->min_male_yrate = -1.0;
 }
 
+void InitHomozyg(HomozygInfo* hip) {
+  hip->pheno_name = nullptr;
+  hip->flags = kfHomozyg0;
+  hip->min_snp = 100;
+  hip->min_bases = 1000000;
+  // Very low-frequency variants are nearly always homozygous, so on a modern
+  // dense set they pad out runs that are not really runs.
+  // No default: silently filtering to MAF >= 0.05 would be wrong for anyone
+  // who tuned the other parameters for a low-MAF variant set, so --homozyg
+  // asks rather than guesses.
+  hip->min_af = -1.0;
+  hip->max_bases_per_snp = 50000.0 + kSmallEpsilon;
+  hip->max_hets = UINT32_MAX;
+  hip->max_gap = 1000000;
+  hip->window_size = 50;
+  hip->window_max_hets = 1;
+  hip->window_max_missing = 5;
+  hip->hit_threshold = 0.05;
+}
+
+void CleanupHomozyg(HomozygInfo* hip) {
+  free_cond(hip->pheno_name);
+}
+
 PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const FlipInfo* flip_info_ptr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, char** allele_storage_mutable) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
@@ -872,6 +896,10 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
         variant_ids[variant_uidx] = alloc_end;
       }
     }
+    if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
+      logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+      goto UpdateVarNames_ret_MALFORMED_INPUT;
+    }
     BigstackEndSet(alloc_end);
     if (miss_ct) {
       snprintf(g_logbuf, kLogbufSize, "--update-name: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
@@ -887,6 +915,9 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     break;
   UpdateVarNames_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--update-name file", &txs);
+    break;
+  UpdateVarNames_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
     break;
   UpdateVarNames_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
@@ -1164,6 +1195,10 @@ PglErr UpdateVarAlleles(const uintptr_t* variant_include, const char* const* var
           orig_alleles[aidx] = K_CAST(char*, &(g_one_char_strs[ctou32(cc) * 2]));
         } else {
           // reuse old storage if we can, allocate when we must
+          if (new_slen > max_allele_slen) {
+            // later writers size their buffers from this
+            max_allele_slen = new_slen;
+          }
           if (strlen(orig_alleles[aidx]) < new_slen) {
             if (PtrWSubCk(tmp_alloc_base, new_slen + 1, &tmp_alloc_end)) {
               goto UpdateVarAlleles_ret_NOMEM;
@@ -5054,11 +5089,13 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
                   ++male_patch_01_ct;
                 }
               }
-              missing_ct += male_patch_01_ct;
+              // bugfix (10 Oct 2026): all male ref/alt hets (0/1 as well as
+              // 0/x with x > 1) are heterozygous haploid calls, which are
+              // treated as missing.
+              missing_ct += cur_male_geno_cts[1];
               diploid_pair_cts[1] -= cur_male_geno_cts[1] - male_patch_01_ct;
               sample_widx = 0;
               cur_patch_bits = pgv.patch_10_set[0];
-              uint32_t* hap_cts_offset1 = &(hap_cts[1]);
               uint32_t male_patch_10_ct = 0;
               for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t lowbit = BitIter1y(pgv.patch_10_set, &sample_widx, &cur_patch_bits);
@@ -5068,7 +5105,10 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
                   diploid_pair_cts[lo_code * allele_ct + hi_code] -= 1;
                   ++male_patch_10_ct;
                   if (lo_code == hi_code) {
-                    hap_cts_offset1[lo_code] += 1;
+                    // bugfix (10 Oct 2026): was indexed from hap_cts[1], which
+                    // put altx hom calls in the altx+1 slot (and past the end
+                    // of the array for the last ALT allele).
+                    hap_cts[lo_code] += 1;
                   }
                 }
               }
@@ -6256,6 +6296,11 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
             *cswritep++ = '\t';
             *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
           }
+          // The overflow buffer has room for two alleles; REF and ALT1 may
+          // already be pending.
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto HardyReport_ret_WRITE_FAIL;
+          }
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
           if (ax_col) {
@@ -6480,6 +6525,11 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           if (provref_col) {
             *cswritep++ = '\t';
             *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+          }
+          // The overflow buffer has room for two alleles; REF and ALT1 may
+          // already be pending.
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto HardyReport_ret_WRITE_FAIL;
           }
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
@@ -11359,25 +11409,6 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   return reterr;
 }
 
-void InitHomozyg(HomozygInfo* hip) {
-  hip->flags = kfHomozyg0;
-  hip->min_snp = 100;
-  hip->min_bases = 1000000;
-  // Very low-frequency variants are nearly always homozygous, so on a modern
-  // dense set they pad out runs that are not really runs.
-  // No default: silently filtering to MAF >= 0.05 would be wrong for anyone
-  // who tuned the other parameters for a low-MAF variant set, so --homozyg
-  // asks rather than guesses.
-  hip->min_af = -1.0;
-  hip->max_bases_per_snp = 50000.0 + kSmallEpsilon;
-  hip->max_hets = UINT32_MAX;
-  hip->max_gap = 1000000;
-  hip->window_size = 50;
-  hip->window_max_hets = 1;
-  hip->window_max_missing = 5;
-  hip->hit_threshold = 0.05;
-}
-
 // Runs of homozygosity, following PLINK 1.9's calc_homozyg()/roh_update().
 //
 // Scanning-window algorithm: a window of --homozyg-window-snp variants is a
@@ -11390,8 +11421,8 @@ void InitHomozyg(HomozygInfo* hip) {
 
 typedef struct RohRecordStruct {
   uint32_t sample_idx;
-  uint32_t start_uidx;
-  uint32_t end_uidx;
+  uint32_t first_uidx;
+  uint32_t last_uidx;
   uint32_t nsnp;
   uint32_t nhom;
   uint32_t nhet;
@@ -11604,8 +11635,8 @@ static uint32_t HomozygScanRange(const HomozygScanCtx* ctx, uint32_t chr_variant
                 }
                 RohRecord* cur_rec = &(roh_list[roh_ct]);
                 cur_rec->sample_idx = sample_idx;
-                cur_rec->start_uidx = uidx_first;
-                cur_rec->end_uidx = older_uidx;
+                cur_rec->first_uidx = uidx_first;
+                cur_rec->last_uidx = older_uidx;
                 cur_rec->nsnp = cidx_len;
                 cur_rec->nhet = cur_roh_het_cts[sample_idx];
                 cur_rec->nhom = cidx_len - cur_rec->nhet - cur_roh_missing_cts[sample_idx];
@@ -11677,7 +11708,7 @@ THREAD_FUNC_DECL HomozygThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
@@ -11733,16 +11764,29 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       variant_include = new_variant_include;
     }
 
-    // Pick the first case/control phenotype for the AFF/UNAFF columns, and the
-    // first phenotype of any type for the PHENO column.
-    const PhenoCol* cc_pheno_col = nullptr;
-    const PhenoCol* report_pheno_col = nullptr;
-    for (uint32_t uii = 0; uii != pheno_ct; ++uii) {
-      if (!report_pheno_col) {
-        report_pheno_col = &(pheno_cols[uii]);
+    // If pheno= was defined, error out if either no phenotype of that name is
+    // loaded, or the phenotype is quantitative.
+    const PhenoCol* pheno_col = nullptr;
+    if (hip->pheno_name) {
+      const char* homozyg_pheno_name = hip->pheno_name;
+      const uint32_t homozyg_pheno_name_blen = 1 + strlen(homozyg_pheno_name);
+      if (homozyg_pheno_name_blen <= max_pheno_name_blen) {
+        const char* pheno_names_iter = pheno_names;
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+          if (memequal(homozyg_pheno_name, pheno_names_iter, homozyg_pheno_name_blen)) {
+            pheno_col = &(pheno_cols[pheno_idx]);
+            if (unlikely(pheno_col->type_code == kPhenoDtypeQt)) {
+              logerrputs("Error: --homozyg pheno= specified a quantitative phenotype; a binary or\ncategorical phenotype is required.\n");
+              goto HomozygReport_ret_INCONSISTENT_INPUT;
+            }
+            break;
+          }
+          pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
+        }
       }
-      if ((!cc_pheno_col) && (pheno_cols[uii].type_code == kPhenoDtypeCc)) {
-        cc_pheno_col = &(pheno_cols[uii]);
+      if (unlikely(!pheno_col)) {
+        logerrputs("Error: --homozyg pheno= argument does not correspond to a loaded phenotype.\n");
+        goto HomozygReport_ret_INCONSISTENT_INPUT;
       }
     }
 
@@ -11889,6 +11933,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t chr_ct = cip->chr_ct;
+    uint32_t completed_variant_ct = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_idx = (variant_ct + 99) / 100;
     fputs("--homozyg: 0%", stdout);
     fflush(stdout);
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
@@ -11902,6 +11949,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
       if (chr_variant_ct < window_size) {
         // PLINK 1.9 skips chromosomes that can't fill one scanning window.
+        completed_variant_ct += chr_variant_ct;
         continue;
       }
       uintptr_t variant_uidx_base;
@@ -11953,7 +12001,17 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
           goto HomozygReport_ret_THREAD_CREATE_FAIL;
         }
         JoinThreads(&tg);
+        if (block_start + completed_variant_ct >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = ((block_start + completed_variant_ct) * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+        }
       }
+      completed_variant_ct += chr_variant_ct;
     }
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       if (unlikely(ctx.nomem[tidx])) {
@@ -12008,8 +12066,8 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const HomozygFlags flags = hip->flags;
     const uint32_t col_fid = FidColIsRequired(siip, flags / kfHomozygColMaybefid);
     const uint32_t col_sid = SidColIsRequired(siip->sids, flags / kfHomozygColMaybesid);
-    const uint32_t col_pheno = (flags & kfHomozygColPheno) || ((flags & kfHomozygColMaybepheno) && report_pheno_col);
-    if (col_pheno && (!report_pheno_col)) {
+    const uint32_t col_pheno = (flags & kfHomozygColPheno) || ((flags & kfHomozygColMaybepheno) && pheno_col);
+    if (col_pheno && (!pheno_col)) {
       logerrputs("Error: --homozyg 'pheno' column set requires a phenotype.\n");
       reterr = kPglRetInconsistentInput;
       goto HomozygReport_ret_1;
@@ -12025,8 +12083,8 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t col_kbtot = (flags / kfHomozygColKbtot) & 1;
     const uint32_t col_kbavg = (flags / kfHomozygColKbavg) & 1;
     const uint32_t col_froh = (flags / kfHomozygColFroh) & 1;
-    const uint32_t col_aff = (flags / kfHomozygColAff) & 1;
-    const uint32_t col_unaff = (flags / kfHomozygColUnaff) & 1;
+    const uint32_t col_rohct = (flags & kfHomozygColRohCt) || ((flags & kfHomozygColMaybeRohCt) && (!pheno_col));
+    const uint32_t col_strat_rohct = (flags & kfHomozygColStratRohCt) && pheno_col;
 
     // .hom
     snprintf(outname_end, kMaxOutfnameExtBlen, ".hom");
@@ -12110,12 +12168,12 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       double kb_auto = 0.0;
       for (uint32_t uii = roh_start; uii != roh_end; ++uii) {
         const RohRecord* cur_rec = &(roh_list[roh_order[uii]]);
-        const uint32_t cur_chr_idx = GetVariantChr(cip, cur_rec->start_uidx);
+        const uint32_t cur_chr_idx = GetVariantChr(cip, cur_rec->first_uidx);
         char* write_iter = g_textbuf;
         write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
         if (col_pheno) {
           *write_iter++ = '\t';
-          write_iter = AppendPhenoStr(report_pheno_col, "NA", 2, sample_uidx, write_iter);
+          write_iter = AppendPhenoStr(pheno_col, "NA", 2, sample_uidx, write_iter);
         }
         if (col_chrom) {
           *write_iter++ = '\t';
@@ -12123,13 +12181,13 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         }
         if (col_pos) {
           *write_iter++ = '\t';
-          write_iter = u32toa_x(variant_bps[cur_rec->start_uidx], '\t', write_iter);
-          write_iter = u32toa(variant_bps[cur_rec->end_uidx], write_iter);
+          write_iter = u32toa_x(variant_bps[cur_rec->first_uidx], '\t', write_iter);
+          write_iter = u32toa(variant_bps[cur_rec->last_uidx], write_iter);
         }
         *write_iter++ = '\t';
-        write_iter = strcpyax(write_iter, variant_ids[cur_rec->start_uidx], '\t');
-        write_iter = strcpya(write_iter, variant_ids[cur_rec->end_uidx]);
-        const double kb = u31tod(variant_bps[cur_rec->end_uidx] + is_new_lengths - variant_bps[cur_rec->start_uidx]) / (1000.0 - kRohEpsilon);
+        write_iter = strcpyax(write_iter, variant_ids[cur_rec->first_uidx], '\t');
+        write_iter = strcpya(write_iter, variant_ids[cur_rec->last_uidx]);
+        const double kb = u31tod(variant_bps[cur_rec->last_uidx] + is_new_lengths - variant_bps[cur_rec->first_uidx]) / (1000.0 - kRohEpsilon);
         kb_tot += kb;
         if (cur_chr_idx != x_code) {
           kb_auto += kb;
@@ -12211,7 +12269,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
       if (col_pheno) {
         *write_iter++ = '\t';
-        write_iter = AppendPhenoStr(report_pheno_col, "NA", 2, sample_uidx, write_iter);
+        write_iter = AppendPhenoStr(pheno_col, "NA", 2, sample_uidx, write_iter);
       }
       if (col_nseg) {
         *write_iter++ = '\t';
@@ -12243,12 +12301,24 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       goto HomozygReport_ret_WRITE_FAIL;
     }
 
-    // .hom.summary; one line per variant, so this is the output worth
-    // compressing.
+    // .hom.summary; one line per variant (and potentially one column per
+    // category now), so this is the output worth compressing.
     {
       const uint32_t output_zst = (flags / kfHomozygZs) & 1;
       OutnameZstSet(".hom.summary", output_zst, outname_end);
-      const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512;
+      uintptr_t overflow_buf_size = kCompressStreamBlock + GetMaxChrSlen(cip) + kMaxIdSlen + 512;
+      if (pheno_col) {
+        if (pheno_col->type_code == kPhenoDtypeCc) {
+          if (unlikely(CatFromBinaryPheno(raw_sample_ct, &pheno_col))) {
+            goto HomozygReport_ret_NOMEM;
+          }
+        }
+        const uint32_t nonnull_category_ct = pheno_col->nonnull_category_ct;
+        overflow_buf_size += nonnull_category_ct;
+        for (uint32_t cidx = 1; cidx <= nonnull_category_ct; ++cidx) {
+          overflow_buf_size += strlen(pheno_col->category_names[cidx]);
+        }
+      }
       reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (unlikely(reterr)) {
         goto HomozygReport_ret_1;
@@ -12261,51 +12331,102 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         cswritep = strcpya_k(cswritep, "POS\t");
       }
       cswritep = strcpya_k(cswritep, "ID");
-      if (col_aff) {
-        cswritep = strcpya_k(cswritep, "\tAFF");
+      if (col_rohct) {
+        cswritep = strcpya_k(cswritep, "\tROH_CT");
       }
-      if (col_unaff) {
-        cswritep = strcpya_k(cswritep, "\tUNAFF");
+      if (col_strat_rohct) {
+        const uint32_t nonnull_category_ct = pheno_col->nonnull_category_ct;
+        for (uint32_t cidx = 1; cidx <= nonnull_category_ct; ++cidx) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, pheno_col->category_names[cidx]);
+        }
       }
       AppendBinaryEoln(&cswritep);
     }
     {
-      int32_t* aff_adj;
-      int32_t* unaff_adj;
-      if (unlikely(bigstack_alloc_i32(raw_variant_ct + 1, &aff_adj) ||
-                   bigstack_alloc_i32(raw_variant_ct + 1, &unaff_adj))) {
-        goto HomozygReport_ret_NOMEM;
+      int32_t* tot_adj = nullptr;
+      if (col_rohct) {
+        if (unlikely(bigstack_calloc_i32(raw_variant_ct + 1, &tot_adj))) {
+          goto HomozygReport_ret_NOMEM;
+        }
       }
-      ZeroI32Arr(raw_variant_ct + 1, aff_adj);
-      ZeroI32Arr(raw_variant_ct + 1, unaff_adj);
-      sample_uidx_base = 0;
-      sample_include_bits = sample_include[0];
-      uint32_t* sample_uidx_of_idx;
-      if (unlikely(bigstack_alloc_u32(sample_ct, &sample_uidx_of_idx))) {
-        goto HomozygReport_ret_NOMEM;
-      }
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        sample_uidx_of_idx[sample_idx] = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+      const uint32_t* pheno_cats_collapsed = nullptr;
+      int32_t* cat_running_tots;  // [0] is overall total if col_rohct
+      int32_t** cat_adjs = nullptr;
+      uint32_t nonnull_category_ct = 0;
+      if (pheno_col) {
+        const uint32_t* pheno_cats_orig = pheno_col->data.cat;
+        if (sample_ct == raw_sample_ct) {
+          pheno_cats_collapsed = pheno_cats_orig;
+        } else {
+          uint32_t* pheno_cats_collapsed_tmp;
+          if (unlikely(bigstack_alloc_u32(sample_ct, &pheno_cats_collapsed_tmp))) {
+            goto HomozygReport_ret_NOMEM;
+          }
+          sample_uidx_base = 0;
+          sample_include_bits = sample_include[0];
+          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+            const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+            pheno_cats_collapsed_tmp[sample_idx] = pheno_cats_orig[sample_uidx];
+          }
+          pheno_cats_collapsed = pheno_cats_collapsed_tmp;
+        }
+        nonnull_category_ct = pheno_col->nonnull_category_ct;
+        // probable todo: process variants in batches if there isn't enough
+        // remaining memory for the full variant_ct x nonnnull_category_ct
+        // matrix
+        if (unlikely(bigstack_calloc_i32(nonnull_category_ct + 1, &cat_running_tots) ||
+                     bigstack_alloc_i32p(nonnull_category_ct + 1, &cat_adjs))) {
+          goto HomozygReport_ret_NOMEM;
+        }
+        cat_adjs[0] = nullptr;
+        for (uint32_t cidx = 1; cidx <= nonnull_category_ct; ++cidx) {
+          if (bigstack_calloc_i32(raw_variant_ct + 1, &(cat_adjs[cidx]))) {
+            if (unlikely(cidx <= 2)) {
+              // Basic out-of-memory message should be fine here.
+              goto HomozygReport_ret_NOMEM;
+            }
+            logerrputs("Error: --homozyg .summary-reporting algorithm doesn't yet support stratified\nvariant x category tables too large to fit in remaining memory.  Contact us if\nyou need this functionality.\n");
+            reterr = kPglRetNotYetSupported;
+            goto HomozygReport_ret_1;
+          }
+        }
+      } else {
+        if (unlikely(bigstack_calloc_i32(1, &cat_running_tots))) {
+          goto HomozygReport_ret_NOMEM;
+        }
       }
       for (uintptr_t ulii = 0; ulii != roh_ct; ++ulii) {
         const RohRecord* cur_rec = &(roh_list[ulii]);
-        const uint32_t sample_uidx = sample_uidx_of_idx[cur_rec->sample_idx];
-        int32_t* cur_adj = unaff_adj;
-        if (cc_pheno_col && IsSet(cc_pheno_col->nonmiss, sample_uidx) && IsSet(cc_pheno_col->data.cc, sample_uidx)) {
-          cur_adj = aff_adj;
+        const uint32_t sample_idx = cur_rec->sample_idx;
+        const uint32_t start_uidx = cur_rec->first_uidx;
+        const uint32_t end_uidx = cur_rec->last_uidx + 1;
+        if (tot_adj) {
+          tot_adj[start_uidx] += 1;
+          tot_adj[end_uidx] -= 1;
         }
-        cur_adj[cur_rec->start_uidx] += 1;
-        cur_adj[cur_rec->end_uidx + 1] -= 1;
+        if (pheno_cats_collapsed) {
+          const uint32_t cidx = pheno_cats_collapsed[sample_idx];
+          if (cidx) {
+            int32_t* cur_cat_adj = cat_adjs[cidx];
+            cur_cat_adj[start_uidx] += 1;
+            cur_cat_adj[end_uidx] -= 1;
+          }
+        }
       }
       uintptr_t variant_uidx_base2 = 0;
       uintptr_t cur_bits2 = variant_include[0];
-      int32_t aff_running = 0;
-      int32_t unaff_running = 0;
       uint32_t next_variant_uidx = variant_ct? BitIter1(variant_include, &variant_uidx_base2, &cur_bits2) : UINT32_MAX;
       uint32_t written_ct = 0;
       for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
-        aff_running += aff_adj[variant_uidx];
-        unaff_running += unaff_adj[variant_uidx];
+        if (tot_adj) {
+          cat_running_tots[0] += tot_adj[variant_uidx];
+        }
+        if (cat_adjs) {
+          for (uint32_t cidx = 1; cidx <= nonnull_category_ct; ++cidx) {
+            cat_running_tots[cidx] += cat_adjs[cidx][variant_uidx];
+          }
+        }
         if (variant_uidx != next_variant_uidx) {
           continue;
         }
@@ -12317,13 +12438,15 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
           cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
         }
         cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
-        if (col_aff) {
+        if (col_rohct) {
           *cswritep++ = '\t';
-          cswritep = u32toa(S_CAST(uint32_t, aff_running), cswritep);
+          cswritep = u32toa(S_CAST(uint32_t, cat_running_tots[0]), cswritep);
         }
-        if (col_unaff) {
-          *cswritep++ = '\t';
-          cswritep = u32toa(S_CAST(uint32_t, unaff_running), cswritep);
+        if (col_strat_rohct) {
+          for (uint32_t cidx = 1; cidx <= nonnull_category_ct; ++cidx) {
+            *cswritep++ = '\t';
+            cswritep = u32toa(S_CAST(uint32_t, cat_running_tots[cidx]), cswritep);
+          }
         }
         AppendBinaryEoln(&cswritep);
         if (unlikely(Cswrite(&css, &cswritep))) {
@@ -12369,7 +12492,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
 // controls?  The 2x2 table is (missing, nonmissing) x (case, control), and the
 // test is Fisher's exact, as in PLINK 1.x.  Heterozygous haploid calls count
 // as missing.
-PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const char* test_missing_pheno_name, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -12377,15 +12500,40 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
   PglErr reterr = kPglRetSuccess;
   {
     const PhenoCol* cc_pheno_col = nullptr;
-    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
-        cc_pheno_col = &(pheno_cols[pheno_idx]);
-        break;
+    if (test_missing_pheno_name) {
+      const uint32_t test_missing_pheno_name_blen = 1 + strlen(test_missing_pheno_name);
+      if (test_missing_pheno_name_blen <= max_pheno_name_blen) {
+        const char* pheno_names_iter = pheno_names;
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+          if (memequal(test_missing_pheno_name, pheno_names_iter, test_missing_pheno_name_blen)) {
+            cc_pheno_col = &(pheno_cols[pheno_idx]);
+            if (unlikely(cc_pheno_col->type_code != kPhenoDtypeCc)) {
+              logerrputs("Error: --test-missing pheno= specified a quantitative or categorical phenotype;\na binary phenotype is required.\n");
+              goto TestMissingReport_ret_INCONSISTENT_INPUT;
+            }
+            break;
+          }
+          pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
+        }
       }
-    }
-    if (unlikely(!cc_pheno_col)) {
-      logerrputs("Error: --test-missing requires a case/control phenotype.\n");
-      goto TestMissingReport_ret_INCONSISTENT_INPUT;
+      if (unlikely(!cc_pheno_col)) {
+        logerrputs("Error: --test-missing pheno= argument does not correspond to a loaded\nphenotype.\n");
+        goto TestMissingReport_ret_INCONSISTENT_INPUT;
+      }
+    } else {
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+          if (unlikely(cc_pheno_col)) {
+            logerrputs("Error: --test-missing: Multiple binary phenotypes are defined.  You can use\n\"pheno=<pheno name>\" to specify the one you want --test-missing to look at.\n");
+            goto TestMissingReport_ret_INCONSISTENT_INPUT;
+          }
+          cc_pheno_col = &(pheno_cols[pheno_idx]);
+        }
+      }
+      if (unlikely(!cc_pheno_col)) {
+        logerrputs("Error: --test-missing requires a binary phenotype.\n");
+        goto TestMissingReport_ret_INCONSISTENT_INPUT;
+      }
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* sample_include;
@@ -12437,14 +12585,7 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
     const uint32_t alt1_col = flags & kfTestMissingColAlt1;
     const uint32_t alt_col = flags & kfTestMissingColAlt;
     const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
-    uint32_t provref_col = 0;
-    if (ref_col) {
-      if (flags & kfTestMissingColProvref) {
-        provref_col = 1;
-      } else if (flags & kfTestMissingColMaybeprovref) {
-        provref_col = all_nonref || (nonref_flags && (!IntersectionRangeIsEmpty(variant_include, nonref_flags, 0, raw_variant_ct)));
-      }
-    }
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, flags / kfTestMissingColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t nmissa_col = flags & kfTestMissingColNmissa;
     const uint32_t nobsa_col = flags & kfTestMissingColNobsa;
     const uint32_t fmissa_col = flags & kfTestMissingColFmissa;
@@ -13523,8 +13664,6 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-const char g_cc_cat_names[2][8] = {"CONTROL", "CASE"};
-
 CONSTI32(kFstReportVariantsBatchMax, kMaxOpenFiles - 12);
 
 PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
@@ -13568,34 +13707,9 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     if (pheno_col->type_code != kPhenoDtypeCat) {
-      assert(pheno_col->type_code == kPhenoDtypeCc);
-      // this may belong in plink2_cmdline
-      PhenoCol* synthetic_pheno_col;
-      uint32_t* cat_tmp;
-      const char** category_names;
-      if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, 1, &synthetic_pheno_col) ||
-                   bigstack_end_calloc_u32(raw_sample_ct, &cat_tmp) ||
-                   bigstack_end_alloc_kcp(3, &category_names))) {
+      if (unlikely(CatFromBinaryPheno(raw_sample_ct, &pheno_col))) {
         goto FstReport_ret_NOMEM;
       }
-      const uintptr_t* raw_pheno_nm = pheno_col->nonmiss;
-      const uintptr_t* pheno_cc = pheno_col->data.cc;
-      for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
-        if (!IsSet(raw_pheno_nm, sample_uidx)) {
-          continue;
-        }
-        // 'CASE' is lexicographically before 'CONTROL'
-        cat_tmp[sample_uidx] = 2 - IsSet(pheno_cc, sample_uidx);
-      }
-      category_names[0] = nullptr;
-      category_names[1] = g_cc_cat_names[1];
-      category_names[2] = g_cc_cat_names[0];
-      synthetic_pheno_col->category_names = category_names;
-      synthetic_pheno_col->nonmiss = pheno_col->nonmiss;
-      synthetic_pheno_col->data.cat = cat_tmp;
-      synthetic_pheno_col->type_code = kPhenoDtypeCat;
-      synthetic_pheno_col->nonnull_category_ct = 2;
-      pheno_col = synthetic_pheno_col;
     }
     ctx.allele_idx_offsets = allele_idx_offsets;
     uintptr_t* sample_include;
@@ -14675,7 +14789,7 @@ void CheckAlleleUniquenessMain(uint32_t tidx, uint32_t thread_ct, AlleleUniquene
           UpdateU32IfSmaller(variant_uidx, &(ctx->dup_vidx));
           return;
         }
-        cur_allele = prev_allele;
+        prev_allele = cur_allele;
       }
     }
   }
@@ -14792,11 +14906,10 @@ PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       pheno_col = &(pheno_cols[0]);
     }
     const uint32_t is_cc = (pheno_col->type_code == kPhenoDtypeCc);
-    if (unlikely((!is_cc) && (pheno_col->type_code != kPhenoDtypeQt))) {
-      // Categorical phenotypes may be worth supporting later.  But reasonable
-      // to wait until at least one PLINK 2 command (multinomial logistic
-      // regression?) can analyze them.
-      logerrputs("Error: --make-perm-pheno's phenotype currently must be case/control or\nquantitative.\n");
+    if ((!is_cc) && (pheno_col->type_code != kPhenoDtypeQt)) {
+      // Now that multinomial logistic regression is implemented, this should
+      // be as well.
+      logerrputs("Error: --make-perm-pheno categorical-phenotype handling is under development.\n");
       reterr = kPglRetNotYetSupported;
       goto MakePermPheno_ret_1;
     }
@@ -14927,8 +15040,9 @@ PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   return reterr;
 }
 
-PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t allow_dups, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  // todo: just use FILE*
   char* cswritep = nullptr;
   CompressStreamState css;
   PreinitCstream(&css);
@@ -14952,9 +15066,9 @@ PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* varia
         goto WriteVarRanges_ret_INCONSISTENT_INPUT;
       }
     }
-    OutnameZstSet(".var.ranges", output_zst, outname_end);
+    OutnameZstSet(".var.ranges", 0, outname_end);
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * max_variant_id_slen + 64;
-    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    reterr = InitCstreamAlloc(outname, 0, 0, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto WriteVarRanges_ret_1;
     }
@@ -14983,7 +15097,7 @@ PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* varia
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WriteVarRanges_ret_WRITE_FAIL;
     }
-    logprintfww("--write-var-ranges%s%s: %u block boundar%s written to %s .\n", output_zst? " zs" : "", allow_dups? " allow-dups" : "", block_ct, (block_ct == 1)? "y" : "ies", outname);
+    logprintfww("--write-var-ranges%s: %u block boundar%s written to %s .\n", allow_dups? " allow-dups" : "", block_ct, (block_ct == 1)? "y" : "ies", outname);
   }
   while (0) {
   WriteVarRanges_ret_WRITE_FAIL:

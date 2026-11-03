@@ -106,7 +106,7 @@ $1/plink2 $2 $3 --vcf tmp_ucsc.vcf --psam tmp_samples.psam --allow-extra-chr --o
 test "$(grep -v '^#' plink2_freq.afreq | cut -f 1 | tr '\n' ' ')" = "chr1 chr2 chr22 chrX chrY chrM chrUn_gl000220 "
 
 fails() {
-    "$@" && false || true
+    "$@" && exit 1 || true
 }
 
 fails $1/plink2 $2 $3 --vcf tmp_ensembl.vcf --psam tmp_samples.psam --output-chr inferred --export vcf --out plink2_bad

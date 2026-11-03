@@ -653,7 +653,9 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     // first base, correctly.
     seqbuf[0] = 'N';
 
-    reterr = SizeAndInitTextStream(fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &fa_txs);
+    // bugfix (5 Oct 2026): can't use bigstack_left() here, we may have later
+    // allocations
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &fa_txs);
     if (unlikely(reterr)) {
       goto ProcessFa_ret_TSTREAM_FAIL;
     }

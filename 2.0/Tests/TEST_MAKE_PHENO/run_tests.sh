@@ -58,7 +58,7 @@ diff -q flat19.txt flat20.txt
 test $(grep -c '	2$' flat20.txt) -eq 0
 
 fails() {
-    "$@" && false || true
+    "$@" && exit 1 || true
 }
 
 # Wrong parameter count, and a repeated sample ID.

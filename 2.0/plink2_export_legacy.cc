@@ -871,7 +871,8 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
   {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    const uintptr_t writebuf_blen = kMaxMediumLine + 2 * kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    // .lgen line: FID+IID, variant ID, and two alleles.
+    const uintptr_t writebuf_blen = kMaxMediumLine + siip->max_sample_id_blen + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
     uint32_t* sample_id_slens;
@@ -894,6 +895,7 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
       goto ExportLgen_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
     fflush(stdout);
     char* write_iter = writebuf;
     uint32_t pct = 0;
@@ -1038,7 +1040,9 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
   {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    // A line starts with the chromosome, variant ID, and two alleles; each
+    // sample ID (FID+IID) appended to it is followed by a flush.
+    const uintptr_t writebuf_blen = kMaxMediumLine + GetMaxChrSlen(cip) + siip->max_sample_id_blen + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
     uint32_t* sample_id_slens;
@@ -1058,6 +1062,7 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
       goto ExportList_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
     fflush(stdout);
     char* write_iter = writebuf;
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
@@ -1175,8 +1180,8 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
   return reterr;
 }
 
-// Same idea as --export list, but the homozygous-A2 class is dropped, which is
-// what makes it a "rare genotype" list, and empty classes are omitted.
+// Same idea as --export list, but the major-allele homozygote class is dropped,
+// which is what makes it a "rare genotype" list, and empty classes are omitted.
 PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -1184,7 +1189,9 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
   {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    // A line starts with the variant ID and two alleles; each sample ID
+    // (FID+IID) appended to it is followed by a flush.
+    const uintptr_t writebuf_blen = kMaxMediumLine + siip->max_sample_id_blen + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
     uint32_t* sample_id_slens;
@@ -1204,6 +1211,7 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
       goto ExportRlist_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
+    fputs("0%", stdout);
     fflush(stdout);
     char* write_iter = writebuf;
     STD_ARRAY_DECL(uint32_t, 4, genocounts);
@@ -1229,11 +1237,13 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
       }
       ZeroTrailingNyps(sample_ct, genovec);
       GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
-      const char* ref_allele = allele_storage[allele_idx_offset_base];
-      const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
       // PLINK 1.x emits HET, then the minor homozygote, then the missing
-      // class; the major homozygote is the omitted one.
-      const uint32_t geno_order[3] = {1, 2, 3};
+      // class; the major homozygote is the omitted one.  REF is not
+      // necessarily the major allele here, so check the counts.
+      const uint32_t ref_is_minor = (genocounts[0] < genocounts[2]);
+      const char* minor_allele = allele_storage[allele_idx_offset_base + 1 - ref_is_minor];
+      const char* major_allele = allele_storage[allele_idx_offset_base + ref_is_minor];
+      const uint32_t geno_order[3] = {1, 2 - ref_is_minor * 2, 3};
       const char* class_names[3] = {"HET", "HOM", "NIL"};
       for (uint32_t class_idx = 0; class_idx != 3; ++class_idx) {
         const uint32_t cur_geno = geno_order[class_idx];
@@ -1246,12 +1256,12 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
           *write_iter++ = legacy_output_missing_geno_char;
           *write_iter++ = exportf_delim;
           *write_iter++ = legacy_output_missing_geno_char;
-        } else if (cur_geno == 2) {
-          write_iter = strcpyax(write_iter, alt_allele, exportf_delim);
-          write_iter = strcpya(write_iter, alt_allele);
+        } else if (class_idx == 1) {
+          write_iter = strcpyax(write_iter, minor_allele, exportf_delim);
+          write_iter = strcpya(write_iter, minor_allele);
         } else {
-          write_iter = strcpyax(write_iter, alt_allele, exportf_delim);
-          write_iter = strcpya(write_iter, ref_allele);
+          write_iter = strcpyax(write_iter, minor_allele, exportf_delim);
+          write_iter = strcpya(write_iter, major_allele);
         }
         uint32_t sample_idx = 0;
         for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
@@ -1565,6 +1575,10 @@ PglErr ExportFastphase(const char* outname, char* outname_end, const uintptr_t* 
       } else {
         char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
         *chr_name_end = '\0';
+        if (unlikely(S_CAST(uintptr_t, chr_name_end - chr_buf) + S_CAST(uintptr_t, outname_end - outname) + kMaxOutfnameExtBlen > kPglFnamesize)) {
+          logerrputs("Error: Chromosome name and/or --out argument too long for --export fastphase.\n");
+          goto ExportFastphase_ret_INCONSISTENT_INPUT;
+        }
         fname_end = strcpya_k(outname_end, ".chr-");
         fname_end = strcpya(fname_end, chr_buf);
         fname_end = strcpya_k(fname_end, ".phase.inp");

@@ -110,7 +110,7 @@ if os.environ.get('PGENLIB_USE_S3') == '1':
 
 setuptools.setup(
     name="pgenlib",
-    version="0.95.1",
+    version="0.95.2",
     author="Christopher Chang",
     author_email="chrchang@alumni.caltech.edu",
     description="Python wrapper for pgenlib's basic reader and writer.",

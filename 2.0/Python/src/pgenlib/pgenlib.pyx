@@ -10,7 +10,7 @@ import numpy as np
 cimport numpy as cnp
 import sys
 
-__version__ = "0.95.1"
+__version__ = "0.95.2"
 
 cdef extern from "../plink2/include/plink2_s3.h" namespace "plink2":
     uint32_t IsS3Uri(const char* path)
@@ -298,6 +298,7 @@ cdef extern from "../plink2/include/pgenlib_ffi_support.h" namespace "plink2":
     void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
     void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
 
+    void BiallelicDosage16MaybemissingInvert(uint32_t dosage_ct, uint16_t* dosage_main)
 
 cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
     cdef cppclass PgenFileInfo:
@@ -353,7 +354,7 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     PglErr PgrGetDifflistOrGenovec(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, PgenReaderStruct* pgr_ptr, uintptr_t* genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* main_raregeno, uint32_t* difflist_sample_ids, uint32_t* difflist_len_ptr) nogil
 
-    PglErr PgrGetCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, uint32_t* genocounts) nogil
+    PglErr PgrGetInv1Counts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderStruct* pgr_ptr, uint32_t* genocounts) nogil
 
     BoolErr CleanupPgfi(PgenFileInfo* pgfip, PglErr* reterrp)
     BoolErr CleanupPgr(PgenReaderStruct* pgr_ptr, PglErr* reterrp)
@@ -1999,12 +2000,18 @@ cdef class PgenReader:
                         data_ptr[ac0 + ((ac1 * (ac1 + 1)) >> 1)] += 1
                 return
             allele_idx = 1
+        cdef uint32_t allele_idx_u32 = allele_idx
+        allele_ct = 2
+        allele_idx_offsets = self._info_ptr[0].allele_idx_offsets
+        if allele_idx_offsets != NULL:
+            allele_ct = allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx]
+        if allele_idx_u32 >= allele_ct:
+            raise RuntimeError("count() allele_idx too large (" + str(allele_idx_u32) + "; variant " + str(variant_idx) + " has " + str(allele_ct) + " alleles)")
         with nogil:
-            reterr = PgrGetCounts(subset_include_vec, self._subset_include_interleaved_vec, subset_index, subset_size, variant_idx, pgrp, data_ptr)
+            # PgrGetCounts() would lump all alt alleles together.
+            reterr = PgrGetInv1Counts(subset_include_vec, self._subset_include_interleaved_vec, subset_index, subset_size, variant_idx, allele_idx_u32, pgrp, data_ptr)
         if reterr != kPglRetSuccess:
             raise RuntimeError("count() error " + str(reterr))
-        if allele_idx != 0:
-            return
         cdef uint32_t tmp = data_ptr[0]
         data_ptr[0] = data_ptr[2]
         data_ptr[2] = tmp
@@ -2160,7 +2167,7 @@ cdef class PgenReader:
         if allele_idx == 0:
             if difflist_common_dosage != 32768:
                 raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
-            BiallelicDosage16Invert(dosage_ct, dosage_main)
+            BiallelicDosage16MaybemissingInvert(dosage_ct, dosage_main)
         elif difflist_common_dosage != 0:
             raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
         cdef cnp.ndarray[cnp.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([dosage_ct], dtype=np.uint32)
@@ -2191,7 +2198,7 @@ cdef class PgenReader:
         if allele_idx == 0:
             if difflist_common_dosage != 32768:
                 raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
-            BiallelicDosage16Invert(dosage_ct, dosage_main)
+            BiallelicDosage16MaybemissingInvert(dosage_ct, dosage_main)
         elif difflist_common_dosage != 0:
             raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
         cdef cnp.ndarray[cnp.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([dosage_ct], dtype=np.uint32)

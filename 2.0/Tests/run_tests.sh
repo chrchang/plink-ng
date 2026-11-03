@@ -188,6 +188,11 @@ cd TEST_MISSING_FUSION
 cd ..
 echo "TEST_MISSING_FUSION passed."
 
+cd TEST_GENE_REPORT
+./run_tests.sh $d $2 $3 > TEST_GENE_REPORT.log
+cd ..
+echo "TEST_GENE_REPORT passed."
+
 cd TEST_INFO_TO_COLS
 ./run_tests.sh $d $2 $3 > TEST_INFO_TO_COLS.log
 cd ..
@@ -238,6 +243,11 @@ cd TEST_GLM_MULTINOMIAL
 cd ..
 echo "TEST_GLM_MULTINOMIAL passed."
 
+cd TEST_GLM_LINEAR_BATCH
+./run_tests.sh $d $2 $3 > TEST_GLM_LINEAR_BATCH.log
+cd ..
+echo "TEST_GLM_LINEAR_BATCH passed."
+
 cd TEST_OUTPUT_CHR_INFER
 ./run_tests.sh $d $2 $3 > TEST_OUTPUT_CHR_INFER.log
 cd ..
@@ -262,6 +272,11 @@ cd TEST_OXFORD_SAMPLE
 ./run_tests.sh $d $2 $3 > TEST_OXFORD_SAMPLE.log
 cd ..
 echo "TEST_OXFORD_SAMPLE passed."
+
+cd TEST_GEN_IMPORT_MT
+./run_tests.sh $d $2 $3 > TEST_GEN_IMPORT_MT.log
+cd ..
+echo "TEST_GEN_IMPORT_MT passed."
 
 cd TEST_KING_TABLE_MALFORMED
 ./run_tests.sh $d $2 $3 > TEST_KING_TABLE_MALFORMED.log
@@ -392,5 +407,30 @@ cd TEST_NORMALIZE_INDEL_JOIN
 ./run_tests.sh $d $2 $3 > TEST_NORMALIZE_INDEL_JOIN.log
 cd ..
 echo "TEST_NORMALIZE_INDEL_JOIN passed."
+
+cd TEST_SPLIT_PAR_ALL_PAR1
+./run_tests.sh $d $2 $3 > TEST_SPLIT_PAR_ALL_PAR1.log
+cd ..
+echo "TEST_SPLIT_PAR_ALL_PAR1 passed."
+
+cd TEST_VALIDATE_DUP_ALLELE
+./run_tests.sh $d $2 $3 > TEST_VALIDATE_DUP_ALLELE.log
+cd ..
+echo "TEST_VALIDATE_DUP_ALLELE passed."
+
+cd TEST_19_BCF_CHECKS
+./run_tests.sh $d $2 $3 > TEST_19_BCF_CHECKS.log
+cd ..
+echo "TEST_19_BCF_CHECKS passed."
+
+cd TEST_ALLELE_UNIQUENESS
+./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
+cd ..
+echo "TEST_ALLELE_UNIQUENESS passed."
+
+cd TEST_19_LONG_CONTIG
+./run_tests.sh $d $2 $3 > TEST_19_LONG_CONTIG.log
+cd ..
+echo "TEST_19_LONG_CONTIG passed."
 
 echo "All tests passed."

@@ -16,7 +16,7 @@
 #
 # The load-time check for a multiallelic record that the .pvar calls
 # biallelic also has to cover the other filesets plink2 reads: the
-# --pgen-diff and --flip-scan-ref-pfile filesets, and --pmerge inputs.
+# --pgen-diff fileset and --pmerge inputs.
 
 set -exo pipefail
 
@@ -74,9 +74,10 @@ VCF
     fi
 done
 
-# --flip-scan-ref-pfile gets the same check.  It is still gated as under
-# development, so this only runs once the gate is lifted.  (--flip-scan wants
-# at least 50 samples.)
+# --flip-scan-ref-pfile reads the reference fileset with its own .pvar.  A
+# biallelic .pvar entry over a multiallelic record is tolerated there, as
+# elsewhere when no phase is requested, so it must not change the report.
+# (--flip-scan wants at least 50 founders in each group.)
 python3 -c "
 import random
 r = random.Random(3)
@@ -92,11 +93,9 @@ for v in range(2, 8):
 $1/plink2 $2 $3 --vcf tmp_flip.vcf --make-pgen --out tmp_flipref
 $1/plink2 $2 $3 --pfile tmp_flipref --max-alleles 2 --make-pgen --out tmp_flipmain
 awk 'BEGIN { FS = OFS = "\t" } $3 == "v1" { $5 = "C" } { print }' tmp_flipref.pvar > tmp_flipbi.pvar
-if $1/plink2 $2 $3 --pfile tmp_flipmain --flip-scan --flip-scan-ref-pfile tmp_flipref --out plink2_flip_ok 2> tmp_err.txt; then
-    expect_fail "Variant #1 in the --flip-scan reference fileset" $1 $2 $3 --pfile tmp_flipmain --flip-scan --flip-scan-ref-pfile tmp_flipref.pgen tmp_flipbi.pvar tmp_flipref.psam --out plink2_flip_bad
-else
-    grep -q "under development" tmp_err.txt
-fi
+$1/plink2 $2 $3 --pfile tmp_flipmain --flip-scan --flip-scan-ref-pfile tmp_flipref --out plink2_flip_ok
+$1/plink2 $2 $3 --pfile tmp_flipmain --flip-scan --flip-scan-ref-pfile tmp_flipref.pgen tmp_flipbi.pvar tmp_flipref.psam --out plink2_flip_bi
+diff -q plink2_flip_ok.flipscan plink2_flip_bi.flipscan
 
 # --pmerge only reads genotype records one at a time when it merges
 # same-position records, which master reaches through duplicate records inside

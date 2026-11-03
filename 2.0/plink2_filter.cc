@@ -2299,7 +2299,11 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     const uint32_t selected_cat_ct = PopcountWords(cat_include, cat_ctl);
     if (!selected_cat_ct) {
       logerrprintf("Warning: No matching --%s-cat-names category names.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
-    } else {
+    }
+    // --keep-cats/--keep-cat-names excludes every sample outside the named
+    // categories, so an empty selection must remove everyone rather than be
+    // skipped.  (An empty --remove-cats selection removes no one.)
+    if (selected_cat_ct || (!is_remove)) {
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
       uintptr_t sample_uidx_base = 0;
       uintptr_t cur_bits = sample_include[0];
@@ -3868,7 +3872,9 @@ void CleanupObligMissingData(ObligMissingData* omdp) {
 // sample belongs to at most one), and the variant file attaches variants to
 // them (a variant may be in several).  IDs which are absent from the dataset
 // are ignored, as in PLINK 1.x.
-PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, ObligMissingData* omdp) {
+// As in PLINK 1.x, every call covered by a block must actually be missing;
+// anything else is an error.
+PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, PgenReader* simple_pgrp, ObligMissingData* omdp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   const char* cur_fname = omip->sample_fname;
@@ -4093,6 +4099,74 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
     omdp->entry_ct = entry_ct;
     omdp->block_ct = block_ct;
     logprintf("--oblig-missing: %" PRIuPTR " block%s, %" PRIuPTR " variant-block pair%s.\n", block_ct, (block_ct == 1)? "" : "s", entry_ct, (entry_ct == 1)? "" : "s");
+    if (simple_pgrp) {
+      // Group the samples by block, as indexes into the subsetted genotype
+      // vector, so that each variant-block pair only visits its own members.
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      uint32_t* sample_include_cumulative_popcounts;
+      uint32_t* block_starts;
+      uint32_t* block_fill;
+      uint32_t* block_members;
+      uintptr_t* missingness;
+      uintptr_t* genovec_buf;
+      if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                   bigstack_calloc_u32(block_ct + 1, &block_starts) ||
+                   bigstack_alloc_u32(block_ct, &block_fill) ||
+                   bigstack_alloc_u32(sample_ct, &block_members) ||
+                   bigstack_alloc_w(BitCtToWordCt(sample_ct), &missingness) ||
+                   bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf))) {
+        goto LoadObligMissing_ret_NOMEM;
+      }
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const uint32_t cur_block_idx = sample_block_idxs[sample_uidx];
+        if (cur_block_idx != UINT32_MAX) {
+          block_starts[cur_block_idx + 1] += 1;
+        }
+      }
+      for (uintptr_t cur_block_idx = 0; cur_block_idx != block_ct; ++cur_block_idx) {
+        block_starts[cur_block_idx + 1] += block_starts[cur_block_idx];
+      }
+      memcpy(block_fill, block_starts, block_ct * sizeof(int32_t));
+      sample_uidx_base = 0;
+      cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const uint32_t cur_block_idx = sample_block_idxs[sample_uidx];
+        if (cur_block_idx != UINT32_MAX) {
+          block_members[block_fill[cur_block_idx]++] = sample_idx;
+        }
+      }
+      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+      uint64_t confirmed_ct = 0;
+      uint32_t prev_variant_uidx = UINT32_MAX;
+      for (uintptr_t entry_idx = 0; entry_idx != entry_ct; ++entry_idx) {
+        const uint64_t cur_entry = final_entries[entry_idx];
+        const uint32_t variant_uidx = cur_entry >> 32;
+        if (variant_uidx != prev_variant_uidx) {
+          reterr = PgrGetMissingness(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, missingness, genovec_buf);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto LoadObligMissing_ret_1;
+          }
+          prev_variant_uidx = variant_uidx;
+        }
+        const uint32_t cur_block_idx = S_CAST(uint32_t, cur_entry);
+        const uint32_t member_end = block_starts[cur_block_idx + 1];
+        for (uint32_t member_idx = block_starts[cur_block_idx]; member_idx != member_end; ++member_idx) {
+          if (unlikely(!IsSet(missingness, block_members[member_idx]))) {
+            logerrprintfww("Error: Nonmissing --oblig-missing genotype at variant '%s'. (To force it to missing, use --zero-cluster.)\n", variant_ids[variant_uidx]);
+            goto LoadObligMissing_ret_INCONSISTENT_INPUT;
+          }
+        }
+        confirmed_ct += member_end - block_starts[cur_block_idx];
+      }
+      logprintf("--oblig-missing: %" PRIu64 " call%s confirmed missing.\n", confirmed_ct, (confirmed_ct == 1)? "" : "s");
+    }
   }
   while (0) {
   LoadObligMissing_ret_NOMEM:
@@ -4111,6 +4185,9 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
     break;
   LoadObligMissing_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
+    break;
+  LoadObligMissing_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  LoadObligMissing_ret_1:
@@ -4438,7 +4515,7 @@ PglErr EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets,
     logerrputs("Alternatively, if the strictness is intentional (e.g. you are preparing data\nfor a method that requires variants to be near Hardy-Weinberg equilibrium),\nexplicitly specify a sample-size term of 0.\n");
     return kPglRetInconsistentInput;
   } else if ((hwe_sample_size_term <= 0) && (S_CAST(uint64_t, max_obs) * 9 > S_CAST(uint64_t, min_obs) * 10)) {
-    logerrprintfww("Warning: --hwe observation counts vary by more than 10%. Consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or filtering out high-missingness variants with --geno.\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "");
+    logerrprintfww("Warning: --hwe observation counts vary by more than 10%%. Consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or filtering out high-missingness variants with --geno.\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "");
   }
   logprintfww("--hwe%s%s: %u variant%s removed due to Hardy-Weinberg exact test (%s).\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "", removed_ct, (removed_ct == 1)? "" : "s", nonfounders? "all samples" : "founders only");
   *variant_ct_ptr -= removed_ct;
