@@ -145,6 +145,14 @@ void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_c
 
 void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
+HEADER_INLINE void BiallelicDosage16MaybemissingInvert(uint32_t dosage_ct, uint16_t* dosage_main) {
+  for (uint32_t uii = 0; uii != dosage_ct; ++uii) {
+    if (dosage_main[uii] != 65535) {
+      dosage_main[uii] = 32768 - dosage_main[uii];
+    }
+  }
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
