@@ -177,7 +177,8 @@ compare_to_r() {
         echo -e "${GREEN}✅ Files found. Running Python comparison...${RESET}"
 
         # Capture Python output
-        comparison_output=$(python3 "$compare_script" "$glm_file" "$ref_file" 2>&1)
+        compare_rc=0
+        comparison_output=$(python3 "$compare_script" "$glm_file" "$ref_file" 2>&1) || compare_rc=$?
 
         echo -e "\n${BOLD}${BLUE}╔════════════════════════════════════════════════════════════╗${RESET}"
         echo -e "${BOLD}${BLUE}║           CORRELATION RESULTS vs THRESHOLD                 ║${RESET}"
@@ -208,6 +209,11 @@ compare_to_r() {
         
         echo -e "${BOLD}${BLUE}════════════════════════════════════════════════════════════${RESET}\n"
         
+        # The script exits nonzero if values differ too much, or if it crashes
+        if [[ "$compare_rc" -ne 0 ]]; then
+            correlation_failed=true
+        fi
+
         # Exit if correlation threshold not met
         if [[ "$correlation_failed" == "true" ]]; then
             echo -e "\n${RED}╔════════════════════════════════════════════════════════════╗${RESET}" >&2

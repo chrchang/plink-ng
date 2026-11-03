@@ -34,7 +34,7 @@ Continuous integration framework for validating PLINK2 GLM implementations again
 
 **Complete Cycle:** ~12 weeks to run all batches
 
-**Validation Criteria:** All correlations (beta, SE, p-values) must be ≥0.8 threshold
+**Validation Criteria:** Correlations (beta, p-values) must be ≥0.8, and median differences (relative for beta and SE, absolute for p-values) must be ≤5%
 
 ## Quick Start
 
@@ -81,7 +81,7 @@ Test Data (PLINK2SYN) → Cache (Google Drive) → CI Workflow → PLINK2 GLM �
    - Rotates through batches 1-12 sequentially
    - Runs on both Linux and macOS
 
-4. **Validation:** Correlation check (≥0.8) for beta coefficients, standard errors, and p-values
+4. **Validation:** Correlation check (≥0.8) for beta coefficients and p-values, and median difference check (≤5%) for beta coefficients, standard errors, and p-values
    - Compares PLINK2 output with R reference
    - Fails fast if correlation below threshold
    - Detailed output in `results/` directory
@@ -361,7 +361,7 @@ correlation_threshold=0.8          # Minimum correlation for pass (0.0-1.0)
 | `GLM_TESTS.sh` | CI entry point | Sets up Python venv, installs dependencies (pandas, numpy), creates results directory, executes test runner |
 | `LOCAL_PLINK2_GLM_TESTING.sh` | Core test runner | Loads config, runs PLINK2 GLM for each test case, compares with R reference, validates correlations, fail-fast behavior |
 | `PLINK2_GLM_TEST_CONFIG.sh` | Configuration | Defines paths, batch selection, correlation threshold, loads batch parameters from files |
-| `COMPARE_GLM_PLINK2_R.py` | Validation script | Compares PLINK2 vs R outputs, calculates correlations (beta, SE, p-values), outputs pass/fail status |
+| `COMPARE_GLM_PLINK2_R.py` | Validation script | Compares PLINK2 vs R outputs, calculates correlations (beta, p-values) and median differences (beta, SE, p-values), outputs pass/fail status |
 | `glm_test_batches.py` | Batch generator | Generates batch files from master list, ensures even distribution across batches |
 | `checkglm.py` | GLM checker utility | Validates GLM output file format and contents |
 | `CLEANUP.sh` | Cleanup utility | Removes test_data, results directories, cleans build artifacts with `make clean` |
