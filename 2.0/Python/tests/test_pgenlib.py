@@ -605,6 +605,19 @@ def check_phased_dosage_fixture(tmp_path, name, pgen_b64, want_list):
                     assert np.allclose((got[:, 0::2] + got[:, 1::2])[nonmissing], got_dosages[nonmissing], rtol=0, atol=1e-6)
 
 
+def test_count_multiallelic(tmp_path):
+    path = bytes(tmp_path / "m.pgen")
+    with pgenlib.PgenWriter(path, 4, variant_ct=1, nonref_flags=False, allele_ct_limit=3) as w:
+        w.append_alleles(np.array([0, 2, 0, 2, 0, 1, 0, 0], np.int32), allele_ct=3)
+    with pgenlib.PgenReader(path, allele_idx_offsets=np.array([0, 3], dtype=np.uintp)) as r:
+        got = np.empty([4], np.uint32)
+        for allele_idx, want in ((0, [0, 3, 1, 0]), (1, [3, 1, 0, 0]), (2, [2, 2, 0, 0])):
+            r.count(0, got, allele_idx)
+            assert got.tolist() == want
+        with pytest.raises(RuntimeError):
+            r.count(0, got, 3)
+
+
 def test_phased_dosages_hds(tmp_path):
     check_phased_dosage_fixture(tmp_path, "hds", HDS_PGEN_B64, HDS_WANT)
     check_phased_dosage_fixture(tmp_path, "ds", DS_PGEN_B64, DS_WANT)
