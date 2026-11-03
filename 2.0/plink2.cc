@@ -4386,7 +4386,6 @@ int main(int argc, char** argv) {
   char* vcf_dosage_import_field = nullptr;
   uint32_t* rseeds = nullptr;
   LlStr* file_delete_list = nullptr;
-  uint32_t s3_initialized = 0;
   uint32_t s3_no_sign_request = 0;
   uint32_t s3_requester_pays = 0;
   const char* s3_expected_bucket_owner = nullptr;
@@ -15893,7 +15892,7 @@ int main(int argc, char** argv) {
       }
     }
 
-    // If any input filename begins with "s3://", initialize the AWS SDK so
+    // If any input filename is remote, initialize libcurl so
     // that OpenMaybeS3() calls in pgenlib_read.cc and plink2_text.cc can
     // stream the data on-demand via S3 range requests.  Scanning the whole
     // command line rather than just the main input triple covers the other
@@ -15914,8 +15913,7 @@ int main(int argc, char** argv) {
           logerrputs("Error: --s3-expected-bucket-owner requires a 12-digit AWS account ID.\n");
           goto main_ret_INVALID_CMDLINE_A;
         }
-        S3Init();
-        s3_initialized = 1;
+        EnsureS3Ready();
 #else
         logerrputs("Error: S3 URI detected but plink2 was not compiled with S3 support.\n"
                    "Rebuild with USE_S3=1 to enable S3 support.\n");
@@ -16235,11 +16233,6 @@ int main(int argc, char** argv) {
     break;
   }
  main_ret_NOLOG:
-#ifdef USE_S3
-  if (s3_initialized) {
-    S3Shutdown();
-  }
-#endif
   free_cond(vcf_dosage_import_field);
   free_cond(ox_missing_code);
   free_cond(import_single_chr_str);

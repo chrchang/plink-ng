@@ -80,17 +80,4 @@ FILE* OpenS3WithCredentials(const char* path, const S3Credentials* creds) {
   return s3stream_open_with_credentials(path, &converted);
 }
 
-#ifdef USE_S3
-
-void S3Init() {
-  s3stream_init();
-}
-
-void S3Shutdown() {
-  // s3stream tears libcurl down through its own atexit-free path; there is no
-  // global state left to release once every FILE* has been closed.
-}
-
-#endif  // USE_S3
-
 }  // namespace plink2

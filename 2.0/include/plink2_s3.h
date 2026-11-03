@@ -42,7 +42,7 @@ uint32_t IsS3Uri(const char* path);
 
 // Idempotent, thread-safe, and always callable regardless of whether USE_S3
 // was compiled in (a no-op in that case).  Intended for hosts without an
-// obvious "before main()" hook to call S3Init() from, e.g. the Python
+// obvious "before main()" hook, e.g. the Python
 // bindings, where object construction is the earliest place S3 support can
 // be wired in.
 void EnsureS3Ready();
@@ -92,19 +92,6 @@ FILE* OpenMaybeS3(const char* path);
 
 // Borrowed diagnostic on the calling thread; copy before passing to another thread.
 const char* InputErrorMessage(uint32_t is_remote);
-
-#ifdef USE_S3
-
-// Initializes libcurl.  Should be called once before any S3 file is opened,
-// and before spawning threads that open S3 files.  EnsureS3Ready() does the
-// same thing for hosts without a convenient startup hook.
-void S3Init();
-
-// Counterpart to S3Init(), called once at program exit after all S3 FILE*
-// handles have been closed.
-void S3Shutdown();
-
-#endif  // USE_S3
 
 #ifdef __cplusplus
 }  // namespace plink2
