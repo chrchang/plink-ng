@@ -18,6 +18,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
+
+#include <chrono>
+#include <mutex>
 
 #include <curl/curl.h>
 
@@ -742,7 +746,61 @@ std::string ConfigValue(const char* key) {
   return (it == values.end()) ? std::string() : it->second;
 }
 
-bool ResolveCredentials(Credentials* out) {
+namespace {
+
+struct CredentialContext {
+  std::vector<std::string> values;
+
+  CredentialContext() {
+    values = {ActiveProfile(), SharedCredentialsPath(), ConfigPath(),
+              GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
+              GetEnv("AWS_CONTAINER_CREDENTIALS_FULL_URI"),
+              GetEnv("AWS_CONTAINER_AUTHORIZATION_TOKEN"),
+              GetEnv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"),
+              GetEnv("AWS_EC2_METADATA_DISABLED"),
+              GetEnv("AWS_EC2_METADATA_SERVICE_ENDPOINT")};
+    AddFileStamp(values[1]);
+    AddFileStamp(values[2]);
+    AddFileStamp(values[6]);
+  }
+
+  ~CredentialContext() {
+    for (auto& value : values) {
+      SecureZero(&value);
+    }
+  }
+
+  void AddFileStamp(const std::string& path) {
+    struct stat info;
+    if (path.empty() || (stat(path.c_str(), &info) != 0)) {
+      values.emplace_back();
+      return;
+    }
+    std::string stamp = std::to_string(info.st_dev) + ":" +
+                        std::to_string(info.st_ino) + ":" +
+                        std::to_string(info.st_size) + ":" +
+                        std::to_string(info.st_mtime) + ":" +
+                        std::to_string(info.st_ctime);
+#if defined(__APPLE__)
+    stamp += ":" + std::to_string(info.st_mtimespec.tv_nsec) + ":" +
+             std::to_string(info.st_ctimespec.tv_nsec);
+#elif !defined(_WIN32)
+    stamp += ":" + std::to_string(info.st_mtim.tv_nsec) + ":" +
+             std::to_string(info.st_ctim.tv_nsec);
+#endif
+    values.push_back(stamp);
+  }
+};
+
+struct CredentialCache {
+  std::mutex mutex;
+  CredentialContext context;
+  Credentials creds;
+  std::chrono::steady_clock::time_point valid_until{};
+  bool found = false;
+};
+
+bool ResolveCredentialsUncached(Credentials* out) {
   *out = Credentials();
   if (CredentialsFromEnv(out)) {
     return true;
@@ -769,6 +827,30 @@ bool ResolveCredentials(Credentials* out) {
   }
   *out = Credentials();
   return false;
+}
+
+}  // namespace
+
+bool ResolveCredentials(Credentials* out, bool force_refresh) {
+  *out = Credentials();
+  if (CredentialsFromEnv(out)) {
+    return true;
+  }
+  static CredentialCache cache;
+  std::lock_guard<std::mutex> lock(cache.mutex);
+  CredentialContext context;
+  if (!force_refresh && (cache.context.values == context.values) &&
+      (std::chrono::steady_clock::now() < cache.valid_until) &&
+      !cache.creds.Expired()) {
+    *out = cache.creds;
+    return cache.found;
+  }
+  cache.found = ResolveCredentialsUncached(out);
+  cache.creds = *out;
+  cache.context.values.swap(context.values);
+  cache.valid_until = std::chrono::steady_clock::now() +
+                      std::chrono::seconds(cache.found ? 60 : 5);
+  return cache.found;
 }
 
 }  // namespace s3stream

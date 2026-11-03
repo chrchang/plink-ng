@@ -79,8 +79,9 @@ struct Credentials {
 };
 
 /* Walks the credential chain.  Returns false when no source yields
- * credentials, which the caller may treat as "send unsigned". */
-bool ResolveCredentials(Credentials* out);
+ * credentials, which the caller may treat as "send unsigned".  Cached results
+ * respect expiry and provider configuration; force_refresh bypasses them. */
+bool ResolveCredentials(Credentials* out, bool force_refresh = false);
 
 /* ---------------------------------------------------------------------------
  * HTTP layer

@@ -71,7 +71,7 @@ CURL_CONFIG=${CURL_CONFIG:-curl-config}
     $("$CURL_CONFIG" --libs) -Wl,-rpath,"$("$CURL_CONFIG" --prefix)/lib" \
     -pthread -o "$WORK/s3stream_test"
 "$WORK/s3stream_test" || fail "s3stream core regression"
-pass "s3stream connection reuse and errno"
+pass "s3stream connection reuse, credential cache/refresh, and errno"
 
 ###########################################################################
 echo "=== public bucket on real S3 ==="
@@ -387,6 +387,7 @@ run_freq "AWS_SHARED_CREDENTIALS_FILE" alt_creds_file \
 
 cat > "$WORK/cred_helper.sh" <<EOF
 #!/bin/sh
+printf 'called\n' >> "$WORK/cred_helper.calls"
 printf '{"Version":1,"AccessKeyId":"$RO_USER","SecretAccessKey":"$RO_SECRET"}'
 EOF
 chmod +x "$WORK/cred_helper.sh"
@@ -397,6 +398,9 @@ EOF
 run_freq "credential_process in AWS_CONFIG_FILE" cred_process \
     "s3://$PRIVATE_BUCKET/data/ref" \
     "AWS_CONFIG_FILE=$WORK/alt_config" "AWS_PROFILE=proc"
+[[ $(wc -l < "$WORK/cred_helper.calls") -eq 1 ]] ||
+    fail "credential_process was not cached across input files"
+pass "credential_process cached across input files"
 
 ###########################################################################
 echo "=== auth: anonymous ==="

@@ -233,6 +233,102 @@ int main() {
   assert(server.connections == connections_before + 1);
   assert(fclose(handle) == 0);
 
-  puts("s3stream connection reuse and errno checks passed.");
+  unsetenv("AWS_ACCESS_KEY_ID");
+  unsetenv("AWS_SECRET_ACCESS_KEY");
+  unsetenv("AWS_SESSION_TOKEN");
+  unsetenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
+  unsetenv("AWS_NO_SIGN_REQUEST");
+  setenv("AWS_EC2_METADATA_DISABLED", "true", 1);
+  setenv("AWS_SHARED_CREDENTIALS_FILE", "/nonexistent/plink-credentials", 1);
+  setenv("AWS_CONFIG_FILE", "/nonexistent/plink-config", 1);
+  setenv("AWS_ENDPOINT_URL_S3", server.url.c_str(), 1);
+  setenv("AWS_REGION", "us-east-1", 1);
+  setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", (server.url + "/metadata").c_str(), 1);
+
+  const int metadata_before = server.metadata_requests;
+  for (int open_index = 0; open_index < 3; ++open_index) {
+    handle = s3stream_open("s3://bucket/object");
+    assert(handle != nullptr);
+    assert(fclose(handle) == 0);
+  }
+  assert(server.metadata_requests == metadata_before + 1);
+  assert(server.SawAuthorization("Credential=CACHE1/"));
+
+  handle = s3stream_open("s3://bucket/refresh");
+  assert(handle != nullptr);
+  server.generation = 2;
+  assert(fread(buffer, 1, 1, handle) == 1);
+  assert(buffer[0] == 'x');
+  assert(server.metadata_requests == metadata_before + 2);
+  assert(server.SawAuthorization("Credential=CACHE2/"));
+  assert(fclose(handle) == 0);
+
+  s3stream_credentials explicit_creds{};
+  explicit_creds.access_key_id = "EXPLICIT";
+  explicit_creds.secret_access_key = "explicit-secret";
+  handle = s3stream_open_with_credentials("s3://bucket/object", &explicit_creds);
+  assert(handle != nullptr);
+  assert(fclose(handle) == 0);
+  assert(server.SawAuthorization("Credential=EXPLICIT/"));
+  assert(server.metadata_requests == metadata_before + 2);
+
+  handle = s3stream_open("s3://bucket/anonymous");
+  assert(handle != nullptr);
+  assert(fread(buffer, 1, 1, handle) == 1);
+  assert(fclose(handle) == 0);
+
+  setenv("AWS_ACCESS_KEY_ID", "ENVKEY", 1);
+  setenv("AWS_SECRET_ACCESS_KEY", "env-secret", 1);
+  handle = s3stream_open("s3://bucket/object");
+  assert(handle != nullptr);
+  assert(fclose(handle) == 0);
+  assert(server.SawAuthorization("Credential=ENVKEY/"));
+  assert(server.metadata_requests == metadata_before + 2);
+  unsetenv("AWS_ACCESS_KEY_ID");
+  unsetenv("AWS_SECRET_ACCESS_KEY");
+
+  server.metadata_failure = true;
+  setenv("AWS_PROFILE", "negative-cache", 1);
+  for (int open_index = 0; open_index < 2; ++open_index) {
+    handle = s3stream_open("s3://bucket/object");
+    assert(handle != nullptr);
+    assert(fclose(handle) == 0);
+  }
+  assert(server.metadata_requests == metadata_before + 3);
+
+  server.metadata_failure = false;
+  server.metadata_expired = true;
+  setenv("AWS_PROFILE", "expired-cache", 1);
+  handle = s3stream_open("s3://bucket/object");
+  assert(handle != nullptr);
+  assert(fclose(handle) == 0);
+  const int expired_before = server.metadata_requests;
+  server.metadata_expired = false;
+  server.generation = 3;
+  handle = s3stream_open("s3://bucket/object");
+  assert(handle != nullptr);
+  assert(fclose(handle) == 0);
+  assert(server.metadata_requests == expired_before + 1);
+  assert(server.SawAuthorization("Credential=CACHE3/"));
+
+  setenv("AWS_PROFILE", "concurrent-cache", 1);
+  const int concurrent_before = server.metadata_requests;
+  std::atomic<int> opened{0};
+  std::vector<std::thread> readers;
+  for (int reader_index = 0; reader_index < 4; ++reader_index) {
+    readers.emplace_back([&opened] {
+      FILE* reader = s3stream_open("s3://bucket/object");
+      if (reader) {
+        ++opened;
+        fclose(reader);
+      }
+    });
+  }
+  for (auto& reader : readers) {
+    reader.join();
+  }
+  assert(opened == 4);
+  assert(server.metadata_requests == concurrent_before + 1);
+  puts("s3stream connection reuse, credential cache/refresh, and errno checks passed.");
   return 0;
 }

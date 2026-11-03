@@ -372,7 +372,7 @@ bool PerformWithRefresh(StreamState* state, const Request& req,
     return true;
   }
   Credentials fresh;
-  if (!ResolveCredentials(&fresh) ||
+  if (!ResolveCredentials(&fresh, true) ||
       ((fresh.access_key == state->creds.access_key) &&
        (fresh.session_token == state->creds.session_token))) {
     SetError(
