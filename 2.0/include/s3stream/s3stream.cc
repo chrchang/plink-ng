@@ -265,6 +265,7 @@ bool ShouldUsePathStyle(const std::string& bucket, bool forced,
  * ------------------------------------------------------------------------- */
 
 struct StreamState {
+  HttpSession session;
   std::string url;
   std::string region;
   Credentials creds;
@@ -302,8 +303,9 @@ struct StreamState {
         chunk_size(DefaultChunkSize()) {}
 };
 
-Request MakeRequest(const StreamState* state) {
+Request MakeRequest(StreamState* state) {
   Request req;
+  req.session = &state->session;
   req.url = state->url;
   req.region = state->region;
   req.sign = state->sign;

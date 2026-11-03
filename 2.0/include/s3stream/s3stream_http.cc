@@ -5,6 +5,7 @@
 
 #ifdef S3STREAM_ENABLE
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -185,16 +186,17 @@ bool HasPrefix(const std::string& text, const char* prefix) {
 CURLcode AbortRequest(CURL* curl, struct curl_slist* headers,
                       char* error_buffer, const char* message) {
   snprintf(error_buffer, CURL_ERROR_SIZE, "%s", message);
+  curl_easy_reset(curl);
   curl_slist_free_all(headers);
-  curl_easy_cleanup(curl);
   return CURLE_BAD_FUNCTION_ARGUMENT;
 }
 
-CURLcode PerformOnce(const Request& req, Response* out, char* error_buffer) {
-  CURL* curl = curl_easy_init();
+CURLcode PerformOnce(CURL* curl, const Request& req, Response* out,
+                     char* error_buffer) {
   if (!curl) {
     return CURLE_FAILED_INIT;
   }
+  curl_easy_reset(curl);
   struct curl_slist* headers = nullptr;
 
   out->body.clear();
@@ -307,15 +309,21 @@ CURLcode PerformOnce(const Request& req, Response* out, char* error_buffer) {
   if ((res == CURLE_OK) || (res == CURLE_WRITE_ERROR)) {
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &out->status);
   }
-  if (headers) {
-    curl_slist_free_all(headers);
-  }
-  curl_easy_cleanup(curl);
+  curl_easy_reset(curl);
+  curl_slist_free_all(headers);
   SecureZero(&userpwd);
   return res;
 }
 
 }  // namespace
+
+HttpSession::~HttpSession() {
+  if (handle) {
+    const int saved_errno = errno;
+    curl_easy_cleanup(handle);
+    errno = saved_errno;
+  }
+}
 
 bool RestrictToHttp(CURL* curl) {
 #if LIBCURL_VERSION_NUM >= 0x075500
@@ -387,6 +395,11 @@ const std::string* Response::Header(const char* name) const {
 }
 
 bool Perform(const Request& req, Response* out) {
+  HttpSession fallback;
+  HttpSession* session = req.session ? req.session : &fallback;
+  if (!session->handle) {
+    session->handle = curl_easy_init();
+  }
   char error_buffer[CURL_ERROR_SIZE];
   CURLcode res = CURLE_OK;
   for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
@@ -394,7 +407,7 @@ bool Perform(const Request& req, Response* out) {
       SleepBeforeRetry(attempt - 1);
     }
     error_buffer[0] = '\0';
-    res = PerformOnce(req, out, error_buffer);
+    res = PerformOnce(session->handle, req, out, error_buffer);
     /* The body cap aborts the transfer on purpose; the status line already
      * arrived, so this counts as a usable response -- but the caller has to
      * know the body is incomplete and why. */

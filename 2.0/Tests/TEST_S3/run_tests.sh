@@ -71,7 +71,7 @@ CURL_CONFIG=${CURL_CONFIG:-curl-config}
     $("$CURL_CONFIG" --libs) -Wl,-rpath,"$("$CURL_CONFIG" --prefix)/lib" \
     -pthread -o "$WORK/s3stream_test"
 "$WORK/s3stream_test" || fail "s3stream core regression"
-pass "s3stream errno"
+pass "s3stream connection reuse and errno"
 
 ###########################################################################
 echo "=== public bucket on real S3 ==="

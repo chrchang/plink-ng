@@ -218,6 +218,21 @@ int main() {
     assert(std::string(s3stream_last_error()).find("HTTP ") != std::string::npos);
   }
 
-  puts("s3stream errno checks passed.");
+  s3stream_set_chunk_size(262144);
+  const int connections_before = server.connections;
+  FILE* handle = s3stream_open((server.url + "/object").c_str());
+  assert(handle != nullptr);
+  char buffer[65536];
+  for (int chunk = 0; chunk < 16; ++chunk) {
+    assert(fread(buffer, 1, sizeof(buffer), handle) == sizeof(buffer));
+    assert(std::string(buffer, sizeof(buffer)) == std::string(sizeof(buffer), 'x'));
+  }
+  assert(fread(buffer, 1, 1, handle) == 0);
+  assert(fseek(handle, 0, SEEK_SET) == 0);
+  assert(fread(buffer, 1, 1, handle) == 1);
+  assert(server.connections == connections_before + 1);
+  assert(fclose(handle) == 0);
+
+  puts("s3stream connection reuse and errno checks passed.");
   return 0;
 }
