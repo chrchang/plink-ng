@@ -400,10 +400,10 @@ PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, d
   PreinitTextStream(&txs);
   {
     uint32_t sample_ct = *sample_ct_ptr;
-    const uint32_t orig_sample_ctl = BitCtToWordCt(sample_ct);
+    const uintptr_t orig_sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table;
     uint32_t* sample_uidx_to_king_uidx;
-    if (unlikely(bigstack_calloc_w(S_CAST(uintptr_t, sample_ct) * orig_sample_ctl, &kinship_table) ||
+    if (unlikely(bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table) ||
                  bigstack_alloc_u32(raw_sample_ct, &sample_uidx_to_king_uidx))) {
       goto KingCutoffBatchBinary_ret_NOMEM;
     }
@@ -651,9 +651,9 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
     king_cutoff *= 1.0 + kSmallEpsilon;
 
     const uint32_t orig_sample_ct = *sample_ct_ptr;
-    const uint32_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
+    const uintptr_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
     uintptr_t* kinship_table;
-    if (unlikely(bigstack_calloc_w(S_CAST(uintptr_t, orig_sample_ct) * orig_sample_ctl, &kinship_table))) {
+    if (unlikely(bigstack_calloc_w(orig_sample_ct * orig_sample_ctl, &kinship_table))) {
       goto KingCutoffBatchTable_ret_NOMEM;
     }
 
