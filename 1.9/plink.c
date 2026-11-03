@@ -5413,7 +5413,11 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	strcpya(pedname, argv[cur_arg + 1]);
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  logerrprint("Error: --cnv-list parameter too long.\n");
+	  goto main_ret_OPEN_FAIL;
+	}
+	strcpy(pedname, argv[cur_arg + 1]);
 	load_rare = LOAD_RARE_CNV;
       } else if (!memcmp(argptr2, "nv-make-map", 12)) {
 	UNSTABLE("cnv-make-map");

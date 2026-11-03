@@ -37,6 +37,9 @@ check "--tdt poo mat is recognized" $?
 # --cnv-make-map discarded its error code.
 test "$(rc_of --cnv-list tmp_nonexistent.cnv --cnv-make-map)" -ne 0
 check "--cnv-make-map failure gives a nonzero exit code" $?
+# --cnv-list copied its file name without a terminating null.
+grep -qx 'Error: Failed to open tmp_nonexistent.cnv.' tmp_out.txt
+check "--cnv-list file name is printed intact" $?
 
 # These checks were skipped or had the wrong exit code.
 test "$(rc_of --bfile tmp_data --read-dists tmp_nonexistent.dist)" -eq 5
