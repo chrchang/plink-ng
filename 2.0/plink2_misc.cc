@@ -12346,7 +12346,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     {
       int32_t* tot_adj = nullptr;
       if (col_rohct) {
-        if (unlikely(bigstack_alloc_i32(raw_variant_ct + 1, &tot_adj))) {
+        if (unlikely(bigstack_calloc_i32(raw_variant_ct + 1, &tot_adj))) {
           goto HomozygReport_ret_NOMEM;
         }
       }
