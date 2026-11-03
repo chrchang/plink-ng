@@ -9075,21 +9075,80 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
 }
 
 // Masks match the GT loops in bcf_to_bed(), which use these values as offsets.
+//
+// In general, plink 1.9 is in maintenance mode, and we're avoiding fancy new
+// code.  However, naive implementation of this new check, essential for memory
+// safety, is relatively expensive.  SWAR strikes a reasonable balance between
+// acceleration and maintainability (no platform-specific code) here.
 static uint32_t bcf_gt_index_out_of_range(const void* gt_vals, uint32_t val_ct, uint32_t type_code, uintptr_t allele_ct) {
-  for (uint32_t uii = 0; uii < val_ct; uii++) {
-    uintptr_t cur_val;
-    if (type_code == 1) {
-      cur_val = ((const unsigned char*)gt_vals)[uii] & 0x7e;
-    } else if (type_code == 2) {
-      cur_val = ((const uint16_t*)gt_vals)[uii] & 0x7ffe;
-    } else {
-      cur_val = ((const uint32_t*)gt_vals)[uii] & 0x7ffffffe;
+  const uintptr_t allele_ct_x2 = allele_ct * 2;
+  // Guaranteed to be word- (and vector-) aligned.
+  const uintptr_t* gt_vals_w = (const uintptr_t*)gt_vals;
+  uintptr_t fullword_ct;
+  uintptr_t mask_word;
+  // We wish to verify that every masked byte/uint16_t/uint32_t is no larger
+  // than allele_ct_x2.
+  // We check this a word at a time as follows:
+  // (the following discussion assumes bytes, but the same approach works for
+  // uint16_t/uint32_t)
+  // * subtract_from is initialized to contain copies of allele_ct_x2.
+  // * Define test_word := subtract_from - (gt_vals_w[widx] & mask_word).
+  //   Then:
+  //   * If all values are in range, the high bit within each byte of test_word
+  //     will be clear.
+  //   * If any value is out of range, the high bit within that byte of
+  //     test_word will be set (note that mask_word always excludes the high
+  //     bit).
+  // * Therefore, we can bitwise-or all the test_word values, and check if any
+  //   high bits within the bitwise-or are set at the end.
+  uintptr_t subtract_from;
+  if (type_code == 1) {
+    fullword_ct = val_ct / BYTECT;
+    const uint32_t remainder = val_ct % BYTECT;
+    if (remainder) {
+      const unsigned char* trailing_gt_vals = (const unsigned char*)(&(gt_vals_w[fullword_ct]));
+      for (uint32_t uii = 0; uii < remainder; ++uii) {
+        if ((trailing_gt_vals[uii] & 0x7e) > allele_ct_x2) {
+          return 1;
+        }
+      }
     }
-    if (cur_val / 2 > allele_ct) {
-      return 1;
+    mask_word = ((~ZEROLU) / 0xff) * 0x7e;
+    subtract_from = ((~ZEROLU) / 0xff) * allele_ct_x2;
+  } else if (type_code == 2) {
+    fullword_ct = val_ct / (BYTECT / 2);
+    const uint32_t remainder = val_ct % (BYTECT / 2);
+    if (remainder) {
+      const uint16_t* trailing_gt_vals = (const uint16_t*)(&(gt_vals_w[fullword_ct]));
+      for (uint32_t uii = 0; uii < remainder; ++uii) {
+        if ((trailing_gt_vals[uii] & 0x7ffe) > allele_ct_x2) {
+          return 1;
+        }
+      }
     }
+    mask_word = ((~ZEROLU) / 0xffff) * 0x7ffe;
+    subtract_from = ((~ZEROLU) / 0xffff) * allele_ct_x2;
+  } else {
+    fullword_ct = val_ct / BYTECT4;
+#ifdef __LP64__
+    const uint32_t remainder = val_ct % BYTECT4;
+    if (remainder) {
+      const uint32_t* trailing_gt_vals = (const uint32_t*)(&(gt_vals_w[fullword_ct]));
+      for (uint32_t uii = 0; uii < remainder; ++uii) {
+        if ((trailing_gt_vals[uii] & 0x7ffffffe) > allele_ct_x2) {
+          return 1;
+        }
+      }
+    }
+#endif
+    mask_word = ((~ZEROLU) / 0xffffffffU) * 0x7ffffffe;
+    subtract_from = ((~ZEROLU) / 0xffffffffU) * allele_ct_x2;
   }
-  return 0;
+  uintptr_t bitwise_or = 0;
+  for (uint32_t widx = 0; widx < fullword_ct; ++widx) {
+    bitwise_or |= subtract_from - (gt_vals_w[widx] & mask_word);
+  }
+  return ((bitwise_or & (~mask_word)) != 0);
 }
 
 int32_t bcf_header_line_idx_check(char* line_iter, char* line_end, uint32_t* gt_idx_ptr) {
