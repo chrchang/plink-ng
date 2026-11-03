@@ -3745,7 +3745,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
         goto ZstDecompress_ret_NOMEM;
       }
       if (reterr == kPglRetOpenFail) {
-        fprintf(stderr, kErrprintfFopen, in_fname, strerror(errno));
+        fprintf(stderr, kErrprintfFopen, in_fname, zsterror(&zrf));
         goto ZstDecompress_ret_OPEN_FAIL;
       }
       goto ZstDecompress_ret_RFILE_FAIL;

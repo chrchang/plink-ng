@@ -1239,10 +1239,11 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       }
     } else {
       // Switch to another file, with less creation/destruction of resources.
-      FILE* next_ff = fopen(new_fname, FOPEN_RB);
+      FILE* next_ff = OpenMaybeS3(new_fname);
       if (unlikely(!next_ff)) {
         goto TextStreamThread_OPEN_FAIL;
       }
+      basep->is_remote = IsS3Uri(new_fname);
       // See TextFileOpenInternal().
       uint32_t nbytes = fread_unlocked(buf, 1, 16, next_ff);
       FileCompressionType next_file_type = kFileUncompressed;

@@ -226,11 +226,22 @@ echo "=== generating test data ==="
 
 cd "$WORK"
 "$PLINK2" --dummy 200 2000 --make-pgen --out ref --silent > /dev/null
+"$BUILD_DIR/pgen_compress" -i ref.pgen indexed.pgen > /dev/null
+"$PLINK2" --pfile ref --make-pgen vzs --out zstd_ref --silent > /dev/null
+"$PLINK2" --zst-decompress zstd_ref.pvar.zst zstd_ref.pvar > /dev/null
+"$PLINK2" --pfile ref --export bcf --out bcf_ref --silent > /dev/null
+"$PLINK2" --bcf bcf_ref.bcf --make-pgen --out local_bcf --silent > /dev/null
+"$PLINK2" --pfile ref --export mgf --out mgf_ref --silent > /dev/null
+awk 'NR > 1 {print NR - 1}' ref.psam > mgf_ref.pheno.txt
+"$PLINK2" --mgf mgf_ref.mgf mgf_ref.pos.txt pheno=mgf_ref.pheno.txt \
+    --make-pgen --out local_mgf --silent > /dev/null
 # ~10 MB .pgen, which forces more than one 8 MiB S3 range request.
 "$PLINK2" --dummy 1000 40000 --make-pgen --out big --silent > /dev/null
 
 # Local reference outputs to compare the S3 runs against.
 "$PLINK2" --pfile ref --freq --out local_ref --silent > /dev/null
+"$PLINK2" --pgen indexed.pgen --pvar ref.pvar --psam ref.psam \
+    --freq --out local_indexed --silent > /dev/null
 "$PLINK2" --pfile big --freq --out local_big --silent > /dev/null
 
 ###########################################################################
@@ -249,7 +260,7 @@ mc mb --ignore-existing "test/$PUBLIC_BUCKET" > /dev/null
 head -51 ref.psam > keep50.txt
 : > empty.txt
 upload_paths=()
-for f in ref.pgen ref.pvar ref.psam big.pgen big.pvar big.psam keep50.txt empty.txt; do
+for f in ref.pgen ref.pvar ref.psam indexed.pgen indexed.pgen.pgi zstd_ref.pvar.zst bcf_ref.bcf mgf_ref.mgf mgf_ref.pos.txt mgf_ref.pheno.txt big.pgen big.pvar big.psam keep50.txt empty.txt; do
     upload_paths+=("$(stage "$f")")
 done
 for b in "$PRIVATE_BUCKET" "$PUBLIC_BUCKET"; do
@@ -434,6 +445,60 @@ plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
     fail "mixed local/S3 inputs: plink2 exited nonzero"
 diff -q local_ref.afreq mixed.afreq > /dev/null || fail "mixed local/S3 inputs: output mismatch"
 pass "mixed local and S3 inputs"
+
+plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
+    "$PLINK2" --pgen "s3://$PRIVATE_BUCKET/data/indexed.pgen" \
+    --pvar ref.pvar --psam ref.psam --freq --out indexed_remote --silent > /dev/null ||
+    fail "remote .pgi sidecar: plink2 exited nonzero"
+cmp local_indexed.afreq indexed_remote.afreq || fail "remote .pgi sidecar: output mismatch"
+pass "remote .pgen with automatically resolved .pgi sidecar"
+
+plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
+    "$PLINK2" --pgen indexed.pgen --pgi "s3://$PRIVATE_BUCKET/data/indexed.pgen.pgi" \
+    --pvar ref.pvar --psam ref.psam --freq --out indexed_mixed --silent > /dev/null ||
+    fail "explicit remote .pgi: plink2 exited nonzero"
+cmp local_indexed.afreq indexed_mixed.afreq || fail "explicit remote .pgi: output mismatch"
+pass "local .pgen with explicit remote .pgi"
+
+plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
+    "$PLINK2" --zst-decompress "s3://$PRIVATE_BUCKET/data/zstd_ref.pvar.zst" \
+    zstd_remote.pvar > /dev/null || fail "remote zstd input: plink2 exited nonzero"
+cmp zstd_ref.pvar zstd_remote.pvar || fail "remote zstd input: output mismatch"
+pass "remote --zst-decompress input"
+
+if plink2_s3 "$PLINK2" --zst-decompress "$ADMIN_ENDPOINT/$PUBLIC_BUCKET/data/missing.zst" \
+    zstd_missing > zstd_missing.stdout 2> zstd_missing.stderr; then
+    fail "missing remote zstd input: expected failure"
+fi
+grep -q 'HTTP 404' zstd_missing.stderr || fail "remote zstd input: HTTP detail missing"
+pass "remote --zst-decompress HTTP error detail"
+
+if plink2_s3 "$PLINK2" --bcf "$ADMIN_ENDPOINT/$PUBLIC_BUCKET/data/missing.bcf" \
+    --make-pgen --out bcf_missing > bcf_missing.stdout 2> bcf_missing.stderr; then
+    fail "missing remote BCF input: expected failure"
+fi
+grep -q 'HTTP 404' bcf_missing.log || fail "remote BCF input: HTTP detail missing from log"
+pass "remote BCF HTTP error detail"
+
+plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
+    "$PLINK2" --bcf "s3://$PRIVATE_BUCKET/data/bcf_ref.bcf" \
+    --make-pgen --out remote_bcf --silent > /dev/null ||
+    fail "remote BCF input: plink2 exited nonzero"
+for ext in pgen pvar psam; do
+    cmp "local_bcf.$ext" "remote_bcf.$ext" || fail "remote BCF input: $ext mismatch"
+done
+pass "remote BCF input"
+
+plink2_s3 "AWS_ACCESS_KEY_ID=$RO_USER" "AWS_SECRET_ACCESS_KEY=$RO_SECRET" \
+    "$PLINK2" --mgf "s3://$PRIVATE_BUCKET/data/mgf_ref.mgf" \
+    "s3://$PRIVATE_BUCKET/data/mgf_ref.pos.txt" \
+    "pheno=s3://$PRIVATE_BUCKET/data/mgf_ref.pheno.txt" \
+    --make-pgen --out remote_mgf --silent > /dev/null ||
+    fail "remote threaded text retarget: plink2 exited nonzero"
+for ext in pgen pvar psam; do
+    cmp "local_mgf.$ext" "remote_mgf.$ext" || fail "remote threaded text retarget: $ext mismatch"
+done
+pass "remote threaded text retarget"
 
 ###########################################################################
 echo "=== multi-chunk range reads ==="

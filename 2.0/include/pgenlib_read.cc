@@ -824,7 +824,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       strcpy_k(fname_iter, ".pgi");
       header_fname = pgi_fname_buf;
     }
-    header_ff = fopen(header_fname, FOPEN_RB);
+    header_ff = s3_creds? OpenS3WithCredentials(header_fname, s3_creds) : OpenMaybeS3(header_fname);
     pgfip->pgi_ff = header_ff;
     if (unlikely(!header_ff)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", header_fname, InputErrorMessage(IsS3Uri(header_fname)));
