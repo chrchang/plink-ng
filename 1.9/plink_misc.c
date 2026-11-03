@@ -2529,7 +2529,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   uint32_t uii;
   uintptr_t overflow_buf_blen;
   pzwrite_init_null(&ps);
-  uii = 2 * max_marker_allele_len + max_marker_id_len + max_cluster_id_len + 256;
+  uii = 2 * max_marker_allele_len + max_marker_id_len + max_cluster_id_len + get_max_chrom_slen(chrom_info_ptr) + 256;
   overflow_buf_blen = uii + PIGZ_BLOCK_SIZE;
   if (bigstack_alloc_uc(overflow_buf_blen, &overflow_buf) ||
       bigstack_alloc_ul(unfiltered_sample_ctl2, &readbuf)) {
