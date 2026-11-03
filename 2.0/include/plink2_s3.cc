@@ -22,6 +22,8 @@
 
 #include "s3stream/s3stream.h"
 
+#include <errno.h>
+
 namespace plink2 {
 
 uint32_t IsS3Uri(const char* path) {
