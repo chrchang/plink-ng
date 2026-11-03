@@ -418,6 +418,11 @@ cd TEST_VALIDATE_DUP_ALLELE
 cd ..
 echo "TEST_VALIDATE_DUP_ALLELE passed."
 
+cd TEST_19_BCF_CHECKS
+./run_tests.sh $d $2 $3 > TEST_19_BCF_CHECKS.log
+cd ..
+echo "TEST_19_BCF_CHECKS passed."
+
 cd TEST_ALLELE_UNIQUENESS
 ./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
 cd ..
