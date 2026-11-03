@@ -35,12 +35,19 @@ cdef extern from "../plink2/include/plink2_s3.h" namespace "plink2":
 # works without universal_pathlib installed.
 cdef bytes _resolve_pgenlib_path(object filename):
     if isinstance(filename, bytes):
+        if filename.startswith(b's3a://'):
+            return b's3://' + filename[6:]
         return filename
     if isinstance(filename, str):
+        if filename.startswith('s3a://'):
+            filename = 's3://' + filename[6:]
         return filename.encode('utf-8')
     protocol = getattr(filename, 'protocol', None)
     if protocol in ('s3', 's3a'):
-        return str(filename).encode('utf-8')
+        path = str(filename)
+        if path.startswith('s3a://'):
+            path = 's3://' + path[6:]
+        return path.encode('utf-8')
     # os.fspath covers pathlib.Path and any other local os.PathLike object.
     return os.fspath(filename).encode('utf-8')
 
