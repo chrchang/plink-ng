@@ -9102,7 +9102,12 @@ static uint32_t bcf_gt_index_out_of_range(const void* gt_vals, uint32_t val_ct, 
   // * Therefore, we can bitwise-or all the test_word values, and check if any
   //   high bits within the bitwise-or are set at the end.
   uintptr_t subtract_from;
+  // subtract_from lanes must not have the high bit set; if allele_ct_x2 is
+  // that large, no masked value can exceed it anyway.
   if (type_code == 1) {
+    if (allele_ct_x2 >= 0x7e) {
+      return 0;
+    }
     fullword_ct = val_ct / BYTECT;
     const uint32_t remainder = val_ct % BYTECT;
     if (remainder) {
@@ -9116,6 +9121,9 @@ static uint32_t bcf_gt_index_out_of_range(const void* gt_vals, uint32_t val_ct, 
     mask_word = ((~ZEROLU) / 0xff) * 0x7e;
     subtract_from = ((~ZEROLU) / 0xff) * allele_ct_x2;
   } else if (type_code == 2) {
+    if (allele_ct_x2 >= 0x7ffe) {
+      return 0;
+    }
     fullword_ct = val_ct / (BYTECT / 2);
     const uint32_t remainder = val_ct % (BYTECT / 2);
     if (remainder) {

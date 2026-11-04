@@ -23,3 +23,8 @@ plink --bcf idx_ok.bcf --make-bed --allow-extra-chr --out tmp_idx_ok
 rejects gt8 'GT allele index'
 rejects gt32 'GT allele index'
 rejects idx_swapped 'contig IDX='
+
+plink --bcf wide_ok.bcf --make-bed --allow-extra-chr --out tmp_wide_ok
+rejects wide_gt8 'GT allele index'
+rejects wide_gt16 'GT allele index'
+plink --bcf many_alleles_ok.bcf --make-bed --allow-extra-chr --out tmp_many_alleles_ok
