@@ -5642,6 +5642,14 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
       PgrDetectGenoarrHets(raw_genovec, raw_sample_ct, all_hets);
     }
   }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  if (unlikely(!allele_idx_offsets)) {
+    return kPglRetInconsistentInput;
+  }
+  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
+  if (unlikely((allele_idx >= allele_ct) || (allele_ct == 2))) {
+    return kPglRetInconsistentInput;
+  }
   if (allele_idx != 1) {
     GenovecNonmissingToZeroUnsafe(sample_ct, allele_countvec);
     if (!multiallelic_hc_present) {
@@ -5650,11 +5658,6 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
       }
       return kPglRetSuccess;
     }
-  }
-  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
-  if (unlikely(allele_ct == 2)) {
-    return kPglRetInconsistentInput;
   }
   const uint32_t aux1_first_byte = *fread_ptr++;
   const uint32_t aux1a_mode = aux1_first_byte & 15;
@@ -5762,9 +5765,6 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
 PglErr IMPLPgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_countvec) {
   if (!sample_ct) {
     return kPglRetSuccess;
-  }
-  if (unlikely(allele_idx >= (pgrp->fi.allele_idx_offsets? (pgrp->fi.allele_idx_offsets[vidx + 1] - pgrp->fi.allele_idx_offsets[vidx]) : 2))) {
-    return kPglRetInvalidCmdline;
   }
   if (!allele_idx) {
   IMPLPgrGet1_biallelic:
@@ -8225,7 +8225,7 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if (unlikely(allele_idx >= allele_ct)) {
-    return kPglRetInvalidCmdline;
+    return kPglRetInconsistentInput;
   }
   if ((allele_ct == 2) || (!allele_idx)) {
     uint32_t dosage_ct;
