@@ -1735,7 +1735,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t covar_ct_x = common->covar_ct_x;
     const uint32_t covar_ct_y = common->covar_ct_y;
 
-    uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
+    uintptr_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
@@ -1933,7 +1933,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       }
       if (local_covar_ct) {
         // bugfix (5 Mar 2018): don't want sizeof(double) here
-        if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+        if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
           goto GlmLinear_ret_NOMEM;
         }
       } else {
@@ -2090,7 +2090,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         } else {
           double* prev_local_covar_row_d = nullptr;
           if (variant_idx) {
-            prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+            prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
           }
           reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, nullptr, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
           /*
@@ -4093,7 +4093,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     const uint32_t covar_ct_x = common->covar_ct_x;
     const uint32_t covar_ct_y = common->covar_ct_y;
 
-    uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
+    uintptr_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
@@ -4353,7 +4353,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         }
       }
       if (local_covar_ct) {
-        if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+        if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
           assert(0);
           goto GlmLinearBatch_ret_NOMEM;
         }
@@ -4588,7 +4588,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           } else {
             double* prev_local_covar_row_d = nullptr;
             if (variant_idx) {
-              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
             }
             reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, nullptr, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
           }
@@ -5122,7 +5122,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
     const uint32_t covar_ct_x = common->covar_ct_x;
     const uint32_t covar_ct_y = common->covar_ct_y;
 
-    uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
+    uintptr_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
@@ -5542,7 +5542,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
         }
       }
       if (local_covar_ct) {
-        if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, read_block_size) * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
+        if (unlikely(bigstack_alloc_d(read_block_size * max_sample_ct * local_covar_ct, &(ctx->local_covars_vcmaj_d[uii])))) {
           assert(0);
           goto GlmLinearPerm_ret_NOMEM;
         }
@@ -5670,7 +5670,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
           } else {
             double* prev_local_covar_row_d = nullptr;
             if (variant_idx) {
-              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
             }
             reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, nullptr, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
           }
