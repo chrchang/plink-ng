@@ -33,3 +33,12 @@ for t in 1 8; do
     fi
     grep -q 'Line 2000 of .gen file has fewer tokens than expected' plink2_bad2.log
 done
+
+# A line that ends right after the alleles, once dosages have been seen.
+printf '1 v1 100 A C 0.5 0.5 0 0 1 0\n1 v2 200 A C\n' > tmp_short.gen
+printf 'ID_1 ID_2 missing\n0 0 0\ns1 s1 0\ns2 s2 0\n' > tmp_short.sample
+if $1/plink2 $2 $3 --gen tmp_short.gen ref-first --sample tmp_short.sample --make-pgen --out plink2_short; then
+    echo "expected --gen to reject tmp_short.gen"
+    exit 1
+fi
+grep -q 'Line 2 of .gen file has fewer tokens than expected' plink2_short.log
