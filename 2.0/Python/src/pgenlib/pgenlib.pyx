@@ -235,7 +235,7 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     PglErr PgrGetDp(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, PgenVariantStruct* pgvp) nogil
 
-    PglErr PgrGet1D(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReaderStruct* pgr_ptr, uintptr_t* allele_countvec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) nogil
+    PglErr PgrGet1D(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderStruct* pgr_ptr, uintptr_t* allele_countvec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) nogil
 
     PglErr PgrGetDifflistOrGenovec(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, PgenReaderStruct* pgr_ptr, uintptr_t* genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* main_raregeno, uint32_t* difflist_sample_ids, uint32_t* difflist_len_ptr) nogil
 
@@ -620,23 +620,34 @@ cdef class PgenReader:
         return
 
 
+    cdef check_open(self):
+        if self._info_ptr == NULL:
+            raise RuntimeError("PgenReader is closed")
+
+
     cpdef __enter__(self):
         return self
 
 
     cpdef get_raw_sample_ct(self):
+        self.check_open()
         return self._info_ptr[0].raw_sample_ct
 
 
     cpdef get_variant_ct(self):
+        self.check_open()
         return self._info_ptr[0].raw_variant_ct
 
 
     cpdef hardcall_phase_present(self):
+        self.check_open()
         return ((self._info_ptr[0].gflags & kfPgenGlobalHardcallPhasePresent) != 0)
 
 
     cpdef read(self, uint32_t variant_idx, cnp.ndarray geno_int_out, uint32_t allele_idx = 1):
+        self.check_open()
+        if not geno_int_out.flags.writeable:
+            raise RuntimeError("read() geno_int_out is read-only.")
         # for full genotype info for multiallelic variants, use read_alleles()
         # instead
 
@@ -674,6 +685,9 @@ cdef class PgenReader:
 
 
     cpdef read_dosages(self, uint32_t variant_idx, cnp.ndarray floatarr_out, uint32_t allele_idx = 1):
+        self.check_open()
+        if not floatarr_out.flags.writeable:
+            raise RuntimeError("read_dosages() floatarr_out is read-only.")
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_dosages() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if floatarr_out.ndim != 1:
@@ -702,6 +716,7 @@ cdef class PgenReader:
 
 
     cpdef read_alleles(self, uint32_t variant_idx, cnp.ndarray[cnp.int32_t,mode="c",ndim=1] allele_int32_out):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_alleles() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef uint32_t subset_size = self._subset_size
@@ -719,6 +734,7 @@ cdef class PgenReader:
 
 
     cpdef read_alleles_and_phasepresent(self, uint32_t variant_idx, cnp.ndarray[cnp.int32_t,mode="c",ndim=1] allele_int32_out, cnp.ndarray[cnp.uint8_t,mode="c",cast=True] phasepresent_out):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_alleles_and_phasepresent() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef uint32_t subset_size = self._subset_size
@@ -952,6 +968,7 @@ cdef class PgenReader:
         return
 
     cpdef read_range(self, uint32_t variant_idx_start, uint32_t variant_idx_end, cnp.ndarray geno_int_out, uint32_t allele_idx = 1, bint sample_maj = 0):
+        self.check_open()
         if variant_idx_end > self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_range() variant_idx_end too large (" + str(variant_idx_end) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if geno_int_out.dtype == np.int8:
@@ -1197,6 +1214,7 @@ cdef class PgenReader:
         return
 
     cpdef read_list(self, cnp.ndarray[cnp.uint32_t] variant_idxs, cnp.ndarray geno_int_out, uint32_t allele_idx = 1, bint sample_maj = 0):
+        self.check_open()
         if geno_int_out.dtype == np.int8:
             self.read_list_internal8(variant_idxs, geno_int_out, allele_idx, sample_maj)
         elif geno_int_out.dtype == np.int32:
@@ -1209,6 +1227,7 @@ cdef class PgenReader:
 
 
     cpdef read_alleles_range(self, uint32_t variant_idx_start, uint32_t variant_idx_end, cnp.ndarray[cnp.int32_t,mode="c",ndim=2] allele_int32_out, bint hap_maj = 0):
+        self.check_open()
         # if hap_maj == False, allele_int32_out must have at least
         #   variant_idx_ct rows, 2 * sample_ct columns
         # if hap_maj == True, allele_int32_out must have at least 2 * sample_ct
@@ -1315,6 +1334,7 @@ cdef class PgenReader:
 
 
     cpdef read_alleles_list(self, cnp.ndarray[cnp.uint32_t] variant_idxs, cnp.ndarray[cnp.int32_t,mode="c",ndim=2] allele_int32_out, bint hap_maj = 0):
+        self.check_open()
         # if hap_maj == False, allele_int32_out must have at least
         #   variant_idx_ct rows, 2 * sample_ct columns
         # if hap_maj == True, allele_int32_out must have at least 2 * sample_ct
@@ -1425,6 +1445,7 @@ cdef class PgenReader:
 
 
     cpdef read_alleles_and_phasepresent_range(self, uint32_t variant_idx_start, uint32_t variant_idx_end, cnp.ndarray[cnp.int32_t,mode="c",ndim=2] allele_int32_out, cnp.ndarray[cnp.uint8_t,mode="c",cast=True,ndim=2] phasepresent_out, bint hap_maj = 0):
+        self.check_open()
         # if hap_maj == False, allele_int32_out must have at least
         #   variant_idx_ct rows, 2 * sample_ct columns
         # if hap_maj == True, allele_int32_out must have at least 2 * sample_ct
@@ -1464,6 +1485,7 @@ cdef class PgenReader:
 
 
     cpdef read_alleles_and_phasepresent_list(self, cnp.ndarray[cnp.uint32_t] variant_idxs, cnp.ndarray[cnp.int32_t,mode="c",ndim=2] allele_int32_out, cnp.ndarray[cnp.uint8_t,cast=True,mode="c",ndim=2] phasepresent_out, bint hap_maj = 0):
+        self.check_open()
         # if hap_maj == False, allele_int32_out must have at least
         #   variant_idx_ct rows, 2 * sample_ct columns
         # if hap_maj == True, allele_int32_out must have at least 2 * sample_ct
@@ -1562,6 +1584,7 @@ cdef class PgenReader:
 
 
     cpdef read_dosages_range(self, uint32_t variant_idx_start, uint32_t variant_idx_end, cnp.ndarray floatarr_out, uint32_t allele_idx = 1, bint sample_maj = 0):
+        self.check_open()
         if variant_idx_end > self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_dosages_range() variant_idx_end too large (" + str(variant_idx_end) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if floatarr_out.dtype == np.float32:
@@ -1646,6 +1669,7 @@ cdef class PgenReader:
 
 
     cpdef read_dosages_list(self, cnp.ndarray[cnp.uint32_t] variant_idxs, cnp.ndarray floatarr_out, uint32_t allele_idx = 1, bint sample_maj = 0):
+        self.check_open()
         if floatarr_out.dtype == np.float32:
             self.read_dosages_list_internal32(variant_idxs, floatarr_out, allele_idx, sample_maj)
         elif floatarr_out.dtype == np.float64:
@@ -1707,6 +1731,7 @@ cdef class PgenReader:
 
 
     cpdef read_phased_dosages(self, uint32_t variant_idx, cnp.ndarray floatarr_out, uint32_t allele_idx = 1):
+        self.check_open()
         # Per-haplotype (phased) dosages of allele allele_idx, on a [0, 1]
         # scale.  floatarr_out must be a C-contiguous float32 or float64 array
         # with at least 2 * sample_ct entries; entries 2k and 2k+1 are set to
@@ -1794,6 +1819,7 @@ cdef class PgenReader:
 
 
     cpdef read_phased_dosages_range(self, uint32_t variant_idx_start, uint32_t variant_idx_end, cnp.ndarray floatarr_out, uint32_t allele_idx = 1, bint hap_maj = 0):
+        self.check_open()
         # Variant-major: floatarr_out must have at least
         # (variant_idx_end - variant_idx_start) rows and 2 * sample_ct columns.
         # See read_phased_dosages() for semantics.
@@ -1807,6 +1833,7 @@ cdef class PgenReader:
 
 
     cpdef read_phased_dosages_list(self, cnp.ndarray[cnp.uint32_t] variant_idxs, cnp.ndarray floatarr_out, uint32_t allele_idx = 1, bint hap_maj = 0):
+        self.check_open()
         # Variant-major: floatarr_out must have at least len(variant_idxs) rows
         # and 2 * sample_ct columns.  See read_phased_dosages() for semantics.
         cdef uint32_t raw_variant_ct = self._info_ptr[0].raw_variant_ct
@@ -1818,6 +1845,7 @@ cdef class PgenReader:
         return
 
     cpdef count(self, uint32_t variant_idx, cnp.ndarray[cnp.uint32_t,mode="c"] genocount_uint32_out, object allele_idx = 1):
+        self.check_open()
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef uint32_t subset_size = self._subset_size
@@ -1892,6 +1920,7 @@ cdef class PgenReader:
 
 
     cpdef has_sparse(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("has_sparse() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef uint32_t vrtype = PgrGetVrtype(self._state_ptr, variant_idx)
@@ -1905,6 +1934,7 @@ cdef class PgenReader:
 
 
     cpdef read_sparse8(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_sparse8() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if allele_idx > 1:
@@ -1936,6 +1966,7 @@ cdef class PgenReader:
 
 
     cpdef read_sparse32(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_sparse32() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if allele_idx > 1:
@@ -1967,6 +1998,7 @@ cdef class PgenReader:
 
 
     cpdef read_sparse64(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_sparse64() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if allele_idx > 1:
@@ -1998,6 +2030,7 @@ cdef class PgenReader:
 
 
     cpdef has_sparse_dosages(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("has_sparse() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef uint32_t vrtype = PgrGetVrtype(self._state_ptr, variant_idx)
@@ -2021,6 +2054,7 @@ cdef class PgenReader:
 
 
     cpdef read_sparse_dosages32(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_sparse_dosages32() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if allele_idx > 1:
@@ -2052,6 +2086,7 @@ cdef class PgenReader:
 
 
     cpdef read_sparse_dosages64(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_sparse_dosages64() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if allele_idx > 1:
@@ -2083,6 +2118,7 @@ cdef class PgenReader:
 
 
     cpdef change_sample_subset(self, object sample_subset = None):
+        self.check_open()
         if sample_subset is not None:
             self.set_sample_subset_internal(sample_subset)
         else:
@@ -2262,7 +2298,15 @@ cdef class PgenWriter:
         return self
 
 
+    cdef check_room(self, uintptr_t new_variant_ct):
+        if self._state_ptr == NULL:
+            raise RuntimeError("PgenWriter is closed")
+        if SpgwGetVidx(self._state_ptr) + new_variant_ct > SpgwGetVariantCt(self._state_ptr):
+            raise RuntimeError("Too many variants appended (variant_ct is " + str(SpgwGetVariantCt(self._state_ptr)) + ")")
+
+
     cpdef append_biallelic(self, cnp.ndarray[cnp.int8_t,mode="c"] geno_int8):
+        self.check_room(1)
         cdef int8_t* genobytes = &(geno_int8[0])
         BytesToGenoarrUnsafe(genobytes, SpgwGetSampleCt(self._state_ptr), self._genovec)
         cdef PglErr reterr = SpgwAppendBiallelicGenovec(self._genovec, self._state_ptr)
@@ -2272,6 +2316,7 @@ cdef class PgenWriter:
 
 
     cpdef append_alleles(self, cnp.ndarray[cnp.int32_t,mode="c"] allele_int32, bint all_phased = False, object allele_ct = None):
+        self.check_room(1)
         cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
         cdef uint32_t sample_ct = SpgwGetSampleCt(self._state_ptr)
         cdef uint32_t allele_ct_limit = self._allele_ct_limit
@@ -2316,6 +2361,7 @@ cdef class PgenWriter:
 
 
     cpdef append_partially_phased(self, cnp.ndarray[cnp.int32_t,mode="c"] allele_int32, cnp.ndarray[cnp.uint8_t,cast=True] phasepresent, object allele_ct = None):
+        self.check_room(1)
         if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
             raise RuntimeError("append_partially_phased cannot be called when PgenWriter was constructed with hardcall_phase_present False")
         cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
@@ -2376,6 +2422,7 @@ cdef class PgenWriter:
         return
 
     cpdef append_dosages(self, cnp.ndarray floatarr):
+        self.check_room(1)
         if (self._phase_dosage_gflags & kfPgenGlobalDosagePresent) == 0:
             raise RuntimeError("append_dosages cannot be called when PgenWriter was constructed with dosage_present False")
         if floatarr.dtype == np.float32:
@@ -2388,6 +2435,7 @@ cdef class PgenWriter:
 
 
     cpdef append_biallelic_batch(self, cnp.ndarray[cnp.int8_t,mode="c",ndim=2] geno_int8_batch):
+        self.check_room(geno_int8_batch.shape[0])
         cdef uint32_t batch_size = <uint32_t>geno_int8_batch.shape[0]
         cdef int8_t* genobytes
         cdef uint32_t uii
@@ -2402,6 +2450,7 @@ cdef class PgenWriter:
 
 
     cpdef append_alleles_batch(self, cnp.ndarray[cnp.int32_t,mode="c",ndim=2] allele_int32_batch, bint all_phased = False, object allele_cts = None):
+        self.check_room(allele_int32_batch.shape[0])
         cdef uint32_t batch_size = <uint32_t>allele_int32_batch.shape[0]
         cdef uint32_t sample_ct = SpgwGetSampleCt(self._state_ptr)
         cdef uint32_t allele_ct_limit = self._allele_ct_limit
@@ -2468,6 +2517,7 @@ cdef class PgenWriter:
 
 
     cpdef append_partially_phased_batch(self, cnp.ndarray[cnp.int32_t,mode="c",ndim=2] allele_int32_batch, cnp.ndarray[cnp.uint8_t,mode="c",cast=True,ndim=2] phasepresent_batch, object allele_cts = None):
+        self.check_room(allele_int32_batch.shape[0])
         if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
             raise RuntimeError("append_partially_phased_batch cannot be called when PgenWriter was constructed with hardcall_phase_present False")
         cdef uint32_t batch_size = <uint32_t>allele_int32_batch.shape[0]
@@ -2545,6 +2595,7 @@ cdef class PgenWriter:
         return
 
     cpdef append_dosages_batch(self, cnp.ndarray floatarr_batch):
+        self.check_room(floatarr_batch.shape[0])
         if (self._phase_dosage_gflags & kfPgenGlobalDosagePresent) == 0:
             raise RuntimeError("append_dosages_batch cannot be called when PgenWriter was constructed with dosage_present False")
         if floatarr_batch.dtype == np.float32:

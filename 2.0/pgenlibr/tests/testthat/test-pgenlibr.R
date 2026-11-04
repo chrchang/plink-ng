@@ -229,3 +229,18 @@ test_that("writer works", {
   AppendDosages(pw, c(NA, 1))
   ClosePgenWriter(pw)
 })
+
+test_that("reader rejects an allele the variant does not have", {
+  tmpdir <- withr::local_tempdir()
+  pgen_path <- file.path(tmpdir, "alleles.pgen")
+  pw <- NewPgenWriter(pgen_path, 3L, 1L)
+  AppendBiallelic(pw, c(0L, 1L, 2L))
+  ClosePgenWriter(pw)
+  pgen <- NewPgen(pgen_path)
+  expect_error(ReadHardcalls(pgen, IntBuf(pgen), 1L, 3L))
+  b <- Buf(pgen)
+  expect_error(Read(pgen, b, 1L, 257L))
+  Read(pgen, b, 1L, 2L)
+  expect_identical(as.numeric(b), c(0, 1, 2))
+  ClosePgen(pgen)
+})
