@@ -153,6 +153,11 @@ cd TEST_BLOCKS
 cd ..
 echo "TEST_BLOCKS passed."
 
+cd TEST_COMMON_FLAGS
+./run_tests.sh $d $2 $3 > TEST_COMMON_FLAGS.log
+cd ..
+echo "TEST_COMMON_FLAGS passed."
+
 cd TEST_PHENO_UTILS
 ./run_tests.sh $d $2 $3 > TEST_PHENO_UTILS.log
 cd ..
