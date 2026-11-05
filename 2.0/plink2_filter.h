@@ -143,7 +143,7 @@ BoolErr ObligMissingVariantCts(const ObligMissingData* omdp, const uintptr_t* sa
 
 BoolErr ObligMissingSampleCts(const ObligMissingData* omdp, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t** sample_oblig_nony_cts_ptr, uint32_t** sample_oblig_y_cts_ptr);
 
-PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const uint32_t* sample_oblig_nony_cts, const uint32_t* sample_oblig_y_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
+PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const uint32_t* sample_oblig_nony_cts, const uint32_t* sample_oblig_y_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, const uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t y_nosex_missing_stats, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
 PglErr SelectSidRepresentatives(const uintptr_t* sex_nm, const uintptr_t* sex_male, const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const PedigreeIdInfo* piip, SelectSidMissingnessMode missingness_mode, SelectSidTiebreakMode tiebreak_mode, uint32_t parents_only, uint32_t raw_sample_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 

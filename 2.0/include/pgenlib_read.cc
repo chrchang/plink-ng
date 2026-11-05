@@ -1103,6 +1103,27 @@ PglErr PgfiInitPhase2FillExtSizes(uint32_t is_pgi, FILE* ff, PgenExtensionLl* ex
   return kPglRetMalformedInput;
 }
 
+// PglHeaderBaseEndOffset() plus the allele-count array and the fused
+// vrtype/length encodings.
+static uint64_t PgfiHeaderBaseEndOffset(PgenHeaderCtrl header_ctrl, uint32_t variant_ct) {
+  const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
+  const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
+  uint64_t offset;
+  if (vrtype_and_fpos_storage < 8) {
+    offset = PglHeaderBaseEndOffset(variant_ct, 1 + (vrtype_and_fpos_storage & 3), vrtype_and_fpos_storage >= 4, nonref_flags_stored);
+  } else {
+    // 1 bit per entry for 8, 4 bits for 11 and 14, 2 bits otherwise
+    uint32_t log2_entry_bit_width = 1;
+    if (vrtype_and_fpos_storage == 8) {
+      log2_entry_bit_width = 0;
+    } else if ((vrtype_and_fpos_storage == 11) || (vrtype_and_fpos_storage == 14)) {
+      log2_entry_bit_width = 2;
+    }
+    offset = PglHeaderBaseEndOffset(variant_ct, 0, 1, nonref_flags_stored) - variant_ct + DivUpU64(S_CAST(uint64_t, variant_ct) << log2_entry_bit_width, 8);
+  }
+  return offset + S_CAST(uint64_t, variant_ct) * ((header_ctrl >> 4) & 3);
+}
+
 static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase2Ex().");
 PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
   // *max_vrec_width_ptr technically only needs to be set in single-variant
@@ -1144,12 +1165,8 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
     assert(!is_pgi);
     // no allele counts to verify if fixed-width
     // always need ldbase_raw_genovec
-    *pgr_alloc_cacheline_ct_ptr = NypCtToCachelineCt(pgfip->raw_sample_ct);
+    *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(pgfip->raw_sample_ct, pgfip->gflags, 2, use_blockload? 0 : const_vrec_width);
     *max_vrec_width_ptr = const_vrec_width;
-    if (!use_blockload) {
-      // using fread() single-variant-at-a-time, need pgr.fread_buf
-      *pgr_alloc_cacheline_ct_ptr += DivUp(const_vrec_width, kCacheline);
-    }
     if ((!(header_ctrl & 192)) || (pgfip->const_vrtype == kPglVrtypePlink1)) {
       return kPglRetSuccess;
     }
@@ -1275,6 +1292,10 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       vrec_len_table[0] = 0;
       const uint32_t raw_sample_ct4 = NypCtToByteCt(raw_sample_ct);
       vrec_len_table[1] = raw_sample_ct4;
+      for (uint32_t uii = 2; uii != 16; ++uii) {
+        // undefined entries
+        vrec_len_table[uii] = UINT32_MAX;
+      }
       if (vrtype_and_fpos_storage == 8) {
         log2_entry_bit_width = 0;
       } else if (vrtype_and_fpos_storage == 9) {
@@ -1355,9 +1376,14 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
         CopyFromUnalignedIncrW(&input_word, &loadbuf_biter);
         for (; cur_vblock_idx != cur_vblock_idx_stop; ++cur_vblock_idx) {
           const uint32_t input_word_masked = input_word & entry_mask;
+          const uint32_t cur_vrec_len = vrec_len_table[input_word_masked];
+          if (unlikely(cur_vrec_len == UINT32_MAX)) {
+            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid vrtype/length code in .pgen header.\n");
+            return kPglRetMalformedInput;
+          }
           *vrtypes_iter++ = vrtype_table[input_word_masked];
           *var_fpos_iter++ = variant_fpos;
-          variant_fpos += vrec_len_table[input_word_masked];
+          variant_fpos += cur_vrec_len;
           input_word >>= entry_bit_width;
         }
       }
@@ -1513,9 +1539,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
   uint64_t footer_extensions_fpos = 0;
   if (pgfip->extensions_present && (header_exts || footer_exts)) {
     if (vidx_end < raw_variant_ct) {
-      const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
-      const uint32_t phase_or_dosage_present = (vrtype_and_fpos_storage >= 4);
-      const uint64_t ext_fpos = PglHeaderBaseEndOffset(raw_variant_ct, vrec_len_byte_ct, phase_or_dosage_present, nonref_flags_stored);
+      const uint64_t ext_fpos = PgfiHeaderBaseEndOffset(header_ctrl, raw_variant_ct);
       if (unlikely(fseeko(header_ff, ext_fpos, SEEK_SET))) {
         FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
         return kPglRetReadFail;
@@ -1729,7 +1753,7 @@ PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, ui
       ext_bitarr[widx] = cur_output_word;
       nonzero_present |= cur_output_word;
       ++widx;
-      ext_bitarr_cumulative_popcounts[widx] = PopcountWord(cur_output_word);
+      ext_bitarr_cumulative_popcounts[widx] = ext_bitarr_cumulative_popcounts[widx - 1] + PopcountWord(cur_output_word);
       cur_output_word = cur_masked_bits >> (kBitsPerWord - write_idx_lowbits);
       new_write_idx_lowbits -= kBitsPerWord;
     }
@@ -1817,11 +1841,7 @@ PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExt
     assert(header_ff);
   }
   {
-    const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
-    const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
-    const uint32_t phase_or_dosage_present = (vrtype_and_fpos_storage >= 4);
-    const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
-    const uint64_t ext_fpos = PglHeaderBaseEndOffset(pgfip->raw_variant_ct, vrec_len_byte_ct, phase_or_dosage_present, nonref_flags_stored);
+    const uint64_t ext_fpos = PgfiHeaderBaseEndOffset(header_ctrl, pgfip->raw_variant_ct);
     if (unlikely(fseeko(header_ff, ext_fpos, SEEK_SET))) {
       FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
       return kPglRetReadFail;
@@ -3224,6 +3244,10 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
           *difflist_common_geno_ptr = (6 - ldbase_common_geno) & 3;
           GenovecInvertUnsafe(*difflist_len_ptr, main_raregeno);
         }
+        if (fread_pp) {
+          *fread_pp = fread_ptr;
+          *fread_endp = fread_end;
+        }
         return kPglRetSuccess;
       }
       if (!(pgrp->ldbase_stypes & kfPgrLdcacheNyp)) {
@@ -4108,10 +4132,10 @@ PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* 
         return kPglRetMalformedInput;
       }
       intersect_ct += IsSet(sample_include, raw_sample_idx);
+      min_sample_idx = raw_sample_idx + 1;
       if (raw_deltalist_idx_lowbits == group_len_m1) {
         break;
       }
-      min_sample_idx = raw_sample_idx + 1;
       raw_sample_idx += GetVint31(fread_end, fread_pp);
     }
   }
@@ -4314,7 +4338,7 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
     if (unlikely((rare01_ct > raw_01_ct) || (!rare01_ct))) {
       return kPglRetMalformedInput;
     }
-    reterr = SkipNonemptyDeltalistIds(fread_end, group_info_iter, rare01_ct, raw_sample_ct, 1, fread_pp);
+    reterr = SkipNonemptyDeltalistIds(fread_end, group_info_iter, rare01_ct, raw_sample_ct, 0, fread_pp);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -4414,16 +4438,18 @@ void CountAux1bDense(const unsigned char* patch_10_fvals, uint32_t allele_ct, ui
       }
     } else {
       // 8+8 bits
-      het_incr = CountByte(patch_10_fvals, allele_idx_m1 * 0x11, rare10_ct * 2);
+      het_incr = CountByte(patch_10_fvals, allele_idx_m1, rare10_ct * 2);
       if (allele_idx_m1) {
-        matching_hom_ct = CountU16(patch_10_fvals, allele_idx_m1 * 0x1111, rare10_ct);
+        matching_hom_ct = CountU16(patch_10_fvals, allele_idx_m1 * 0x0101, rare10_ct);
       }
     }
   }
   if (!allele_idx_m1) {
     *hom_ctp = raw_10_ct - rare10_ct;
   } else {
-    het_incr -= 2 * matching_hom_ct;
+    if (allele_ct != 3) {
+      het_incr -= 2 * matching_hom_ct;
+    }
     *hom_ctp = matching_hom_ct;
   }
   *het_ctp += het_incr;
@@ -8090,7 +8116,7 @@ PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const 
   const unsigned char* fread_ptr = nullptr;
   const unsigned char* fread_end = nullptr;
   uint32_t difflist_common_geno;
-  uint32_t subsetted_raregeno_ct;
+  uint32_t subsetted_raregeno_ct = 0;
   PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_sparse_dosage_ct, vidx, pgrp, &fread_ptr, &fread_end, genovec, &difflist_common_geno, subsetted_raregeno, subsetted_raregeno_sample_ids, &subsetted_raregeno_ct);
   if (unlikely(reterr)) {
     return reterr;
@@ -8114,7 +8140,17 @@ PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const 
   }
   if (VrtypeHphase(vrtype)) {
     assert(!subsetting_required);
-    const uint32_t raw_het_ct = CountNyp(subsetted_raregeno, kMask5555, raw_sample_ct);
+    // subsetted_raregeno only contains the non-common genotypes (and nothing
+    // if genovec was returned instead).
+    uint32_t raw_het_ct;
+    if (difflist_common_geno == UINT32_MAX) {
+      raw_het_ct = CountNyp(genovec, kMask5555, raw_sample_ct);
+    } else {
+      raw_het_ct = CountNyp(subsetted_raregeno, kMask5555, subsetted_raregeno_ct);
+      if (difflist_common_geno == 1) {
+        raw_het_ct += raw_sample_ct - subsetted_raregeno_ct;
+      }
+    }
     reterr = SkipAux2(fread_end, raw_het_ct, &fread_ptr, nullptr);
     if (unlikely(reterr)) {
       return reterr;
@@ -8123,7 +8159,7 @@ PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const 
   // Only invoke sparse-return logic iff a sufficiently-short dosage-list is
   // stored.
   const uint32_t peek_raw_dosage_ct = PeekVint31(fread_ptr, fread_end);
-  if (peek_raw_dosage_ct + subsetted_raregeno_ct > max_sparse_dosage_ct) {
+  if ((difflist_common_geno == UINT32_MAX) || (peek_raw_dosage_ct + subsetted_raregeno_ct > max_sparse_dosage_ct)) {
     if (difflist_common_geno != UINT32_MAX) {
       PgrDifflistToGenovecUnsafe(subsetted_raregeno, subsetted_raregeno_sample_ids, difflist_common_geno, sample_ct, subsetted_raregeno_ct, genovec);
     }
@@ -8678,6 +8714,9 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
         // dosage bitarray
         raw_dosage_present[raw_sample_ctl - 1] = 0;
         const uint32_t raw_sample_ctb = DivUp(raw_sample_ct, CHAR_BIT);
+        if (unlikely(PtrCheck(fread_end, fread_ptr, raw_sample_ctb))) {
+          return kPglRetMalformedInput;
+        }
         memcpy(raw_dosage_present, fread_ptr, raw_sample_ctb);
         fread_ptr = &(fread_ptr[raw_sample_ctb]);
         raw_dosage_ct = PopcountWords(raw_dosage_present, raw_sample_ctl);
@@ -8791,6 +8830,9 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
       // dosage bitarray
       raw_dosage_present[raw_sample_ctl - 1] = 0;
       const uint32_t raw_sample_ctb = DivUp(raw_sample_ct, CHAR_BIT);
+      if (unlikely(PtrCheck(fread_end, fread_ptr, raw_sample_ctb))) {
+        return kPglRetMalformedInput;
+      }
       memcpy(raw_dosage_present, fread_ptr, raw_sample_ctb);
       fread_ptr = &(fread_ptr[raw_sample_ctb]);
       raw_dosage_ct = PopcountWords(raw_dosage_present, raw_sample_ctl);
@@ -9663,7 +9705,8 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
         return reterr;
       }
       if (sample_include) {
-        extra_phased_het_ct = PopcountWordsIntersect(raw_phasepresent, sample_include, raw_sample_ctl);
+        // phased hets only matter for minimac3-r2
+        extra_phased_het_ct = is_minimac3_r2? PopcountWordsIntersect(raw_phasepresent, sample_include, raw_sample_ctl) : 0;
       }
     }
   }
@@ -10261,6 +10304,9 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
     // unconditional dosage.  spot-check the appropriate entries for equality
     // to 65535.
     const unsigned char* dosage_main_read = fread_ptr;
+    if (unlikely(PtrCheck(fread_end, fread_ptr, raw_sample_ct * sizeof(int16_t)))) {
+      return kPglRetMalformedInput;
+    }
     // bugfix (18 Feb 2019): sample_include is permitted to be nullptr here
     if (!subsetting_required) {
       // probable todo: faster iteration over set bits
@@ -10307,6 +10353,9 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
     // dosage bitarray
     dosage_present[raw_sample_ctl - 1] = 0;
     const uint32_t raw_sample_ctb = DivUp(raw_sample_ct, CHAR_BIT);
+    if (unlikely(PtrCheck(fread_end, fread_ptr, raw_sample_ctb))) {
+      return kPglRetMalformedInput;
+    }
     memcpy(dosage_present, fread_ptr, raw_sample_ctb);
   }
   if (subsetting_required) {
@@ -11043,11 +11092,15 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
         const uint16_t dpiece0_x2 = dosage_val + dphase_delta_val;
         const uint16_t dpiece1_x2 = dosage_val - dphase_delta_val;
         // Update (11 May 2018): parity condition removed.
-        if ((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
-          if (unlikely((dphase_delta_val != -32768) || (dosage_val != 65535))) {
+        if (dosage_val == 65535) {
+          // missing dosage; dpiece{0,1}_x2 wrap around, so check delta first
+          if (unlikely(dphase_delta_val != -32768)) {
             snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosages for (0-based) variant #%u.\n", vidx);
             return kPglRetMalformedInput;
           }
+        } else if ((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosages for (0-based) variant #%u.\n", vidx);
+          return kPglRetMalformedInput;
         }
       }
     }
@@ -11092,6 +11145,11 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
   if (vrtype & 0x80) {
     const unsigned char* file_dphase_present = *fread_pp;
     const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
+    if (unlikely(!dosage_ct)) {
+      // can't have any phased entries
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+      return kPglRetMalformedInput;
+    }
     if (PtrAddCk(fread_end, dphase_present_byte_ct, fread_pp)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;
@@ -11124,6 +11182,10 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
         uint16_t dosage_val;
         CopyFromUnalignedU16(&dosage_val, dosage_main_read_biter);
         int16_t dphase_delta_val;
+        if (unlikely(PtrCheck(fread_end, dphase_delta_read_biter, sizeof(int16_t)))) {
+          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+          return kPglRetMalformedInput;
+        }
         CopyFromUnalignedIncrI16(&dphase_delta_val, &dphase_delta_read_biter);
         const uint16_t dpiece0_x2 = dosage_val + dphase_delta_val;
         const uint16_t dpiece1_x2 = dosage_val - dphase_delta_val;

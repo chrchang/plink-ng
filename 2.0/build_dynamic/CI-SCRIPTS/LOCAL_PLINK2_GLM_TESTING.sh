@@ -189,11 +189,13 @@ compare_to_r() {
         correlation_failed=false
         while IFS= read -r line; do
             # Extract correlation values from lines containing numbers
-            if [[ "$line" =~ ([0-9]+\.[0-9]+) ]]; then
+            if [[ "$line" =~ (-?[0-9]+\.[0-9]+|[Nn]a[Nn]) ]]; then
                 corr_value="${BASH_REMATCH[1]}"
                 
-                # Use bc for floating point comparison
-                if (( $(echo "$corr_value < $correlation_threshold" | bc -l) )); then
+                # Use bc for floating point comparison; a nan correlation
+                # (e.g. no SNPs merged) is a failure, and a negative one
+                # (sign-flipped betas) is below the threshold.
+                if [[ "$corr_value" == [Nn]a[Nn] ]] || (( $(echo "$corr_value < $correlation_threshold" | bc -l) )); then
                     correlation_failed=true
                     echo -e "${RED}  ❌ FAIL: $line${RESET}"
                     echo -e "${RED}     └─ Correlation $corr_value < $correlation_threshold (BELOW THRESHOLD)${RESET}"

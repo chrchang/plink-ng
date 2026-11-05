@@ -236,6 +236,16 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
     uint32_t max_extra_alt_ct = 0;
     while (1) {
       if (!IsEolnKns(*line_iter)) {
+        if (unlikely(*line_iter == '#')) {
+          // The second pass skips these lines, so they must not be counted
+          // here.
+          char* write_iter = strcpya_k(errstr_buf, "Error: Line ");
+          write_iter = wtoa(line_idx, write_iter);
+          write_iter = strcpya_k(write_iter, " of ");
+          write_iter = strcpya(write_iter, fname);
+          strcpy_k(write_iter, " starts with a '#'. (This is only permitted before the first nonheader line.)\n");
+          goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
+        }
         if (chr_needed) {
           const char* chr_start = line_iter;
           const char* chr_end = CurTokenEnd(chr_start);
@@ -405,7 +415,8 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
     uint32_t variant_idx = 0;
     uintptr_t allele_idx = 0;
     while (!TextNextLineLstripK(&txs, &line_iter)) {
-      if (*line_iter == '#') {
+      if ((*line_iter == '#') || IsEolnKns(*line_iter)) {
+        // blank lines are skipped by the first pass
         continue;
       }
       if (chr_needed) {

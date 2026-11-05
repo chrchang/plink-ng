@@ -1878,7 +1878,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
             for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               genotype_vals[sample_idx] *= S_CAST(float, 0.5);
             }
-            const uint32_t high_ct = nm_sample_ct * allele_ct_m2;
+            const uint32_t high_ct = nm_sample_ctav * allele_ct_m2;
             for (uint32_t uii = 0; uii != high_ct; ++uii) {
               multi_start[uii] *= S_CAST(float, 0.5);
             }
@@ -2128,7 +2128,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
             if (main_omitted) {
               // if main_mutated, this will be filled below
               // if not, this aliases genotype_vals
-              main_vals = &(nm_predictors_pmaj_buf[(cur_predictor_ct + main_mutated) * nm_sample_ctav]);
+              main_vals = &(nm_predictors_pmaj_buf[(expected_predictor_ct + main_mutated) * nm_sample_ctav]);
             } else if (domdev_third) {
               // in hethom case, do this before clobbering genotype data
               domdev_vals = &(main_vals[nm_sample_ctav]);
@@ -2180,7 +2180,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 if (covar_idx < local_covar_ct) {
                   cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
                 } else {
-                  cur_covar_col = &(cur_covars_cmaj[covar_idx * sample_ctav]);
+                  cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * sample_ctav]);
                 }
                 if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                   uintptr_t sample_midx_base = 0;
@@ -2274,7 +2274,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_third + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct - const_allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kFloatPerFVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
                 cur_biallelic_regressed_predictor_stop = domdev_third + 2;
@@ -2331,7 +2331,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_third + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct - const_allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kFloatPerFVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
                 cur_biallelic_regressed_predictor_stop = domdev_third + 2;
@@ -2462,8 +2462,8 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                     continue;
                   }
                   if (!IsSet(const_alleles, allele_idx)) {
-                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + nonconst_allele_idx_m1]);
-                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + nonconst_allele_idx_m1]);
+                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1]);
+                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1]);
                     ++nonconst_allele_idx_m1;
                   } else {
                     memcpy(beta_se_iter2, &glm_err2, 8);
@@ -4514,7 +4514,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               genotype_vals[sample_idx] *= 0.5;
             }
-            const uint32_t high_ct = nm_sample_ct * allele_ct_m2;
+            const uint32_t high_ct = nm_sample_ctav * allele_ct_m2;
             for (uint32_t uii = 0; uii != high_ct; ++uii) {
               multi_start[uii] *= 0.5;
             }
@@ -4757,7 +4757,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             if (main_omitted) {
               // if main_mutated, this will be filled below
               // if not, this aliases genotype_vals
-              main_vals = &(nm_predictors_pmaj_buf[(cur_predictor_ct + main_mutated) * nm_sample_ctav]);
+              main_vals = &(nm_predictors_pmaj_buf[(expected_predictor_ct + main_mutated) * nm_sample_ctav]);
             } else if (domdev_third) {
               // in hethom case, do this before clobbering genotype data
               domdev_vals = &(main_vals[nm_sample_ctav]);
@@ -4809,7 +4809,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 if (covar_idx < local_covar_ct) {
                   cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
                 } else {
-                  cur_covar_col = &(cur_covars_cmaj[covar_idx * cur_sample_ct]);
+                  cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * cur_sample_ct]);
                 }
                 if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                   uintptr_t sample_midx_base = 0;
@@ -4945,7 +4945,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   goto GlmLogisticThreadD_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_third + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct - const_allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kDoublePerDVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
                 cur_biallelic_regressed_predictor_stop = domdev_third + 2;
@@ -5002,7 +5002,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   goto GlmLogisticThreadD_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_third + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct - const_allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kDoublePerDVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
                 cur_biallelic_regressed_predictor_stop = domdev_third + 2;
@@ -5133,8 +5133,8 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                     continue;
                   }
                   if (!IsSet(const_alleles, allele_idx)) {
-                    *beta_se_iter2++ = coef_return[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
-                    *beta_se_iter2++ = sample_variance_buf[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
+                    *beta_se_iter2++ = coef_return[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1];
+                    *beta_se_iter2++ = sample_variance_buf[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1];
                     ++nonconst_allele_idx_m1;
                   } else {
                     memcpy(beta_se_iter2, &glm_err2, 8);
@@ -6150,6 +6150,11 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
   PreinitThreads(&tg);
   {
     GlmCtx* common = ctx->common;
+    // gcountcc isn't reported by permutation tests, and the workspace size
+    // computed below assumes it's off.
+    ctx->gcount_case_interleaved_vec = nullptr;
+    ctx->gcount_case_interleaved_vec_x = nullptr;
+    ctx->gcount_case_interleaved_vec_y = nullptr;
     const uintptr_t* orig_variant_include = common->variant_include;
     const ChrInfo* cip = common->cip;
     const uintptr_t* allele_idx_offsets = common->allele_idx_offsets;

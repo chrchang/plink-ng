@@ -163,7 +163,7 @@ BoolErr CsputsStd(const char* readp, uint32_t byte_ct, CompressStreamState* css_
         const uintptr_t bytes_left = input.size - input.pos;
         if (bytes_left < kCompressStreamBlock) {
           memmove(overflow_buf, &(overflow_buf[2 * kCompressStreamBlock - bytes_left]), bytes_left);
-          writep = &(overflow_buf[retval]);
+          writep = &(overflow_buf[bytes_left]);
           break;
         }
       }

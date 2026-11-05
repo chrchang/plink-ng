@@ -64,6 +64,10 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
   alloc_per_thread_cacheline_ct += 1 + (max_difflist_len / kInt32PerCacheline);
 
   uint64_t max_vrec_len = NypCtToByteCt(sample_ct);
+  if (max_vrec_len < 3) {
+    // sample_ct == 8: a singleton difflist record is 3 bytes
+    max_vrec_len = 3;
+  }
   if (phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
     max_vrec_len += 2 * DivUp(sample_ct, CHAR_BIT);
   }
@@ -100,7 +104,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     const uint32_t extra_bytes_base = 2 + sizeof(AlleleCode) + (sample_ct + 6) / 8;
     const uint64_t extra_bytes_max = kPglMaxBytesPerVariant - max_vrec_len;
     uint64_t extra_byte_cts[4];
-    uint32_t extra_alt_ceil = kPglMaxAlleleCt;
+    uint32_t extra_alt_ceil = kPglMaxAlleleCt + 1;
 
     // alt_ct == 2
     uint64_t cur_extra_byte_ct = extra_bytes_base + (sample_ct + 6) / 8;

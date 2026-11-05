@@ -440,7 +440,7 @@ void RPgenReader::ReadIntMaybeSparseHardcalls(IntegerVector buf, int variant_idx
   plink2::GenoarrLookup256x4bx4(_raregeno_buf, quad_table, difflist_len, allele_counts_data);
 }
 
-static const double kGenoRDoublePairsFlipped[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, NA_REAL);
+static const double kGenoRDoublePairsFlipped[32] ALIGNV16 = PAIR_TABLE16(2.0, 1.0, 0.0, NA_REAL);
 
 void RPgenReader::ReadMaybeSparseHardcalls(NumericVector buf, int variant_idx, int allele_idx, int max_difflist_len, IntegerVector* sample_nums_ptr, NumericVector* allele_dosages_ptr) {
   uint32_t difflist_common_geno;
@@ -554,7 +554,14 @@ void RPgenReader::ReadMaybeSparse(NumericVector buf, int variant_idx, int allele
   *allele_dosages_ptr = NumericVector(dosage_ct);
   double* allele_dosages_data = &((*allele_dosages_ptr)[0]);
   if (allele_idx == 0) {
-    plink2::BiallelicDosage16Invert(dosage_ct, dosage_main);
+    // BiallelicDosage16Invert() would turn the missing value (65535) into
+    // 32769.
+    for (uint32_t uii = 0; uii != dosage_ct; ++uii) {
+      const uint16_t cur_dosage = dosage_main[uii];
+      if (cur_dosage != 65535) {
+        dosage_main[uii] = 32768 - cur_dosage;
+      }
+    }
   }
   plink2::DenseDosage16ToDoubles(dosage_main, dosage_ct, NA_REAL, allele_dosages_data);
 }
@@ -617,6 +624,11 @@ void RPgenReader::ReadAlleles(IntegerMatrix acbuf, Nullable<LogicalVector> phase
   // 0, 2 -> automatically phased.  3 -> NA_LOGICAL.
   // 1 -> assume unphased; then change to phased as necessary when iterating
   //      over phasepresent.
+  if (as<LogicalVector>(phasepresent_buf).size() != static_cast<int>(_subset_size)) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "phasepresent_buf has wrong length (%d; %u expected)", static_cast<int>(as<LogicalVector>(phasepresent_buf).size()), _subset_size);
+    stop(errstr_buf);
+  }
   int32_t* phasepresent_wbuf = &(as<LogicalVector>(phasepresent_buf)[0]);
   plink2::GenoarrLookup256x4bx4(_pgv.genovec, kGenoToLogicalPhaseQuads, _subset_size, phasepresent_wbuf);
   int32_t* allele_codes = &acbuf[0];
@@ -690,6 +702,11 @@ void RPgenReader::ReadAllelesNumeric(NumericMatrix acbuf, Nullable<LogicalVector
       }
     }
     return;
+  }
+  if (as<LogicalVector>(phasepresent_buf).size() != static_cast<int>(_subset_size)) {
+    char errstr_buf[256];
+    snprintf(errstr_buf, 256, "phasepresent_buf has wrong length (%d; %u expected)", static_cast<int>(as<LogicalVector>(phasepresent_buf).size()), _subset_size);
+    stop(errstr_buf);
   }
   int32_t* phasepresent_wbuf = &(as<LogicalVector>(phasepresent_buf)[0]);
   plink2::GenoarrLookup256x4bx4(_pgv.genovec, kGenoToLogicalPhaseQuads, _subset_size, phasepresent_wbuf);
