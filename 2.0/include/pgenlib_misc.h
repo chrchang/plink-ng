@@ -88,7 +88,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 2201
+#define PGENLIB_INTERNAL_VERNUM 2202
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -934,6 +934,10 @@ uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nyb
 //         alpha-2-final and later binaries interpret this encoding correctly.
 //         If your workflow makes heavy use of single-sample .pgen files, you
 //         can add -DFUTURE_ENCODER during compilation to unlock this feature.
+//         Update (4 Nov 2026): the ifdef-guard was removed in b.1.0-b.1.3, but
+//         then I realized that I hadn't updated the .pgen specification to
+//         include this definition.  So b.1.4 goes back to not using this
+//         feature; I will hold off until at least 2028.
 //
 // bit 3: multiallelic hardcalls present with alt2/alt3/... present?  If yes,
 //        auxiliary data track #1 disambiguates the 0b01 (ref/altx) and 0b10
