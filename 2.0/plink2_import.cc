@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "plink2_import.h"
+#include "include/plink2_s3.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -7474,13 +7475,13 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       goto BcfToPgen_ret_1;
     }
     // See TextFileOpenInternal().
-    bcffile = fopen(bcfname, FOPEN_RB);
+    bcffile = OpenMaybeS3(bcfname);
     if (unlikely(!bcffile)) {
       const uint32_t slen = strlen(bcfname);
       if (!StrEndsWith(bcfname, ".bcf", slen)) {
-        logerrprintfww("Error: Failed to open %s : %s. (--bcf expects a complete filename; did you forget '.bcf' at the end?)\n", bcfname, strerror(errno));
+        logerrprintfww("Error: Failed to open %s : %s. (--bcf expects a complete filename; did you forget '.bcf' at the end?)\n", bcfname, InputErrorMessage(IsS3Uri(bcfname)));
       } else {
-        logerrprintfww(kErrprintfFopen, bcfname, strerror(errno));
+        logerrprintfww(kErrprintfFopen, bcfname, InputErrorMessage(IsS3Uri(bcfname)));
       }
       goto BcfToPgen_ret_OPEN_FAIL;
     }

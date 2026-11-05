@@ -48,6 +48,7 @@
 #include "plink2_psam.h"
 #include "plink2_pvar.h"
 #include "plink2_random.h"
+#include "include/plink2_s3.h"
 #include "plink2_set.h"
 
 #include <assert.h>
@@ -1079,8 +1080,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   ext_slot.contents = nullptr;
   {
     uint32_t pvar_renamed = 0;
-    if ((make_plink2_flags & (kfMakeBed | kfMakePgen)) ||
-        (pcp->exportf_info.flags & kfExportfIndMajorBed)) {
+    // An S3 input can never collide with the local output, and realpath() does
+    // not accept an s3:// URI, so skip the collision check entirely there.
+    if (((make_plink2_flags & (kfMakeBed | kfMakePgen)) ||
+         (pcp->exportf_info.flags & kfExportfIndMajorBed)) &&
+        (!IsS3Uri(pgenname))) {
       uint32_t fname_slen;
 #ifdef _WIN32
       fname_slen = GetFullPathName(pgenname, kPglFnamesize, g_textbuf, nullptr);
@@ -3753,7 +3757,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
         goto ZstDecompress_ret_NOMEM;
       }
       if (reterr == kPglRetOpenFail) {
-        fprintf(stderr, kErrprintfFopen, in_fname, strerror(errno));
+        fprintf(stderr, kErrprintfFopen, in_fname, zsterror(&zrf));
         goto ZstDecompress_ret_OPEN_FAIL;
       }
       goto ZstDecompress_ret_RFILE_FAIL;
@@ -4400,6 +4404,9 @@ int main(int argc, char** argv) {
   char* vcf_dosage_import_field = nullptr;
   uint32_t* rseeds = nullptr;
   LlStr* file_delete_list = nullptr;
+  uint32_t s3_no_sign_request = 0;
+  uint32_t s3_requester_pays = 0;
+  const char* s3_expected_bucket_owner = nullptr;
   uint32_t arg_idx = 0;
   uint32_t print_end_time = 0;
   uint32_t warning_errcode = 0;
@@ -13766,7 +13773,18 @@ int main(int argc, char** argv) {
         break;
 
       case 's':
-        if (strequal_k_unsafe(flagname_p2, "et")) {
+        if (strequal_k_unsafe(flagname_p2, "3-no-sign-request")) {
+          s3_no_sign_request = 1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "3-requester-pays")) {
+          s3_requester_pays = 1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "3-expected-bucket-owner")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          s3_expected_bucket_owner = argvk[arg_idx + 1];
+        } else if (strequal_k_unsafe(flagname_p2, "et")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -16109,6 +16127,36 @@ int main(int argc, char** argv) {
       }
       if (skip_main) {
         goto main_ret_1;
+      }
+    }
+
+    // If any input filename is remote, initialize libcurl so
+    // that OpenMaybeS3() calls in pgenlib_read.cc and plink2_text.cc can
+    // stream the data on-demand via S3 range requests.  Scanning the whole
+    // command line rather than just the main input triple covers the other
+    // file-taking flags (--keep, --extract, --pheno, ...).
+    {
+      uint32_t any_s3 = 0;
+      for (int s3_scan_idx = 1; s3_scan_idx != argc; ++s3_scan_idx) {
+        if (IsS3Uri(argvk[s3_scan_idx])) {
+          any_s3 = 1;
+          break;
+        }
+      }
+      if (any_s3) {
+#ifdef USE_S3
+        S3SetNoSignRequest(s3_no_sign_request);
+        S3SetRequesterPays(s3_requester_pays);
+        if (unlikely(S3SetExpectedBucketOwner(s3_expected_bucket_owner))) {
+          logerrputs("Error: --s3-expected-bucket-owner requires a 12-digit AWS account ID.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
+        EnsureS3Ready();
+#else
+        logerrputs("Error: S3 URI detected but plink2 was not compiled with S3 support.\n"
+                   "Rebuild with USE_S3=1 to enable S3 support.\n");
+        goto main_ret_INVALID_CMDLINE;
+#endif  // USE_S3
       }
     }
 

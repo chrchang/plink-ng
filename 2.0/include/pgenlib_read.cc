@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "plink2_simd.h"
+#include "plink2_s3.h"
 
 // Uncomment this during e.g. pgenlibr development to enable error-throwing.
 // #include <stdexcept>
@@ -688,7 +689,7 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
 }
 
 static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase1().");
-PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
+PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf, const S3Credentials* s3_creds) {
   pgfip->var_fpos = nullptr;
   pgfip->vrtypes = nullptr;
   pgfip->allele_idx_offsets = nullptr;
@@ -707,10 +708,10 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   uint64_t fsize;
   const unsigned char* fread_ptr;
   unsigned char small_readbuf[3];
-  FILE* shared_ff = fopen(fname, FOPEN_RB);
+  FILE* shared_ff = s3_creds? OpenS3WithCredentials(fname, s3_creds) : OpenMaybeS3(fname);
   pgfip->shared_ff = shared_ff;
   if (unlikely(!shared_ff)) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, InputErrorMessage(IsS3Uri(fname)));
     return kPglRetOpenFail;
   }
   if (unlikely(fseeko(shared_ff, 0, SEEK_END))) {
@@ -823,10 +824,10 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       strcpy_k(fname_iter, ".pgi");
       header_fname = pgi_fname_buf;
     }
-    header_ff = fopen(header_fname, FOPEN_RB);
+    header_ff = s3_creds? OpenS3WithCredentials(header_fname, s3_creds) : OpenMaybeS3(header_fname);
     pgfip->pgi_ff = header_ff;
     if (unlikely(!header_ff)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", header_fname, strerror(errno));
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", header_fname, InputErrorMessage(IsS3Uri(header_fname)));
       return kPglRetOpenFail;
     }
     if (unlikely(!fread_unlocked(small_readbuf, 3, 1, header_ff))) {
@@ -2112,7 +2113,7 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
       pgrp->ff = pgfip->shared_ff;
       pgfip->shared_ff = nullptr;
     } else {
-      pgrp->ff = fopen(fname, FOPEN_RB);
+      pgrp->ff = OpenMaybeS3(fname);
       if (unlikely(!pgrp->ff)) {
         return kPglRetOpenFail;
       }
