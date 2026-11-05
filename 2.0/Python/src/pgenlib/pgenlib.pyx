@@ -2357,7 +2357,6 @@ cdef class PgenWriter:
         cdef uint32_t sample_ct = SpgwGetSampleCt(self._state_ptr)
         if <uintptr_t>allele_int32.shape[0] < 2 * <uintptr_t>sample_ct:
             raise RuntimeError("append_alleles() allele_int32 array has too few entries (" + str(allele_int32.shape[0]) + "; 2 * sample_ct is " + str(2 * <uintptr_t>sample_ct) + ")")
-        cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
         cdef uint32_t allele_ct_limit = self._allele_ct_limit
         cdef uintptr_t* genovec = self._genovec
         cdef uintptr_t* patch_01_set = self._patch_01_set

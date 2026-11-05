@@ -5648,6 +5648,18 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
   // If all_hets is non-null, subsetted_lowcode_hets (sample_ct bits) is set to
   // the allele_idx/y hets with y > allele_idx when *lowcode_het_presentp is
   // set; see GetAux1bLowcodeHets().
+
+  // This check must precede ReadRawGenovec(), since workspace_vec is null when
+  // max_allele_ct == 2 and no phase/dosage data is present.
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  if (unlikely(!allele_idx_offsets)) {
+    return kPglRetInconsistentInput;
+  }
+  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
+  if (unlikely((allele_idx >= allele_ct) || (allele_ct == 2))) {
+    return kPglRetInconsistentInput;
+  }
+
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   uintptr_t* raw_genovec = pgrp->workspace_vec;
@@ -5667,14 +5679,6 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
     if (all_hets) {
       PgrDetectGenoarrHets(raw_genovec, raw_sample_ct, all_hets);
     }
-  }
-  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  if (unlikely(!allele_idx_offsets)) {
-    return kPglRetInconsistentInput;
-  }
-  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
-  if (unlikely((allele_idx >= allele_ct) || (allele_ct == 2))) {
-    return kPglRetInconsistentInput;
   }
   if (allele_idx != 1) {
     GenovecNonmissingToZeroUnsafe(sample_ct, allele_countvec);
