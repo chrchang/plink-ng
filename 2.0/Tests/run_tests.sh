@@ -153,6 +153,11 @@ cd TEST_BLOCKS
 cd ..
 echo "TEST_BLOCKS passed."
 
+cd TEST_COMMON_FLAGS
+./run_tests.sh $d $2 $3 > TEST_COMMON_FLAGS.log
+cd ..
+echo "TEST_COMMON_FLAGS passed."
+
 cd TEST_PHENO_UTILS
 ./run_tests.sh $d $2 $3 > TEST_PHENO_UTILS.log
 cd ..
@@ -418,9 +423,19 @@ cd TEST_VALIDATE_DUP_ALLELE
 cd ..
 echo "TEST_VALIDATE_DUP_ALLELE passed."
 
+cd TEST_19_BCF_CHECKS
+./run_tests.sh $d $2 $3 > TEST_19_BCF_CHECKS.log
+cd ..
+echo "TEST_19_BCF_CHECKS passed."
+
 cd TEST_ALLELE_UNIQUENESS
 ./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
 cd ..
 echo "TEST_ALLELE_UNIQUENESS passed."
+
+cd TEST_19_LONG_CONTIG
+./run_tests.sh $d $2 $3 > TEST_19_LONG_CONTIG.log
+cd ..
+echo "TEST_19_LONG_CONTIG passed."
 
 echo "All tests passed."

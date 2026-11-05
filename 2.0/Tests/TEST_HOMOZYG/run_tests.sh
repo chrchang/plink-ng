@@ -240,3 +240,11 @@ awk '
     }
     END { if (!nonzero) { print "every stratified count is zero"; exit 1 } }
 ' plink2.hom.summary plink2_pheno.hom.summary
+
+# 11. With no runs at all, every .hom.summary count must be zero, even when the
+#     workspace was not clean (--randmem), which small inputs otherwise hide.
+randmem=--randmem
+[[ "$2 $3" == *--randmem* ]] && randmem=
+$1/plink2 $2 $3 --dummy 100 200 0.01 acgt --seed 1 --make-pgen --out tmp_noroh
+$1/plink2 $2 $3 $randmem --pfile tmp_noroh --homozyg --homozyg-min-af 0 --out plink2_noroh
+awk 'FNR > 1 && $4 != 0 { print "nonzero ROH_CT at " $3; exit 1 }' plink2_noroh.hom.summary

@@ -2798,7 +2798,13 @@ uint32_t LdLoadNecessary(uint32_t cur_vidx, PgenReaderMain* pgrp) {
   // bit 2 set.
   const uint32_t old_ldbase_vidx = pgrp->ldbase_vidx;
   pgrp->ldbase_vidx = GetLdbaseVidx(pgrp->fi.vrtypes, cur_vidx);
-  return (pgrp->ldbase_vidx != old_ldbase_vidx);
+  if (pgrp->ldbase_stypes && (pgrp->ldbase_vidx == old_ldbase_vidx)) {
+    return 0;
+  }
+  // Callers only set this after a successful load, so a load that fails on a
+  // corrupt or short file can't leave a stale cache for later reads to trust.
+  pgrp->ldbase_stypes = kfPgrLdcache0;
+  return 1;
 }
 
 BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp) {
@@ -2859,7 +2865,7 @@ PglErr LdLoadAndCopyGenovecSubset(const uintptr_t* __restrict sample_include, co
     }
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
     PglErr reterr = ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, dest);
-    pgrp->ldbase_stypes = ((sample_ct != raw_sample_ct) && (!(vrtype & 4)))? (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp) : kfPgrLdcacheNyp;
+    pgrp->ldbase_stypes = reterr? kfPgrLdcache0 : (((sample_ct != raw_sample_ct) && (!(vrtype & 4)))? (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp) : kfPgrLdcacheNyp);
     CopyNyparr(dest, sample_ct, pgrp->ldbase_genovec);
     return reterr;
   }
@@ -2973,7 +2979,6 @@ PglErr LdLoadAndCopyRawGenovec(uint32_t subsetting_required, uint32_t vidx, Pgen
       return kPglRetReadFail;
     }
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
-    pgrp->ldbase_stypes = kfPgrLdcacheRawNyp;
     assert((vrtype & 7) != 5); // all-hom-ref can't be ldbase
     uintptr_t* raw_genovec = pgrp->ldbase_raw_genovec;
     PglErr reterr;
@@ -2984,6 +2989,7 @@ PglErr LdLoadAndCopyRawGenovec(uint32_t subsetting_required, uint32_t vidx, Pgen
       vecset(raw_genovec, vrtype_low2 * kMask5555, DivUp(genovec_byte_ct, kBytesPerVec));
       reterr = ParseAndApplyDifflist(fread_end, &fread_ptr, pgrp, raw_genovec);
     }
+    pgrp->ldbase_stypes = reterr? kfPgrLdcache0 : kfPgrLdcacheRawNyp;
     memcpy(dest, raw_genovec, genovec_byte_ct);
     return reterr;
   }
@@ -3047,7 +3053,7 @@ PglErr ReadRawGenovec(uint32_t subsetting_required, uint32_t vidx, PgenReaderMai
     PgrPlink1ToPlink2InplaceUnsafe(raw_sample_ct, raw_genovec);
   } else {
     const uint32_t is_ldbase = pgrp->fi.vrtypes && VrtypeLdCompressed(pgrp->fi.vrtypes[vidx + 1]);
-    if (is_ldbase) {
+    if (is_ldbase && (!reterr)) {
       CopyNyparr(raw_genovec, raw_sample_ct, pgrp->ldbase_raw_genovec);
       pgrp->ldbase_vidx = vidx;
       pgrp->ldbase_stypes = kfPgrLdcacheRawNyp;
@@ -3130,9 +3136,12 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
     if (!(ldbase_vrtype & 4)) {
       reterr = Parse1or2bitGenoarrUnsafe(fread_end, ldbase_vrtype, &fread_ptr, pgrp, raw_genovec);
     LdLoadMinimalSubsetIfNecessary_genovec_finish:
-      pgrp->ldbase_stypes = subsetting_required? (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp) : kfPgrLdcacheNyp;
-      if ((!subsetting_required) || reterr) {
+      if (unlikely(reterr)) {
         return reterr;
+      }
+      pgrp->ldbase_stypes = subsetting_required? (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp) : kfPgrLdcacheNyp;
+      if (!subsetting_required) {
+        return kPglRetSuccess;
       }
       CopyNyparrNonemptySubset(raw_genovec, sample_include, raw_sample_ct, sample_ct, pgrp->ldbase_genovec);
       return kPglRetSuccess;
@@ -3277,6 +3286,7 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   const uint32_t is_ldbase = pgrp->fi.vrtypes && VrtypeLdCompressed(pgrp->fi.vrtypes[vidx + 1]);
   const uint32_t saved_difflist_len = VrtypeDifflist(vrtype)? PeekVint31(fread_ptr, fread_end) : raw_sample_ct;
   pgrp->ldbase_vidx = vidx;
+  pgrp->ldbase_stypes = kfPgrLdcache0;
   // no limit is slightly better than /16 but substantially worse than /32 on
   // the large test dataset (/64 is slightly worse than /32)
   // no limit is best on the small test dataset
@@ -3663,8 +3673,11 @@ PglErr LdLoadGenovecSubsetIfNecessary(const uintptr_t* __restrict sample_include
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
     // bugfix (6 Mar 2019): ldbase_raw_genovec is only filled in (!difflist) &&
     //   subsetting_required case; (!difflist) isn't enough
-    pgrp->ldbase_stypes = ((vrtype & 4) || (sample_ct == pgrp->fi.raw_sample_ct))? kfPgrLdcacheNyp : (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp);
-    return ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, pgrp->ldbase_genovec);
+    const PglErr reterr = ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, pgrp->ldbase_genovec);
+    if (likely(!reterr)) {
+      pgrp->ldbase_stypes = ((vrtype & 4) || (sample_ct == pgrp->fi.raw_sample_ct))? kfPgrLdcacheNyp : (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp);
+    }
+    return reterr;
   }
   if (!(pgrp->ldbase_stypes & kfPgrLdcacheNyp)) {
     if (pgrp->ldbase_stypes & kfPgrLdcacheDifflist) {
@@ -3740,7 +3753,7 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
       ZeroTrailingNyps(sample_ct, pgrp->ldbase_genovec);
       GenoarrCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, genocounts);
       STD_ARRAY_COPY(genocounts, 4, pgrp->ldbase_basic_genocounts);
-      pgrp->ldbase_stypes = (subsetting_required && (!(vrtype & 4)))? (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp | kfPgrLdcacheBasicGenocounts) : (kfPgrLdcacheNyp | kfPgrLdcacheBasicGenocounts);
+      pgrp->ldbase_stypes = reterr? kfPgrLdcache0 : ((subsetting_required && (!(vrtype & 4)))? (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp | kfPgrLdcacheBasicGenocounts) : (kfPgrLdcacheNyp | kfPgrLdcacheBasicGenocounts));
     } else if (vrtype & 4) {
       const uint32_t vrtype_low2 = vrtype & 3;
       if (vrtype_low2 != 1) {
@@ -5655,6 +5668,14 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
       PgrDetectGenoarrHets(raw_genovec, raw_sample_ct, all_hets);
     }
   }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  if (unlikely(!allele_idx_offsets)) {
+    return kPglRetInconsistentInput;
+  }
+  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
+  if (unlikely((allele_idx >= allele_ct) || (allele_ct == 2))) {
+    return kPglRetInconsistentInput;
+  }
   if (allele_idx != 1) {
     GenovecNonmissingToZeroUnsafe(sample_ct, allele_countvec);
     if (!multiallelic_hc_present) {
@@ -5663,11 +5684,6 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
       }
       return kPglRetSuccess;
     }
-  }
-  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
-  if (unlikely(allele_ct == 2)) {
-    return kPglRetInconsistentInput;
   }
   const uint32_t aux1_first_byte = *fread_ptr++;
   const uint32_t aux1a_mode = aux1_first_byte & 15;
@@ -8239,11 +8255,14 @@ PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const 
   }
 }
 
-PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
+PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);
   const uint32_t* sample_include_cumulative_popcounts = GetSicp(pssi);
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  if (unlikely(allele_idx >= allele_ct)) {
+    return kPglRetInconsistentInput;
+  }
   if ((allele_ct == 2) || (!allele_idx)) {
     uint32_t dosage_ct;
     PglErr reterr = IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_countvec, dosage_present, dosage_main, &dosage_ct);

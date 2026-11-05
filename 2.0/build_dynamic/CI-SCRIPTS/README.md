@@ -22,7 +22,6 @@ Continuous integration framework for validating PLINK2 GLM implementations again
 - [Scripts Reference](#scripts-reference)
 - [Directory Structure](#directory-structure)
 - [Troubleshooting](#troubleshooting)
-- [Archive](#archive)
 
 ## Overview
 
@@ -34,7 +33,7 @@ Continuous integration framework for validating PLINK2 GLM implementations again
 
 **Complete Cycle:** ~12 weeks to run all batches
 
-**Validation Criteria:** All correlations (beta, SE, p-values) must be ≥0.8 threshold
+**Validation Criteria:** Correlations (beta, p-values) must be ≥0.8, and median differences (relative for beta and SE, absolute for p-values) must be ≤5%
 
 ## Quick Start
 
@@ -81,7 +80,7 @@ Test Data (PLINK2SYN) → Cache (Google Drive) → CI Workflow → PLINK2 GLM �
    - Rotates through batches 1-12 sequentially
    - Runs on both Linux and macOS
 
-4. **Validation:** Correlation check (≥0.8) for beta coefficients, standard errors, and p-values
+4. **Validation:** Correlation check (≥0.8) for beta coefficients and p-values, and median difference check (≤5%) for beta coefficients, standard errors, and p-values
    - Compares PLINK2 output with R reference
    - Fails fast if correlation below threshold
    - Detailed output in `results/` directory
@@ -200,9 +199,8 @@ For local development, contact maintainer for test data access or download from 
      - **Linux:** libopenblas-dev, liblapack-dev, liblapacke-dev, build-essential, zlib1g-dev, unzip, bc
      - **macOS:** Uses native system libraries
 
-3. **Restore Batch Counter**
-   - Load cached `.batch_counter` file (tracks current batch number)
-   - Increment batch: `NEXT_BATCH = (CURRENT_BATCH % 12) + 1`
+3. **Determine Batch Number**
+   - Derived from the date: `BATCH = (ISO week % 12) + 1`
    - Cycles through batches 1→2→...→12→1
    - Set as environment variable `GLM_BATCH_NUM`
 
@@ -229,15 +227,10 @@ For local development, contact maintainer for test data access or download from 
    - Removes test data, results, build artifacts
    - Saves disk space on CI runners
 
-8. **Save Batch Counter**
-   - Cache updated `.batch_counter` for next run
-   - Persists even if workflow fails (always saves)
-
 **Batch Rotation Logic:**
-- Uses GitHub Actions cache to persist batch counter between runs
-- Each workflow run increments the counter
+- Keeps no state, so a failed run or an evicted cache cannot skip a batch
 - Ensures all 108 tests run over ~12 weeks
-- Independent tracking per platform (Linux/macOS may differ slightly)
+- Linux and macOS run the same batch
 
 ### Test Coverage
 
@@ -361,9 +354,8 @@ correlation_threshold=0.8          # Minimum correlation for pass (0.0-1.0)
 | `GLM_TESTS.sh` | CI entry point | Sets up Python venv, installs dependencies (pandas, numpy), creates results directory, executes test runner |
 | `LOCAL_PLINK2_GLM_TESTING.sh` | Core test runner | Loads config, runs PLINK2 GLM for each test case, compares with R reference, validates correlations, fail-fast behavior |
 | `PLINK2_GLM_TEST_CONFIG.sh` | Configuration | Defines paths, batch selection, correlation threshold, loads batch parameters from files |
-| `COMPARE_GLM_PLINK2_R.py` | Validation script | Compares PLINK2 vs R outputs, calculates correlations (beta, SE, p-values), outputs pass/fail status |
+| `COMPARE_GLM_PLINK2_R.py` | Validation script | Compares PLINK2 vs R outputs, calculates correlations (beta, p-values) and median differences (beta, SE, p-values), outputs pass/fail status |
 | `glm_test_batches.py` | Batch generator | Generates batch files from master list, ensures even distribution across batches |
-| `checkglm.py` | GLM checker utility | Validates GLM output file format and contents |
 | `CLEANUP.sh` | Cleanup utility | Removes test_data, results directories, cleans build artifacts with `make clean` |
 | `DYNAMICBUILD_LINUXMAC_ROOT.sh` | Build script | Compiles PLINK2 from source using system libraries (LAPACK, OpenBLAS) |
 
@@ -389,7 +381,6 @@ CI-SCRIPTS/
 │
 ├── Validation & Analysis
 │   ├── COMPARE_GLM_PLINK2_R.py               # PLINK2 vs R comparison
-│   ├── checkglm.py                           # GLM output checker
 │   └── glm_test_batches.py                   # Batch file generator
 │
 ├── Utilities
@@ -403,18 +394,8 @@ CI-SCRIPTS/
 │   ├── BATCH_12_PARAMS.txt                   # Batch 12 (9 tests)
 │   └── ALL_BATCHES_MASTER_LIST.txt           # All 108 tests
 │
-├── results/                                  # Test outputs (gitignored)
-│   └── *.glm.{linear,logistic,logistic.hybrid}
-│
-└── archive/                                  # Deprecated scripts
-    ├── GLM_TESTS_old.sh
-    ├── GLM_TESTS_old2.sh
-    ├── local_plink2_glm_testruns_old.sh
-    ├── glm_tests_2_R.sh
-    ├── test_glm.sh
-    ├── hello.sh
-    ├── testsv2.sh
-    └── local_linux_testing_env.sh
+└── results/                                  # Test outputs (gitignored)
+    └── *.glm.{linear,logistic,logistic.hybrid}
 ```
 
 ## Troubleshooting
@@ -496,13 +477,6 @@ pip install pandas numpy
 - Navigate to Actions → "PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST"
 - Click "Run workflow" → Select branch → "Run workflow"
 
-**Batch Counter Issues:**
-- **Symptom:** Same batch runs repeatedly
-- **Solution:**
-  1. Check batch counter cache in workflow runs
-  2. Verify `.batch_counter` file is being saved/restored
-  3. Manually increment by editing cache or waiting for next run
-
 ### Build Failures
 
 **LAPACK/OpenBLAS Issues (Linux):**
@@ -522,23 +496,3 @@ sudo apt-get install -y libopenblas-dev liblapack-dev liblapacke-dev
 - Clean build artifacts: `make -C 2.0/build_dynamic/ clean`
 - Rebuild from scratch
 
-## Archive
-
-The `archive/` directory contains deprecated scripts kept for historical reference:
-
-**Archived Scripts:**
-- `GLM_TESTS_old.sh`, `GLM_TESTS_old2.sh` - Previous test framework versions
-- `local_plink2_glm_testruns_old.sh` - Old test runner implementation
-- `glm_tests_2_R.sh` - R-based test script (superseded)
-- `test_glm.sh` - Early test script prototype
-- `hello.sh` - Simple debug script
-- `testsv2.sh` - Test parameter template
-- `local_linux_testing_env.sh` - Linux dependency setup script
-
-**Note:** These scripts are **not actively maintained** and should **not be used** for current testing. Use the current scripts listed in [Scripts Reference](#scripts-reference) instead.
-
-**Why Archived:**
-- Superseded by current testing framework
-- Retained for historical context and reference
-- Useful for understanding test evolution
-- May contain ideas for future improvements

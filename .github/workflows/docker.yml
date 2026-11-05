@@ -26,6 +26,8 @@ on:
     paths:
       - 'docker/**'
       - '.dockerignore'
+      - '1.9/Makefile'
+      - '2.0/build_dynamic/Makefile'
       - '.github/workflows/docker.yml'
 
 permissions:
@@ -120,12 +122,14 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}-${{ matrix.platform }}
 
+      # Pushed by digest only: the tags come in the merge job, which needs this one to pass.
       - name: Smoke test
-        if: needs.plan.outputs.push != 'true'
+        env:
+          IMAGE: ${{ needs.plan.outputs.push == 'true' && format('{0}@{1}', steps.image.outputs.name, steps.build.outputs.digest) || format('{0}:test', matrix.target) }}
         run: |
           bin=${{ matrix.target == 'plink1' && 'plink' || 'plink2' }}
           fmt=${{ matrix.target == 'plink1' && '--bfile' || '--pfile' }}
-          docker run --rm ${{ matrix.target }}:test sh -c "cd /tmp && $bin --version && $bin --dummy 200 500 --out d > /dev/null && $bin $fmt d --maf 0.05 --freq --pca 2 --out o > /dev/null && test -s o.eigenvec"
+          docker run --rm "$IMAGE" sh -c "cd /tmp && $bin --version && $bin --dummy 200 500 --out d > /dev/null && $bin $fmt d --maf 0.05 --freq --pca 2 --out o > /dev/null && test -s o.eigenvec"
 
       - name: Export digest
         if: needs.plan.outputs.push == 'true'

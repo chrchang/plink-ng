@@ -11354,7 +11354,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       goto VcorMatrix_ret_NOMEM;
     }
     {
-      const uintptr_t slot_ct = usual_row_window_size * variant_ct;
+      const uintptr_t slot_ct = S_CAST(uintptr_t, usual_row_window_size) * variant_ct;
       if (is_bin4) {
         if (unlikely(bigstack_alloc_f(slot_ct, &(ctx.results_f[0])) ||
                      bigstack_alloc_f(slot_ct, &(ctx.results_f[1])))) {

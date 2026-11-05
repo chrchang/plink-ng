@@ -1,9 +1,4 @@
-# Checks if the pgenlib R package can be installed by a user,
-# when installing pgenlibr using:
-#
-# ```
-# remotes::install_github("chrchang/plink-ng/2.0/pgenlibr")
-# ```
+# Checks if the pgenlib R package in this checkout can be installed and loaded.
 #
 
 on:
@@ -33,6 +28,8 @@ jobs:
           sudo rm -f /etc/apt/sources.list.d/*google*.list \
                      /etc/apt/sources.list.d/*google*.sources
 
+      - uses: actions/checkout@v5
+
       # Install R
       - uses: r-lib/actions/setup-r@v2
 
@@ -43,5 +40,6 @@ jobs:
       - name: Install pgenlibr
         run: |
           install.packages("remotes")
-          remotes::install_github("chrchang/plink-ng/2.0/pgenlibr")
+          remotes::install_local("2.0/pgenlibr")
+          library(pgenlibr)
         shell: Rscript {0}

@@ -5201,7 +5201,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t covar_ct_x = common->covar_ct_x;
     const uint32_t covar_ct_y = common->covar_ct_y;
 
-    uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
+    uintptr_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
@@ -5617,10 +5617,10 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
           double* prev_local_covar_row_d = nullptr;
           if (variant_idx) {
             if (is_single_prec) {
-              prev_local_covar_row_f = &(ctx->local_covars_vcmaj_f[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+              prev_local_covar_row_f = &(ctx->local_covars_vcmaj_f[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
             } else {
               // bugfix (3 Jan 2026): forgot this case
-              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
             }
           }
           reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, prev_local_covar_row_f, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, is_single_prec? ctx->local_covars_vcmaj_f[parity] : nullptr, is_single_prec? nullptr : ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
@@ -6169,7 +6169,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
     const uint32_t covar_ct_x = common->covar_ct_x;
     const uint32_t covar_ct_y = common->covar_ct_y;
 
-    uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
+    uintptr_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
@@ -6717,9 +6717,9 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
             double* prev_local_covar_row_d = nullptr;
             if (variant_idx) {
               if (is_single_prec) {
-                prev_local_covar_row_f = &(ctx->local_covars_vcmaj_f[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+                prev_local_covar_row_f = &(ctx->local_covars_vcmaj_f[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
               } else {
-                prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+                prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
               }
             }
             reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, prev_local_covar_row_f, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, is_single_prec? ctx->local_covars_vcmaj_f[parity] : nullptr, is_single_prec? nullptr : ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);

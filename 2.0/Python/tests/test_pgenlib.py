@@ -437,6 +437,58 @@ def phased_multiallelic_case(tmp_path, case_idx, nsample_min, nsample_limit, nva
             check_phased_multiallelic_read_concordance(r, nsample, nvariant, test_acodes, test_phasepresent_bools, test_allele_idx_offsets, sample_subset)
 
 
+CORRUPT_LD_PGEN_B64 = (
+    "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"
+    "EgQFAQEIDw0YFgIDHPCo3zlLJQ=="
+)
+
+
+def test_read_after_error_on_corrupt_pgen(tmp_path):
+    # A failed read must not leave a stale LD base for later reads to trust.
+    path = tmp_path / "corrupt.pgen"
+    path.write_bytes(base64.b64decode(CORRUPT_LD_PGEN_B64))
+    offsets = np.arange(31, dtype=np.uintp) * 4
+    try:
+        r = pgenlib.PgenReader(bytes(path), allele_idx_offsets=offsets)
+    except RuntimeError:
+        pytest.skip("this platform rejects the corrupt file when opening it")
+    buf = np.empty([r.get_raw_sample_ct()], np.int8)
+    for variant_idx in range(30):
+        for allele_idx in (1, 2):
+            try:
+                r.read(variant_idx, buf, allele_idx)
+            except RuntimeError:
+                pass
+    r.close()
+
+
 def test_phased_multiallelic(tmp_path):
     ncase = 500
     for case_idx in range(0, ncase):
@@ -484,6 +536,21 @@ def bim_case(tmp_path, case_idx, nvariant_min, nvariant_limit):
                         alt_list[vidx], ref_list[vidx]])
     with pgenlib.PvarReader(test_bim_path) as bimr:
         check_bim_concordance(bimr, chrom_list, pos_list, id_list, ref_list, alt_list)
+
+def test_sparse_dosages_ref_missing(tmp_path):
+    path = bytes(tmp_path / "ref.pgen")
+    geno = np.full(1000, 2, np.int8)
+    geno[[3, 500]] = 0
+    geno[7] = 1
+    geno[9] = -9
+    with pgenlib.PgenWriter(path, 1000, variant_ct=1, nonref_flags=False) as w:
+        w.append_biallelic(geno)
+    with pgenlib.PgenReader(path) as r:
+        for read_sparse_dosages in (r.read_sparse_dosages32, r.read_sparse_dosages64):
+            sample_idxs, dosages = read_sparse_dosages(0, 0)
+            assert sample_idxs.tolist() == [3, 7, 9, 500]
+            assert dosages.tolist() == [2, 1, -9, 2]
+
 
 def test_bim(tmp_path):
     ncase = 5
@@ -590,9 +657,49 @@ def check_phased_dosage_fixture(tmp_path, name, pgen_b64, want_list):
                     assert np.allclose((got[:, 0::2] + got[:, 1::2])[nonmissing], got_dosages[nonmissing], rtol=0, atol=1e-6)
 
 
+def test_count_multiallelic(tmp_path):
+    path = bytes(tmp_path / "m.pgen")
+    with pgenlib.PgenWriter(path, 4, variant_ct=1, nonref_flags=False, allele_ct_limit=3) as w:
+        w.append_alleles(np.array([0, 2, 0, 2, 0, 1, 0, 0], np.int32), allele_ct=3)
+    with pgenlib.PgenReader(path, allele_idx_offsets=np.array([0, 3], dtype=np.uintp)) as r:
+        got = np.empty([4], np.uint32)
+        for allele_idx, want in ((0, [0, 3, 1, 0]), (1, [3, 1, 0, 0]), (2, [2, 2, 0, 0])):
+            r.count(0, got, allele_idx)
+            assert got.tolist() == want
+        with pytest.raises(RuntimeError):
+            r.count(0, got, 3)
+
+
 def test_phased_dosages_hds(tmp_path):
     check_phased_dosage_fixture(tmp_path, "hds", HDS_PGEN_B64, HDS_WANT)
     check_phased_dosage_fixture(tmp_path, "ds", DS_PGEN_B64, DS_WANT)
+
+
+def test_argument_checks(tmp_path):
+    path = bytes(tmp_path / "b.pgen")
+    geno = np.array([0, 1, 2, 0], np.int8)
+    with pgenlib.PgenWriter(path, 4, variant_ct=1, nonref_flags=False) as w:
+        w.append_biallelic(geno)
+        with pytest.raises(RuntimeError):
+            w.append_biallelic(geno)
+    r = pgenlib.PgenReader(path)
+    got = np.empty([4], np.int8)
+    got_dosages = np.empty([4], np.float64)
+    with pytest.raises(RuntimeError):
+        r.read(0, got, allele_idx=7)
+    with pytest.raises(RuntimeError):
+        r.read_dosages(0, got_dosages, allele_idx=256)
+    readonly = np.empty([4], np.int8)
+    readonly.flags.writeable = False
+    with pytest.raises(RuntimeError):
+        r.read(0, readonly)
+    r.read(0, got)
+    assert got.tolist() == geno.tolist()
+    r.close()
+    with pytest.raises(RuntimeError):
+        r.read(0, got)
+    with pytest.raises(RuntimeError):
+        r.change_sample_subset()
 
 
 def test_phased_dosages_errors(tmp_path):
