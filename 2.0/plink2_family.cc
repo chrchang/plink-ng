@@ -1199,14 +1199,15 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
             }
             error_ct_fill = 0;
             ZeroU32Arr(trio_ct, trio_error_ct_acc_buf);
-            ZeroU32Arr(trio_ct, trio_missing_ct_acc_buf);
           }
         }
-        if (variant_error_ct_denom != trio_ct) {
+        if (exclude_missing_from_denom) {
+          // One-parent-missing variants don't change variant_error_ct_denom,
+          // so we cannot test that here.
           if (var_first) {
             U32CastVecAdd(trio_missing_ct_cur_buf, trio_vec_ct, trio_missing_ct_acc_buf);
           }
-          missing_ct_fill += exclude_missing_from_denom;
+          ++missing_ct_fill;
           if (missing_ct_fill == 255) {
             unsigned char* read_iter = R_CAST(unsigned char*, trio_missing_ct_acc_buf);
             uint32_t* trio_missing_cts_write_iter = trio_missing_cts;
@@ -1217,6 +1218,8 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
               trio_missing_cts_write_iter = &(trio_missing_cts_write_iter[3]);
               read_iter = &(read_iter[4]);
             }
+            missing_ct_fill = 0;
+            ZeroU32Arr(trio_ct, trio_missing_ct_acc_buf);
           }
         }
       }
@@ -1420,7 +1423,7 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
       CopyBitarrSubset(sex_male, trio_sample_include, sample_ct, sex_male_collapsed);
       FillInterleavedMaskVec(sex_male_collapsed, sample_ctv2, sex_male_collapsed_interleaved);
       CopyBitarrSubset(sex_nm, trio_sample_include, sample_ct, sex_female_collapsed);
-      BitvecInvmask(sex_male, sample_ctl, sex_female_collapsed);
+      BitvecInvmask(sex_male_collapsed, sample_ctl, sex_female_collapsed);
       FillInterleavedMaskVec(sex_female_collapsed, sample_ctv2, sex_female_collapsed_interleaved);
       ctx.sex_male_collapsed = sex_male_collapsed;
       ctx.sex_male_collapsed_interleaved = sex_male_collapsed_interleaved;

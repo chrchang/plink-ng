@@ -112,32 +112,27 @@ BoolErr PermuteWithinInit(const uintptr_t* sample_include, const PhenoCol* permu
 
   cat_cumulative_sizes[0] = 0;
 
+  // cat_offsets[k] is now the end of category k.
   cat_offset = 0;
-  uint32_t read_idx = 1;
-  for (; read_idx <= cat_ct; ++read_idx) {
+  uint32_t read_idx = 0;
+  for (; read_idx != cat_ct; ++read_idx) {
     if (cat_offsets[read_idx] == cat_offset) {
       break;
     }
     cat_offset = cat_offsets[read_idx];
   }
-  if (read_idx <= cat_ct) {
-    uint32_t write_case_ct = cat_case_cts? cat_case_cts[read_idx] : 0;
-    uint32_t write_idx = read_idx - 1;
-    while (++read_idx <= cat_ct) {
+  if (read_idx != cat_ct) {
+    uint32_t write_idx = read_idx;
+    while (++read_idx != cat_ct) {
       if (cat_offsets[read_idx] == cat_offset) {
         continue;
       }
       if (cat_case_cts) {
-        cat_case_cts[write_idx] = write_case_ct;
-        write_case_ct = cat_case_cts[read_idx];
+        cat_case_cts[write_idx] = cat_case_cts[read_idx];
       }
-      cat_offsets[write_idx++] = cat_offset;
       cat_offset = cat_offsets[read_idx];
+      cat_offsets[write_idx++] = cat_offset;
     }
-    if (cat_case_cts) {
-      cat_case_cts[write_idx] = write_case_ct;
-    }
-    cat_offsets[write_idx] = cat_offset;
     cat_ct = write_idx;
   }
   *cat_ct_ptr = cat_ct;
@@ -151,11 +146,12 @@ void PermuteWithinB(const uint32_t* perm_idx_to_orig_uidx, const uint32_t* cat_c
   uint32_t cur_cat_offset = 0;
   for (uint32_t cat_idx = 0; cat_idx != cat_ct; ++cat_idx) {
     uint32_t remaining_case_ct = cat_case_cts[cat_idx];
+    const uint32_t next_cat_offset = cat_cumulative_sizes[cat_idx + 1];
     if (!remaining_case_ct) {
+      cur_cat_offset = next_cat_offset;
       continue;
     }
     const uint32_t* cat_sample_idx_to_uidx = &(perm_idx_to_orig_uidx[cur_cat_offset]);
-    const uint32_t next_cat_offset = cat_cumulative_sizes[cat_idx + 1];
     const uint32_t cur_cat_size = next_cat_offset - cur_cat_offset;
     for (uint32_t cat_sample_idx = 0; cat_sample_idx != cur_cat_size; ++cat_sample_idx) {
       const uint32_t rand_val = RandU32(cur_cat_size - cat_sample_idx, sfmtp);

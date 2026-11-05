@@ -1656,9 +1656,12 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   const uint32_t name_ct = range_list_ptr->name_ct;
   const uint32_t name_max_blen = range_list_ptr->name_max_blen;
   const uint32_t idx_max = bitarr_size + offset;
+  if (!idx_max) {
+    return (name_ct != 0);
+  }
   for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
     uint32_t idx1;
-    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
+    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx1)) {
       if (likely(ignore_overflow)) {
         continue;
       }
@@ -1670,7 +1673,7 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
     if (starts_range[name_idx]) {
       ++name_idx;
       uint32_t idx2;
-      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx2)) {
+      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx2)) {
         if (unlikely(!ignore_overflow)) {
           return 1;
         }
@@ -2342,7 +2345,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
       memcpyx(cur_name_str, range_end, re_len, '\0');
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
-        if (unlikely(memequal(dup_check, cur_name_str, rs_len + 1))) {
+        if (unlikely(memequal(dup_check, cur_name_str, re_len + 1))) {
           logerrprintfww("Error: Duplicate %s argument '%s'.\n", argvk[0], cur_name_str);
           return kPglRetInvalidCmdline;
         }
@@ -3155,10 +3158,10 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           goto CmdlineParsePhase1_ret_NOMEM;
         }
         pcmp->subst_argv = subst_argv;
-        memcpy(subst_argv, &(argvk[1]), arg_idx * sizeof(intptr_t));
-        const uint32_t load_param_idx_end = arg_idx + num_script_params;
+        memcpy(subst_argv, &(argvk[1]), (arg_idx - 1) * sizeof(intptr_t));
+        const uint32_t load_param_idx_end = arg_idx - 1 + num_script_params;
         script_buf_iter = &(script_buf[-1]);
-        for (uint32_t param_idx = arg_idx; param_idx != load_param_idx_end; ++param_idx) {
+        for (uint32_t param_idx = arg_idx - 1; param_idx != load_param_idx_end; ++param_idx) {
           while (ctou32(*(++script_buf_iter)) <= 32);
           subst_argv[param_idx] = script_buf_iter;
           while (ctou32(*(++script_buf_iter)) > 32);
@@ -3866,6 +3869,8 @@ PglErr CmpExprNewStr(const char* cur_param, uint32_t* offset_ptr, char** new_str
   return kPglRetSuccess;
 }
 
+static uint32_t g_cmp_expr_depth = 0;
+
 PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_prec, uint32_t open_lparen_ct, uint32_t* param_idx_ptr, uint32_t* offset_ptr, CmpExpr* cmp_expr_ptr) {
   // Preconditions:
   // - cmp_expr_ptr->etype == kCmpExprTypeNull.
@@ -3913,7 +3918,12 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
   uint32_t param_idx = *param_idx_ptr;
   uint32_t offset = *offset_ptr;
   PglErr reterr = kPglRetSuccess;
+  ++g_cmp_expr_depth;
   {
+    if (unlikely(g_cmp_expr_depth > 1000)) {
+      strcpy_k(g_textbuf, "Expression is nested too deeply.");
+      goto CmpExprParse_ret_INVALID_CMDLINE;
+    }
     uint32_t lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
     if (unlikely(!lookahead_ui)) {
       // Start of predicate expected, but we reached end-of-input; innermost
@@ -3998,7 +4008,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         }
         lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
         CmpExprType first_etype;
-        if (unlikely(!CmpExprNumCompare(sources[param_idx], 1, &offset, &first_etype))) {
+        if (unlikely((!lookahead_ui) || (!CmpExprNumCompare(sources[param_idx], 1, &offset, &first_etype)))) {
           strcpy_k(g_textbuf, "Numeric comparison operator ('!=', '<', '<=', '==', '>=', '>') expected after number.");
           goto CmpExprParse_ret_INVALID_CMDLINE;
         }
@@ -4030,7 +4040,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         // directions
         prev_offset = offset;
         CmpExprType second_etype;
-        if (CmpExprNumCompare(sources[param_idx], 0, &offset, &second_etype)) {
+        if (lookahead_ui && CmpExprNumCompare(sources[param_idx], 0, &offset, &second_etype)) {
           if (unlikely((first_etype == kCmpExprTypeNoteq) || (first_etype == kCmpExprTypeEq))) {
             offset = prev_offset;
             snprintf(g_textbuf, kTextbufSize, "\"[number] %c= [key]\" cannot be followed by another comparison operator.", (first_etype == kCmpExprTypeNoteq)? '!' : '=');
@@ -4043,7 +4053,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
           }
           lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
           prev_offset = offset;
-          if (unlikely(!CmpExprNumber(sources[param_idx], &offset, &second_num))) {
+          if (unlikely((!lookahead_ui) || (!CmpExprNumber(sources[param_idx], &offset, &second_num)))) {
             strcpy_k(g_textbuf, "[number] [operator] [key] [operator] must be followed by a number.");
             goto CmpExprParse_ret_INVALID_CMDLINE;
           }
@@ -4087,7 +4097,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
         prev_offset = offset;
         CmpExprType ineq_etype;
-        if (CmpExprNumCompare(sources[param_idx], 0, &offset, &ineq_etype)) {
+        if (lookahead_ui && CmpExprNumCompare(sources[param_idx], 0, &offset, &ineq_etype)) {
           if (unlikely(min_prec == 3)) {
             free(key);
             offset = prev_offset;
@@ -4095,12 +4105,22 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
             goto CmpExprParse_ret_INVALID_CMDLINE;
           }
           lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
+          if (unlikely(!lookahead_ui)) {
+            free(key);
+            strcpy_k(g_textbuf, "[key] [operator] must be followed by a number or string.");
+            goto CmpExprParse_ret_INVALID_CMDLINE;
+          }
           double num;
           if (CmpExprNumber(sources[param_idx], &offset, &num)) {
             cmp_expr_ptr->etype = ineq_etype;
             cmp_expr_ptr->args.kn.key = key;
             cmp_expr_ptr->args.kn.value = num;
           } else {
+            if (unlikely((ineq_etype != kCmpExprTypeNoteq) && (ineq_etype != kCmpExprTypeEq))) {
+              free(key);
+              strcpy_k(g_textbuf, "String values can only be compared with '==' or '!='.");
+              goto CmpExprParse_ret_INVALID_CMDLINE;
+            }
             char* str_value;
             reterr = CmpExprNewStr(sources[param_idx], &offset, &str_value);
             if (unlikely(reterr)) {
@@ -4177,6 +4197,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
     break;
   }
  CmpExprParse_ret_1:
+  --g_cmp_expr_depth;
   *param_idx_ptr = param_idx;
   *offset_ptr = offset;
   return reterr;
@@ -4435,7 +4456,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         int32_t alpha_idx = bsearch_strbox(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
-          write_iter = memcpya(write_iter, id_start, slen);
+          write_iter = memcpya(write_iter, id_start, MINV(slen, kMaxIdSlen));
           write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");
@@ -4475,7 +4496,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         const int32_t alpha_idx = bsearch_strbox(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
-          write_iter = memcpya(write_iter, col_descriptor_iter, slen);
+          write_iter = memcpya(write_iter, col_descriptor_iter, MINV(slen, kMaxIdSlen));
           write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");

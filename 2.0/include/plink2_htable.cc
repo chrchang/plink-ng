@@ -109,8 +109,14 @@ uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uin
   // returns UINT32_MAX on failure
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || (!strcmp(cur_id, item_ids[cur_htable_idval]))) {
-      return cur_htable_idval;
+    if (cur_htable_idval == UINT32_MAX) {
+      return UINT32_MAX;
+    }
+    // bit 31 may be set if the table was constructed with a dup-tolerant
+    // function; look up/return the first-seen item in that case
+    const uint32_t cur_item_idx = cur_htable_idval & 0x7fffffff;
+    if (!strcmp(cur_id, item_ids[cur_item_idx])) {
+      return cur_item_idx;
     }
     if (++hashval == id_htable_size) {
       hashval = 0;
@@ -122,8 +128,12 @@ uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const 
   // returns UINT32_MAX on failure
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || strequal_unsafe(item_ids[cur_htable_idval], cur_id, cur_id_slen)) {
-      return cur_htable_idval;
+    if (cur_htable_idval == UINT32_MAX) {
+      return UINT32_MAX;
+    }
+    const uint32_t cur_item_idx = cur_htable_idval & 0x7fffffff;
+    if (strequal_unsafe(item_ids[cur_item_idx], cur_id, cur_id_slen)) {
+      return cur_item_idx;
     }
     if (++hashval == id_htable_size) {
       hashval = 0;

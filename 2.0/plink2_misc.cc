@@ -149,7 +149,7 @@ PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_
       uint32_t non_acgtn_found = 0;
       for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
         const uintptr_t ptr_diff = cur_alleles[aidx] - dash_ptr;
-        if ((ptr_diff > 144) || (!dash_ptrdiff_table[ptr_diff])) {
+        if ((ptr_diff >= 144) || (!dash_ptrdiff_table[ptr_diff])) {
           non_acgtn_found = 1;
           break;
         }
@@ -1120,6 +1120,11 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         prev_vidx_start = incr + prev_chr_vidx_start;
       }
       prev_vidx_start = AdvBoundedTo1Bit(variant_include, prev_vidx_start, prev_chr_vidx_end);
+      if (prev_vidx_start == prev_chr_vidx_end) {
+        // all remaining variants on this chromosome were filtered out
+        prev_vidx_end = prev_vidx_start;
+        continue;
+      }
 
       // variant_bps[prev_vidx_start] is the first element >= cur_bp that
       // hasn't been filtered out.
@@ -1150,6 +1155,10 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         putc_unlocked('\n', stdout);
         snprintf(g_logbuf, kLogbufSize, "Error: Multiple ALT alleles on line %" PRIuPTR " of headerless --recover-var-ids file.\n", line_idx);
         goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+      }
+      if (extra_orig_alt_ct >= kPglMaxAltAlleleCt) {
+        // too many alleles to match any variant in the dataset
+        continue;
       }
       // Null-terminate all allele codes so we can use strequal_overread();
       // and make sure to reset the final null terminator so that unsafe
@@ -2961,6 +2970,10 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
           if (is_omit && cur_observed_cat_ct) {
             const uint32_t last_cat_uidx = FindLast1BitBefore(cur_observed_cats, cur_cat_ct + 1);
             omitted_cat_uidxs[split_pheno_idx] = last_cat_uidx;
+            // write_data_ptrs is indexed by the omitted category, too
+            if (last_cat_uidx > max_cat_uidx) {
+              max_cat_uidx = last_cat_uidx;
+            }
             ClearBit(last_cat_uidx, cur_observed_cats);
             --cur_observed_cat_ct;
           }
@@ -2969,6 +2982,9 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
           cur_observed_cat_ct = PopcountWords(cur_observed_cats, cur_cat_ctl);
           if (cur_observed_cat_ct) {
             omitted_cat_uidxs[split_pheno_idx] = largest_cat_uidx;
+            if (largest_cat_uidx > max_cat_uidx) {
+              max_cat_uidx = largest_cat_uidx;
+            }
             ClearBit(largest_cat_uidx, cur_observed_cats);
             --cur_observed_cat_ct;
           }
@@ -4466,7 +4482,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
           cswritep = u32toa(homref_ct, cswritep);
         }
         if (refalt1_col) {
-          if (is_autosomal_diploid || is_x) {
+          if (is_autosomal_diploid || is_x || is_mt) {
             *cswritep++ = '\t';
             cswritep = u32toa(diploid_pair_cts[1], cswritep);
           } else {
@@ -4475,7 +4491,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         }
         if (refalt_col) {
           *cswritep++ = '\t';
-          if (is_autosomal_diploid || is_x) {
+          if (is_autosomal_diploid || is_x || is_mt) {
             for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
               cswritep = u32toa_x(diploid_pair_cts[aidx], ',', cswritep);
             }
@@ -5107,7 +5123,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
       }
       CopyBitarrSubset(sex_male, founder_knownsex, founder_x_ct, founder_male_collapsed);
       const uint32_t founder_x_ctl = BitCtToWordCt(founder_x_ct);
-      const uint32_t founder_male_ct = PopcountWords(founder_male_collapsed, founder_ctl);
+      const uint32_t founder_male_ct = PopcountWords(founder_male_collapsed, founder_x_ctl);
       ZeroWArr(founder_x_ctaw - founder_x_ctl, &(founder_male_collapsed[founder_x_ctl]));
       FillInterleavedMaskVec(founder_male_collapsed, founder_x_ctaw / kWordsPerVec, founder_male_interleaved_vec);
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
@@ -8099,8 +8115,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
       }
       if (allele_ct == 2) {
         if (!pgv.dosage_ct) {
-          if (AllGenoEqual(pgv.genovec, sample_ct)) {
-            // don't need to do anything!
+          if (AllGenoEqual(pgv.genovec, sample_ct) && (GetNyparrEntry(pgv.genovec, 0) != 3)) {
+            // don't need to do anything!  (unless they're all missing)
             continue;
           }
           const uint32_t* id_pair_iter = id_pairs;
@@ -8223,6 +8239,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               }
               if ((hc1 == 3) || (hc2 == 3)) {
                 cur_counts->ibsmiss_ct += 1;
+                continue;
               }
               cur_counts->ibsx_cts[(hc1 | hc2) & 1] += 1;
             }
@@ -8233,8 +8250,9 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               const uint32_t dosage1 = dosage_buf[sample_idx1];
               const uint32_t dosage2 = dosage_buf[sample_idx2];
               SdiffCounts* cur_counts = &(sdiff_counts[pair_idx]);
+              const uint32_t is_male = IsSet(pair_sex_male, pair_idx);
               if (dosage1 == kDosageMissing) {
-                cur_counts->ibsmiss_ct += 1;
+                cur_counts->ibsmiss_ct += !is_male;
                 if (dosage2 == kDosageMissing) {
                   cur_counts->missing_ct += 1;
                 } else {
@@ -8244,10 +8262,9 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               }
               if (dosage2 == kDosageMissing) {
                 cur_counts->halfmiss_ct += 1;
-                cur_counts->ibsmiss_ct += 1;
+                cur_counts->ibsmiss_ct += !is_male;
                 continue;
               }
-              const uint32_t is_male = IsSet(pair_sex_male, pair_idx);
               if (abs_i32(dosage1 - dosage2) > dosage_sex_tols[is_male]) {
                 cur_counts->diff_ct += 1;
               }
@@ -8261,6 +8278,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               }
               if ((hc1 == 3) || (hc2 == 3)) {
                 cur_counts->ibsmiss_ct += 1;
+                continue;
               }
               cur_counts->ibsx_cts[(hc1 | hc2) & 1] += 1;
             }
@@ -8269,13 +8287,12 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               if (is_y && (!IsSet(pair_sex_male, pair_idx))) {
                 continue;
               }
-              const uint32_t sample_idx1 = *id_pair_iter++;
-              const uint32_t sample_idx2 = *id_pair_iter++;
+              const uint32_t sample_idx1 = id_pairs[2 * pair_idx];
+              const uint32_t sample_idx2 = id_pairs[2 * pair_idx + 1];
               const uint32_t dosage1 = dosage_buf[sample_idx1];
               const uint32_t dosage2 = dosage_buf[sample_idx2];
               SdiffCounts* cur_counts = &(sdiff_counts[pair_idx]);
               if (dosage1 == kDosageMissing) {
-                cur_counts->ibsmiss_ct += 1;
                 if (dosage2 == kDosageMissing) {
                   cur_counts->missing_ct += 1;
                 } else {
@@ -8285,7 +8302,6 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               }
               if (dosage2 == kDosageMissing) {
                 cur_counts->halfmiss_ct += 1;
-                cur_counts->ibsmiss_ct += 1;
                 continue;
               }
               if (abs_i32(dosage1 - dosage2) > dosage_hap_tol) {
@@ -8374,6 +8390,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               SdiffCounts* cur_counts = &(sdiff_counts[pair_idx]);
               if ((ac11 == kMissingAlleleCode) || (ac21 == kMissingAlleleCode)) {
                 cur_counts->halfmiss_ct += 1;
+                continue;
               }
               cur_counts->diff_ct += 1;
             }
@@ -8537,7 +8554,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     }
     swc.flags = flags;
     swc.chr_buf_blen = 0;
-    for (uintptr_t fidx = 0; fidx != id_pair_ct; ++fidx) {
+    for (uintptr_t fidx = 0; fidx != file_ct; ++fidx) {
       PreinitCstream(&(css_arr[fidx]));
     }
     const uintptr_t* nonref_flags = PgrGetNonrefFlags(simple_pgrp);
@@ -8741,8 +8758,8 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       const uint32_t provref = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)));
       if (allele_ct == 2) {
         if (!pgv.dosage_ct) {
-          if (AllGenoEqual(pgv.genovec, sample_ct)) {
-            // don't need to do anything!
+          if (AllGenoEqual(pgv.genovec, sample_ct) && (GetNyparrEntry(pgv.genovec, 0) != 3)) {
+            // don't need to do anything!  (unless they're all missing)
             continue;
           }
           const uint32_t* id_pair_iter = id_pairs;
@@ -8844,8 +8861,9 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
                 if (hc1 != hc2) {
                   if ((hc1 == 3) || (hc2 == 3)) {
                     cur_counts->ibsmiss_ct += 1;
+                  } else {
+                    cur_counts->ibsx_cts[(hc1 | hc2) & 1] += 1;
                   }
-                  cur_counts->ibsx_cts[(hc1 | hc2) & 1] += 1;
                 }
               }
               if (abs_i32(dosage1 - dosage2) <= dosage_sex_tols[!is_diploid_pair]) {
@@ -9923,6 +9941,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             genocounts[1] = 0;
             genocounts[2] = 0;
             genocounts[3] = 0;
+            uint32_t difflist_founder_ct = 0;
             if (word_ct) {
               const uint32_t word_ct_m1 = word_ct - 1;
               uint32_t loop_len = kBitsPerWordD2;
@@ -9938,12 +9957,14 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
                 uintptr_t raregeno_word = raregeno[widx];
                 for (uint32_t uii = 0; uii != loop_len; ++uii) {
                   const uint32_t sample_idx = cur_difflist_sample_ids[uii];
-                  genocounts[raregeno_word & 3] += IsSet(founder_info_collapsed, sample_idx);
+                  const uint32_t is_founder = IsSet(founder_info_collapsed, sample_idx);
+                  genocounts[raregeno_word & 3] += is_founder;
+                  difflist_founder_ct += is_founder;
                   raregeno_word >>= 2;
                 }
               }
             }
-            genocounts[difflist_common_geno] += founder_ct - difflist_len;
+            genocounts[difflist_common_geno] += founder_ct - difflist_founder_ct;
             const uint32_t numer1 = 2 * genocounts[0] + genocounts[1];
             const uint32_t numer2 = genocounts[1] + 2 * genocounts[2];
             if ((!numer1) || (!numer2)) {
@@ -10421,6 +10442,9 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     const uintptr_t* autosomal_variant_include = orig_variant_include;
     uint32_t autosomal_variant_ct = orig_variant_ct;
     reterr = ConditionalAllocateNonAutosomalVariants(cip, "--het", raw_variant_ct, &autosomal_variant_include, &autosomal_variant_ct);
+    if (unlikely(reterr == kPglRetNomem)) {
+      goto HetReport_ret_1;
+    }
     if (!autosomal_variant_ct) {
       goto HetReport_ret_NO_VARIATION;
     }
@@ -12209,6 +12233,12 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
                 block_fst_numers[prev_block_ct] = fst_numer_sum;
                 block_fst_denoms[prev_block_ct] = fst_denom_sum;
                 last_block_size = nobs - (prev_block_ct * jackknife_blocksize);
+              } else {
+                // the final (full) block was already saved, and the running
+                // sums were reset
+                --prev_block_ct;
+                fst_numer_sum += block_fst_numers[prev_block_ct];
+                fst_denom_sum += block_fst_denoms[prev_block_ct];
               }
               for (uint32_t block_idx = 0; block_idx != prev_block_ct; ++block_idx) {
                 fst_numer_sum += block_fst_numers[block_idx];

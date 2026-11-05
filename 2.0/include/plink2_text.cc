@@ -331,6 +331,7 @@ BoolErr IsPathologicallyLongLineOrToken(const char* line_start, const char* load
 }
 
 const char kShortErrRfileTruncatedGz[] = "GzRawStreamRead: gzipped file appears to be truncated";
+const char kShortErrRfileTruncatedZst[] = "ZstRawStreamRead: zstd-compressed file appears to be truncated";
 
 PglErr GzRawStreamRead(char* dst_end, FILE* ff, GzRawDecompressStream* gzp, char** dst_iterp, const char** errmsgp) {
   if (gzp->eof) {
@@ -410,11 +411,14 @@ PglErr ZstRawStreamRead(char* dst_end, FILE* ff, ZstRawDecompressStream* zstp, c
   while (1) {
     ZSTD_outBuffer zob = {CToUc(dst_iter), S_CAST(size_t, dst_end - dst_iter), 0};
     // ib.size == 0 ok, no need to special-case rewind.
+    const uintptr_t prev_ib_pos = zstp->ib.pos;
     const uintptr_t read_size_hint = ZSTD_decompressStream(zstp->ds, &zob, &zstp->ib);
     if (unlikely(ZSTD_isError(read_size_hint))) {
       *errmsgp = ZSTD_getErrorName(read_size_hint);
       return kPglRetDecompressFail;
     }
+    // If we made progress, read_size_hint == 0 iff a frame was just completed.
+    const uint32_t frame_incomplete = read_size_hint && (zob.pos || (zstp->ib.pos != prev_ib_pos));
     dst_iter = &(dst_iter[zob.pos]);
     if (dst_iter == dst_end) {
       break;
@@ -437,6 +441,10 @@ PglErr ZstRawStreamRead(char* dst_end, FILE* ff, ZstRawDecompressStream* zstp, c
     // n_inbytes is positive when e.g. the input .zst file is the concatenation
     // of multiple ordinary .zst files, which is permitted by the spec.
     if (!new_size) {
+      if (unlikely(frame_incomplete)) {
+        *errmsgp = kShortErrRfileTruncatedZst;
+        return kPglRetDecompressFail;
+      }
       break;
     }
   }
@@ -1383,6 +1391,16 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
       if (file_type != kFileUncompressed) {
         if (file_type == kFileGzip) {
           txsp->rds.gz = txfp->rds.gz;
+          // zlib >= 1.2.9 requires the z_stream's internal state to point back
+          // to the z_stream's own address, so a plain struct copy isn't enough.
+          if (unlikely(inflateCopy(&txsp->rds.gz.ds, &txfp->rds.gz.ds) != Z_OK)) {
+            inflateEnd(&txfp->rds.gz.ds);
+            txsp->rds.gz.ds_initialized = 0;
+            reterr = kPglRetNomem;
+            EraseTextFileBase(&txfp->base);
+            goto TextStreamOpenEx_ret_1;
+          }
+          inflateEnd(&txfp->rds.gz.ds);
         } else if (file_type == kFileZstd) {
           txsp->rds.zst = txfp->rds.zst;
         } else {

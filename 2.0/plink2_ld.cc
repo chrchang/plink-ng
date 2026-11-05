@@ -2042,6 +2042,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                 PgenErrPrintNV(reterr, variant_uidx);
                 goto IndepPairphase_ret_1;
               }
+              ZeroTrailingNyps(founder_ct, genovec);
               if (!is_haploid) {
                 if (unlikely(HapsplitMustPhased(genovec, phasepresent, phaseinfo, founder_ct, phasepresent_ct, cur_loader_hap_vec, cur_loader_nm_vec))) {
                   logputs("\n");
@@ -2088,8 +2089,15 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                 if (founder_male_ct_rem) {
                   const uint32_t word_idx = founder_male_fullword_ct + ((founder_nonmale_ct * 2) / kBitsPerWord);
                   const uint32_t lshift_ct = (founder_nonmale_ct * 2) % kBitsPerWord;
-                  cur_loader_hap_vec[word_idx] |= hap_vec_overflow << lshift_ct;
-                  cur_loader_nm_vec[word_idx] |= nm_vec_overflow << lshift_ct;
+                  if (lshift_ct) {
+                    cur_loader_hap_vec[word_idx] |= hap_vec_overflow << lshift_ct;
+                    cur_loader_nm_vec[word_idx] |= nm_vec_overflow << lshift_ct;
+                  } else {
+                    // word_idx is past the end of the nonmale haplotypes, so
+                    // it hasn't been written yet
+                    cur_loader_hap_vec[word_idx] = hap_vec_overflow;
+                    cur_loader_nm_vec[word_idx] = nm_vec_overflow;
+                  }
                   if (lshift_ct + founder_male_ct_rem > kBitsPerWord) {
                     const uint32_t rshift_ct = kBitsPerWord - lshift_ct;
                     cur_loader_hap_vec[word_idx + 1] = hap_vec_overflow >> rshift_ct;
@@ -4843,7 +4851,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     PgenVariant pgvs[2];
     PreinitPgv(&(pgvs[0]));
     PreinitPgv(&(pgvs[1]));
-    if (unlikely(bigstack_alloc_u32(founder_ctl, &founder_info_cumulative_popcounts) ||
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
                  BigstackAllocPgv(founder_ct, 0, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent, &(pgvs[0])) ||
                  BigstackAllocPgv(founder_ct, 0, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent, &(pgvs[1])))) {
       goto LdConsole_ret_NOMEM;
@@ -4865,7 +4873,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       FillInterleavedMaskVec(sex_male_collapsed, founder_ctv, sex_male_collapsed_interleaved);
       x_male_ct = PopcountWords(sex_male_collapsed, founder_ctaw);
     }
-    FillCumulativePopcounts(founder_info, founder_ctl, founder_info_cumulative_popcounts);
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
 
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
@@ -4884,13 +4892,15 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
       ZeroTrailingNyps(founder_ct, pgvp->genovec);
       if (is_haploids[var_idx]) {
-        if (x_male_ct && is_xs[var_idx]) {
-          if (pgvp->phasepresent_ct) {
-            BitvecInvmask(sex_male_collapsed, founder_ctl, pgvp->phasepresent);
-            pgvp->phasepresent_ct = PopcountWords(pgvp->phasepresent, founder_ctl);
-          }
-          if (pgvp->dphase_ct) {
-            EraseMaleDphases(sex_male_collapsed, &(pgvp->dphase_ct), pgvp->dphase_present, pgvp->dphase_delta);
+        if (is_xs[var_idx]) {
+          if (x_male_ct) {
+            if (pgvp->phasepresent_ct) {
+              BitvecInvmask(sex_male_collapsed, founder_ctl, pgvp->phasepresent);
+              pgvp->phasepresent_ct = PopcountWords(pgvp->phasepresent, founder_ctl);
+            }
+            if (pgvp->dphase_ct) {
+              EraseMaleDphases(sex_male_collapsed, &(pgvp->dphase_ct), pgvp->dphase_present, pgvp->dphase_delta);
+            }
           }
         } else {
           pgvp->phasepresent_ct = 0;
@@ -5726,8 +5736,8 @@ typedef struct ClumpCtxStruct {
   uintptr_t** raregeno_bufs;
   uint32_t** difflist_sample_id_bufs;
   // chrX workspaces
-  //   nm_buf: max(founder_nonmale_ct, founder_male_ct) bits
-  //   invmask_buf: max(founder_nonmale_ct, founder_male_ct) uint16s
+  //   nm_buf: founder_ct bits (vector-aligned)
+  //   invmask_buf: founder_ct uint16s (rounded up to a vector)
   uintptr_t** chrx_workspaces;
   // Precomputed for convenience.
   uintptr_t unpacked_byte_stride;
@@ -7815,6 +7825,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           if (cur_allele_ct == 2) {
             biallelic_forced_a1_alt = aidx;
             aidx = 0;
+          } else {
+            biallelic_forced_a1_alt = 0;
           }
         }
         const uintptr_t allele_idx = allele_idx_offset_base + aidx;
@@ -8288,8 +8300,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     uint32_t raregeno_word_ct = 0;
     uintptr_t chrx_alloc = 0;
     if (x_exists) {
-      const uint32_t larger_half = MAXV(founder_male_ct, founder_nonmale_ct);
-      chrx_alloc = RoundUpPow2(BitCtToVecCt(larger_half) + larger_half * sizeof(Dosage), kCacheline);
+      // ComputeXR2() is called with sample_ct == founder_ct.
+      chrx_alloc = RoundUpPow2(BitCtToAlignedWordCt(founder_ct) * kBytesPerWord + RoundUpPow2(founder_ct, kDosagePerVec) * sizeof(Dosage), kCacheline);
     }
     {
       const uintptr_t min_ld_idx_found_alloc = WordCtToCachelineCt(min_pgv_per_thread + 1) * kCacheline;
@@ -8408,7 +8420,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       const uintptr_t u32_field_ct = check_phase + check_dosage + check_dosage * check_phase;
       const uintptr_t per_variant_cost = pgv_byte_stride + sizeof(intptr_t) + sizeof(int32_t) * u32_field_ct;
       max_lowmem_nonindex_ct = bytes_avail / per_variant_cost;
-      while (max_lowmem_nonindex_ct * pgv_byte_stride + RoundUpPow2(max_lowmem_nonindex_ct * sizeof(intptr_t), kCacheline) + u32_field_ct * RoundUpPow2(max_lowmem_nonindex_ct * sizeof(int32_t), kCacheline) > bytes_avail) {
+      // ld_idx_found also needs a terminator for each thread.
+      while (max_lowmem_nonindex_ct * pgv_byte_stride + RoundUpPow2((max_lowmem_nonindex_ct + calc_thread_ct) * sizeof(intptr_t), kCacheline) + u32_field_ct * RoundUpPow2(max_lowmem_nonindex_ct * sizeof(int32_t), kCacheline) > bytes_avail) {
         // pgv_byte_stride is a positive multiple of kCacheline, and we lose
         // less than 4 cachelines to adverse rounding, so this will exit
         // quickly enough.
@@ -8471,7 +8484,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         is_haploid = IsSet(cip->haploid_mask, chr_idx);
         is_x = (chr_idx == x_code);
-        is_y = (chr_idx == y_code);
+        is_y = y_exists && (chr_idx == y_code);
         if (is_x) {
           if (!founder_nonmale_ct) {
             is_x = 0;
@@ -9571,7 +9584,7 @@ THREAD_FUNC_DECL VcorMatrixThread(void* raw_arg) {
       start_coord = cur_row_variant_idx_start * S_CAST(uint64_t, variant_ct);
     }
     if (shard_row_variant_idx_end > shard_row_variant_idx_start) {
-      const unsigned char* unpacked_row_variants_iter = &(ctx->unpacked_row_variants[row_parity][row_start_offset * unpacked_variant_byte_stride]);
+      const unsigned char* unpacked_row_variants_iter = &(ctx->unpacked_row_variants[row_parity][(shard_row_variant_idx_start - cur_row_variant_idx_start) * unpacked_variant_byte_stride]);
       const unsigned char* unpacked_col_variants = ctx->unpacked_col_variants[col_parity];
       double* results_d = ctx->results_d[row_parity];
       float* results_f = ctx->results_f[row_parity];
@@ -10149,7 +10162,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       goto VcorMatrix_ret_NOMEM;
     }
     {
-      const uintptr_t slot_ct = usual_row_window_size * variant_ct;
+      const uintptr_t slot_ct = S_CAST(uintptr_t, usual_row_window_size) * variant_ct;
       if (is_bin4) {
         if (unlikely(bigstack_alloc_f(slot_ct, &(ctx.results_f[0])) ||
                      bigstack_alloc_f(slot_ct, &(ctx.results_f[1])))) {
@@ -11859,6 +11872,11 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
           }
         }
         row_window_size = row_offset;
+        if (unlikely(!row_window_size)) {
+          // Even a single row's column window doesn't fit in the result
+          // buffer.
+          goto VcorTable_ret_NOMEM;
+        }
         write_idx_starts[row_window_size] = write_idx;
         cur_variant_ridx_stop = cur_variant_ridx_start + row_window_size;
         write_ctx.variant_ridx_starts[row_parity] = cur_variant_ridx_start;

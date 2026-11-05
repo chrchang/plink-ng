@@ -900,6 +900,7 @@ PglErr InfoFilterSecondPass(const unsigned char* arena_end, const CmpExpr* cmp_e
         memcpy(*str_value_alloc_ptr, str_value, str_value_blen);
         *str_value_alloc_ptr += str_value_blen;
         exprp->args.s.str_value = str_value;
+        exprp->args.s.slen = str_value_blen - 1;
         if (etype == kCmpExprTypeStrNoteq) {
           exprp->etype = kCmpExprTypeStrEq;
           exprp->negate = 1 - exprp->negate;
@@ -1692,7 +1693,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                       (sizeof(int32_t) +
                        2 * sizeof(intptr_t) +
                        at_least_one_nzero_cm * sizeof(double)) +
-                      is_split_chr * sizeof(ChrIdx) +
+                      is_split_chr * kLoadPvarBlockSize * sizeof(ChrIdx) +
                       (1 + info_pr_exists) * (kLoadPvarBlockSize / CHAR_BIT) +
                       (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
                       (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||

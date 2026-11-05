@@ -2421,6 +2421,26 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_
     if (pwcp->explicit_nonref_flags) {
       index_size += DivUp(variant_ct, CHAR_BIT);
     }
+    if (pwcp->header_exts || pwcp->footer_exts) {
+      // extension flag varints, footer_fpos, header extension sizes/contents
+      index_size += 2;
+      const PgenExtensionLl* header_exts_iter = pwcp->header_exts;
+      int32_t prev_type_idx = 0;
+      while (header_exts_iter) {
+        const uintptr_t cur_size = header_exts_iter->size;
+        index_size += cur_size + VintBytect(cur_size);
+        prev_type_idx = header_exts_iter->type_idx;
+        header_exts_iter = header_exts_iter->next;
+      }
+      index_size += S_CAST(uint32_t, prev_type_idx) / 7;
+      const PgenExtensionLl* footer_exts_iter = pwcp->footer_exts;
+      if (footer_exts_iter) {
+        while (footer_exts_iter->next) {
+          footer_exts_iter = footer_exts_iter->next;
+        }
+        index_size += sizeof(int64_t) + S_CAST(uint32_t, footer_exts_iter->type_idx) / 7;
+      }
+    }
     for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
       pwcp->vblock_fpos[vblock_idx] += index_size;
     }
@@ -2471,8 +2491,9 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_
     if (pwcp->footer_exts) {
       if (*fname_buf_ptr) {
         // In kPgenWriteAndCopy mode, initial footer_fpos value is relative to
-        // the start of the .pgen body.  We now need to add the header size.
-        footer_fpos += ftello(header_ff) + sizeof(int64_t);
+        // the start of the .pgen body, except that it includes the 3 magic
+        // bytes of the temporary file.  We now need to add the header size.
+        footer_fpos += ftello(header_ff) + sizeof(int64_t) - 3;
         const PgenExtensionLl* header_exts_iter = pwcp->header_exts;
         while (header_exts_iter) {
           const uintptr_t cur_size = header_exts_iter->size;
