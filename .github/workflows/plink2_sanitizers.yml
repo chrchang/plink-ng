@@ -32,6 +32,9 @@ on:
       - '.github/workflows/plink2_sanitizers.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   run_tests:
     name: 2.0/Tests under ASan+UBSan

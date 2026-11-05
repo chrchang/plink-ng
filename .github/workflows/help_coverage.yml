@@ -25,6 +25,9 @@ on:
       - '.github/workflows/help_coverage.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
