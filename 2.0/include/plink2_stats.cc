@@ -1397,8 +1397,11 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     return binomial_ccdf_ln(nn, kk, xx, yy, inv);
   }
   // Changed from b*x <= 0.7 since BGRAT has problems with small x, while BPSER
-  // can handle this larger b*x case since b<40 is guaranteed.  (But BPSER is
-  // an alternating series, and loses all precision when b*x gets large.)
+  // can handle this larger b*x case since b<40 is guaranteed.
+  // Update (4-5 Nov 2026): BPSER is an alternating series and can lose all
+  // precision to cancellation even when b<40 and x<0.7.  However, enough
+  // precision is retained for b*x<=5 (and the other branch works well enough
+  // for larger b*x).
   if ((xx <= 0.7) && (bb * xx <= 5.0)) {
     return ibeta_series_ln(aa, bb, xx, inv);
   }

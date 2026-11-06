@@ -91,7 +91,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1.4-dev"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (4 Nov 2026)";
+  " (5 Nov 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -3847,7 +3847,11 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
         logerrprintf("Error: Invalid --%s variant ID column number.\n", flagname_p);
         return kPglRetInvalidCmdline;
       }
-      if (param_ct == 4) {
+      if (param_ct > 3) {
+        if (unlikely(param_ct > 4)) {
+          logerrprintf("Error: Invalid --%s argument sequence.\n", flagname_p);
+          return kPglRetInvalidCmdline;
+        }
         char cc = sources[3][0];
         if ((cc < '0') || (cc > '9')) {
           cc = ExtractCharParam(sources[3]);
@@ -3941,6 +3945,7 @@ PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p
   return kPglRetSuccess;
 }
 
+// Note that empty entries are skipped, due to plink 1.9 --attrib design.
 PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t check_file_existence, char** flattened_buf_ptr) {
   uint32_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
@@ -5407,10 +5412,6 @@ int main(int argc, char** argv) {
             }
             pc.misc_flags |= kfMiscAltAlleleForce;
             ++sources;
-          }
-          if (unlikely(param_ct > 4)) {
-            logerrputs("Error: Invalid --alt[1]-allele argument sequence.\n");
-            goto main_ret_INVALID_CMDLINE_A;
           }
           reterr = Alloc2col(sources, flagname_p, param_ct, &pc.alt_allele_flag);
           if (unlikely(reterr)) {

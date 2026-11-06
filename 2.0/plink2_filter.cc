@@ -4325,11 +4325,11 @@ BoolErr ObligMissingSampleCts(const ObligMissingData* omdp, const uintptr_t* var
   return 0;
 }
 
-void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, const uint32_t* variant_oblig_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, const uint32_t* variant_oblig_cts, uint32_t sample_ct, uint32_t y_sample_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   geno_thresh *= 1 + kSmallEpsilon;
   const uint32_t missing_max_ct_nony = S_CAST(int32_t, geno_thresh * u31tod(sample_ct));
-  const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(male_ct));
+  const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(y_sample_ct));
   uint32_t cur_missing_max_ct = missing_max_ct_nony;
   uint32_t in_y = 0;
   uint32_t removed_ct = 0;
@@ -4366,7 +4366,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
       // the denominator.  A block member which is actually genotyped can push
       // the difference below zero, so it is clamped rather than wrapped.
       const uint32_t cur_oblig_ct = variant_oblig_cts[variant_uidx];
-      const uint32_t cur_denom = in_y? male_ct : sample_ct;
+      const uint32_t cur_denom = in_y? y_sample_ct : sample_ct;
       if (cur_oblig_ct >= cur_denom) {
         continue;
       }
