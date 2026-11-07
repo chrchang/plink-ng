@@ -59,5 +59,5 @@ $plink2 $common --pheno-name QT --covar-name C2,C3 --tests 2,3 --glm no-firth --
 y_tests() {
     awk -F '\t' '$3 ~ /^cY_/ && $10 ~ /^USER_/ {print $3, $10, $11, $14, $15}' "$1"
 }
-[[ -n "$(y_tests tmp_tests_c1.QT.glm.linear)" ]]
-[[ "$(y_tests tmp_tests_c1.QT.glm.linear)" == "$(y_tests tmp_tests_ref.QT.glm.linear)" ]]
+[[ -n "$(y_tests tmp_tests_c1.QT.glm.linear)" ]] || exit 1
+[[ "$(y_tests tmp_tests_c1.QT.glm.linear)" == "$(y_tests tmp_tests_ref.QT.glm.linear)" ]] || exit 1

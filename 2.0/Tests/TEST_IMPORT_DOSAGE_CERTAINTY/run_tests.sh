@@ -22,4 +22,4 @@ $plink2 --import-dosage tmp_data.dosage format=3 --fam tmp_data.fam --map tmp_da
 $plink2 --pfile tmp_data --export vcf vcf-dosage=DS --out tmp_out > /dev/null
 # S1/v1 must be fully missing; everything else is unaffected.
 awk '!/^#/ && $3 == "v1" {print $10}' tmp_out.vcf | grep -qx '\./\.'
-[[ "$(awk '!/^#/ && $3 == "v1" {print $11}' tmp_out.vcf)" == "1/1:1.9" || "$(awk '!/^#/ && $3 == "v1" {print $11}' tmp_out.vcf)" == "1/1" ]]
+[[ "$(awk '!/^#/ && $3 == "v1" {print $11}' tmp_out.vcf)" == "1/1:1.9" || "$(awk '!/^#/ && $3 == "v1" {print $11}' tmp_out.vcf)" == "1/1" ]] || exit 1

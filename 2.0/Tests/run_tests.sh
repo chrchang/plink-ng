@@ -613,4 +613,19 @@ cd TEST_RECOVER_VAR_IDS_ROUNDTRIP
 cd ..
 echo "TEST_RECOVER_VAR_IDS_ROUNDTRIP passed."
 
+cd TEST_GENO_DOSAGE_CHRX_SUBSET
+./run_tests.sh $d $2 $3 > TEST_GENO_DOSAGE_CHRX_SUBSET.log
+cd ..
+echo "TEST_GENO_DOSAGE_CHRX_SUBSET passed."
+
+cd TEST_HET_SMALL_SAMPLE
+./run_tests.sh $d $2 $3 > TEST_HET_SMALL_SAMPLE.log
+cd ..
+echo "TEST_HET_SMALL_SAMPLE passed."
+
+cd TEST_MENDEL_CHRY_NOBS
+./run_tests.sh $d $2 $3 > TEST_MENDEL_CHRY_NOBS.log
+cd ..
+echo "TEST_MENDEL_CHRY_NOBS passed."
+
 echo "All tests passed."

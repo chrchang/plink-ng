@@ -22,5 +22,5 @@ $plink2 --vcf tmp_data.vcf --psam tmp_data.psam --make-pgen --out tmp_data > /de
 printf 'v1\tc1\n' > tmp_zero.txt
 $plink2 --pfile tmp_data --zero-cluster tmp_zero.txt --make-pgen --out tmp_zeroed > /dev/null
 $plink2 --pfile tmp_zeroed --export vcf --out tmp_zeroed > /dev/null
-[[ "$(awk '!/^#/ && $3 == "v1" {print $10, $11, $12, $13, $14, $15}' tmp_zeroed.vcf)" == "./. ./. ./. 0/2 1/1 0/1" ]]
-[[ "$(awk '!/^#/ && $3 == "v2" {print $10, $11, $12, $13, $14, $15}' tmp_zeroed.vcf)" == "0/1 1/1 0/0 0/1 0/0 1/1" ]]
+[[ "$(awk '!/^#/ && $3 == "v1" {print $10, $11, $12, $13, $14, $15}' tmp_zeroed.vcf)" == "./. ./. ./. 0/2 1/1 0/1" ]] || exit 1
+[[ "$(awk '!/^#/ && $3 == "v2" {print $10, $11, $12, $13, $14, $15}' tmp_zeroed.vcf)" == "0/1 1/1 0/0 0/1 0/0 1/1" ]] || exit 1

@@ -28,6 +28,6 @@ for mode in beagle fastphase HV; do
     plink --bed tmp.bed --bim tmp_long.bim --fam tmp.fam --allow-extra-chr --allow-no-sex --recode $mode --out recode_$mode > tmp.log 2>&1
     rc=$?
     set -e
-    [[ $rc -ne 0 && $rc -lt 128 ]]
+    [[ $rc -ne 0 && $rc -lt 128 ]] || exit 1
     grep -q 'too long for --recode' tmp.log
 done

@@ -27,5 +27,5 @@ $plink2 --vcf tmp_data.vcf --psam tmp_data.psam --make-pgen --out tmp_data > /de
 $plink2 --pfile tmp_data --export oxford --out tmp_ox > /dev/null
 $plink2 --pfile tmp_data --export bgen-1.2 --out tmp_bgen > /dev/null
 for f in tmp_ox.sample tmp_bgen.sample; do
-    [[ "$(awk 'NR > 2 {printf "%s:%s ", $2, $3}' $f)" == "M:0.25 N:0.25 F:0.25 " ]]
+    [[ "$(awk 'NR > 2 {printf "%s:%s ", $2, $3}' $f)" == "M:0.25 N:0.25 F:0.25 " ]] || exit 1
 done

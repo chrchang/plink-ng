@@ -25,6 +25,6 @@ $plink2 --pfile tmp_data --flip tmp_flip.txt permissive --flip-subset tmp_subset
 $plink2 --pfile tmp_flipped --export vcf --out tmp_flipped > /dev/null
 # The indel's calls must be unchanged, and the A/T and C/G SNPs' calls are
 # swapped for S1 and S2 only.
-[[ "$(awk '!/^#/ && $3 == "v2" {print $10, $11, $12, $13}' tmp_flipped.vcf)" == "0/0 0/1 1/1 0/1" ]]
-[[ "$(awk '!/^#/ && $3 == "v1" {print $10, $11, $12, $13}' tmp_flipped.vcf)" == "1/1 0/1 1/1 0/0" ]]
-[[ "$(awk '!/^#/ && $3 == "v3" {print $10, $11, $12, $13}' tmp_flipped.vcf)" == "0/1 0/0 0/0 0/0" ]]
+[[ "$(awk '!/^#/ && $3 == "v2" {print $10, $11, $12, $13}' tmp_flipped.vcf)" == "0/0 0/1 1/1 0/1" ]] || exit 1
+[[ "$(awk '!/^#/ && $3 == "v1" {print $10, $11, $12, $13}' tmp_flipped.vcf)" == "1/1 0/1 1/1 0/0" ]] || exit 1
+[[ "$(awk '!/^#/ && $3 == "v3" {print $10, $11, $12, $13}' tmp_flipped.vcf)" == "0/1 0/0 0/0 0/0" ]] || exit 1

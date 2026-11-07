@@ -20,4 +20,4 @@ cat > tmp_data.vcf <<'VCF'
 VCF
 $plink2 --vcf tmp_data.vcf --make-pgen --out tmp_data > /dev/null
 $plink2 --pfile tmp_data --fa tmp_ref.fa --export vcf --out tmp_out > /dev/null
-[[ "$(grep '^##contig' tmp_out.vcf | tr '\n' ' ')" == "##contig=<ID=1,length=20> ##contig=<ID=2,length=13> " ]]
+[[ "$(grep '^##contig' tmp_out.vcf | tr '\n' ' ')" == "##contig=<ID=1,length=20> ##contig=<ID=2,length=13> " ]] || exit 1

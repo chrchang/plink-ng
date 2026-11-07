@@ -21,6 +21,6 @@ with open("tmp_assoc.glm.linear", "w") as f:
 PY
 $plink2 --gwas-ssf rsid=infer file=tmp_assoc.glm.linear --out tmp_ssf > /dev/null
 out=tmp_assoc.glm.linear.ssf.tsv
-[[ $(wc -l < $out) -eq 20001 ]]
+[[ $(wc -l < $out) -eq 20001 ]] || exit 1
 head -n 1 $out | tr '\t' '\n' | grep -qx rsid
-[[ $(grep -c $'\trs19991\t' $out) -eq 1 ]]
+[[ $(grep -c $'\trs19991\t' $out) -eq 1 ]] || exit 1

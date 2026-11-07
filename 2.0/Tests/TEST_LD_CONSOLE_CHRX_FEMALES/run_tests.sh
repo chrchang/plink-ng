@@ -51,4 +51,4 @@ $plink2 --vcf tmp_x.vcf --psam tmp_female.psam --make-pgen --out tmp_x > /dev/nu
 $plink2 --vcf tmp_x_as_auto.vcf --psam tmp_female.psam --make-pgen --out tmp_x_as_auto > /dev/null
 $plink2 --pfile tmp_x --ld v0 v1 --out tmp_ld_x > /dev/null
 $plink2 --pfile tmp_x_as_auto --ld v0 v1 --out tmp_ld_x_as_auto > /dev/null
-[[ "$(ld_line tmp_ld_x)" == "$(ld_line tmp_ld_x_as_auto)" ]]
+[[ "$(ld_line tmp_ld_x)" == "$(ld_line tmp_ld_x_as_auto)" ]] || exit 1

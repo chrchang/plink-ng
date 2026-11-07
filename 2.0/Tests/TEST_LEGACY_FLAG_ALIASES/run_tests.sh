@@ -48,4 +48,4 @@ $plink2 --pfile tmp_data --export eig --out tmp_eig > /dev/null
 $plink2 --eiggeno tmp_eig.geno --eigind tmp_eig.ind --eigsnp tmp_eig.snp --make-pgen --out tmp_eig > /dev/null
 $plink2 --pfile tmp_data --export A --out tmp_orig > /dev/null
 $plink2 --pfile tmp_eig --export A --out tmp_eig > /dev/null
-[[ "$(cut -f 2,7 tmp_orig.raw | tail -n +2)" == "$(cut -f 2,7 tmp_eig.raw | tail -n +2)" ]]
+[[ "$(cut -f 2,7 tmp_orig.raw | tail -n +2)" == "$(cut -f 2,7 tmp_eig.raw | tail -n +2)" ]] || exit 1

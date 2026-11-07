@@ -32,13 +32,13 @@ $plink2 --vcf tmp_data.vcf --psam tmp_data.psam --make-pgen --out tmp_data > /de
 
 $plink2 --pfile tmp_data --y-nosex-missing-stats --mind 0.2 --make-just-psam --out tmp_mind > /dev/null
 got=$(awk 'NR > 1 {printf "%s ", $1}' tmp_mind.psam)
-[[ "$got" == "M1 M2 N F1 " ]]
+[[ "$got" == "M1 M2 N F1 " ]] || exit 1
 # Without the flag, chrY doesn't count for N, so N is removed.
 $plink2 --pfile tmp_data --mind 0.2 --make-just-psam --out tmp_mind_default > /dev/null
 got=$(awk 'NR > 1 {printf "%s ", $1}' tmp_mind_default.psam)
-[[ "$got" == "M1 M2 F1 " ]]
+[[ "$got" == "M1 M2 F1 " ]] || exit 1
 
 $plink2 --pfile tmp_data --y-nosex-missing-stats --geno 0.4 --make-just-pvar --out tmp_geno > /dev/null
 grep -q $'\ty0\t' tmp_geno.pvar
 $plink2 --pfile tmp_data --geno 0.4 --make-just-pvar --out tmp_geno_default > /dev/null
-! grep -q $'\ty0\t' tmp_geno_default.pvar
+! grep -q $'\ty0\t' tmp_geno_default.pvar || exit 1

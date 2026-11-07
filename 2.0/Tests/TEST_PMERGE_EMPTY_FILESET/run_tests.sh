@@ -21,4 +21,4 @@ VCF
 done
 printf 'tmp_chr1\ntmp_chr2\ntmp_chr3\ntmp_chr4\n' > tmp_list.txt
 $plink2 --pmerge-list tmp_list.txt --chr 1,4 --out tmp_merged > /dev/null
-[[ "$(awk '!/^#/ {printf "%s ", $3}' tmp_merged.pvar)" == "c1a c1b c4a c4b " ]]
+[[ "$(awk '!/^#/ {printf "%s ", $3}' tmp_merged.pvar)" == "c1a c1b c4a c4b " ]] || exit 1

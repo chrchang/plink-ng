@@ -43,8 +43,8 @@ pr_flags() {
 
 # 1. format=2 (biallelic only).
 $plink2 --pfile tmp_data --exclude tmp_exclude.txt --snps-only just-acgt --max-alleles 2 --make-pgen format=2 --out tmp_fw > /dev/null
-[[ "$(pr_flags tmp_fw)" == "PR PR . " ]]
+[[ "$(pr_flags tmp_fw)" == "PR PR . " ]] || exit 1
 
 # 2. multiallelics=-: v4 and v6 are each split in two.
 $plink2 --pfile tmp_data --exclude tmp_exclude.txt --make-pgen multiallelics=- --out tmp_split > /dev/null
-[[ "$(pr_flags tmp_split)" == "PR . . PR PR PR . " ]]
+[[ "$(pr_flags tmp_split)" == "PR . . PR PR PR . " ]] || exit 1

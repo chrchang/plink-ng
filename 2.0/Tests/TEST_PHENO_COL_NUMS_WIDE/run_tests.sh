@@ -24,5 +24,5 @@ PY
 $plink2 --vcf tmp_data.vcf --double-id --make-pgen --out tmp_data > /dev/null
 # Columns 3-5 are the first three phenotypes; 1026 is the last one.
 $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-col-nums 3-5,1026 --make-just-psam --out tmp_out > /dev/null
-[[ "$(head -n 1 tmp_out.psam)" == "$(printf '#FID\tIID\tSEX\tPHENO1\tPHENO2\tPHENO3\tPHENO4')" ]]
-[[ "$(awk 'NR == 2 {print $4, $5, $6, $7}' tmp_out.psam)" == "$(awk 'NR == 1 {print $3, $4, $5, $1026}' tmp_pheno.txt)" ]]
+[[ "$(head -n 1 tmp_out.psam)" == "$(printf '#FID\tIID\tSEX\tPHENO1\tPHENO2\tPHENO3\tPHENO4')" ]] || exit 1
+[[ "$(awk 'NR == 2 {print $4, $5, $6, $7}' tmp_out.psam)" == "$(awk 'NR == 1 {print $3, $4, $5, $1026}' tmp_pheno.txt)" ]] || exit 1

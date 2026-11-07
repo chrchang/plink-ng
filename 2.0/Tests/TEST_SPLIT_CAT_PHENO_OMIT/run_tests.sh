@@ -33,9 +33,9 @@ $plink2 --vcf tmp_data.vcf --psam tmp_data.psam --make-pgen --out tmp_data > /de
 
 # omit-last drops c099; omit-most drops c002.
 $plink2 --pfile tmp_data --keep tmp_keep.txt --split-cat-pheno omit-last --make-just-psam --out tmp_last > /dev/null
-[[ "$(head -n 1 tmp_last.psam)" == "$(printf '#IID\tSEX\tCAT=c001\tCAT=c002')" ]]
+[[ "$(head -n 1 tmp_last.psam)" == "$(printf '#IID\tSEX\tCAT=c001\tCAT=c002')" ]] || exit 1
 $plink2 --pfile tmp_data --keep tmp_keep.txt --split-cat-pheno omit-most --make-just-psam --out tmp_most > /dev/null
-[[ "$(head -n 1 tmp_most.psam)" == "$(printf '#IID\tSEX\tCAT=c001\tCAT=c099')" ]]
+[[ "$(head -n 1 tmp_most.psam)" == "$(printf '#IID\tSEX\tCAT=c001\tCAT=c099')" ]] || exit 1
 python3 - <<'PY'
 cats = {}
 for line in open("tmp_data.psam"):

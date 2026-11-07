@@ -23,4 +23,4 @@ cat > tmp_data.vcf <<'VCF'
 VCF
 $plink2 --vcf tmp_data.vcf --make-pgen --out tmp_data > /dev/null
 $plink2 --pfile tmp_data --fa tmp_ref.fa --normalize --make-just-pvar --out tmp_norm > /dev/null
-[[ "$(grep -v '^#' tmp_norm.pvar | cut -f 1-5)" == "$(printf '1\t2\tv1\tTCA\tT')" ]]
+[[ "$(grep -v '^#' tmp_norm.pvar | cut -f 1-5)" == "$(printf '1\t2\tv1\tTCA\tT')" ]] || exit 1

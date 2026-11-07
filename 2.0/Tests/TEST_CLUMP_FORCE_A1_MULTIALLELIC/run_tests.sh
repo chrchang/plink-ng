@@ -31,4 +31,4 @@ PY
 printf '#CHROM\tPOS\tID\tA1\tP\n1\t1000\tv1\tG\t1e-10\n1\t2000\tv2\tC\t1e-6\n' > tmp_assoc.txt
 $plink2 --vcf tmp_data.vcf --make-pgen --out tmp_data > /dev/null
 $plink2 --pfile tmp_data --clump cols=+sp2 tmp_assoc.txt --clump-force-a1 --out tmp_clump > /dev/null
-[[ "$(awk -F '\t' '$3 == "v1" {print $4, $NF}' tmp_clump.clumps)" == "G v2(C)" ]]
+[[ "$(awk -F '\t' '$3 == "v1" {print $4, $NF}' tmp_clump.clumps)" == "G v2(C)" ]] || exit 1

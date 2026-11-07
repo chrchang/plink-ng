@@ -21,7 +21,7 @@ PY
 $plink2 --vcf tmp_data.vcf --make-pgen --out tmp_data > /dev/null
 
 $plink2 --pfile tmp_data --snps rs115,rs1-rs11 --make-just-pvar --out tmp_snps > /dev/null
-[[ $(grep -vc '^#' tmp_snps.pvar) -eq 12 ]]
+[[ $(grep -vc '^#' tmp_snps.pvar) -eq 12 ]] || exit 1
 # A genuine duplicate is still an error.
 if $plink2 --pfile tmp_data --snps rs3,rs1-rs3 --make-just-pvar --out tmp_dup > /dev/null 2>&1; then
     echo "duplicate range end accepted"

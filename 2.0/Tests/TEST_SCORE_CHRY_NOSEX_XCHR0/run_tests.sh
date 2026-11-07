@@ -41,7 +41,7 @@ $plink2 --vcf tmp_data.vcf --psam tmp_data.psam --make-pgen --out tmp_data > /de
 
 # 1. N1's chrY ALT call scores like M1's.
 $plink2 --pfile tmp_data --chr Y --score tmp_weights.txt no-mean-imputation cols=+scoresums --out tmp_y > /dev/null
-[[ "$(awk -F '\t' '$1 == "M1" || $1 == "N1" {printf "%s:%s ", $1, $NF}' tmp_y.sscore)" == "M1:2 N1:2 " ]]
+[[ "$(awk -F '\t' '$1 == "M1" || $1 == "N1" {printf "%s:%s ", $1, $NF}' tmp_y.sscore)" == "M1:2 N1:2 " ]] || exit 1
 
 # 2. --xchr-model 0 must match leaving chrX out entirely.
 $plink2 --pfile tmp_data --score tmp_weights.txt no-mean-imputation cols=+scoresums --xchr-model 0 --out tmp_x0 > /dev/null

@@ -19,5 +19,5 @@ VCF
 $plink2 --vcf tmp_data.vcf --id-delim _ --make-pgen --out tmp_data > /dev/null
 $plink2 --pfile tmp_data --export A-transpose --out tmp_tab > /dev/null
 $plink2 --pfile tmp_data --export A-transpose spaces --out tmp_space > /dev/null
-[[ "$(head -n 1 tmp_tab.traw | cut -f 7-)" == "$(printf 'F1_S1\tF2_S2')" ]]
-[[ "$(head -n 1 tmp_space.traw | cut -d ' ' -f 7-)" == "F1_S1 F2_S2" ]]
+[[ "$(head -n 1 tmp_tab.traw | cut -f 7-)" == "$(printf 'F1_S1\tF2_S2')" ]] || exit 1
+[[ "$(head -n 1 tmp_space.traw | cut -d ' ' -f 7-)" == "F1_S1 F2_S2" ]] || exit 1

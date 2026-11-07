@@ -27,6 +27,6 @@ $plink2 --vcf tmp_data.vcf --make-pgen --out tmp_data > /dev/null
 
 expected=$(printf 'S1\tS2\t3\t3\t1\t1\t2')
 $plink2 --pfile tmp_data --sample-diff counts-only counts-cols=+nobs,+nobsibs,+ibs0,+ibs1 ids=S1 S2 --out tmp_counts > /dev/null
-[[ "$(tail -n 1 tmp_counts.sdiff.summary)" == "$expected" ]]
+[[ "$(tail -n 1 tmp_counts.sdiff.summary)" == "$expected" ]] || exit 1
 $plink2 --pfile tmp_data --sample-diff counts-cols=+nobs,+nobsibs,+ibs0,+ibs1 ids=S1 S2 --out tmp_main > /dev/null
-[[ "$(tail -n 1 tmp_main.sdiff.summary)" == "$expected" ]]
+[[ "$(tail -n 1 tmp_main.sdiff.summary)" == "$expected" ]] || exit 1

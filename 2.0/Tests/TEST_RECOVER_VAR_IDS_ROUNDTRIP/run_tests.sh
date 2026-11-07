@@ -42,7 +42,7 @@ cat > tmp_data.vcf <<'VCF'
 VCF
 $plink2 --vcf tmp_data.vcf --make-pgen --out tmp_orig > /dev/null
 $plink2 --pfile tmp_orig --sort-vars --set-all-var-ids '@:#:$r:$a' --make-pgen --out tmp_renamed > /dev/null
-[[ "$(awk '!/^#/ {printf "%s ", $3}' tmp_renamed.pvar)" == "1:100:A:G 1:200:C:T 1:300:G:A 2:300:G:A 2:400:T:C 2:500:A:C 3:500:A:C 3:600:G:T " ]]
+[[ "$(awk '!/^#/ {printf "%s ", $3}' tmp_renamed.pvar)" == "1:100:A:G 1:200:C:T 1:300:G:A 2:300:G:A 2:400:T:C 2:500:A:C 3:500:A:C 3:600:G:T " ]] || exit 1
 
 ids() {
     awk '!/^#/ {printf "%s ", $3}' "$1"
@@ -50,11 +50,11 @@ ids() {
 
 # 1. No filtering: every ID comes back.
 $plink2 --pfile tmp_renamed --recover-var-ids tmp_orig.pvar --make-just-pvar --out tmp_all > /dev/null
-[[ "$(ids tmp_all.pvar)" == "rs1 rs2 rs3 rs4 rs5 rs6 rs7 rs8 " ]]
+[[ "$(ids tmp_all.pvar)" == "rs1 rs2 rs3 rs4 rs5 rs6 rs7 rs8 " ]] || exit 1
 
 # 2. The last variant of each chromosome is excluded, by its overwritten ID.
 #    (--exclude-snps is applied before --recover-var-ids.  Load-time filters
 #    like --snps-only remove variants entirely, and --exclude is applied
 #    afterward, so neither reaches the affected code.)
 $plink2 --pfile tmp_renamed --exclude-snps 1:300:G:A,2:500:A:C,3:600:G:T --recover-var-ids tmp_orig.pvar --make-just-pvar --out tmp_filtered > /dev/null
-[[ "$(ids tmp_filtered.pvar)" == "rs1 rs2 rs4 rs5 rs7 " ]]
+[[ "$(ids tmp_filtered.pvar)" == "rs1 rs2 rs4 rs5 rs7 " ]] || exit 1
