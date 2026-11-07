@@ -3868,7 +3868,12 @@ PglErr CmpExprNewStr(const char* cur_param, uint32_t* offset_ptr, char** new_str
     strcpy_k(g_textbuf, "Key or value too long (>16000 chars).");
     return kPglRetInvalidCmdline;
   }
-  if (unlikely(pgl_malloc(slen + 1, new_str_ptr))) {
+  // Consumers may scan this with vectorized functions like strchrnul2(),
+  // which read a whole aligned vector at a time and so touch up to
+  // kBytesPerVec-1 bytes past the terminator.  As in AllocAndFlattenEx(),
+  // those loads cannot fault, but AddressSanitizer flags them on an
+  // exact-size malloc() buffer, so allocate kBytesPerVec-1 bytes of slack.
+  if (unlikely(pgl_malloc(slen + kBytesPerVec, new_str_ptr))) {
     return kPglRetNomem;
   }
   char* new_str = *new_str_ptr;
