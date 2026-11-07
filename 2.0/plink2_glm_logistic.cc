@@ -2446,7 +2446,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_stop = domdev_present + allele_ct - const_allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kFloatPerFVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
                 cur_biallelic_regressed_predictor_stop = domdev_present + 2;
@@ -2503,7 +2503,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_stop = domdev_present + allele_ct - const_allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kFloatPerFVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
                 cur_biallelic_regressed_predictor_stop = domdev_present + 2;
