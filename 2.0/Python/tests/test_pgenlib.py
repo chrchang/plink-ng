@@ -719,3 +719,80 @@ def test_phased_dosages_errors(tmp_path):
             r.read_phased_dosages_range(0, 5, np.empty([5, 9], np.float32))
         with pytest.raises(RuntimeError):
             r.read_phased_dosages_list(np.asarray([0, 5], np.uint32), np.empty([2, 10], np.float32))
+
+
+@pytest.mark.parametrize("allele_ct", [3, 4, 20])
+def test_count_multiallelic_random(tmp_path, allele_ct):
+    # count(..., allele_idx) on multiallelic variants, against counts computed
+    # directly from the allele codes, with and without a sample subset.  This
+    # exercises both the sparse and dense ALT1+/ALTx-ALTy patch encodings.
+    # Fixed in #666: skipping a sparse REF/ALTx patch list also skipped
+    # genotype bytes that aren't there; with 3 alleles, het-counting
+    # subtracted matching homozygotes twice; and with more than 16 alleles,
+    # byte-wide patch values were matched as if they were nybble pairs.
+    random.seed(allele_ct)
+    nsample = 300
+    nvariant = 40
+    codes = np.zeros([nvariant, 2 * nsample], np.int32)
+    for vidx in range(nvariant):
+        # Vary the fraction of non-REF/ALT1 calls across variants; the
+        # smallest fractions produce sparsely-stored (difflist) patches.
+        rare_frac = (0.0, 0.002, 0.005, 0.02, 0.125, 0.25, 0.5, 0.75)[vidx % 8]
+        for sidx in range(nsample):
+            for h in range(2):
+                r = random.random()
+                if r < 0.02:
+                    a = -9
+                elif r < rare_frac:
+                    a = random.randrange(2, allele_ct)
+                else:
+                    a = random.randrange(2)
+                codes[vidx, 2 * sidx + h] = a
+            if (codes[vidx, 2 * sidx] == -9) != (codes[vidx, 2 * sidx + 1] == -9):
+                codes[vidx, 2 * sidx: 2 * sidx + 2] = -9
+    path = bytes(tmp_path / "m.pgen")
+    with pgenlib.PgenWriter(path, nsample, variant_ct=nvariant, nonref_flags=False, allele_ct_limit=allele_ct) as w:
+        for vidx in range(nvariant):
+            w.append_alleles(codes[vidx], allele_ct=allele_ct)
+    offsets = np.arange(nvariant + 1, dtype=np.uintp) * allele_ct
+    subset = np.array(sorted(random.sample(range(nsample), nsample // 3)), dtype=np.uint32)
+    for sample_subset in (None, subset):
+        kwargs = {} if sample_subset is None else {"sample_subset": sample_subset}
+        cols = np.arange(nsample) if sample_subset is None else subset.astype(np.int64)
+        with pgenlib.PgenReader(path, allele_idx_offsets=offsets, **kwargs) as r:
+            got = np.empty([4], np.uint32)
+            for vidx in range(nvariant):
+                pairs = codes[vidx].reshape(nsample, 2)[cols]
+                missing = pairs[:, 0] == -9
+                for allele_idx in range(allele_ct):
+                    copies = (pairs == allele_idx).sum(axis=1)
+                    want = [int(((copies == k) & ~missing).sum()) for k in range(3)] + [int(missing.sum())]
+                    r.count(vidx, got, allele_idx)
+                    assert got.tolist() == want, (vidx, allele_idx, got.tolist(), want)
+
+
+@pytest.mark.parametrize("allele_ct", [3, 4, 20])
+def test_count_multiallelic_sparse_patch(tmp_path, allele_ct):
+    # Only three REF/ALTx hets, so they're stored as a sparse list.  Skipping
+    # that list used to also skip genotype bytes that aren't present, after
+    # which count() errored out or read the wrong values.
+    random.seed(allele_ct)
+    nsample = 300
+    codes = np.zeros(2 * nsample, np.int32)
+    for sidx in range(nsample):
+        codes[2 * sidx + 1] = 1 if random.random() < 0.4 else 0
+    for sidx, allele in ((10, 2), (70, allele_ct - 1), (150, 2)):
+        codes[2 * sidx: 2 * sidx + 2] = (0, allele)
+    for sidx in (200, 201, 202):
+        codes[2 * sidx: 2 * sidx + 2] = (1, 2)
+    path = bytes(tmp_path / "m.pgen")
+    with pgenlib.PgenWriter(path, nsample, variant_ct=1, nonref_flags=False, allele_ct_limit=allele_ct) as w:
+        w.append_alleles(codes, allele_ct=allele_ct)
+    pairs = codes.reshape(nsample, 2)
+    with pgenlib.PgenReader(path, allele_idx_offsets=np.array([0, allele_ct], dtype=np.uintp)) as r:
+        got = np.empty([4], np.uint32)
+        for allele_idx in range(allele_ct):
+            copies = (pairs == allele_idx).sum(axis=1)
+            want = [int((copies == k).sum()) for k in range(3)] + [0]
+            r.count(0, got, allele_idx)
+            assert got.tolist() == want, (allele_idx, got.tolist(), want)

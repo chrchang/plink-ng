@@ -244,3 +244,35 @@ test_that("reader rejects an allele the variant does not have", {
   expect_identical(as.numeric(b), c(0, 1, 2))
   ClosePgen(pgen)
 })
+
+test_that("VariantScores mean-imputes only fully missing calls", {
+  # A dosage far from an integer is stored without a hardcall.  Such calls
+  # used to be mean-imputed in addition to contributing their dosage.
+  withr::local_seed(667)
+  tmpdir <- withr::local_tempdir()
+  sample_ct <- 37L
+  variant_ct <- 3L
+  pgen_path <- file.path(tmpdir, "dosages.pgen")
+  pw <- NewPgenWriter(pgen_path, sample_ct, variant_ct, dosage_present = TRUE)
+  for (vidx in seq_len(variant_ct)) {
+    dosages <- sample(c(0, 1, 2), sample_ct, replace = TRUE)
+    dosages[c(3, 8, 20, 33)] <- c(0.5, 1.4, 0.75, 1.6)  # no hardcall
+    if (vidx != 2) {
+      dosages[c(5, 36)] <- NA                           # fully missing
+    }
+    AppendDosages(pw, dosages)
+  }
+  ClosePgenWriter(pw)
+
+  pgen <- NewPgen(pgen_path)
+  weights <- rnorm(sample_ct)
+  scores <- VariantScores(pgen, weights)
+  buf <- Buf(pgen)
+  for (vidx in seq_len(variant_ct)) {
+    Read(pgen, buf, vidx)
+    x <- as.numeric(buf)
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    expect_equal(scores[vidx], sum(weights * x), tolerance = 1e-6)
+  }
+  ClosePgen(pgen)
+})
