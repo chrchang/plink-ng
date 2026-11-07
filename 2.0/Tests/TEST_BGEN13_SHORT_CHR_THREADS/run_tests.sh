@@ -61,9 +61,19 @@ for ra, rb in zip(a, b):
         cmp tmp_ref_chr$c.raw tmp_t${t}_chr$c.raw || exit 1
     done
 
-    # 2. Large workspace, so that up to 7 scan threads are used.
+    # 2. Large workspace, so that up to 7 scan threads are used.  32-bit
+    #    builds reject --memory 30000 outright; since they can't reserve even
+    #    one 4 GiB scan-thread's worth of workspace, there is nothing for this
+    #    part to check there.
     for t in 4 8 16; do
-        $plink2 $import_args --threads $t --memory 30000 --chr $c --make-pgen --out tmp_big_t${t}_chr$c > /dev/null
+        if ! $plink2 $import_args --threads $t --memory 30000 --chr $c --make-pgen --out tmp_big_t${t}_chr$c > tmp_big_t${t}_chr$c.out 2>&1; then
+            if grep -q 'argument too large for 32-bit version' tmp_big_t${t}_chr$c.out; then
+                echo "32-bit build; skipping large-workspace check."
+                break
+            fi
+            cat tmp_big_t${t}_chr$c.out
+            exit 1
+        fi
         if grep -q 'after larger attempt(s) failed' tmp_big_t${t}_chr$c.log; then
             echo "--memory 30000 reservation unavailable; skipping large-workspace check."
             break
