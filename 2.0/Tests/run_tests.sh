@@ -628,4 +628,12 @@ cd TEST_MENDEL_CHRY_NOBS
 cd ..
 echo "TEST_MENDEL_CHRY_NOBS passed."
 
+# TEST_BGEN13_SHORT_CHR_THREADS is disabled by default: it reserves a 30000 MiB --memory workspace
+# (address space only; it skips that part if the reservation fails).  It
+# takes ~0.3-0.6 s on an M1 Mac with 16 GiB RAM.
+# cd TEST_BGEN13_SHORT_CHR_THREADS
+# ./run_tests.sh $d $2 $3 > TEST_BGEN13_SHORT_CHR_THREADS.log
+# cd ..
+# echo "TEST_BGEN13_SHORT_CHR_THREADS passed."
+
 echo "All tests passed."

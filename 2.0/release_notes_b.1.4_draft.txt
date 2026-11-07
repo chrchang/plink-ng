@@ -1,0 +1,165 @@
+PLINK 2.0 b.1.4 (draft) -- result-changing fixes since b.1.3 (31 Oct 2026)
+
+This list is limited to fixes that change the output of a run that previously
+completed on valid input (wrong numbers, wrong samples/variants kept, wrong
+header or ID text), plus commands that previously failed or crashed on valid
+input.  Fixes for malformed or unusually long inputs, memory-safety hardening,
+and stricter command-line parsing are omitted.  Most of these come from the
+line-by-line review in PR #666.
+
+Association analysis
+- --glm linear: p-values of joint tests (e.g. GENO_2DF, --tests) now use the
+  residual degrees of freedom (sample count minus predictor count) instead
+  of the sample count.  This makes them larger, noticeably so at small
+  sample sizes.
+- --glm on multiallelic variants: when an allele is absent from the analyzed
+  samples, linear regression used the wrong t-test df and logistic
+  regression could report the wrong coefficients.  Results now match the
+  corresponding biallelic analysis.
+- --glm --tests/--parameters on chrX/chrY: when a covariate was dropped only
+  on that chromosome (e.g. constant among males on chrY), the joint test or
+  parameter subset could select the wrong predictors there.
+- --glm local covariates: interaction terms for ordinary covariates were
+  built from the wrong covariate column, and 1-based 'local-cats=' failed
+  to omit the last category (producing NA results).  Also fixed: row
+  duplication and pre-first-position handling with 'local-pos-cols='.
+- --glm permutation tests ('perm'/'mperm=') with categorical covariates
+  residualized against the wrong number of covariate columns.
+- t/F-test p-values: one incomplete-beta branch lost precision for some
+  small-degrees-of-freedom cases.
+- --epistasis: the df=4 chi-square threshold used an inverse-gamma routine
+  with several integer-division constants (e.g. 1/3 evaluated as 0).
+- --adjust/--adjust-file with 'log10': -log10(p) columns printed the
+  --output-min-p value (or 2147483647) for very small p-values.
+- --clump --clump-force-a1: a multiallelic variant following a biallelic one
+  whose A1 was ALT could be listed with the wrong allele.
+- --score: unknown-sex samples' chrY contributions were zeroed.
+  --xchr-model 0 could crash.  --q-score-range with several ranges added
+  the sparse-variant correction to the wrong ranges.  Mean imputation of
+  sparsely-stored missing calls ignored the centering/standardization
+  intercept.  Missing haploid calls under --q-score-range used the wrong
+  counter.
+
+Sample/variant QC and filters
+- --keep-if/--remove-if: '!=' on a binary phenotype behaved like '=='.
+  Covariates past the first <phenotype count> covariates couldn't be found.
+- --extract-if-info/--exclude-if-info string comparisons could exclude every
+  variant.
+- --mind and --geno with --y-nosex-missing-stats: unknown-sex samples' chrY
+  calls are now included in the chrY denominators.
+- --filter-females now keeps only females (it previously also kept
+  unknown-sex samples).  --remove-founders and --remove-nonfounders had
+  their meanings swapped.
+- --snps/--extract ranges: a range end that shared a prefix with an earlier
+  ID (e.g. "rs115,rs1-rs11") was rejected as a duplicate.
+- --read-freq with a biallelic-only format (e.g. PLINK 1.9 .frq) skipped
+  every variant when the dataset contained any multiallelic variant.
+- --mendel/--me on chrY: trio males could be treated as female (so their
+  chrY calls were ignored and errors went unreported) when non-trio samples
+  preceded the trios in the dataset.
+- --mendel/--me per-sample observation counts (.imendel OBS_CT, and the
+  --me trio error-rate denominators) were wrong when a thread processed
+  more than 255 variants with missing trio calls; in practice this mainly
+  affected runs with few threads, and results varied with the thread count.
+- --geno 'dosage' on chrX with a sample subset counted excluded samples'
+  missing calls.
+
+Statistics and reports
+- --pheno-svd: output singular vectors were read from the wrong matrix
+  layout (results were scrambled).
+- --fst block jackknife: SE was wrong when the block size divided the
+  variant count exactly.
+- --het small-sample: founder allele frequencies were wrong on
+  sparsely-stored variants when nonfounders were present, slightly shifting
+  E(HOM) and F.
+- --make-king-table: NSNP (and proportion columns derived from it) was too
+  high for some pairs on variants with very few non-common calls.
+- --ld <var> <var>: phase was discarded on chrX when there were no males.
+- --sample-diff: variants where every call was missing were counted as
+  observed and identical; missing calls also incremented IBS counts, and
+  haploid dosage comparisons miscounted IBS-missing.
+- --freq cols=+machr2: multiallelic MACH_R2 read dosage sums from the wrong
+  variant, and chrX/chrY multiallelic het-haploid counts were miscomputed.
+- --geno-counts on chrMT: HET_REF_ALT columns are now reported.
+- --hardy/--freq on multiallelic chrX variants: the founder male count could
+  include out-of-range bits.
+- --homozyg: .homozyg.summary could report nonzero counts for samples with no
+  segments (uninitialized totals).
+
+Data management and conversion
+- --make-pgen/--make-bed with --indiv-sort: --set-invalid-haploid-missing,
+  --set-me-missing and --fill-missing-with-ref masked the wrong samples.
+- --set-invalid-haploid-missing/--set-mixed-mt-missing with dosages: after
+  the first cleared call, later dosages were attached to the wrong samples.
+- --make-pgen 'multiallelics=-' after variant filtering, and fixed-width
+  output ('format=2'), wrote provisional-REF flags for the wrong variants.
+- --zero-cluster on multiallelic variants: zeroed calls kept their ALT2+
+  values.
+- --flip permissive + --flip-subset: skipped non-SNPs were still rewritten
+  for the subset samples (or crashed).
+- --pmerge-list: a fileset left empty by filtering caused the next fileset
+  to be dropped.  .psam merging: a mother-ID conflict locked the father
+  instead of the mother, the missing-category name corrupted categorical
+  phenotypes, and a 0 seen before a conflict resurrected the conflicted
+  value as 0.
+- --normalize: when an allele was entirely right-trimmed and the variant was
+  then left-shifted, the padding base came from the wrong position.
+- --fa + VCF/BCF export: the last contig's length was missing from
+  ##contig lines.
+- VCF/BCF export: ##contig lines whose ID was not the first key lost a comma
+  or kept a stray one.  BCF export: haploid male GP values had REF/ALT
+  probabilities swapped, 'HDS-force' gave non-male haploid calls diploid
+  HDS on chrY/chrMT, and chromosomes exported as "0" got inconsistent
+  contig indices.
+- --export A-transpose 'spaces': the header's FID_IID names were garbled.
+- --export oxford/bgen .sample files: unknown-sex samples' missing rates
+  used the chrY-exclusive denominator.
+- --export mgf honored allele order adjustments (e.g. --ref-allele) only in
+  the allele columns, not in the dosages.
+- --output-chr two-character codes: chrY was written as "XY".
+- --recover-var-ids: when a filter applied before it (e.g. --exclude-snps)
+  removed a chromosome's last variant(s), that variant's record could also
+  be matched to the next chromosome's first variant, failing the run with a
+  spurious "conflicting matching-position-and-alleles records" error.
+- --gwas-ssf rsid=infer: on large inputs, the retry after a late rsID read
+  from the end of the file instead of the beginning.
+
+Import
+- --import-dosage with --import-dosage-certainty: calls below the certainty
+  threshold were overwritten with a dosage instead of staying missing.
+- --vcf: --idspace-to was ignored unless an --id-delim was in effect.
+- --bcf with --vcf-min-gq/--vcf-min-dp: the trailing samples (beyond the last
+  full vector) were filtered using the wrong values; ploidy>2 detection
+  stepped through GT values incorrectly.
+- --bgen without a .sample file: embedded sample IDs were split incorrectly
+  under --id-delim.  BGEN v1.3 import with idle worker threads (e.g. a
+  chromosome with a single selected variant) could mis-assign work.
+- --gen: the second pass now repeats the first pass's skip tests (--chr
+  with --oxford-single-chr, overlong variant IDs), keeping variants aligned.
+- --lgen: monomorphic/all-missing variants could get garbage allele codes.
+- .map import: whether to keep the CM column was decided by the last
+  variant alone.
+- PLINK 1 sample-major .bed import with allele flips used the wrong flip
+  bits after the first block.
+- EIGENSOFT TGENO import with --chr: a batch with multiple runs of included
+  variants was re-transposed from the wrong offset.
+- --mgf import: the default hard-call threshold was not applied.
+- --eigsnp was unrecognized; --script spliced its own token back into the
+  command line (crash).  --pheno-col-nums on very wide headerless files
+  could fail.
+- --dummy: in high-LD runs, calls whose hardcall was missing only because of
+  their dosage were carried forward as genuinely missing, inflating the
+  missing rate.
+
+Python pgenlib / pgenlibr
+- pgenlib count() honors allele_idx on multiallelic variants, and the
+  allele-specific counts are correct for 3-allele and >16-allele variants
+  and for sparsely-stored ALTx patches.
+- pgenlib read_sparse_dosages: missing dosages were returned as 2.000061.
+- pgenlibr VariantScores: calls with a dosage but no hardcall were also
+  mean-imputed.
+
+Numerical note
+- Logistic regression log-likelihoods are now computed as the log of a
+  running product (#661), which can change the last printed digits of
+  --glm logistic results.
