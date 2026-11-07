@@ -608,4 +608,9 @@ cd TEST_PHENO_COL_NUMS_WIDE
 cd ..
 echo "TEST_PHENO_COL_NUMS_WIDE passed."
 
+cd TEST_RECOVER_VAR_IDS_ROUNDTRIP
+./run_tests.sh $d $2 $3 > TEST_RECOVER_VAR_IDS_ROUNDTRIP.log
+cd ..
+echo "TEST_RECOVER_VAR_IDS_ROUNDTRIP passed."
+
 echo "All tests passed."
