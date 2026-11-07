@@ -1655,13 +1655,14 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   const unsigned char* starts_range = range_list_ptr->starts_range;
   const uint32_t name_ct = range_list_ptr->name_ct;
   const uint32_t name_max_blen = range_list_ptr->name_max_blen;
-  const uint32_t idx_max = bitarr_size + offset;
-  if (!idx_max) {
+  const uint32_t idx_end = bitarr_size + offset;
+  if (!idx_end) {
     return (name_ct != 0);
   }
+  const uint32_t idx_max = idx_end - 1;
   for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
     uint32_t idx1;
-    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx1)) {
+    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
       if (likely(ignore_overflow)) {
         continue;
       }
@@ -1673,11 +1674,11 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
     if (starts_range[name_idx]) {
       ++name_idx;
       uint32_t idx2;
-      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx2)) {
+      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx2)) {
         if (unlikely(!ignore_overflow)) {
           return 1;
         }
-        idx2 = idx_max - 1;
+        idx2 = idx_max;
       }
       FillBitsNz(idx1 - offset, (idx2 - offset) + 1, bitarr);
     } else {

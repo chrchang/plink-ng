@@ -6365,9 +6365,8 @@ BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const G
       // - Extract original bit 8 (low bit of second genotype value).  No need
       //   to do anything else (verify non-END_OF_VECTOR or het status) with
       //   it, here, that's taken care of after the GQ/DP filter.
-      // - Extract original bit 9 (since the variant is biallelic, this bit
-      //   should only be set when the second genotype value is 0, i.e. if the
-      //   genotype is a phased het, it's 1|0).
+      // - Check whether original bits 9-15 are unset.  If the genotype is a
+      //   phased het, that corresponds to 1|0, and the alternative is 0|1.
 #ifdef USE_SHUFFLE8
       const uint32_t vec_ct = DivUp(sample_ct, kInt16PerVec);
       const uint32_t inv_remainder = (-sample_ct) & (kInt16PerVec - 1);
@@ -6396,14 +6395,14 @@ BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const G
         const VecU16 bcf_bytes = vecu16_loadu(&(gt_alias[vidx]));
         const VecU16 shifted_unmasked_bytes = vecu16_srli(bcf_bytes, 1);
         // Set iff the second value is missing or REF (bits 9-15 all zero).
-        const VecU16 bit9s_at_bit7 = R_CAST(VecU16, (bcf_bytes & mask_fc00) == vecu16_setzero());
+        const VecU16 ref_or_missing = R_CAST(VecU16, (bcf_bytes & mask_fc00) == vecu16_setzero());
 #  ifdef USE_AVX2
         const Vec16thUint cur_phasepresent = _pext_u32(vecu16_movemask(shifted_unmasked_bytes), 0x55555555);
-        const Vec16thUint cur_phaseinfo = _pext_u32(vecu16_movemask(bit9s_at_bit7), 0x55555555);
+        const Vec16thUint cur_phaseinfo = _pext_u32(vecu16_movemask(ref_or_missing), 0x55555555);
 #  else
         // todo: better ARM implementation
         const VecU16 phasepresent_vec = vecu16_shuffle8(shifted_unmasked_bytes, gather_even);
-        const VecU16 phaseinfo_vec = vecu16_shuffle8(bit9s_at_bit7, gather_even);
+        const VecU16 phaseinfo_vec = vecu16_shuffle8(ref_or_missing, gather_even);
         const Vec16thUint cur_phasepresent = vecu16_movemask(phasepresent_vec);
         const Vec16thUint cur_phaseinfo = vecu16_movemask(phaseinfo_vec);
 #  endif
@@ -16989,9 +16988,17 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
             genovec_word = bzhi_max(genovec_word, loop_len * 2);
           }
           if (dosage_exists) {
-            // A hardcall that the previous variant lost to its dosage (i.e.
-            // dosage present, hardcall missing) wasn't actually missing, so
-            // it must not stay missing here; re-roll it.
+            // prev_genovec is the previous variant's final hardcall vector,
+            // where a missing hardcall may just mean "dosage present but too
+            // far from an integer".  If we copied such a 3 verbatim, it would
+            // become genuinely missing here (the dosage loop below skips
+            // missing hardcalls), and it would tend to stay missing for the
+            // rest of the LD run; since each variant converts a new batch of
+            // samples this way, the missing rate would drift well above the
+            // requested level.  So re-roll those template entries (and only
+            // those; dosage-absent missing calls are still copied).
+            // (Missing-hardcall + dosage-present remains a normal output
+            // state; the re-rolled sample can end up in it again.)
             const Halfword* prev_dosage_present_iter = &(write_dosage_present_iter[-S_CAST(intptr_t, 2 * sample_ctaw)]);
             uint32_t reroll_hw = prev_dosage_present_iter[widx] & Pack11ToHalfword(genovec_word);
             while (reroll_hw) {

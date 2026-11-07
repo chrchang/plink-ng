@@ -438,4 +438,114 @@ cd TEST_19_LONG_CONTIG
 cd ..
 echo "TEST_19_LONG_CONTIG passed."
 
+cd TEST_LEGACY_FLAG_ALIASES
+./run_tests.sh $d $2 $3 > TEST_LEGACY_FLAG_ALIASES.log
+cd ..
+echo "TEST_LEGACY_FLAG_ALIASES passed."
+
+cd TEST_KEEP_IF_BINARY
+./run_tests.sh $d $2 $3 > TEST_KEEP_IF_BINARY.log
+cd ..
+echo "TEST_KEEP_IF_BINARY passed."
+
+cd TEST_INFO_FILTER_STR
+./run_tests.sh $d $2 $3 > TEST_INFO_FILTER_STR.log
+cd ..
+echo "TEST_INFO_FILTER_STR passed."
+
+cd TEST_MIND_GENO_Y_NOSEX
+./run_tests.sh $d $2 $3 > TEST_MIND_GENO_Y_NOSEX.log
+cd ..
+echo "TEST_MIND_GENO_Y_NOSEX passed."
+
+cd TEST_SNPS_RANGE_DUP
+./run_tests.sh $d $2 $3 > TEST_SNPS_RANGE_DUP.log
+cd ..
+echo "TEST_SNPS_RANGE_DUP passed."
+
+cd TEST_Q_SCORE_RANGE_SPARSE
+./run_tests.sh $d $2 $3 > TEST_Q_SCORE_RANGE_SPARSE.log
+cd ..
+echo "TEST_Q_SCORE_RANGE_SPARSE passed."
+
+cd TEST_IMPORT_DOSAGE_CERTAINTY
+./run_tests.sh $d $2 $3 > TEST_IMPORT_DOSAGE_CERTAINTY.log
+cd ..
+echo "TEST_IMPORT_DOSAGE_CERTAINTY passed."
+
+cd TEST_PHENO_SVD
+./run_tests.sh $d $2 $3 > TEST_PHENO_SVD.log
+cd ..
+echo "TEST_PHENO_SVD passed."
+
+cd TEST_GLM_JOINT_DF
+./run_tests.sh $d $2 $3 > TEST_GLM_JOINT_DF.log
+cd ..
+echo "TEST_GLM_JOINT_DF passed."
+
+cd TEST_LD_CONSOLE_CHRX_FEMALES
+./run_tests.sh $d $2 $3 > TEST_LD_CONSOLE_CHRX_FEMALES.log
+cd ..
+echo "TEST_LD_CONSOLE_CHRX_FEMALES passed."
+
+cd TEST_SAMPLE_DIFF_ALL_MISSING
+./run_tests.sh $d $2 $3 > TEST_SAMPLE_DIFF_ALL_MISSING.log
+cd ..
+echo "TEST_SAMPLE_DIFF_ALL_MISSING passed."
+
+cd TEST_INDIV_SORT_PHASE_SEX
+./run_tests.sh $d $2 $3 > TEST_INDIV_SORT_PHASE_SEX.log
+cd ..
+echo "TEST_INDIV_SORT_PHASE_SEX passed."
+
+cd TEST_PROVREF_FLAGS_SUBSET
+./run_tests.sh $d $2 $3 > TEST_PROVREF_FLAGS_SUBSET.log
+cd ..
+echo "TEST_PROVREF_FLAGS_SUBSET passed."
+
+cd TEST_FLIP_SUBSET_NONSNP
+./run_tests.sh $d $2 $3 > TEST_FLIP_SUBSET_NONSNP.log
+cd ..
+echo "TEST_FLIP_SUBSET_NONSNP passed."
+
+cd TEST_ZERO_CLUSTER_MULTIALLELIC
+./run_tests.sh $d $2 $3 > TEST_ZERO_CLUSTER_MULTIALLELIC.log
+cd ..
+echo "TEST_ZERO_CLUSTER_MULTIALLELIC passed."
+
+cd TEST_PMERGE_EMPTY_FILESET
+./run_tests.sh $d $2 $3 > TEST_PMERGE_EMPTY_FILESET.log
+cd ..
+echo "TEST_PMERGE_EMPTY_FILESET passed."
+
+cd TEST_EXPORT_ID_DELIMS
+./run_tests.sh $d $2 $3 > TEST_EXPORT_ID_DELIMS.log
+cd ..
+echo "TEST_EXPORT_ID_DELIMS passed."
+
+cd TEST_EXPORT_OXFORD_NOSEX_Y
+./run_tests.sh $d $2 $3 > TEST_EXPORT_OXFORD_NOSEX_Y.log
+cd ..
+echo "TEST_EXPORT_OXFORD_NOSEX_Y passed."
+
+cd TEST_GLM_MULTIALLELIC_CONST_ALLELE
+./run_tests.sh $d $2 $3 > TEST_GLM_MULTIALLELIC_CONST_ALLELE.log
+cd ..
+echo "TEST_GLM_MULTIALLELIC_CONST_ALLELE passed."
+
+cd TEST_VCF_IDSPACE_TO
+./run_tests.sh $d $2 $3 > TEST_VCF_IDSPACE_TO.log
+cd ..
+echo "TEST_VCF_IDSPACE_TO passed."
+
+cd TEST_ADJUST_LOG10_MINP
+./run_tests.sh $d $2 $3 > TEST_ADJUST_LOG10_MINP.log
+cd ..
+echo "TEST_ADJUST_LOG10_MINP passed."
+
+cd TEST_SET_MISSING_DOSAGE
+./run_tests.sh $d $2 $3 > TEST_SET_MISSING_DOSAGE.log
+cd ..
+echo "TEST_SET_MISSING_DOSAGE passed."
+
 echo "All tests passed."

@@ -220,7 +220,6 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
 }
 
 PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const char* sample_ids, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* export_allele, const char* const* export_allele_missing, const double* variant_cms, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, PgenReader* simple_pgrp) {
-  // todo: --recode-allele
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -3427,8 +3426,8 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
     }
     AppendBinaryEoln(&write_iter);
 
-    const double nonmale_geno_ct_recip = 1.0 / u31tod(variant_ct - y_ct);
-    const double male_geno_ct_recip = 1.0 / u31tod(variant_ct);
+    const double female_geno_ct_recip = 1.0 / u31tod(variant_ct - y_ct);
+    const double nonfemale_geno_ct_recip = 1.0 / u31tod(variant_ct);
     uintptr_t sample_uidx_base = 0;
     uintptr_t cur_bits = sample_include[0];
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
@@ -3439,18 +3438,15 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
       write_iter = strcpya(write_iter, &(fid_end[1]));
       *write_iter++ = ' ';
       const int32_t cur_missing_geno_ct = sample_missing_geno_cts[sample_idx];
-      if (IsSet(sex_male, sample_uidx)) {
-        write_iter = dtoa_g(cur_missing_geno_ct * male_geno_ct_recip, write_iter);
-        write_iter = strcpya_k(write_iter, " 1");
+      const uint32_t is_male = IsSet(sex_male, sample_uidx);
+      const uint32_t is_known_sex = IsSet(sex_nm, sample_uidx);
+      const double cur_denom_recip = (is_male || (!is_known_sex))? nonfemale_geno_ct_recip : female_geno_ct_recip;
+      write_iter = dtoa_g(cur_missing_geno_ct * cur_denom_recip, write_iter);
+      *write_iter++ = ' ';
+      if (is_known_sex) {
+        *write_iter++ = '2' - is_male;
       } else {
-        // unknown-sex samples have chrY calls exported
-        write_iter = dtoa_g(cur_missing_geno_ct * (IsSet(sex_nm, sample_uidx)? nonmale_geno_ct_recip : male_geno_ct_recip), write_iter);
-        *write_iter++ = ' ';
-        if (IsSet(sex_nm, sample_uidx)) {
-          *write_iter++ = '2';
-        } else {
-          write_iter = strcpya_k(write_iter, "NA");
-        }
+        write_iter = strcpya_k(write_iter, " NA");
       }
       for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
         *write_iter++ = ' ';
@@ -3589,8 +3585,8 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
 
     logprintfww5("Writing %s ... ", outname);
     fflush(stdout);
-    const double nonmale_geno_ct_recip = 1.0 / u31tod(variant_ct - y_ct);
-    const double male_geno_ct_recip = 1.0 / u31tod(variant_ct);
+    const double female_geno_ct_recip = 1.0 / u31tod(variant_ct - y_ct);
+    const double nonfemale_geno_ct_recip = 1.0 / u31tod(variant_ct);
     uintptr_t sample_uidx_base = 0;
     uintptr_t cur_bits = sample_include[0];
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
@@ -3598,18 +3594,15 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       const int32_t cur_missing_geno_ct = sample_missing_geno_cts[sample_idx];
       const uint32_t is_male = IsSet(sex_male, sample_uidx);
-      if (is_male || (!IsSet(sex_nm, sample_uidx))) {
-        // unknown-sex samples have chrY calls exported
-        write_iter = dtoa_g(cur_missing_geno_ct * male_geno_ct_recip, write_iter);
-      } else {
-        write_iter = dtoa_g(cur_missing_geno_ct * nonmale_geno_ct_recip, write_iter);
-      }
+      const uint32_t is_known_sex = IsSet(sex_nm, sample_uidx);
+      const double cur_denom_recip = (is_male || (!is_known_sex))? nonfemale_geno_ct_recip : female_geno_ct_recip;
+      write_iter = dtoa_g(cur_missing_geno_ct * cur_denom_recip, write_iter);
       *write_iter++ = ' ';
       if (write_parents) {
         write_iter = strcpyax(write_iter, &(paternal_ids[max_paternal_id_blen * sample_uidx]), ' ');
         write_iter = strcpyax(write_iter, &(maternal_ids[max_maternal_id_blen * sample_uidx]), ' ');
       }
-      if (IsSet(sex_nm, sample_uidx)) {
+      if (is_known_sex) {
         *write_iter++ = '2' - is_male;
       } else {
         write_iter = strcpya_k(write_iter, "NA");
@@ -7272,9 +7265,13 @@ void FillBcfMultiallelicHdsForce(const PgenVariant* pgvp, const uintptr_t* __res
     uint32_t* hds_second = &(hds_u32[alt_allele_ct]);
     if (!is_x) {
       // Set all ploidies to 1 except when phase present.
-      for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+      const uint32_t sample_ctl_m1 = sample_ctl - 1;
+      for (uint32_t widx = 0; ; ++widx) {
         uintptr_t unphased_word = ~phasepresent[widx];
-        if (widx == sample_ctl - 1) {
+        if (widx >= sample_ctl_m1) {
+          if (widx > sample_ctl_m1) {
+            break;
+          }
           unphased_word = bzhi_max(unphased_word, ModNz(sample_ct, kBitsPerWord));
         }
         if (!unphased_word) {
@@ -10531,6 +10528,8 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
       const uint32_t nybble1 = allele_nybbles[1];
       if (unlikely((nybble0 == nybble1) && (nybble0 != 15))) {
         // no lookup table for identical allele codes
+        // CheckAlleleUniqueness() doesn't quite prevent segfault since capital
+        // and lowercase compare unequal there
         new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetMalformedInput);
         goto PhylipPhasedReadThread_err;
       }
