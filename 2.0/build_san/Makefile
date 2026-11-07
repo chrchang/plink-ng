@@ -65,6 +65,12 @@ ifdef FORCE_32BIT
   CXXFLAGS = -std=c++17
 else
   ifdef NO_AVX2
+    # Omitting -mavx2 is not enough on its own: some toolchains (e.g. GCC on
+    # the ubuntu-26.04 GitHub runner image) target x86-64-v3 by default, which
+    # would still yield an AVX2 binary.  Reset to the x86-64 baseline first.
+    ifneq (,$(findstring x86_64,$(shell $(CC) -dumpmachine)))
+      BASEFLAGS += -march=x86-64
+    endif
     ifndef NO_SSE42
       BASEFLAGS += -msse4.2
       ifdef CPU_CHECK
