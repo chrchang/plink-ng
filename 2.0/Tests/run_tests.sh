@@ -473,15 +473,15 @@ cd TEST_IMPORT_DOSAGE_CERTAINTY
 cd ..
 echo "TEST_IMPORT_DOSAGE_CERTAINTY passed."
 
-#cd TEST_PHENO_SVD
-#./run_tests.sh $d $2 $3 > TEST_PHENO_SVD.log
-#cd ..
-#echo "TEST_PHENO_SVD passed."
+cd TEST_PHENO_SVD
+./run_tests.sh $d $2 $3 > TEST_PHENO_SVD.log
+cd ..
+echo "TEST_PHENO_SVD passed."
 
-#cd TEST_GLM_JOINT_DF
-#./run_tests.sh $d $2 $3 > TEST_GLM_JOINT_DF.log
-#cd ..
-#echo "TEST_GLM_JOINT_DF passed."
+cd TEST_GLM_JOINT_DF
+./run_tests.sh $d $2 $3 > TEST_GLM_JOINT_DF.log
+cd ..
+echo "TEST_GLM_JOINT_DF passed."
 
 cd TEST_LD_CONSOLE_CHRX_FEMALES
 ./run_tests.sh $d $2 $3 > TEST_LD_CONSOLE_CHRX_FEMALES.log
@@ -558,10 +558,10 @@ cd TEST_GLM_CHRY_COVAR_SUBSETS
 cd ..
 echo "TEST_GLM_CHRY_COVAR_SUBSETS passed."
 
-#cd TEST_KING_SPARSE_NSNP
-#./run_tests.sh $d $2 $3 > TEST_KING_SPARSE_NSNP.log
-#cd ..
-#echo "TEST_KING_SPARSE_NSNP passed."
+cd TEST_KING_SPARSE_NSNP
+./run_tests.sh $d $2 $3 > TEST_KING_SPARSE_NSNP.log
+cd ..
+echo "TEST_KING_SPARSE_NSNP passed."
 
 cd TEST_CLUMP_FORCE_A1_MULTIALLELIC
 ./run_tests.sh $d $2 $3 > TEST_CLUMP_FORCE_A1_MULTIALLELIC.log

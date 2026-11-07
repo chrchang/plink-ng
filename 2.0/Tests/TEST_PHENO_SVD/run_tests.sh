@@ -1,6 +1,8 @@
 #!/bin/bash
 
-# --pheno-svd output must match numpy's SVD.
+# --pheno-svd output must match numpy's SVD.  The numpy result is captured in
+# ref_svd.txt (see make_ref.py for how to regenerate it), so this test does
+# not need numpy itself.
 #
 # dgesvd's U is column-major with leading dimension = sample count, but it was
 # read as if it were row-major with leading dimension = SVD rank.
@@ -26,4 +28,4 @@ with open("tmp_data.vcf", "w") as f:
 PY
 $plink2 --vcf tmp_data.vcf --psam tmp_data.psam --make-pgen --out tmp_data > /dev/null
 $plink2 --pfile tmp_data --pheno-svd 2 --out tmp_svd > /dev/null
-python3 check_svd.py tmp_data.psam tmp_svd.svd.pheno tmp_svd.svd.pheno_wts
+python3 check_svd.py tmp_data.psam tmp_svd.svd.pheno tmp_svd.svd.pheno_wts ref_svd.txt

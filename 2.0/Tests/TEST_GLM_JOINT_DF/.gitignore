@@ -2,3 +2,4 @@
 !.gitignore
 !run_tests.sh
 !*.py
+!ref_*.txt

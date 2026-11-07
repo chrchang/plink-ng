@@ -4,6 +4,10 @@
 #
 # The F-test denominator df used to be the sample count, rather than the
 # sample count minus the number of predictors.
+#
+# The expected p-values come from numpy/scipy and are captured in
+# ref_joint.txt (see make_ref.py for how to regenerate it), so this test
+# does not need numpy or scipy itself.
 
 set -exo pipefail
 
@@ -32,4 +36,4 @@ with open("tmp_data.psam", "w") as f:
 PY
 $plink2 --vcf tmp_data.vcf --psam tmp_data.psam --make-pgen --out tmp_data > /dev/null
 $plink2 --pfile tmp_data --glm genotypic hide-covar cols=+test --pheno-name QT --covar tmp_data.psam --covar-name COV1,COV2 --covar-variance-standardize --out tmp_glm > /dev/null
-python3 check_joint.py tmp_data.vcf tmp_data.psam tmp_glm.QT.glm.linear
+python3 check_joint.py tmp_data.vcf tmp_data.psam tmp_glm.QT.glm.linear ref_joint.txt

@@ -1,26 +1,60 @@
+# Compares --pheno-svd output against ref_svd.txt, numpy's SVD of the same
+# phenotype matrix as captured by make_ref.py.  Pure Python, so it needs no
+# third-party packages.  The comparison mirrors the original numpy check:
+# np.allclose (rtol=1e-5, atol=1e-5) on each of the first two left/right
+# singular vectors, after aligning their sign, plus a 1e-4 relative tolerance
+# on the singular values.
+import hashlib
 import sys
-import numpy as np
 
-psam_fn, pheno_fn, wts_fn = sys.argv[1:4]
-psam = np.genfromtxt(psam_fn, comments=None, skip_header=1, usecols=(2, 3, 4))
-# Compare against both the raw and the column-centered matrix, since only the
-# layout of the result is under test here.
-pheno = np.genfromtxt(pheno_fn, comments=None, skip_header=1, usecols=(1, 2))
+psam_fn, pheno_fn, wts_fn, ref_fn = sys.argv[1:5]
+
+ref = {}
+ref_sha256 = None
+for line in open(ref_fn):
+    if line.startswith("#"):
+        continue
+    t = line.rstrip("\n").split("\t")
+    if t[0] == "input_sha256":
+        ref_sha256 = t[1]
+        continue
+    ref[(t[0], t[1], int(t[2]))] = [float(x) for x in t[3:]]
+
+psam_sha256 = hashlib.sha256(open(psam_fn, "rb").read()).hexdigest()
+assert psam_sha256 == ref_sha256, (
+    "%s differs from the input ref_svd.txt was generated from; regenerate it "
+    "as described in make_ref.py" % psam_fn)
+
+pheno_cols = [[], []]
+for line in open(pheno_fn):
+    if line.startswith("#"):
+        continue
+    t = line.split()
+    pheno_cols[0].append(float(t[1]))
+    pheno_cols[1].append(float(t[2]))
 wts_lines = [line.split() for line in open(wts_fn) if not line.startswith("#")]
-svs = np.array([float(t[1]) for t in wts_lines])
-vt = np.array([[float(x) for x in t[2:]] for t in wts_lines])
+svs = [float(t[1]) for t in wts_lines]
+vt = [[float(x) for x in t[2:]] for t in wts_lines]
 
-def matches(mat):
-    u, s, vh = np.linalg.svd(mat, full_matrices=False)
+
+def allclose(a, b, rtol=1e-5, atol=1e-5):
+    return len(a) == len(b) and all(abs(x - y) <= atol + rtol * abs(y) for x, y in zip(a, b))
+
+
+def matches(name):
     for k in range(2):
-        sign = np.sign(u[:, k] @ pheno[:, k])
-        if not np.allclose(pheno[:, k], sign * u[:, k], atol=1e-5):
+        u = ref[(name, "u", k)]
+        vh = ref[(name, "vh", k)]
+        (s,) = ref[(name, "s", k)]
+        sign = 1.0 if sum(x * y for x, y in zip(u, pheno_cols[k])) >= 0 else -1.0
+        if not allclose(pheno_cols[k], [sign * x for x in u]):
             return False
-        if not np.allclose(vt[k], sign * vh[k], atol=1e-5):
+        if not allclose(vt[k], [sign * x for x in vh]):
             return False
-        if abs(svs[k] - s[k]) > 1e-4 * s[k]:
+        if abs(svs[k] - s) > 1e-4 * s:
             return False
     return True
 
-assert matches(psam) or matches(psam - psam.mean(axis=0)), "SVD mismatch"
+
+assert matches("raw") or matches("centered"), "SVD mismatch"
 print("ok")

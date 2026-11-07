@@ -1,24 +1,33 @@
+# Compares --glm genotypic joint-test (GENO_2DF) p-values against
+# ref_joint.txt, the numpy/scipy F-test p-values captured by make_ref.py.  Pure
+# Python, so it needs no third-party packages.  As in the original numpy/scipy
+# check, each p-value must match to within 1e-4 on the log scale.
+import hashlib
+import math
 import sys
-import numpy as np
-from scipy import stats
 
-vcf_fn, psam_fn, glm_fn = sys.argv[1:4]
-genos = {}
-for line in open(vcf_fn):
+vcf_fn, psam_fn, glm_fn, ref_fn = sys.argv[1:5]
+
+ref = {}
+ref_sha256 = None
+for line in open(ref_fn):
     if line.startswith("#"):
         continue
-    t = line.split()
-    genos[t[2]] = np.array([{"0/0": 0, "0/1": 1, "1/1": 2}[x] for x in t[9:]], dtype=float)
-ph = np.genfromtxt(psam_fn, comments=None, skip_header=1, usecols=(2, 3, 4))
-y, covs = ph[:, 0], ph[:, 1:]
+    t = line.rstrip("\n").split("\t")
+    if t[0] == "input_sha256":
+        ref_sha256 = t[1]
+    else:
+        ref[t[0]] = float(t[1])
 
-def rss(x):
-    beta, *_ = np.linalg.lstsq(x, y, rcond=None)
-    r = y - x @ beta
-    return r @ r
+input_hash = hashlib.sha256()
+for fn in (vcf_fn, psam_fn):
+    input_hash.update(open(fn, "rb").read())
+assert input_hash.hexdigest() == ref_sha256, (
+    "%s/%s differ from the inputs ref_joint.txt was generated from; regenerate "
+    "it as described in make_ref.py" % (vcf_fn, psam_fn))
 
 header = None
-checked = 0
+checked = set()
 for line in open(glm_fn):
     t = line.rstrip("\n").split("\t")
     if header is None:
@@ -27,17 +36,10 @@ for line in open(glm_fn):
     row = dict(zip(header, t))
     if row["TEST"] != "GENO_2DF":
         continue
-    g = genos[row["ID"]]
-    n = len(y)
-    one = np.ones(n)
-    full = np.column_stack([one, g, (g == 1).astype(float), covs])
-    reduced = np.column_stack([one, covs])
-    rss1, rss0 = rss(full), rss(reduced)
-    df2 = n - full.shape[1]
-    fstat = ((rss0 - rss1) / 2) / (rss1 / df2)
-    p_expected = stats.f.sf(fstat, 2, df2)
+    vid = row["ID"]
     p = float(row["P"])
-    assert abs(np.log(p) - np.log(p_expected)) < 1e-4, (row["ID"], p, p_expected)
-    checked += 1
-assert checked == 3, checked
+    p_expected = ref[vid]
+    assert abs(math.log(p) - math.log(p_expected)) < 1e-4, (vid, p, p_expected)
+    checked.add(vid)
+assert checked == set(ref), (sorted(checked), sorted(ref))
 print("ok")
