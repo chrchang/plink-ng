@@ -12523,6 +12523,7 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
 
     // ensure cleanup works if new phenotype initialization fails in the middle
     for (uint32_t pheno_idx = new_pheno_ct; pheno_idx != orig_pheno_ct; ++pheno_idx) {
+      vecaligned_free_cond(pheno_cols[pheno_idx].nonmiss);
       pheno_cols[pheno_idx].nonmiss = nullptr;
     }
 
@@ -12534,6 +12535,7 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       if (unlikely(pgl_malloc(new_pheno_names_size, &new_pheno_names))) {
         goto PhenoSvd_ret_NOMEM;
       }
+      free(orig_pheno_names);
       *pheno_names_ptr = new_pheno_names;
     }
     for (uint32_t pheno_idx = 0; pheno_idx != new_pheno_ct; ) {
