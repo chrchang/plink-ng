@@ -9414,9 +9414,9 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
       if (unlikely(reterr)) {
         return reterr;
       }
-      if (sample_include) {
+      if (sample_include && is_minimac3_r2) {
         // phased hets only matter for minimac3-r2
-        extra_phased_het_ct = is_minimac3_r2? PopcountWordsIntersect(raw_phasepresent, sample_include, raw_sample_ctl) : 0;
+        extra_phased_het_ct = PopcountWordsIntersect(raw_phasepresent, sample_include, raw_sample_ctl);
       }
     }
   }
@@ -10780,7 +10780,7 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
             snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosages for (0-based) variant #%u.\n", vidx);
             return kPglRetMalformedInput;
           }
-        } else if ((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+        } else if (unlikely((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768))) {
           snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosages for (0-based) variant #%u.\n", vidx);
           return kPglRetMalformedInput;
         }
@@ -10825,13 +10825,13 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
     }
   }
   if (vrtype & 0x80) {
-    const unsigned char* file_dphase_present = *fread_pp;
-    const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
     if (unlikely(!dosage_ct)) {
       // can't have any phased entries
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;
     }
+    const unsigned char* file_dphase_present = *fread_pp;
+    const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
     if (PtrAddCk(fread_end, dphase_present_byte_ct, fread_pp)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;

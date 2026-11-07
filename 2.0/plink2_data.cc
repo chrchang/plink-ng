@@ -6110,9 +6110,14 @@ FLAGSET_DEF_END(Plink2WriteFlags);
 typedef struct MakeCommonStruct {
   const ChrInfo* cip;
   const uintptr_t* sample_include;
+
+  // These are currently applied before sample permutation by
+  // MakeBedlikeThread(), but *after* sample permutation by MakePgenThread();
+  // should clean that up.
   uintptr_t* sex_male_collapsed;
   uintptr_t* sex_male_collapsed_interleaved;
   uintptr_t* sex_female_collapsed_interleaved;
+
   const AlleleCode* write_allele_permute;
   uint64_t* zero_cluster_entries;
   uintptr_t** zero_cluster_interleaved_masks;

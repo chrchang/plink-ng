@@ -1655,13 +1655,14 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   const unsigned char* starts_range = range_list_ptr->starts_range;
   const uint32_t name_ct = range_list_ptr->name_ct;
   const uint32_t name_max_blen = range_list_ptr->name_max_blen;
-  const uint32_t idx_max = bitarr_size + offset;
-  if (!idx_max) {
+  const uint32_t idx_end = bitarr_size + offset;
+  if (!idx_end) {
     return (name_ct != 0);
   }
+  const uint32_t idx_max = idx_end - 1;
   for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
     uint32_t idx1;
-    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx1)) {
+    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
       if (likely(ignore_overflow)) {
         continue;
       }
@@ -1673,11 +1674,11 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
     if (starts_range[name_idx]) {
       ++name_idx;
       uint32_t idx2;
-      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx2)) {
+      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx2)) {
         if (unlikely(!ignore_overflow)) {
           return 1;
         }
-        idx2 = idx_max - 1;
+        idx2 = idx_max;
       }
       FillBitsNz(idx1 - offset, (idx2 - offset) + 1, bitarr);
     } else {
@@ -3869,9 +3870,9 @@ PglErr CmpExprNewStr(const char* cur_param, uint32_t* offset_ptr, char** new_str
   return kPglRetSuccess;
 }
 
-static uint32_t g_cmp_expr_depth = 0;
-
-PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_prec, uint32_t open_lparen_ct, uint32_t* param_idx_ptr, uint32_t* offset_ptr, CmpExpr* cmp_expr_ptr) {
+PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_prec, uint32_t open_lparen_ct, uint32_t depth, uint32_t* param_idx_ptr, uint32_t* offset_ptr, CmpExpr* cmp_expr_ptr) {
+  // depth is the current recursion depth (0 for the top-level call).
+  //
   // Preconditions:
   // - cmp_expr_ptr->etype == kCmpExprTypeNull.
   // - CmpExprNextToken(sources, param_ct, param_idx_ptr, offset_ptr) gets the
@@ -3918,9 +3919,8 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
   uint32_t param_idx = *param_idx_ptr;
   uint32_t offset = *offset_ptr;
   PglErr reterr = kPglRetSuccess;
-  ++g_cmp_expr_depth;
   {
-    if (unlikely(g_cmp_expr_depth > 1000)) {
+    if (unlikely(depth >= 1000)) {
       strcpy_k(g_textbuf, "Expression is nested too deeply.");
       goto CmpExprParse_ret_INVALID_CMDLINE;
     }
@@ -3936,7 +3936,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
       const uint32_t lparen_param_idx = param_idx;
       const uint32_t lparen_offset = offset;
       ++offset;
-      reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct + 1, &param_idx, &offset, cmp_expr_ptr);
+      reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct + 1, depth + 1, &param_idx, &offset, cmp_expr_ptr);
       if (unlikely(reterr || (param_idx == param_ct))) {
         if (reterr == kPglRetSuccess) {
           g_textbuf[0] = '\0';
@@ -3978,7 +3978,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
       const uint32_t not_param_idx = param_idx;
       const uint32_t not_offset = offset;
       ++offset;
-      reterr = CmpExprParse(sources, param_ct, 3, open_lparen_ct, &param_idx, &offset, cmp_expr_child);
+      reterr = CmpExprParse(sources, param_ct, 3, open_lparen_ct, depth + 1, &param_idx, &offset, cmp_expr_child);
       if (unlikely(reterr)) {
         if (!g_textbuf[0]) {
           param_idx = not_param_idx;
@@ -4153,7 +4153,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         if (unlikely(!cmp_expr_child)) {
           goto CmpExprParse_ret_NOMEM;
         }
-        reterr = CmpExprParse(sources, param_ct, 1, open_lparen_ct, &param_idx, &offset, cmp_expr_child);
+        reterr = CmpExprParse(sources, param_ct, 1, open_lparen_ct, depth + 1, &param_idx, &offset, cmp_expr_child);
         if (unlikely(reterr)) {
           if (!g_textbuf[0]) {
             param_idx = op_param_idx;
@@ -4175,7 +4175,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         if (unlikely(!cmp_expr_child)) {
           goto CmpExprParse_ret_NOMEM;
         }
-        reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct, &param_idx, &offset, cmp_expr_child);
+        reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct, depth + 1, &param_idx, &offset, cmp_expr_child);
         if (unlikely(reterr)) {
           if (!g_textbuf[0]) {
             param_idx = op_param_idx;
@@ -4197,7 +4197,6 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
     break;
   }
  CmpExprParse_ret_1:
-  --g_cmp_expr_depth;
   *param_idx_ptr = param_idx;
   *offset_ptr = offset;
   return reterr;
@@ -4207,7 +4206,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
   assert(cmp_expr_ptr->etype == kCmpExprTypeNull);
   uint32_t err_param_idx = 0;
   uint32_t err_offset = 0;
-  PglErr reterr = CmpExprParse(sources, param_ct, 0, 0, &err_param_idx, &err_offset, cmp_expr_ptr);
+  PglErr reterr = CmpExprParse(sources, param_ct, 0, 0, 0, &err_param_idx, &err_offset, cmp_expr_ptr);
   if (unlikely(reterr == kPglRetInvalidCmdline)) {
     logerrprintf("Error: Invalid %s expression:\n\n", flag_name);
 

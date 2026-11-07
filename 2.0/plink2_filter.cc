@@ -3525,11 +3525,11 @@ PglErr SelectSidRepresentatives(const uintptr_t* sex_nm, const uintptr_t* sex_ma
   return reterr;
 }
 
-void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t y_sample_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   geno_thresh *= 1 + kSmallEpsilon;
   const uint32_t missing_max_ct_nony = S_CAST(int32_t, geno_thresh * u31tod(sample_ct));
-  const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(male_ct));
+  const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(y_sample_ct));
   uint32_t cur_missing_max_ct = missing_max_ct_nony;
   uint32_t removed_ct = 0;
   uint32_t y_thresh = UINT32_MAX;
