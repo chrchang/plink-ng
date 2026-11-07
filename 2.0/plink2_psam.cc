@@ -1088,7 +1088,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           goto LoadPhenos_ret_INCONSISTENT_INPUT_WW;
         }
         // this boilerplate may belong in its own function
-        new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(col_ct));
+        new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(bitarr_size));
         if (unlikely(bigstack_alloc_u32(new_pheno_ct, &col_types) ||
                      bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
           goto LoadPhenos_ret_NOMEM;

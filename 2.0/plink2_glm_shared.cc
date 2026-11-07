@@ -480,7 +480,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
       cat_idx -= local_cats_1based;
       local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
       if (!local_haps) {
-        if (cat_idx != max_cat_idx) {
+        if (cat_idx != local_cat_ct - 1) {
           const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
           if (local_covars_vcmaj_f_iter) {
             local_covars_vcmaj_f_iter[offset] = 1.0;
@@ -489,7 +489,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
           }
         }
       } else {
-        if (cat_idx != max_cat_idx) {
+        if (cat_idx != local_cat_ct - 1) {
           const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
           if (local_covars_vcmaj_f_iter) {
             local_covars_vcmaj_f_iter[offset] = 0.5;
@@ -504,7 +504,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
         }
         cat_idx -= local_cats_1based;
         local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
-        if (cat_idx != max_cat_idx) {
+        if (cat_idx != local_cat_ct - 1) {
           const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
           if (local_covars_vcmaj_f_iter) {
             local_covars_vcmaj_f_iter[offset] += S_CAST(float, 0.5);
@@ -733,7 +733,7 @@ void DuplicateLocalCovarRow(uint32_t row_ct, uintptr_t row_width, uint32_t* vari
       }
       memcpy(&(local_covars_vcmaj_f_iter[row_idx * row_width]), local_covars_vcmaj_f_iter, row_copy_ct * row_width * sizeof(float));
     }
-    local_covars_vcmaj_f_iter = &(local_covars_vcmaj_f_iter[row_ct * row_width]);
+    *local_covars_vcmaj_f_iterp = &(local_covars_vcmaj_f_iter[row_ct * row_width]);
   } else {
     double* local_covars_vcmaj_d_iter = *local_covars_vcmaj_d_iterp;
     for (uint32_t row_idx = 1; row_idx < row_ct; row_idx *= 2) {
@@ -907,7 +907,7 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
           // variants; NA results will be reported for them.
           const uint32_t local_chr_start_vidx = cip->chr_fo_vidx_start[local_chr_fo_idx];
           uint32_t row_ct;
-          if (local_chr_start_vidx >= variant_uidx_chr_end) {
+          if (local_chr_start_vidx >= variant_uidx_end) {
             row_ct = cur_block_variant_ct - variant_bidx;
           } else {
             // Verify that we aren't going backwards.  (This condition works
@@ -932,6 +932,28 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
           }
         }
         variant_bp = variant_bps[variant_uidx];
+        if (local_bp > variant_bp) {
+          // Variants before the first local-covar position on this chromosome
+          // are zero-filled, as documented above.
+          const uint32_t next_variant_uidx = ExpsearchU32(variant_bps, variant_uidx, variant_uidx_chr_end, local_bp);
+          const uint32_t row_ct = PopcountBitRange(variant_include, variant_uidx, next_variant_uidx);
+          ZeroLocalCovarRows(row_ct, row_width, &variant_bidx, &local_covars_vcmaj_f_iter, &local_covars_vcmaj_d_iter);
+          if (variant_bidx == cur_block_variant_ct) {
+            break;
+          }
+          variant_uidx = AdvTo1Bit(variant_include, next_variant_uidx);
+          if (variant_uidx >= variant_uidx_chr_end) {
+            chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+            chr_idx = cip->chr_file_order[chr_fo_idx];
+            variant_uidx_chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+            if (variant_uidx_chr_end > variant_uidx_end) {
+              variant_uidx_chr_end = variant_uidx_end;
+            }
+            variant_bp = UINT32_MAX;
+          } else {
+            variant_bp = variant_bps[variant_uidx];
+          }
+        }
       }
       if (local_cat_ct) {
         if (local_covars_vcmaj_f_iter) {
@@ -945,6 +967,11 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
       if (unlikely(reterr)) {
         return reterr;
       }
+      // bugfix: local_prev_chr_code must track the previous relevant line, so
+      // that the new-chromosome logic above only runs on the first line of a
+      // chromosome, and the EOF logic below knows what the last line's
+      // chromosome was.
+      local_prev_chr_code = local_chr_code;
     }
     // Part 3.
 

@@ -391,7 +391,10 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
       uintptr_t geno_word1 = geno_word & kMask5555;
       uintptr_t geno_word2 = (geno_word >> 1) & kMask5555;
       uintptr_t geno_missing_word = geno_word1 & geno_word2;
-      const uintptr_t mask_word = ~(geno_missing_word | UnpackHalfwordToWord(dosage_present_hws[widx]));
+      const uintptr_t dosage_word = UnpackHalfwordToWord(dosage_present_hws[widx]);
+      const uintptr_t mask_word = ~(geno_missing_word | dosage_word);
+      // samples with a dosage are handled below, don't mean-impute them
+      geno_missing_word &= ~dosage_word;
       geno_word1 &= mask_word;
       while (geno_word1) {
         const uint32_t sample_idx_lowbits = ctzw(geno_word1) / 2;

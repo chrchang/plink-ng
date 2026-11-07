@@ -1946,6 +1946,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                 PgenErrPrintNV(reterr, variant_uidx);
                 goto IndepPairphase_ret_1;
               }
+              ZeroTrailingNyps(founder_ct, genovec);
               if (!is_haploid) {
                 if (unlikely(HapsplitMustPhased(genovec, phasepresent, phaseinfo, founder_ct, phasepresent_ct, cur_loader_hap_vec, cur_loader_nm_vec))) {
                   logputs("\n");
@@ -1990,8 +1991,15 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                 if (founder_male_ct_rem) {
                   const uint32_t word_idx = founder_male_fullword_ct + ((founder_nonmale_ct * 2) / kBitsPerWord);
                   const uint32_t lshift_ct = (founder_nonmale_ct * 2) % kBitsPerWord;
-                  cur_loader_hap_vec[word_idx] |= hap_vec_overflow << lshift_ct;
-                  cur_loader_nm_vec[word_idx] |= nm_vec_overflow << lshift_ct;
+                  if (lshift_ct) {
+                    cur_loader_hap_vec[word_idx] |= hap_vec_overflow << lshift_ct;
+                    cur_loader_nm_vec[word_idx] |= nm_vec_overflow << lshift_ct;
+                  } else {
+                    // word_idx is past the end of the nonmale haplotypes, so
+                    // it hasn't been written yet
+                    cur_loader_hap_vec[word_idx] = hap_vec_overflow;
+                    cur_loader_nm_vec[word_idx] = nm_vec_overflow;
+                  }
                   if (lshift_ct + founder_male_ct_rem > kBitsPerWord) {
                     const uint32_t rshift_ct = kBitsPerWord - lshift_ct;
                     cur_loader_hap_vec[word_idx + 1] = hap_vec_overflow >> rshift_ct;
@@ -3970,7 +3978,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     PgenVariant pgvs[2];
     PreinitPgv(&(pgvs[0]));
     PreinitPgv(&(pgvs[1]));
-    if (unlikely(bigstack_alloc_u32(founder_ctl, &founder_info_cumulative_popcounts) ||
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
                  BigstackAllocPgv(founder_ct, 0, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent, &(pgvs[0])) ||
                  BigstackAllocPgv(founder_ct, 0, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent, &(pgvs[1])))) {
       goto LdConsole_ret_NOMEM;
@@ -6277,6 +6285,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           if (cur_allele_ct == 2) {
             biallelic_forced_a1_alt = aidx;
             aidx = 0;
+          } else {
+            biallelic_forced_a1_alt = 0;
           }
         }
         const uintptr_t allele_idx = allele_idx_offset_base + aidx;
@@ -6843,7 +6853,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       const uintptr_t u32_field_ct = check_phase + check_dosage + check_dosage * check_phase;
       const uintptr_t per_variant_cost = pgv_byte_stride + sizeof(intptr_t) + sizeof(int32_t) * u32_field_ct;
       max_lowmem_nonindex_ct = bytes_avail / per_variant_cost;
-      while (max_lowmem_nonindex_ct * pgv_byte_stride + RoundUpPow2(max_lowmem_nonindex_ct * sizeof(intptr_t), kCacheline) + u32_field_ct * RoundUpPow2(max_lowmem_nonindex_ct * sizeof(int32_t), kCacheline) > bytes_avail) {
+      // ld_idx_found also needs a terminator for each thread.
+      while (max_lowmem_nonindex_ct * pgv_byte_stride + RoundUpPow2((max_lowmem_nonindex_ct + calc_thread_ct) * sizeof(intptr_t), kCacheline) + u32_field_ct * RoundUpPow2(max_lowmem_nonindex_ct * sizeof(int32_t), kCacheline) > bytes_avail) {
         // pgv_byte_stride is a positive multiple of kCacheline, and we lose
         // less than 4 cachelines to adverse rounding, so this will exit
         // quickly enough.
@@ -6904,7 +6915,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         is_haploid = IsSet(cip->haploid_mask, chr_idx);
         is_x = (chr_idx == x_code);
-        is_y = (chr_idx == y_code);
+        is_y = y_exists && (chr_idx == y_code);
         if (is_x) {
           if (!founder_nonmale_ct) {
             is_x = 0;

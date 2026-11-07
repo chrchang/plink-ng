@@ -284,7 +284,8 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     uint32_t variant_idx = 0;
     uintptr_t allele_idx = 0;
     while (!TextNextLineLstripK(&txs, &line_iter)) {
-      if (*line_iter == '#') {
+      if ((*line_iter == '#') || IsEolnKns(*line_iter)) {
+        // blank lines are skipped by the first pass
         continue;
       }
       const char* token_ptrs[3];

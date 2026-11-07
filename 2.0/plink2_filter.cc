@@ -1828,10 +1828,23 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s-if value ('case'/'%c' or 'control'/'ctrl'/'%c' expected).\n", is_remove? "remove" : "keep", '2' - affection_01, '1' - affection_01);
           goto KeepRemoveIf_ret_INCONSISTENT_INPUT_WW;
         }
-        if (is_remove ^ (val_12 == 2)) {
-          BitvecAnd(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+        // Effective operator, after --remove-if's inversion.  Missing-phenotype
+        // samples were already removed iff it's '=='.
+        const uint32_t eff_neq = (binary_op == kCmpOperatorNoteq) ^ is_remove;
+        if (!eff_neq) {
+          if (val_12 == 2) {
+            BitvecAnd(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+          } else {
+            BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+          }
         } else {
-          BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+          // Missing-phenotype samples are kept, as in the other branches.
+          if (val_12 == 2) {
+            BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+          } else {
+            BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, sample_include_intersect);
+            BitvecInvmask(sample_include_intersect, raw_sample_ctl, sample_include);
+          }
         }
       } else {
         assert(cur_pheno_col->type_code == kPhenoDtypeCat);
@@ -2609,7 +2622,17 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       if (!use_obs_ct) {
         header_cols &= ~kfReadFreqColsetObsCt;
       }
-      if (semifinal_header_cols != header_cols) {
+      // A list-form column appearing after the corresponding ALT1/single-value
+      // column cancels the latter, leaving a column whose type is no longer in
+      // header_cols.
+      uint32_t has_dropped_col = 0;
+      for (uint32_t relevant_col_idx = 0; relevant_col_idx != relevant_col_ct; ++relevant_col_idx) {
+        if (!((S_CAST(uint32_t, header_cols) >> col_types[relevant_col_idx]) & 1)) {
+          has_dropped_col = 1;
+          break;
+        }
+      }
+      if ((semifinal_header_cols != header_cols) || has_dropped_col) {
         // remove redundant columns
         uint32_t relevant_col_idx_read = 0;
         while ((S_CAST(uint32_t, header_cols) >> col_types[relevant_col_idx_read]) & 1) {
@@ -2755,7 +2778,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         } else {
           allele_idx_offset_base = allele_idx_offsets[variant_uidx];
           cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
-          if (biallelic_only) {
+          if (biallelic_only && (cur_allele_ct > 2)) {
             goto ReadAlleleFreqs_skip_variant;
           }
         }
@@ -2930,7 +2953,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               het_refalt[het_refalt_slen] = ',';
               const char* het_refalt_iter = het_refalt;
               const char* het_refalt_end = &(het_refalt[het_refalt_slen]);
-              for (uint32_t alt_allele_idx = 1; alt_allele_idx != cur_allele_ct; ++alt_allele_idx) {
+              for (uint32_t alt_allele_idx = 1; alt_allele_idx != loaded_allele_idx_end; ++alt_allele_idx) {
                 if (unlikely(het_refalt_iter >= het_refalt_end)) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
@@ -2955,7 +2978,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             diploid_cts[diploid_cts_slen] = ',';
             const char* diploid_cts_iter = diploid_cts;
             const char* diploid_cts_end = &(diploid_cts[diploid_cts_slen]);
-            for (uint32_t second_allele_idx = main_allele_idx_start; second_allele_idx != cur_allele_ct; ++second_allele_idx) {
+            for (uint32_t second_allele_idx = main_allele_idx_start; second_allele_idx != loaded_allele_idx_end; ++second_allele_idx) {
               uint32_t internalx = UINT32_MAX;
               if (IsSet(matched_loaded_alleles, second_allele_idx)) {
                 internalx = loaded_to_internal_allele_idx[second_allele_idx];
@@ -2997,7 +3020,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             hap_alt[hap_alt_slen] = ',';
             const char* hap_alt_iter = hap_alt;
             const char* hap_alt_end = &(hap_alt[hap_alt_slen]);
-            for (uint32_t alt_allele_idx = 1; alt_allele_idx != cur_allele_ct; ++alt_allele_idx) {
+            for (uint32_t alt_allele_idx = 1; alt_allele_idx != loaded_allele_idx_end; ++alt_allele_idx) {
               if (unlikely(hap_alt_iter >= hap_alt_end)) {
                 goto ReadAlleleFreqs_ret_INVALID_FREQS;
               }

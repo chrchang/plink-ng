@@ -2692,7 +2692,7 @@ uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct) {
     acc = acc + vecw_sad(VecUcToW(inner_acc), m0);
     byte_ct -= 255 * kBytesPerVec;
   }
-  const unsigned char* bytearr_uc_final = &(bytearr_uc_iter[byte_ct - kBytesPerVec]);
+  const unsigned char* bytearr_uc_final = &(bytearr_uc_iter[S_CAST(intptr_t, byte_ct) - kBytesPerVec]);
   VecUc inner_acc = vecuc_setzero();
   while (bytearr_uc_iter < bytearr_uc_final) {
     const VecUc cur_vvec = vecuc_loadu(bytearr_uc_iter);
@@ -2740,7 +2740,7 @@ uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct) {
     acc = acc + vecw_sad(VecU16ToW(inner_acc), m0);
     u16_ct -= 255 * (kBytesPerVec / 2);
   }
-  const unsigned char* u16arr_final = &(u16arr_biter[u16_ct * sizeof(int16_t) - kBytesPerVec]);
+  const unsigned char* u16arr_final = &(u16arr_biter[S_CAST(intptr_t, u16_ct * sizeof(int16_t)) - kBytesPerVec]);
   VecU16 inner_acc = vecu16_setzero();
   while (u16arr_biter < u16arr_final) {
     const VecU16 cur_vvec = vecu16_loadu(u16arr_biter);

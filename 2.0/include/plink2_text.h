@@ -560,6 +560,7 @@ HEADER_INLINE PglErr TextGetUnsafe(TextStream* txs_ptr, char** line_iterp) {
     *line_iterp = line_iter;
     return kPglRetSuccess;
   }
+  basep->consume_iter = line_iter;
   return TextOnlyEmptyLinesLeft(txs_ptr);
 }
 
@@ -589,6 +590,7 @@ HEADER_INLINE uint32_t TextGetUnsafe2(TextStream* txs_ptr, char** line_iterp) {
     *line_iterp = line_iter;
     return 1;
   }
+  basep->consume_iter = line_iter;
   TextOnlyEmptyLinesLeft(txs_ptr);
   return 0;
 }

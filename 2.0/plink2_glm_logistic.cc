@@ -2050,7 +2050,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
             for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               genotype_vals[sample_idx] *= S_CAST(float, 0.5);
             }
-            const uint32_t high_ct = nm_sample_ct * allele_ct_m2;
+            const uint32_t high_ct = nm_sample_ctav * allele_ct_m2;
             for (uint32_t uii = 0; uii != high_ct; ++uii) {
               multi_start[uii] *= S_CAST(float, 0.5);
             }
@@ -2300,7 +2300,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
             if (main_omitted) {
               // if main_mutated, this will be filled below
               // if not, this aliases genotype_vals
-              main_vals = &(nm_predictors_pmaj_buf[(cur_predictor_ct + main_mutated) * nm_sample_ctav]);
+              main_vals = &(nm_predictors_pmaj_buf[(expected_predictor_ct + main_mutated) * nm_sample_ctav]);
             } else if (joint_genotypic || joint_hethom) {
               // in hethom case, do this before clobbering genotype data
               domdev_vals = &(main_vals[nm_sample_ctav]);
@@ -2352,7 +2352,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 if (covar_idx < local_covar_ct) {
                   cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
                 } else {
-                  cur_covar_col = &(cur_covars_cmaj[covar_idx * sample_ctav]);
+                  cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * sample_ctav]);
                 }
                 if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                   uintptr_t sample_midx_base = 0;
@@ -2634,8 +2634,8 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                     continue;
                   }
                   if (!IsSet(const_alleles, allele_idx)) {
-                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + nonconst_allele_idx_m1]);
-                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + nonconst_allele_idx_m1]);
+                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1]);
+                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1]);
                     ++nonconst_allele_idx_m1;
                   } else {
                     memcpy(beta_se_iter2, &glm_err2, 8);
@@ -4067,7 +4067,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               genotype_vals[sample_idx] *= 0.5;
             }
-            const uint32_t high_ct = nm_sample_ct * allele_ct_m2;
+            const uint32_t high_ct = nm_sample_ctav * allele_ct_m2;
             for (uint32_t uii = 0; uii != high_ct; ++uii) {
               multi_start[uii] *= 0.5;
             }
@@ -4315,7 +4315,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             if (main_omitted) {
               // if main_mutated, this will be filled below
               // if not, this aliases genotype_vals
-              main_vals = &(nm_predictors_pmaj_buf[(cur_predictor_ct + main_mutated) * nm_sample_ctav]);
+              main_vals = &(nm_predictors_pmaj_buf[(expected_predictor_ct + main_mutated) * nm_sample_ctav]);
             } else if (joint_genotypic || joint_hethom) {
               // in hethom case, do this before clobbering genotype data
               domdev_vals = &(main_vals[nm_sample_ctav]);
@@ -4367,7 +4367,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 if (covar_idx < local_covar_ct) {
                   cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
                 } else {
-                  cur_covar_col = &(cur_covars_cmaj[covar_idx * cur_sample_ct]);
+                  cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * cur_sample_ct]);
                 }
                 if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                   uintptr_t sample_midx_base = 0;
@@ -4628,8 +4628,8 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                     continue;
                   }
                   if (!IsSet(const_alleles, allele_idx)) {
-                    *beta_se_iter2++ = coef_return[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
-                    *beta_se_iter2++ = sample_variance_buf[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
+                    *beta_se_iter2++ = coef_return[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1];
+                    *beta_se_iter2++ = sample_variance_buf[cur_biallelic_regressed_predictor_stop + nonconst_allele_idx_m1];
                     ++nonconst_allele_idx_m1;
                   } else {
                     memcpy(beta_se_iter2, &glm_err2, 8);
@@ -4699,7 +4699,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t covar_ct_x = common->covar_ct_x;
     const uint32_t covar_ct_y = common->covar_ct_y;
 
-    uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
+    uintptr_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
@@ -5122,10 +5122,10 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
           double* prev_local_covar_row_d = nullptr;
           if (variant_idx) {
             if (is_single_prec) {
-              prev_local_covar_row_f = &(ctx->local_covars_vcmaj_f[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+              prev_local_covar_row_f = &(ctx->local_covars_vcmaj_f[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
             } else {
               // bugfix (3 Jan 2026): forgot this case
-              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][(read_block_size - 1) * max_sample_ct * local_covar_ct]);
             }
           }
           reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, prev_local_covar_row_f, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, is_single_prec? ctx->local_covars_vcmaj_f[parity] : nullptr, is_single_prec? nullptr : ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);

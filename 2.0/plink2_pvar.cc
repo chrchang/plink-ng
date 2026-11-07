@@ -1392,7 +1392,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                       (sizeof(int32_t) +
                        2 * sizeof(intptr_t) +
                        at_least_one_nzero_cm * sizeof(double)) +
-                      is_split_chr * sizeof(ChrIdx) +
+                      is_split_chr * kLoadPvarBlockSize * sizeof(ChrIdx) +
                       (1 + info_pr_exists) * (kLoadPvarBlockSize / CHAR_BIT) +
                       (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
                       (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||

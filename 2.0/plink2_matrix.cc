@@ -1062,7 +1062,7 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
-  // not optimized, no beta == 0 special case
+  // not optimized
   for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
     double* outmatrix_row_iter = &(outmatrix[col_idx * stride3]);
     for (uintptr_t row_idx = 0; row_idx != row1_ct_l; ++row_idx) {
@@ -1071,7 +1071,7 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
       for (uintptr_t com_idx = 0; com_idx != common_ct_l; com_idx++) {
         cur_entry += (*col2_iter++) * inmatrix1[com_idx * stride1 + row_idx];
       }
-      *outmatrix_row_iter = (*outmatrix_row_iter) * beta + cur_entry;
+      *outmatrix_row_iter = (beta == 0.0)? cur_entry : ((*outmatrix_row_iter) * beta + cur_entry);
       ++outmatrix_row_iter;
     }
   }

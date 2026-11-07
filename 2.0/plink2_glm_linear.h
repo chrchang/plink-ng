@@ -33,6 +33,7 @@ typedef struct {
   //   pval = TstatToP(zval, sample_obs_ct - predictor_ct)
 
   uint32_t sample_obs_ct;
+  uint32_t const_allele_ct;
 
   uint32_t allele_obs_ct;
   double a1_dosage;

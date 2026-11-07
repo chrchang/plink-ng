@@ -129,7 +129,7 @@ HEADER_INLINE uint32_t AllBitsAreOne(const uintptr_t* bitarr, uintptr_t bit_ct) 
     }
   }
   const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
-  return (!trailing_bit_ct) || ((~(bitarr[fullword_ct])) << (kBitsPerWord - trailing_bit_ct));
+  return (!trailing_bit_ct) || (!((~(bitarr[fullword_ct])) << (kBitsPerWord - trailing_bit_ct)));
 }
 
 uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t byte_ct);

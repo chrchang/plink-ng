@@ -531,7 +531,7 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
       if (GetNyparrEntry(genovec, sample_uidx) == 1) {
         ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx++;
-        for (; dosage_read_idx == orig_write_dosage_ct; ++dosage_read_idx) {
+        for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
           const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
           if (GetNyparrEntry(genovec, sample_uidx2) == 1) {
             ClearBit(sample_uidx2, dosagepresent);
@@ -1301,7 +1301,13 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t
     char* linebuf_iter = &(line_iter[4]);
     if (line_iter[1] == 'I') {
       xid_mode = kfXidModeFlagNeverFid;
+      if (line_iter[2] == 'I') {
+        // #IID1
+        ++linebuf_iter;
+      }
     } else {
+      // #FID1
+      ++linebuf_iter;
       linebuf_iter = FirstNonTspace(linebuf_iter);
       if (tokequal_k(linebuf_iter, "ID1")) {
         linebuf_iter = &(linebuf_iter[3]);
@@ -1467,7 +1473,6 @@ BoolErr LookupXidHtable(const char* line_start, const SampleIdInfo* siip, const 
 PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* flag_name, uint32_t raw_sample_ct, uint32_t sample_ct, LoadSampleIdsFlags flags, uintptr_t** loaded_bitarrp, uint32_t* duplicate_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
-  const char* fname_iter = fnames;
   const char* fname_txs = nullptr;
   TextStream txs;
   PreinitTextStream(&txs);
@@ -1635,7 +1640,7 @@ PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const 
     TextStreamErrPrint(fname_txs, &txs);
     break;
   LoadSampleIds_ret_MISSING_TOKENS:
-    logerrprintf("Error: --%s: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", flag_name, line_idx, fname_iter);
+    logerrprintf("Error: --%s: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", flag_name, line_idx, fname_txs);
     reterr = kPglRetMalformedInput;
     break;
   }
@@ -1939,7 +1944,7 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
       // force two chars
       if (chr_idx <= cip->autosome_ct) {
         buf = memcpya_k(buf, &(kDigitPair[chr_idx]), 2);
-      } else if (chr_idx == cip->xymt_codes[kChrOffsetY]) {
+      } else if (chr_idx == cip->xymt_codes[kChrOffsetXY]) {
         buf = strcpya_k(buf, "XY");
       } else {
         *buf++ = '0';
@@ -2546,7 +2551,7 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
       if (orig_set[sample_widx] & lowbit) {
         dosagepresent[sample_widx] ^= lowbit;
         uint32_t dosage_write_idx = dosage_read_idx++;
-        for (; dosage_read_idx == orig_write_dosage_ct; ++dosage_read_idx) {
+        for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
           const uintptr_t lowbit2 = BitIter1y(dosagepresent, &sample_widx, &cur_bits);
           if (orig_set[sample_widx] & lowbit2) {
             dosagepresent[sample_widx] ^= lowbit2;
@@ -2643,7 +2648,7 @@ void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict
     if (sex_male[sample_widx] & lowbit) {
       dphasepresent[sample_widx] ^= lowbit;
       uint32_t dphase_write_idx = dphase_read_idx++;
-      for (; dphase_read_idx == orig_write_dphase_ct; ++dphase_read_idx) {
+      for (; dphase_read_idx != orig_write_dphase_ct; ++dphase_read_idx) {
         const uintptr_t lowbit2 = BitIter1y(dphasepresent, &sample_widx, &cur_bits);
         if (sex_male[sample_widx] & lowbit2) {
           dphasepresent[sample_widx] ^= lowbit2;
@@ -2741,7 +2746,7 @@ void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, cons
       const AlleleCode code1 = *patch_10_vals_iter++;
       const AlleleCode code2 = *patch_10_vals_iter++;
       if (code1 != code2) {
-        cur_hets |= ctzu32(patch_10_hw);
+        cur_hets |= patch_10_hw & (-patch_10_hw);
       }
       patch_10_hw &= patch_10_hw - 1;
     }
@@ -4187,7 +4192,7 @@ BoolErr HkvlineNumTypeK(const char* dict_iter, const char** numstr_ptr, uint32_t
       }
       need_typestr = 0;
     }
-    ++dict_iter;
+    dict_iter = &(val_end[1]);
   }
 }
 

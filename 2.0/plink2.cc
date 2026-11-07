@@ -2919,7 +2919,11 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
         logerrprintf("Error: Invalid --%s variant ID column number.\n", flagname_p);
         return kPglRetInvalidCmdline;
       }
-      if (param_ct == 4) {
+      if (param_ct > 3) {
+        if (unlikely(param_ct > 4)) {
+          logerrprintf("Error: Invalid --%s argument sequence.\n", flagname_p);
+          return kPglRetInvalidCmdline;
+        }
         char cc = sources[3][0];
         if ((cc < '0') || (cc > '9')) {
           cc = ExtractCharParam(sources[3]);
@@ -2964,7 +2968,9 @@ PglErr AllocAndFlattenCommaDelim(const char* const* sources, uint32_t param_ct, 
       tot_blen += 1 + S_CAST(uintptr_t, cur_token_end - cur_param_iter);
       cur_param_iter = &(cur_token_end[1]);
     }
-    tot_blen += 1 + strlen(cur_param_iter);
+    if (*cur_param_iter) {
+      tot_blen += 1 + strlen(cur_param_iter);
+    }
   }
   char* write_iter;
   if (unlikely(pgl_malloc(tot_blen, &write_iter))) {
@@ -2984,7 +2990,9 @@ PglErr AllocAndFlattenCommaDelim(const char* const* sources, uint32_t param_ct, 
       write_iter = memcpyax(write_iter, cur_param_iter, cur_token_end - cur_param_iter, '\0');
       cur_param_iter = &(cur_token_end[1]);
     }
-    write_iter = strcpyax(write_iter, cur_param_iter, '\0');
+    if (*cur_param_iter) {
+      write_iter = strcpyax(write_iter, cur_param_iter, '\0');
+    }
   }
   *write_iter = '\0';
   return kPglRetSuccess;
@@ -3500,7 +3508,7 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-males");
           } else if (strequal_k(flagname_p, "filter-females", flag_slen)) {
             fputs("Note: --filter-females flag deprecated.  Use --keep-females or --remove-males\ninstead.\n", stdout);
-            snprintf(flagname_write_iter, kMaxFlagBlen, "remove-males");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-females");
           } else if (strequal_k(flagname_p, "filter-founders", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-founders");
           } else if (strequal_k(flagname_p, "filter-nonfounders", flag_slen)) {
@@ -3609,9 +3617,9 @@ int main(int argc, char** argv) {
             // just let it fail
             snprintf(flagname_write_iter, kMaxFlagBlen, "export");
           } else if (strequal_k(flagname_p, "remove-founders", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-founders");
-          } else if (strequal_k(flagname_p, "remove-nonfounders", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-nonfounders");
+          } else if (strequal_k(flagname_p, "remove-nonfounders", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-founders");
           } else if (strequal_k(flagname_p, "remove-clusters", flag_slen)) {
             fputs("Note: --remove-clusters flag deprecated.  Use --remove-cats instead.\n", stdout);
             snprintf(flagname_write_iter, kMaxFlagBlen, "remove-cats");
@@ -4129,6 +4137,7 @@ int main(int argc, char** argv) {
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "c-founders")) {
           pc.misc_flags |= kfMiscAcFounders;
+          goto main_param_zero;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "ssoc"))) {
           logerrputs("Error: --assoc is retired.  Use --glm instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -4273,6 +4282,7 @@ int main(int argc, char** argv) {
           }
           if (!(oxford_import_flags & kfOxfordImportRefAll)) {
             logerrputs("Error: No --bgen REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown'); this is now required.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           const char* cur_fname = argvk[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
@@ -4958,6 +4968,7 @@ int main(int argc, char** argv) {
           }
           if (!(oxford_import_flags & kfOxfordImportRefAll)) {
             logerrputs("Error: No --data REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown'); this is now required.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           const char* fname_prefix = argvk[arg_idx + 1];
           const uint32_t slen = strlen(fname_prefix);
@@ -5563,6 +5574,7 @@ int main(int argc, char** argv) {
               pc.freq_rpt_flags |= kfAlleleFreqCounts;
             } else if (strequal_k(cur_modif, "case-control", cur_modif_slen)) {
               logerrputs("Error: --freq 'case-control' modifier has been retired.  Use\n--keep-if/--remove-if in conjunction with Unix text-processing utilities\ninstead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (unlikely(pc.freq_rpt_flags & kfAlleleFreqColAll)) {
                 logerrputs("Error: Multiple --freq cols= modifiers.\n");
@@ -6613,6 +6625,10 @@ int main(int argc, char** argv) {
               pc.ld_info.prune_window_size = 2147483647;
             } else {
               pc.ld_info.prune_window_size = S_CAST(int32_t, first_paramd);
+              if (unlikely(!pc.ld_info.prune_window_size)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s window size '%s'.\n", flagname_p, cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
             }
           }
           if (unlikely(next_param_idx + 2 == param_ct)) {
@@ -9399,6 +9415,10 @@ int main(int argc, char** argv) {
           }
           const char* dir_str = argvk[arg_idx + 1];
           const uint32_t dir_slen = strlen(dir_str);
+          if (unlikely(!dir_slen)) {
+            logerrputs("Error: --pmerge-list-dir argument cannot be empty.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           uint32_t append_path_sep = 0;
 #ifdef _WIN32
           const char path_sep = '\\';
@@ -9477,6 +9497,10 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else if (likely(param_idx == 2)) {
+              if (unlikely(param_ct < 3)) {
+                logerrputs("Error: Invalid --pgen-diff argument sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
               first_optional_param_idx = 4;
               param_idx = 3;
             } else {
@@ -10836,6 +10860,7 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "pdate-name")) {
           if (unlikely(pc.recover_var_ids_fname)) {
             logerrputs("Error: --update-name cannot be used with --recover-var-ids.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.update_chr_flag)) {
             logerrputs("Error: --update-chr cannot be used with --recover-var-ids or --update-name.\n");
@@ -11397,6 +11422,10 @@ int main(int argc, char** argv) {
       logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-[b]pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
     }
+    if (unlikely((make_plink2_flags & kfMakePlink2TrimAlts) && (pc.sort_vars_mode > kSortNone))) {
+      logerrputs("Error: 'trim-alts' cannot be used with --sort-vars yet.  Sort in a separate run\nfirst.\n");
+      goto main_ret_INVALID_CMDLINE;
+    }
     if (make_plink2_flags & kfMakePlink2MMask) {
       if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
         logerrputs("Error: --make-bed/--make-[b]pgen 'multiallelics=' cannot be used with\n'trim-alts'.\n");
@@ -11432,9 +11461,11 @@ int main(int argc, char** argv) {
     }
     if (pc.keep_cat_phenoname && (!pc.keep_cat_names_flattened) && (!pc.keep_cats_fname)) {
       logerrputs("Error: --keep-cat-pheno must be used with --keep-cats and/or --keep-cat-names.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.remove_cat_phenoname && (!pc.remove_cat_names_flattened) && (!pc.remove_cats_fname)) {
       logerrputs("Error: --remove-cat-pheno must be used with --remove-cats and/or\n--remove-cat-names.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (aperm_present && (pc.command_flags1 & kfCommand1Glm) && (!(pc.glm_info.flags & kfGlmPerm))) {
       // If --aperm is present, at least one association analysis command which
@@ -11612,7 +11643,7 @@ int main(int argc, char** argv) {
         logerrputs("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-[b]pgen.\n");
         goto main_ret_INVALID_CMDLINE;
       }
-      if ((xload && pc.command_flags1 && (import_flags & kfImportKeepAutoconv)) || ((pc.command_flags1 & kfCommand1Pmerge) & (pc.command_flags1 & (~kfCommand1Pmerge)))) {
+      if ((xload && pc.command_flags1 && (import_flags & kfImportKeepAutoconv)) || ((pc.command_flags1 & kfCommand1Pmerge) && (pc.command_flags1 & (~kfCommand1Pmerge)))) {
         // pfile-affecting input/output settings must be consistent since we
         // need to reload what we write.
         if (unlikely(pc.misc_flags & kfMiscAffection01)) {

@@ -1510,8 +1510,14 @@ uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uin
   // returns UINT32_MAX on failure
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || (!strcmp(cur_id, item_ids[cur_htable_idval]))) {
-      return cur_htable_idval;
+    if (cur_htable_idval == UINT32_MAX) {
+      return UINT32_MAX;
+    }
+    // bit 31 may be set if the table was constructed with a dup-tolerant
+    // function; look up/return the first-seen item in that case
+    const uint32_t cur_item_idx = cur_htable_idval & 0x7fffffff;
+    if (!strcmp(cur_id, item_ids[cur_item_idx])) {
+      return cur_item_idx;
     }
     if (++hashval == id_htable_size) {
       hashval = 0;
@@ -1523,8 +1529,12 @@ uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const 
   // returns UINT32_MAX on failure
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || strequal_unsafe(item_ids[cur_htable_idval], cur_id, cur_id_slen)) {
-      return cur_htable_idval;
+    if (cur_htable_idval == UINT32_MAX) {
+      return UINT32_MAX;
+    }
+    const uint32_t cur_item_idx = cur_htable_idval & 0x7fffffff;
+    if (strequal_unsafe(item_ids[cur_item_idx], cur_id, cur_id_slen)) {
+      return cur_item_idx;
     }
     if (++hashval == id_htable_size) {
       hashval = 0;
@@ -1824,9 +1834,12 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   const uint32_t name_ct = range_list_ptr->name_ct;
   const uint32_t name_max_blen = range_list_ptr->name_max_blen;
   const uint32_t idx_max = bitarr_size + offset;
+  if (!idx_max) {
+    return (name_ct != 0);
+  }
   for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
     uint32_t idx1;
-    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
+    if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx1)) {
       if (likely(ignore_overflow)) {
         continue;
       }
@@ -1838,7 +1851,7 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
     if (starts_range[name_idx]) {
       ++name_idx;
       uint32_t idx2;
-      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx2)) {
+      if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max - 1, &idx2)) {
         if (unlikely(!ignore_overflow)) {
           return 1;
         }
@@ -2596,7 +2609,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
       memcpyx(cur_name_str, range_end, re_len, '\0');
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
-        if (unlikely(memequal(dup_check, cur_name_str, rs_len + 1))) {
+        if (unlikely(memequal(dup_check, cur_name_str, re_len + 1))) {
           logerrprintfww("Error: Duplicate %s argument '%s'.\n", argvk[0], cur_name_str);
           return kPglRetInvalidCmdline;
         }
@@ -3872,10 +3885,10 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           goto CmdlineParsePhase1_ret_NOMEM;
         }
         pcmp->subst_argv = subst_argv;
-        memcpy(subst_argv, &(argvk[1]), arg_idx * sizeof(intptr_t));
-        const uint32_t load_param_idx_end = arg_idx + num_script_params;
+        memcpy(subst_argv, &(argvk[1]), (arg_idx - 1) * sizeof(intptr_t));
+        const uint32_t load_param_idx_end = arg_idx - 1 + num_script_params;
         script_buf_iter = &(script_buf[-1]);
-        for (uint32_t param_idx = arg_idx; param_idx != load_param_idx_end; ++param_idx) {
+        for (uint32_t param_idx = arg_idx - 1; param_idx != load_param_idx_end; ++param_idx) {
           while (ctou32(*(++script_buf_iter)) <= 32);
           subst_argv[param_idx] = script_buf_iter;
           while (ctou32(*(++script_buf_iter)) > 32);
@@ -4637,7 +4650,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         int32_t alpha_idx = bsearch_strbox(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
-          write_iter = memcpya(write_iter, id_start, slen);
+          write_iter = memcpya(write_iter, id_start, MINV(slen, kMaxIdSlen));
           write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");
@@ -4677,7 +4690,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         const int32_t alpha_idx = bsearch_strbox(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
-          write_iter = memcpya(write_iter, col_descriptor_iter, slen);
+          write_iter = memcpya(write_iter, col_descriptor_iter, MINV(slen, kMaxIdSlen));
           write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");

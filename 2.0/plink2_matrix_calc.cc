@@ -403,7 +403,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   PreinitTextStream(&txs);
   {
     uint32_t sample_ct = *sample_ct_ptr;
-    const uint32_t orig_sample_ctl = BitCtToWordCt(sample_ct);
+    const uintptr_t orig_sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table;
     uint32_t* sample_uidx_to_king_uidx;
     if (unlikely(bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table) ||
@@ -890,9 +890,6 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
             __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
-            if (homhom_needed) {
-              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
-            }
           }
         }
         for (uint32_t uii = 0; uii != missing_ct; ++uii) {
@@ -931,9 +928,6 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
             __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
-            if (homhom_needed) {
-              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
-            }
           }
         }
       } else {
@@ -3444,12 +3438,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       putc_unlocked('\r', stdout);
       const uint64_t pair_complete_ct = pair_idx - pair_idx_global_start;
       logprintf("Subsetted --make-king-table: %" PRIu64 " pair%s complete.\n", pair_complete_ct, (pair_complete_ct == 1)? "" : "s");
-      if (TextEof(&txs) || (pair_idx == pair_idx_global_stop)) {
+      if ((subset_fname && TextEof(&txs)) || (pair_idx == pair_idx_global_stop)) {
         break;
       }
       pair_idx_cur_start = pair_idx;
       if (!subset_fname) {
-        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       } else {
         fputs("Scanning --king-table-subset file...", stdout);
         fflush(stdout);
@@ -6505,6 +6499,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             goto ScoreReport_ret_NOMEM;
           }
           memcpy(variant_include_no_x, variant_include, raw_variant_ctl * sizeof(intptr_t));
+          variant_ct -= PopcountBitRange(variant_include, x_start, x_end);
+          if (!variant_ct) {
+            logerrputs("Error: No --score variants remaining after --xchr-model 0.\n");
+            goto ScoreReport_ret_INCONSISTENT_INPUT;
+          }
           ClearBitsNz(x_start, x_end, variant_include_no_x);
           variant_include = variant_include_no_x;
         }
@@ -7379,7 +7378,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
               for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
                 if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                  VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                  VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
                 }
               }
             }
@@ -7519,7 +7518,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           if (difflist_common_geno != 3) {
             common_dosage = geno_intercept + kDosageMax * geno_slope * difflist_common_geno;
           } else if (!no_meanimpute) {
-            common_dosage = kDosageMax * 2LL * cur_allele_freqs[block_vidx] * geno_slope;
+            common_dosage = kDosageMax * 2LL * cur_allele_freqs[block_vidx] * geno_slope + geno_intercept;
           }
           if (!se_mode) {
             for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
@@ -7703,9 +7702,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     // Sparse-optimization postprocessing.
     if (common_geno_sum_incrs) {
       uint64_t* ddosage_sums_iter = ctx.ddosage_sums;
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        for (uint32_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
-          *ddosage_sums_iter += common_geno_sum_incrs[qsr_idx] * S_CAST(uint64_t, kDosageMax);
+      // ddosage_sums is qsr-major.
+      for (uint32_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
+        const uint64_t cur_incr = common_geno_sum_incrs[qsr_idx] * S_CAST(uint64_t, kDosageMax);
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          *ddosage_sums_iter += cur_incr;
           ++ddosage_sums_iter;
         }
       }
@@ -8699,7 +8700,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     char* idbuf;
     uint32_t* sample_uidx_order;
-    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen + siip->max_sid_blen, &idbuf) ||
                  bigstack_alloc_u32(sample_ct, &sample_uidx_order))) {
       goto Vscore_ret_NOMEM;
     }
