@@ -548,4 +548,64 @@ cd TEST_SET_MISSING_DOSAGE
 cd ..
 echo "TEST_SET_MISSING_DOSAGE passed."
 
+cd TEST_GLM_LOCAL_COVAR
+./run_tests.sh $d $2 $3 > TEST_GLM_LOCAL_COVAR.log
+cd ..
+echo "TEST_GLM_LOCAL_COVAR passed."
+
+cd TEST_GLM_CHRY_COVAR_SUBSETS
+./run_tests.sh $d $2 $3 > TEST_GLM_CHRY_COVAR_SUBSETS.log
+cd ..
+echo "TEST_GLM_CHRY_COVAR_SUBSETS passed."
+
+cd TEST_KING_SPARSE_NSNP
+./run_tests.sh $d $2 $3 > TEST_KING_SPARSE_NSNP.log
+cd ..
+echo "TEST_KING_SPARSE_NSNP passed."
+
+cd TEST_CLUMP_FORCE_A1_MULTIALLELIC
+./run_tests.sh $d $2 $3 > TEST_CLUMP_FORCE_A1_MULTIALLELIC.log
+cd ..
+echo "TEST_CLUMP_FORCE_A1_MULTIALLELIC passed."
+
+cd TEST_SCORE_CHRY_NOSEX_XCHR0
+./run_tests.sh $d $2 $3 > TEST_SCORE_CHRY_NOSEX_XCHR0.log
+cd ..
+echo "TEST_SCORE_CHRY_NOSEX_XCHR0 passed."
+
+cd TEST_FST_JACKKNIFE_FULL_BLOCK
+./run_tests.sh $d $2 $3 > TEST_FST_JACKKNIFE_FULL_BLOCK.log
+cd ..
+echo "TEST_FST_JACKKNIFE_FULL_BLOCK passed."
+
+cd TEST_GWAS_SSF_RSID_RETRY
+./run_tests.sh $d $2 $3 > TEST_GWAS_SSF_RSID_RETRY.log
+cd ..
+echo "TEST_GWAS_SSF_RSID_RETRY passed."
+
+cd TEST_PMERGE_PSAM_CONFLICTS
+./run_tests.sh $d $2 $3 > TEST_PMERGE_PSAM_CONFLICTS.log
+cd ..
+echo "TEST_PMERGE_PSAM_CONFLICTS passed."
+
+cd TEST_NORMALIZE_RTRIM
+./run_tests.sh $d $2 $3 > TEST_NORMALIZE_RTRIM.log
+cd ..
+echo "TEST_NORMALIZE_RTRIM passed."
+
+cd TEST_FA_CONTIG_LENGTHS
+./run_tests.sh $d $2 $3 > TEST_FA_CONTIG_LENGTHS.log
+cd ..
+echo "TEST_FA_CONTIG_LENGTHS passed."
+
+cd TEST_SPLIT_CAT_PHENO_OMIT
+./run_tests.sh $d $2 $3 > TEST_SPLIT_CAT_PHENO_OMIT.log
+cd ..
+echo "TEST_SPLIT_CAT_PHENO_OMIT passed."
+
+cd TEST_PHENO_COL_NUMS_WIDE
+./run_tests.sh $d $2 $3 > TEST_PHENO_COL_NUMS_WIDE.log
+cd ..
+echo "TEST_PHENO_COL_NUMS_WIDE passed."
+
 echo "All tests passed."
