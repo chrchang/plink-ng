@@ -14762,7 +14762,11 @@ typedef struct BlockCandidateStruct {
 #endif
 } BlockCandidate;
 
-#ifndef __cplusplus
+#ifdef __cplusplus
+static inline bool BlockCandidateFirstUidxLess(const BlockCandidate& lhs, const BlockCandidate& rhs) {
+  return (lhs.first_uidx < rhs.first_uidx);
+}
+#else
 int32_t BlockCandidateCmp(const void* aa, const void* bb) {
   const BlockCandidate* bc1 = S_CAST(const BlockCandidate*, aa);
   const BlockCandidate* bc2 = S_CAST(const BlockCandidate*, bb);
@@ -14778,11 +14782,13 @@ int32_t BlockCandidateCmp(const void* aa, const void* bb) {
   }
   return S_CAST(int32_t, bc2->last_uidx) - S_CAST(int32_t, bc1->last_uidx);
 }
-#endif
 
-static inline bool BlockCandidateFirstUidxLess(const BlockCandidate& lhs, const BlockCandidate& rhs) {
-  return (lhs.first_uidx < rhs.first_uidx);
+int32_t BlockCandidateFirstUidxCmp(const void* aa, const void* bb) {
+  const BlockCandidate* bc1 = S_CAST(const BlockCandidate*, aa);
+  const BlockCandidate* bc2 = S_CAST(const BlockCandidate*, bb);
+  return S_CAST(int32_t, bc2->first_uidx) - S_CAST(int32_t, bc1->first_uidx);
 }
+#endif
 
 // 3x3 genotype counts for a pair, in the (hom-A1, het, hom-A2) order
 // haploview_blocks_classify() expects.  A1 is ALT, so plink2's nyp codes map
@@ -15388,7 +15394,11 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
         ++block_ct;
       }
       // (Blocks are disjoint, so first_uidx is a total order.)
+#ifdef __cplusplus
       std::sort(accepted, &(accepted[block_ct]), BlockCandidateFirstUidxLess);
+#else
+      qsort(accepted, block_ct, sizeof(BlockCandidate), BlockCandidateFirstUidxCmp);
+#endif
       for (uint32_t block_idx = 0; block_idx != block_ct; ++block_idx) {
         const uint32_t first_uidx = accepted[block_idx].first_uidx;
         const uint32_t last_uidx = accepted[block_idx].last_uidx;
