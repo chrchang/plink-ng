@@ -3415,8 +3415,7 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
         write_iter = dtoa_g(cur_missing_geno_ct * male_geno_ct_recip, write_iter);
         write_iter = strcpya_k(write_iter, " 1");
       } else {
-        // unknown-sex samples have chrY calls exported
-        write_iter = dtoa_g(cur_missing_geno_ct * (IsSet(sex_nm, sample_uidx)? nonmale_geno_ct_recip : male_geno_ct_recip), write_iter);
+        write_iter = dtoa_g(cur_missing_geno_ct * nonmale_geno_ct_recip, write_iter);
         *write_iter++ = ' ';
         if (IsSet(sex_nm, sample_uidx)) {
           *write_iter++ = '2';
@@ -3570,8 +3569,7 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       const int32_t cur_missing_geno_ct = sample_missing_geno_cts[sample_idx];
       const uint32_t is_male = IsSet(sex_male, sample_uidx);
-      if (is_male || (!IsSet(sex_nm, sample_uidx))) {
-        // unknown-sex samples have chrY calls exported
+      if (is_male) {
         write_iter = dtoa_g(cur_missing_geno_ct * male_geno_ct_recip, write_iter);
       } else {
         write_iter = dtoa_g(cur_missing_geno_ct * nonmale_geno_ct_recip, write_iter);
