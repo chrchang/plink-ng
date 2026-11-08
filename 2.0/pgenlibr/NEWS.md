@@ -1,3 +1,7 @@
+# pgenlibr 0.7.1 (2026-11-08)
+VariantScores() bugfix: previously, calls with a dosage but no hardcall were
+mean-imputed.
+
 # pgenlibr 0.7.0 (2026-09-29)
 Basic .pgen writer added: NewPgenWriter(), AppendBiallelic(), AppendAlleles(),
 AppendDosages(), GetWrittenVariantCt(), and ClosePgenWriter().  Only the .pgen

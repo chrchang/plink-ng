@@ -1,8 +1,8 @@
 Package: pgenlibr
 Type: Package
 Title: 'PLINK' 2 Binary (.pgen) Reader
-Version: 0.7.0
-Date: 2026-09-29
+Version: 0.7.1
+Date: 2026-11-08
 Authors@R: c(person(given = "Christopher",
                     family = "Chang",
                     role = c("aut", "cre"),
@@ -46,4 +46,4 @@ Suggests:
     withr (>= 3.0.3),
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-Config/roxygen2/version: 8.1.0
+Config/roxygen2/version: 8.1.1
