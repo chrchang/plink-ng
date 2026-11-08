@@ -2023,6 +2023,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   uint32_t chr_end = 0;
   uint32_t is_x = 0;
   uint32_t is_y = 0;
+  uint32_t mask_y_missing = 0;
   uint32_t cur_y = 0;
 
   uint32_t is_haploid = 0;  // includes chrX
@@ -2034,6 +2035,10 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   const uint32_t female_ct = PopcountWords(sex_female_collapsed, sample_ctl);
   const uint32_t x_code = (male_ct != sample_ct)? cip->xymt_codes[kChrOffsetX] : UINT32_MAXM1;
   const uint32_t y_code = female_ct? cip->xymt_codes[kChrOffsetY] : UINT32_MAXM1;
+  // is_y is only set when females are present (it controls ploidy-0 encoding
+  // of missing female calls), but nonmale chrY calls must always be excluded
+  // from sample_missing_geno_cts to match the .sample denominator.
+  const uint32_t y_missing_code = (male_ct != sample_ct)? cip->xymt_codes[kChrOffsetY] : UINT32_MAXM1;
   const uint32_t ref_allele_last = ctx->ref_allele_last;
   uint32_t vidx_rem15 = 15;
   uint32_t vidx_rem255d15 = 17;
@@ -2060,6 +2065,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
         } while (variant_uidx >= chr_end);
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         is_y = (chr_idx == y_code);
+        mask_y_missing = (chr_idx == y_missing_code);
         is_haploid = IsSet(cip->haploid_mask, chr_idx);
         is_x = 0;
         if (chr_idx == x_code) {
@@ -2759,7 +2765,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
       if (pgv.dosage_ct) {
         BitvecInvmask(pgv.dosage_present, sample_ctl, missing_acc1);
       }
-      if (is_y) {
+      if (mask_y_missing) {
         BitvecAnd(sex_male_collapsed, sample_ctl, missing_acc1);
         // ignore missingness state of unknown-sex chrY calls for now
       }
