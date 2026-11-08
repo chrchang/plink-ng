@@ -14786,7 +14786,7 @@ int32_t BlockCandidateCmp(const void* aa, const void* bb) {
 int32_t BlockCandidateFirstUidxCmp(const void* aa, const void* bb) {
   const BlockCandidate* bc1 = S_CAST(const BlockCandidate*, aa);
   const BlockCandidate* bc2 = S_CAST(const BlockCandidate*, bb);
-  return S_CAST(int32_t, bc2->first_uidx) - S_CAST(int32_t, bc1->first_uidx);
+  return S_CAST(int32_t, bc1->first_uidx) - S_CAST(int32_t, bc2->first_uidx);
 }
 #endif
 
