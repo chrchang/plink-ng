@@ -748,7 +748,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
         cdef uint32_t variant_idx_offset = variant_idx_start
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
@@ -817,7 +817,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
         cdef uint32_t variant_idx_offset = variant_idx_start
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
@@ -886,7 +886,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
         cdef uint32_t variant_idx_offset = variant_idx_start
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
@@ -972,7 +972,7 @@ cdef class PgenReader:
             raise RuntimeError("Sample-major read_list() geno_int_out buffer has too few columns (" + str(geno_int8_out.shape[1]) + "; variant_idxs length is " + str(variant_idx_ct) + ")")
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
@@ -1049,7 +1049,7 @@ cdef class PgenReader:
             raise RuntimeError("Sample-major read_list() geno_int_out buffer has too few columns (" + str(geno_int32_out.shape[1]) + "; variant_idxs length is " + str(variant_idx_ct) + ")")
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
@@ -1126,7 +1126,7 @@ cdef class PgenReader:
             raise RuntimeError("Sample-major read_list() geno_int_out buffer has too few columns (" + str(geno_int64_out.shape[1]) + "; variant_idxs length is " + str(variant_idx_ct) + ")")
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
@@ -1225,8 +1225,8 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
         cdef uint32_t variant_batch_sizel = DivUp(variant_batch_size, kBitsPerWord)
         cdef uint32_t variant_idx_offset = variant_idx_start
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
-        cdef uint32_t sample_ctaw = kWordsPerVec * DivUp(subset_size, kBitsPerWord)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
+        cdef uint32_t sample_ctaw = kWordsPerVec * DivUp(subset_size, kBitsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
@@ -1328,8 +1328,8 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
         cdef uint32_t variant_batch_sizel = DivUp(variant_batch_size, kBitsPerWord)
-        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
-        cdef uint32_t sample_ctaw = kWordsPerVec * DivUp(subset_size, kBitsPerWord)
+        cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kNypsPerVec)
+        cdef uint32_t sample_ctaw = kWordsPerVec * DivUp(subset_size, kBitsPerVec)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglNypTransposeBatch)
         cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
