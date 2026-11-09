@@ -633,4 +633,9 @@ cd TEST_BGEN13_SHORT_CHR_THREADS
 cd ..
 echo "TEST_BGEN13_SHORT_CHR_THREADS passed."
 
+cd TEST_VCF_LAD_FILTER
+./run_tests.sh $d $2 $3 > TEST_VCF_LAD_FILTER.log
+cd ..
+echo "TEST_VCF_LAD_FILTER passed."
+
 echo "All tests passed."

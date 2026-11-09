@@ -4947,6 +4947,7 @@ int main(int argc, char** argv) {
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
     int32_t vcf_max_dp = 0x7fffffff;
+    uint32_t vcf_depth_flags = 0;  // 1 = dp, 2 = lad
     uintptr_t malloc_size_mib = 0;
     LoadParams load_params = kfLoadParams0;
     Xload xload = kfXload0;
@@ -15150,7 +15151,7 @@ int main(int argc, char** argv) {
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "cf-min-gp"))) {
           logerrputs("Error: --vcf-min-gp is no longer supported.  Use --import-dosage-certainty\ninstead.\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if (strequal_k_unsafe(flagname_p2, "cf-min-gq") || strequal_k_unsafe(flagname_p2, "cf-min-dp")) {
+        } else if (strequal_k_unsafe(flagname_p2, "cf-min-gq") || strequal_k_unsafe(flagname_p2, "cf-min-dp") || strequal_k_unsafe(flagname_p2, "cf-min-lad")) {
           if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
             logerrprintf("Error: --%s must be used with --vcf/--bcf.\n", flagname_p);
             goto main_ret_INVALID_CMDLINE;
@@ -15167,15 +15168,25 @@ int main(int argc, char** argv) {
           if (flagname_p2[7] == 'g') {
             vcf_min_gq = uii;
           } else {
+            vcf_depth_flags |= (flagname_p2[7] == 'l')? 2 : 1;
+            if (unlikely(vcf_depth_flags == 3)) {
+              logerrputs("Error: --vcf-{min,max}-lad cannot be used with --vcf-{min,max}-dp.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
             vcf_min_dp = uii;
             if (vcf_max_dp < vcf_min_dp) {
-              logerrputs("Error: --vcf-min-dp value cannot be larger than --vcf-max-dp value.\n");
+              logerrprintf("Error: --%s value cannot be larger than --vcf-max-%s value.\n", flagname_p, &(flagname_p[8]));
               goto main_ret_INVALID_CMDLINE;
             }
           }
-        } else if (strequal_k_unsafe(flagname_p2, "cf-max-dp")) {
+        } else if (strequal_k_unsafe(flagname_p2, "cf-max-dp") || strequal_k_unsafe(flagname_p2, "cf-max-lad")) {
           if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
-            logerrputs("Error: --vcf-max-dp must be used with --vcf/--bcf.\n");
+            logerrprintf("Error: --%s must be used with --vcf/--bcf.\n", flagname_p);
+            goto main_ret_INVALID_CMDLINE;
+          }
+          vcf_depth_flags |= (flagname_p2[7] == 'l')? 2 : 1;
+          if (unlikely(vcf_depth_flags == 3)) {
+            logerrputs("Error: --vcf-{min,max}-lad cannot be used with --vcf-{min,max}-dp.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -15184,7 +15195,7 @@ int main(int argc, char** argv) {
           const char* cur_modif = argvk[arg_idx + 1];
           uint32_t uii;
           if (unlikely(ScanUintDefcapx(cur_modif, &uii))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vcf-max-dp argument '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           vcf_max_dp = uii;
@@ -16180,9 +16191,9 @@ int main(int argc, char** argv) {
             g_zst_level = 1;
           }
           if (is_vcf) {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_depth_flags >> 1, vcf_half_call, pc.fam_cols, import_max_allele_ct, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           } else {
-            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_depth_flags >> 1, vcf_half_call, pc.fam_cols, import_max_allele_ct, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
           g_zst_level = zst_level;
         } else {
