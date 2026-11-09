@@ -907,8 +907,8 @@ typedef struct VcfImportContextBaseStruct {
   STD_ARRAY_DECL(int32_t, 2, qual_line_mins);
   STD_ARRAY_DECL(int32_t, 2, qual_line_maxs);
   uint32_t qual_field_ct;  // must be set to zero if no qual fields
-  uint32_t qual_lad_slot;
-  int32_t qual_lad_hap_min;
+  uint32_t qual_lad_slot = UINT32_MAX;
+  int32_t qual_lad_hap_min = 0;
 } VcfImportBaseContext;
 
 typedef struct VcfImportContext {
