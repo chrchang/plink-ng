@@ -1862,6 +1862,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"
+"                           (--indep[-pairwise] only)\n"
 	       );
     help_print("blocks\tblocks-max-kb\tblocks-min-maf\tblocks-strong-lowci\tblocks-strong-highci\tblocks-recomb-highci\tblocks-inform-frac\tld-window-kb", &help_ctrl, 0,
 "  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span (def. 200).\n"

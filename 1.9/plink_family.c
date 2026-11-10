@@ -4235,7 +4235,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       bigstack_alloc_ul(MODEL_BLOCKSIZE * ((uintptr_t)dfam_sample_ctl2), &g_loadbuf)) {
     goto dfam_ret_NOMEM;
   }
-  copy_bitarr_subset_excl(pheno_c, dfam_sample_exclude, sample_ct, dfam_sample_ct, dfam_pheno_c);
+  copy_bitarr_subset_excl(pheno_c, dfam_sample_exclude, unfiltered_sample_ct, dfam_sample_ct, dfam_pheno_c);
   g_pheno_c = dfam_pheno_c;
   g_dfam_iteration_order = dfam_iteration_order;
   g_dfam_family_all_case_children_ct = family_all_case_children_ct;
@@ -4667,7 +4667,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  } else {
 	    case_a1_ct = 2 * case_hom_a1_ct + case_het_ct;
 	    twice_numer += (int32_t)(2 * case_a1_ct) - (int32_t)(cur_case_ct * parental_a1_ct);
-	    quad_denom += (2 - (parental_a1_ct & 1)) * (cur_case_ct + cur_ctrl_ct);
+	    quad_denom += (2 - (parental_a1_ct & 1)) * cur_case_ct;
 	    total_count += case_a1_ct;
 	    twice_total_expected += cur_case_ct * parental_a1_ct;
 	  }
