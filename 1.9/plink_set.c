@@ -808,7 +808,7 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
     }
   }
   if (set_bits_outer && (ujj < marker_ct)) {
-    if (uiptr[-1] == ujj) {
+    if (uiptr[-1] >= ujj) {
       uiptr[-1] = marker_ct;
     } else {
       if (++range_idx == range_ct_ceil) {
@@ -1319,8 +1319,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	      bufptr = &(bufptr2[1]);
 	      continue;
 	    }
-	    if (curtoklen >= max_set_id_len) {
-	      max_set_id_len = curtoklen + 1;
+	    if (curtoklen + c_prefix >= max_set_id_len) {
+	      max_set_id_len = curtoklen + c_prefix + 1;
 	    }
 	    set_ct++;
 	    in_set = 1;
@@ -1408,6 +1408,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	}
         curtoklen = (uintptr_t)(bufptr2 - bufptr);
         if (bufptr2 == &(g_textbuf[MAXLINELEN * 2])) {
+	  if (curtoklen > MAXLINELEN) {
+	    logerrprint("Error: Excessively long token in --set file.\n");
+	    goto define_sets_ret_INVALID_FORMAT;
+	  }
           bufptr3 = &(g_textbuf[MAXLINELEN - curtoklen]);
           memcpy(bufptr3, bufptr, curtoklen);
 	  bufptr = bufptr3;
@@ -1608,6 +1612,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	}
 	curtoklen = (uintptr_t)(bufptr2 - bufptr);
         if ((bufptr2 == buf_end) && (buf_end == &(g_textbuf[MAXLINELEN * 2]))) {
+	  if (curtoklen > MAXLINELEN) {
+	    logerrprint("Error: Excessively long token in --set file.\n");
+	    goto define_sets_ret_INVALID_FORMAT;
+	  }
 	  bufptr3 = &(g_textbuf[MAXLINELEN - curtoklen]);
           memcpy(bufptr3, bufptr, curtoklen);
           bufptr = bufptr3;
@@ -1629,7 +1637,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  in_set = 0;
 	} else if (!in_set) {
 	  in_set = 1;
-	  if (subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+	  if ((subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) || (sorted_genekeep_ids && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) == -1))) {
 	    in_set = 2;
 	    bufptr = &(bufptr2[1]);
 	    continue;
@@ -1901,7 +1909,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
 	  if (marker_idx == uii) {
 	    break;
 	  }
-          fputs(&(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), outfile);
+          fputs(&(marker_ids[marker_idx_to_uidx[range_start + marker_idx] * max_marker_id_len]), outfile);
 	  putc_unlocked('\n', outfile);
 	  marker_idx++;
 	}
@@ -2058,7 +2066,7 @@ uint32_t extract_set_union(uint32_t** setdefs, uintptr_t set_ct, uintptr_t* set_
     range_ct = cur_setdef[0];
     if (range_ct == 0xffffffffU) {
       range_start = cur_setdef[1] / BITCT;
-      range_end = range_start + (cur_setdef[2] / BITCT);
+      range_end = range_start + ((cur_setdef[2] + BITCT - 1) / BITCT);
       keep_outer = cur_setdef[3];
       if (range_end > unset_startw) {
 	read_offset = 0;
@@ -2168,11 +2176,10 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
 }
 
 uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t*** new_setdefs_ptr) {
-  printf("entering\n");
   // currently assumes marker_exclude does not exclude anything in the union of
   // the remaining sets
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  uintptr_t marker_ctlv = ((marker_ct + 127) / 128) * (128 / BITCT);
+  uintptr_t marker_ctlv = ((marker_ct + 127) / 128) * (128 / BITCT) + 2;
   uint32_t set_uidx = 0;
   uintptr_t* cur_bitfield;
   uintptr_t* read_bitfield;
@@ -2571,7 +2578,7 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
       snp_field = aip->snpfield;
       snp_field_len = strlen(snp_field);
       if (snp_field_len > 3) {
-        max_header_len = 3;
+        max_header_len = snp_field_len;
       }
     } else {
       snp_field = constsnpstr;

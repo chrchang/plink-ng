@@ -198,6 +198,11 @@ cd TEST_GENE_REPORT
 cd ..
 echo "TEST_GENE_REPORT passed."
 
+cd TEST_19_REVIEW_FIXES
+./run_tests.sh > TEST_19_REVIEW_FIXES.log
+cd ..
+echo "TEST_19_REVIEW_FIXES passed."
+
 cd TEST_INFO_TO_COLS
 ./run_tests.sh $d $2 $3 > TEST_INFO_TO_COLS.log
 cd ..
