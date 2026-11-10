@@ -417,7 +417,7 @@ void fill_subset_weights(double* subset_weights, double* main_weights) {
 #endif
 }
 
-void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, double* main_weights, uint32_t* infinite_variance_present_ptr, uint32_t var_std) {
+void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, double* main_weights, uint32_t* infinite_variance_present_ptr, uint32_t var_std, uint32_t real_marker_ct) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -488,7 +488,10 @@ void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, dou
 	wtarr[uii * 8 + 6] = mean * mean * mult;
       }
     } else {
-      *infinite_variance_present_ptr = 1;
+      // ignore zero-padding at the end of the last window
+      if (uii < real_marker_ct) {
+        *infinite_variance_present_ptr = 1;
+      }
       if (set_allele_freqs[uii] == 0.0) {
         wtarr[uii * 8] = 0;
         wtarr[uii * 8 + 1] = 0;
@@ -2077,7 +2080,7 @@ int32_t regress_rel_main(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   } else {
     g_jackknife_d = set_default_jackknife_d(sample_ct);
   }
-  if (bigstack_alloc_uc(g_thread_ct * round_up_pow2(sample_ct * (g_jackknife_d + 1) * sizeof(int32_t), CACHELINE), &g_geno)) {
+  if (bigstack_alloc_uc(g_thread_ct * round_up_pow2(sample_ct + (g_jackknife_d + 1) * sizeof(int32_t), CACHELINE), &g_geno)) {
     return RET_NOMEM;
   }
   if (bigstack_init_sfmtp(g_thread_ct)) {
@@ -2549,7 +2552,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   }
   ulii = round_up_pow2(pheno_nm_ct * pheno_nm_ct, CACHELINE_DBL);
   uljj = ulii * 3 + round_up_pow2(pheno_nm_ct, CACHELINE_DBL) * 3;
-  if (bigstack_alloc_d(ulii, &matrix_wkbase)) {
+  if (bigstack_alloc_d(uljj, &matrix_wkbase)) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
   g_sample_ct = pheno_nm_ct;
@@ -2592,7 +2595,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
             goto unrelated_herit_batch_ret_READ_FAIL;
 	  }
 	}
-        if (fread(&fxx, sizeof(float), 1, grm_binfile) != sizeof(float)) {
+        if (fread(&fxx, sizeof(float), 1, grm_binfile) != 1) {
 	  goto unrelated_herit_batch_ret_READ_FAIL;
 	}
         *row_ptr++ = (double)fxx;
@@ -2608,7 +2611,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       goto unrelated_herit_batch_ret_1;
     }
     ulii = 0;
-    for (sample_uidx = 0; sample_uidx < pheno_nm_ct; sample_uidx++) {
+    for (sample_uidx = 0; sample_uidx < unfiltered_sample_ct; sample_uidx++) {
       if (!IS_SET(pheno_nm, sample_uidx)) {
         for (sample_uidx2 = 0; sample_uidx2 <= sample_uidx; sample_uidx2++) {
           if (!gzgets(grm_gzfile, g_textbuf, MAXLINELEN)) {
@@ -4670,6 +4673,16 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   if (ukk) {
     LOGPRINTF("Excluding %u variant%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
     marker_ct -= ukk;
+    // the first chromosome isn't covered by the main loop's check
+    while (marker_ct && (is_haploid || is_mt)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, chrom_end);
+      chrom_fo_idx++;
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	retval = RET_READ_FAIL;
+	goto calc_genome_ret_1;
+      }
+    }
   }
   do {
     ukk = marker_ct - marker_idx;
@@ -6587,7 +6600,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, ibc_type, sample_ct, ukk);
       }
       if (rel_req) {
-	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, &infinite_variance_warning, (ibc_type != -1));
+	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, &infinite_variance_warning, (ibc_type != -1), ukk);
 	ulii = 0;
 	if (!main_weights_ptr) {
 	  if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
@@ -7686,7 +7699,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   }
   // Additional + CACHELINE is to fix aliasing bug that shows up with -O2 in
   // some cases.
-  if (bigstack_alloc_d(dists_alloc + CACHELINE_DBL, &g_dists)) {
+  if (bigstack_alloc_d(llxx + CACHELINE_DBL, &g_dists)) {
     goto calc_distance_ret_NOMEM;
   }
   // stack allocations before this point must be freed by the caller.
@@ -9112,7 +9125,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
     }
     bigstack_reset(cluster_sorted_ibs);
-    if (bigstack_alloc_ui((3 + is_group_avg) * heap_size + CACHELINE_INT32, &cluster_sorted_ibs_indices)) {
+    if (bigstack_alloc_ui((3 + is_group_avg) * initial_triangle_size + CACHELINE_INT32, &cluster_sorted_ibs_indices)) {
       goto calc_cluster_neighbor_ret_NOMEM;
     }
     ulii = initial_triangle_size - 1;

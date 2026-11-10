@@ -1351,6 +1351,10 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
 	tmp22 += 1;
 	cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
 	if (cur_prob < prev_prob) {
+	  if (*base_probp > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
+	    // base element of this row is tied with the observed table
+	    *tie_ctp += 1;
+	  }
 	  return 1;
 	}
 	tmp12 -= 1;
@@ -1400,6 +1404,10 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
 	tmp23 += 1;
 	cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
 	if (cur_prob < prev_prob) {
+	  if (*base_probp > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
+	    // base element of this row is tied with the observed table
+	    *tie_ctp += 1;
+	  }
 	  return 1;
 	}
 	tmp13 -= 1;
@@ -1459,6 +1467,27 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
   return 0;
 }
 
+static double fisher23_lnprob(double m11, double m12, double m13, double m21, double m22, double m23) {
+  return -(lgamma(m11 + 1) + lgamma(m12 + 1) + lgamma(m13 + 1) + lgamma(m21 + 1) + lgamma(m22 + 1) + lgamma(m23 + 1));
+}
+
+static uint32_t fisher23_row_tie_ct(double cur11, double cur21, double row1_rem, double row2_rem, double col2, double col3, double obs_lnprob) {
+  // Every table in a wholesale-summed row is in the tail, so one can only be
+  // tied with the observed table at the row's peak.  Conditional on (cur11,
+  // cur21), m12 is hypergeometric, and there are at most two modes.
+  const double mode = floor((row1_rem + 1) * (col2 + 1) / (col2 + col3 + 2));
+  uint32_t tie_ct = 0;
+  double cur12;
+  for (cur12 = mode; cur12 >= mode - 1; cur12 -= 1) {
+    if ((cur12 >= 0) && (cur12 <= row1_rem) && (cur12 <= col2) && (row1_rem - cur12 <= col3)) {
+      if (fabs(fisher23_lnprob(cur11, cur12, row1_rem - cur12, cur21, col2 - cur12, row2_rem - col2 + cur12) - obs_lnprob) < 1e-9) {
+	tie_ct++;
+      }
+    }
+  }
+  return tie_ct;
+}
+
 double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t m22, uint32_t m23, uint32_t midp) {
   // 2x3 Fisher-Freeman-Halton exact test p-value calculation.
   // The number of tables involved here is still small enough that the network
@@ -1507,6 +1536,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   double tmp23;
   double dxx;
   double preaddp;
+  double obs_lnprob;
   // Ensure m11 + m21 <= m12 + m22 <= m13 + m23.
   uii = m11 + m21;
   ujj = m12 + m22;
@@ -1678,6 +1708,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
       } while (tprob > preaddp);
     }
   }
+  obs_lnprob = fisher23_lnprob(m11, m12, m13, m21, m22, m23);
   row_prob = tprob + cprob;
   orig_base_probl = base_probl;
   orig_base_probr = base_probr;
@@ -1795,6 +1826,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	row_prob *= (cur11 * savedl22) / (cur21 * savedl12);
 	cur11 -= 1;
 	savedl22 -= 1;
+	if (midp) {
+	  tie_ct += fisher23_row_tie_ct(cur11, cur21, savedl12, savedl22, m12 + m22, m13 + m23, obs_lnprob);
+	}
       }
     } else {
       while (1) {
@@ -1808,6 +1842,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	row_prob *= (cur21 * savedl12) / (cur11 * savedl22);
 	cur21 -= 1;
 	savedl12 -= 1;
+	if (midp) {
+	  tie_ct += fisher23_row_tie_ct(cur11, cur21, savedl12, savedl22, m12 + m22, m13 + m23, obs_lnprob);
+	}
       }
     }
   }

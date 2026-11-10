@@ -962,7 +962,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   if (fopen_checked(cnvname, "r", &cnvfile)) {
     goto plink_cnv_ret_OPEN_FAIL;
   }
-  if (cnv_calc_type & (~CNV_MAKE_MAP)) {
+  if (cnv_calc_type & (~(CNV_MAKE_MAP | CNV_MAKE_MAP_LONG))) {
     if (fopen_checked(famname, "r", &famfile)) {
       goto plink_cnv_ret_OPEN_FAIL;
     }
@@ -1053,7 +1053,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   fclose_cond(mapfile);
   fclose_cond(outfile);
   bigstack_double_reset(bigstack_mark, bigstack_end_mark);
-  return 0;
+  return retval;
 }
 
 int32_t plink_gvar(char* outname, char* outname_end, char* gvarname, char* mapname, char* famname) {
