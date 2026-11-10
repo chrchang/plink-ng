@@ -536,6 +536,10 @@ HEADER_INLINE void RowMajorMatrixMultiply(const double* inmatrix1, const double*
 // parameter now
 void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const double* inmatrix2, lapack_int row1_ct, lapack_int stride1, lapack_int col2_ct, lapack_int stride2, lapack_int common_ct, lapack_int stride3, double beta, double* outmatrix);
 
+// Same, except inmatrix2 is stored transposed (col2_ct x common_ct, column
+// stride stride2), so callers needn't make a transposed copy.
+void ColMajorMatrixMultiplyTrans2StridedAddassign(const double* inmatrix1, const double* inmatrix2, lapack_int row1_ct, lapack_int stride1, lapack_int col2_ct, lapack_int stride2, lapack_int common_ct, lapack_int stride3, double beta, double* outmatrix);
+
 HEADER_INLINE void ColMajorMatrixMultiplyStrided(const double* inmatrix1, const double* inmatrix2, lapack_int row1_ct, lapack_int stride1, lapack_int col2_ct, lapack_int stride2, lapack_int common_ct, lapack_int stride3, double* outmatrix) {
   ColMajorMatrixMultiplyStridedAddassign(inmatrix1, inmatrix2, row1_ct, stride1, col2_ct, stride2, common_ct, stride3, 0.0, outmatrix);
 }
