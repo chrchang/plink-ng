@@ -3345,7 +3345,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   }
   grand_mean *= dxx;
   // ...then double-center and multiply by -0.5
-  for (clidx1 = 1; clidx1 < ulii; clidx1++) {
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
     dxx = column_means[clidx1];
     dptr = &(main_matrix[clidx1 * ulii]);
     dptr2 = column_means;

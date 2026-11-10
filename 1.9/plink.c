@@ -12909,6 +12909,14 @@ int32_t main(int32_t argc, char** argv) {
     logerrprint("Error: --indiv-sort only affects --make-bed and --merge/--bmerge/--merge-list.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
+  // --flip-scan and --show-tags only implement --ld-xchr modes 1 and 2, and
+  // used to silently treat mode 3 as mode 1.  (--r/--r2 rejects mode 3 while
+  // parsing its own flag, but these two flags sort on both sides of
+  // --ld-xchr.)
+  if ((ld_info.modifier & LD_WEIGHTED_X) && (calculation_type & (CALC_FLIPSCAN | CALC_SHOW_TAGS))) {
+    snprintf(g_logbuf, LOGBUFLEN, "Error: %s + --ld-xchr 3 is not currently supported.\n", (calculation_type & CALC_FLIPSCAN)? "--flip-scan" : "--show-tags");
+    goto main_ret_INVALID_CMDLINE_WWA;
+  }
   if ((cnv_intersect_filter_type & CNV_COUNT) && (!(cnv_calc_type & (CNV_SAMPLE_PERM | CNV_ENRICHMENT_TEST)))) {
     logerrprint("Error: --cnv-count must be used with --cnv-indiv-perm or --cnv-enrichment-test.\n");
     goto main_ret_INVALID_CMDLINE;

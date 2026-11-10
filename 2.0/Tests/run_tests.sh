@@ -203,6 +203,31 @@ cd TEST_19_REVIEW_FIXES
 cd ..
 echo "TEST_19_REVIEW_FIXES passed."
 
+cd TEST_19_ASSOC_LD_FIXES
+./run_tests.sh $d $2 $3 > TEST_19_ASSOC_LD_FIXES.log
+cd ..
+echo "TEST_19_ASSOC_LD_FIXES passed."
+
+cd TEST_19_PLINK107_FIXES
+./run_tests.sh > TEST_19_PLINK107_FIXES.log
+cd ..
+echo "TEST_19_PLINK107_FIXES passed."
+
+cd TEST_19_CONVERSION_FIXES
+./run_tests.sh $d $2 $3 > TEST_19_CONVERSION_FIXES.log
+cd ..
+echo "TEST_19_CONVERSION_FIXES passed."
+
+cd TEST_19_SET_FILTER_FIXES
+./run_tests.sh $d $2 $3 > TEST_19_SET_FILTER_FIXES.log
+cd ..
+echo "TEST_19_SET_FILTER_FIXES passed."
+
+cd TEST_19_DFAM_MDS_FIXES
+./run_tests.sh > TEST_19_DFAM_MDS_FIXES.log
+cd ..
+echo "TEST_19_DFAM_MDS_FIXES passed."
+
 cd TEST_INFO_TO_COLS
 ./run_tests.sh $d $2 $3 > TEST_INFO_TO_COLS.log
 cd ..
