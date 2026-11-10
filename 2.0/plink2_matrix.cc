@@ -820,6 +820,27 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
 #endif  // !NOLAPACK
 }
 
+void ColMajorMatrixMultiplyTrans2StridedAddassign(const double* inmatrix1, const double* inmatrix2, lapack_int row1_ct, lapack_int stride1, lapack_int col2_ct, lapack_int stride2, lapack_int common_ct, lapack_int stride3, double beta, double* outmatrix) {
+#ifdef NOLAPACK
+  const uintptr_t row1_ct_l = row1_ct;
+  const uintptr_t col2_ct_l = col2_ct;
+  const uintptr_t common_ct_l = common_ct;
+  for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
+    double* outmatrix_row_iter = &(outmatrix[col_idx * stride3]);
+    for (uintptr_t row_idx = 0; row_idx != row1_ct_l; ++row_idx) {
+      double cur_entry = 0.0;
+      for (uintptr_t com_idx = 0; com_idx != common_ct_l; com_idx++) {
+        cur_entry += inmatrix2[com_idx * stride2 + col_idx] * inmatrix1[com_idx * stride1 + row_idx];
+      }
+      *outmatrix_row_iter = (*outmatrix_row_iter) * beta + cur_entry;
+      ++outmatrix_row_iter;
+    }
+  }
+#else
+  cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, beta, outmatrix, stride3);
+#endif  // !NOLAPACK
+}
+
 void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* inmatrix2, lapack_int common_ct, lapack_int stride2, lapack_int col2_ct, double* out_dvec) {
 #ifdef NOLAPACK
   const uintptr_t col2_ct_l = col2_ct;

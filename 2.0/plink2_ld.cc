@@ -4929,6 +4929,25 @@ void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage
 }
 
 uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  // values in [0..32768], 65535 = missing.  Each u32 lane gains at most
+  // 2 * 32768 per vector, so flush to u64 every 32767 vectors.
+  const uint16x8_t* dosage_vvec_iter = R_CAST(const uint16x8_t*, dosage_vec);
+  const uint16x8_t all1 = vdupq_n_u16(65535);
+  uint64x2_t sumv = vdupq_n_u64(0);
+  while (vec_ct) {
+    const uint32_t cur_incr = MINV(vec_ct, 32767);
+    uint32x4_t inner_sumv = vdupq_n_u32(0);
+    for (uint32_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const uint16x8_t dosagev = dosage_vvec_iter[vec_idx];
+      inner_sumv = vpadalq_u16(inner_sumv, vbicq_u16(dosagev, vceqq_u16(dosagev, all1)));
+    }
+    dosage_vvec_iter = &(dosage_vvec_iter[cur_incr]);
+    sumv = vpadalq_u32(sumv, inner_sumv);
+    vec_ct -= cur_incr;
+  }
+  return vaddvq_u64(sumv);
+#else
   // end of dosage_vec assumed to be missing-padded (0-padded also ok)
   const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
   const __m128i m16 = _mm_set1_epi64x(kMask0000FFFF);
@@ -4961,9 +4980,30 @@ uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
     acc.vw = R_CAST(VecW, sumv);
     sum += UniVecHsum32(acc);
   }
+#endif
 }
 
 uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mask_vec, uint32_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  const uint16x8_t* dosage_vvec_iter = R_CAST(const uint16x8_t*, dosage_vec);
+  const uint16x8_t* dosage_mask_vvec_iter = R_CAST(const uint16x8_t*, dosage_mask_vec);
+  const uint16x8_t all1 = vdupq_n_u16(65535);
+  uint64x2_t sumv = vdupq_n_u64(0);
+  while (vec_ct) {
+    const uint32_t cur_incr = MINV(vec_ct, 32767);
+    uint32x4_t inner_sumv = vdupq_n_u32(0);
+    for (uint32_t vec_idx = 0; vec_idx != cur_incr; ++vec_idx) {
+      const uint16x8_t dosagev = dosage_vvec_iter[vec_idx];
+      const uint16x8_t invmask = vorrq_u16(vceqq_u16(dosage_mask_vvec_iter[vec_idx], all1), vceqq_u16(dosagev, all1));
+      inner_sumv = vpadalq_u16(inner_sumv, vbicq_u16(dosagev, invmask));
+    }
+    dosage_vvec_iter = &(dosage_vvec_iter[cur_incr]);
+    dosage_mask_vvec_iter = &(dosage_mask_vvec_iter[cur_incr]);
+    sumv = vpadalq_u32(sumv, inner_sumv);
+    vec_ct -= cur_incr;
+  }
+  return vaddvq_u64(sumv);
+#else
   // end of dosage_vec assumed to be missing-padded (0-padded also ok)
   const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
   const __m128i* dosage_mask_vvec_iter = R_CAST(const __m128i*, dosage_mask_vec);
@@ -4997,10 +5037,30 @@ uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mas
     acc.vw = R_CAST(VecW, sumv);
     sum += UniVecHsum32(acc);
   }
+#endif
 }
 
 // 65535 treated as missing
 uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  // vmull_u16 gives exact 32-bit products (each <= 2^30), and vpadalq_u32
+  // accumulates them into 64-bit lanes, so no overflow handling is needed.
+  const uint16x8_t* dosage_vvec0_iter = R_CAST(const uint16x8_t*, dosage_vec0);
+  const uint16x8_t* dosage_vvec1_iter = R_CAST(const uint16x8_t*, dosage_vec1);
+  const uint16x8_t all1 = vdupq_n_u16(65535);
+  uint64x2_t dotprod_lo = vdupq_n_u64(0);
+  uint64x2_t dotprod_hi = vdupq_n_u64(0);
+  for (uint32_t vec_idx = 0; vec_idx != vec_ct; ++vec_idx) {
+    uint16x8_t dosage0 = dosage_vvec0_iter[vec_idx];
+    uint16x8_t dosage1 = dosage_vvec1_iter[vec_idx];
+    uint16x8_t invmask = vorrq_u16(vceqq_u16(dosage0, all1), vceqq_u16(dosage1, all1));
+    dosage0 = vbicq_u16(dosage0, invmask);
+    dosage1 = vbicq_u16(dosage1, invmask);
+    dotprod_lo = vpadalq_u32(dotprod_lo, vmull_u16(vget_low_u16(dosage0), vget_low_u16(dosage1)));
+    dotprod_hi = vpadalq_u32(dotprod_hi, vmull_high_u16(dosage0, dosage1));
+  }
+  return vaddvq_u64(vaddq_u64(dotprod_lo, dotprod_hi));
+#else
   const __m128i* dosage_vvec0_iter = R_CAST(const __m128i*, dosage_vec0);
   const __m128i* dosage_vvec1_iter = R_CAST(const __m128i*, dosage_vec1);
   const __m128i m16 = _mm_set1_epi64x(kMask0000FFFF);
@@ -5041,9 +5101,31 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
     acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
+#endif
 }
 
 uint64_t DosageUnsignedDotprodSubset(const Dosage* dosage_mask_vec, const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  // vmull_u16 gives exact 32-bit products (each <= 2^30), and vpadalq_u32
+  // accumulates them into 64-bit lanes, so no overflow handling is needed.
+  const uint16x8_t* dosage_mask_iter = R_CAST(const uint16x8_t*, dosage_mask_vec);
+  const uint16x8_t* dosage_vvec0_iter = R_CAST(const uint16x8_t*, dosage_vec0);
+  const uint16x8_t* dosage_vvec1_iter = R_CAST(const uint16x8_t*, dosage_vec1);
+  const uint16x8_t all1 = vdupq_n_u16(65535);
+  uint64x2_t dotprod_lo = vdupq_n_u64(0);
+  uint64x2_t dotprod_hi = vdupq_n_u64(0);
+  for (uint32_t vec_idx = 0; vec_idx != vec_ct; ++vec_idx) {
+    uint16x8_t dosage0 = dosage_vvec0_iter[vec_idx];
+    uint16x8_t dosage1 = dosage_vvec1_iter[vec_idx];
+    uint16x8_t invmask = vorrq_u16(vceqq_u16(dosage0, all1), vceqq_u16(dosage1, all1));
+    invmask = vorrq_u16(invmask, vceqq_u16(dosage_mask_iter[vec_idx], all1));
+    dosage0 = vbicq_u16(dosage0, invmask);
+    dosage1 = vbicq_u16(dosage1, invmask);
+    dotprod_lo = vpadalq_u32(dotprod_lo, vmull_u16(vget_low_u16(dosage0), vget_low_u16(dosage1)));
+    dotprod_hi = vpadalq_u32(dotprod_hi, vmull_high_u16(dosage0, dosage1));
+  }
+  return vaddvq_u64(vaddq_u64(dotprod_lo, dotprod_hi));
+#else
   const __m128i* dosage_mask_iter = R_CAST(const __m128i*, dosage_mask_vec);
   const __m128i* dosage_vvec0_iter = R_CAST(const __m128i*, dosage_vec0);
   const __m128i* dosage_vvec1_iter = R_CAST(const __m128i*, dosage_vec1);
@@ -5087,6 +5169,7 @@ uint64_t DosageUnsignedDotprodSubset(const Dosage* dosage_mask_vec, const Dosage
     acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
+#endif
 }
 
 void DosageUnphasedDotprodComponents(const Dosage* dosage_vec0, const Dosage* dosage_vec1, const Dosage* dosage_het0, const Dosage* dosage_het1, uint32_t vec_ct, uint64_t* known_dotprod_dosagep, uint64_t* uhethet_dosagep) {

@@ -4649,7 +4649,6 @@ typedef struct CalcGrmPartCtxStruct {
 
   uint32_t cur_batch_size;
   double* normed_dosage_vmaj_bufs[2];
-  double* normed_dosage_smaj_bufs[2];
 
   double* grm;
 } CalcGrmPartCtx;
@@ -4689,10 +4688,11 @@ THREAD_FUNC_DECL CalcGrmPartThread(void* raw_arg) {
   do {
     const uintptr_t cur_batch_size = ctx->cur_batch_size;
     if (cur_batch_size) {
-      double* normed_vmaj = ctx->normed_dosage_vmaj_bufs[parity];
-      double* normed_smaj = ctx->normed_dosage_smaj_bufs[parity];
+      const double* normed_vmaj = ctx->normed_dosage_vmaj_bufs[parity];
       // quasi-bugfix (18 Mar 2022): forgot to skip extra right-side columns
-      RowMajorMatrixMultiplyStridedIncr(&(normed_smaj[row_start_idx * cur_batch_size]), normed_vmaj, row_ct, cur_batch_size, sample_idx_end, sample_ct, cur_batch_size, sample_ct, grm_piece);
+      // grm_piece += normed_vmaj[, rows]^T * normed_vmaj[, :sample_idx_end],
+      // reading the first operand transposed in place.
+      ColMajorMatrixMultiplyTrans2StridedAddassign(normed_vmaj, &(normed_vmaj[row_start_idx]), sample_idx_end, sample_ct, row_ct, sample_ct, cur_batch_size, sample_ct, 1.0, grm_piece);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -6180,15 +6180,8 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
     if (thread_start) {
-      if (unlikely(bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_smaj_bufs[0]) ||
-                   bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_smaj_bufs[1]))) {
-        goto CalcGrm_ret_NOMEM;
-      }
       SetThreadFuncAndData(CalcGrmPartThread, &ctx, &tg);
     } else {
-      // defensive
-      ctx.normed_dosage_smaj_bufs[0] = nullptr;
-      ctx.normed_dosage_smaj_bufs[1] = nullptr;
       SetThreadFuncAndData(CalcGrmThread, &ctx, &tg);
     }
     if (BlasIsMultithreaded() && (!accelerate_worker_threads)) {
@@ -6226,9 +6219,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         reterr = LoadCenteredVarmajBlock(sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, variance_standardize, is_haploid, row_end_idx, variant_ct, simple_pgrp, normed_vmaj, variant_include_has_missing, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
         if (unlikely(reterr)) {
           goto CalcGrm_ret_1;
-        }
-        if (thread_start) {
-          MatrixTransposeCopy(normed_vmaj, cur_batch_size, row_end_idx, ctx.normed_dosage_smaj_bufs[parity]);
         }
       }
       if (is_not_first_block) {
@@ -6715,7 +6705,6 @@ typedef struct CalcPcaCtxStruct {
 
   double* g1;
   double* qq;
-  double** y_transpose_bufs;
   double** g2_bb_part_bufs;
 } CalcPcaCtx;
 
@@ -6730,7 +6719,6 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* raw_arg) {
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
   const double* g1 = ctx->g1;
   double* qq_iter = ctx->qq;
-  double* y_transpose_buf = ctx->y_transpose_bufs[tidx];
   double* g2_part_buf = ctx->g2_bb_part_bufs[tidx];
   uint32_t parity = 0;
   do {
@@ -6743,8 +6731,8 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* raw_arg) {
       const double* yy_buf = &(ctx->yy_bufs[parity][S_CAST(uintptr_t, vidx_offset) * sample_ct]);
       double* cur_qq = &(qq_iter[vidx_offset * qq_col_ct]);
       RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, sample_ct, pc_ct_x2, pc_ct_x2, sample_ct, qq_col_ct, cur_qq);
-      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, sample_ct, y_transpose_buf);
-      RowMajorMatrixMultiplyStridedIncr(y_transpose_buf, cur_qq, sample_ct, cur_thread_batch_size, pc_ct_x2, qq_col_ct, cur_thread_batch_size, pc_ct_x2, g2_part_buf);
+      // g2_part += yy^T * cur_qq; dgemm reads yy_buf transposed in place.
+      ColMajorMatrixMultiplyTrans2StridedAddassign(cur_qq, yy_buf, pc_ct_x2, qq_col_ct, sample_ct, sample_ct, cur_thread_batch_size, pc_ct_x2, 1.0, g2_part_buf);
       qq_iter = &(qq_iter[cur_batch_size * qq_col_ct]);
     }
     parity = 1 - parity;
@@ -6791,7 +6779,6 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* raw_arg) {
   const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
   const double* qq_iter = &(ctx->qq[vidx_offset * qq_col_ct]);
-  double* y_transpose_buf = ctx->y_transpose_bufs[tidx];
   double* bb_part_buf = ctx->g2_bb_part_bufs[tidx];
   uint32_t parity = 0;
   do {
@@ -6802,8 +6789,8 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* raw_arg) {
         cur_thread_batch_size = kPcaVariantBlockSize;
       }
       const double* yy_buf = &(ctx->yy_bufs[parity][S_CAST(uintptr_t, vidx_offset) * sample_ct]);
-      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, sample_ct, y_transpose_buf);
-      RowMajorMatrixMultiplyIncr(y_transpose_buf, qq_iter, sample_ct, qq_col_ct, cur_thread_batch_size, bb_part_buf);
+      // bb_part += yy^T * qq_iter
+      ColMajorMatrixMultiplyTrans2StridedAddassign(qq_iter, yy_buf, qq_col_ct, qq_col_ct, sample_ct, sample_ct, cur_thread_batch_size, qq_col_ct, 1.0, bb_part_buf);
       qq_iter = &(qq_iter[cur_batch_size * qq_col_ct]);
     }
     parity = 1 - parity;
@@ -7880,7 +7867,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       double* g1;
       if (unlikely(bigstack_alloc_d(qq_col_ct, &ss) ||
                    bigstack_alloc_d(pca_row_ct * qq_col_ct, &qq) ||
-                   bigstack_alloc_dp(calc_thread_ct, &ctx.y_transpose_bufs) ||
                    bigstack_alloc_dp(calc_thread_ct, &ctx.g2_bb_part_bufs) ||
                    bigstack_alloc_uc(svd_rect_wkspace_size, &svd_rect_wkspace) ||
                    bigstack_alloc_d(gg_size, &g1))) {
@@ -7890,7 +7876,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const uintptr_t b_size = pca_sample_ct * qq_col_ct;
       const uintptr_t g2_bb_part_alloc = RoundUpPow2(b_size * sizeof(double), kCacheline);
       // bugfix (16 Jan 2020)
-      const uintptr_t per_thread_alloc = 3 * yy_alloc_incr + g2_bb_part_alloc;
+      const uintptr_t per_thread_alloc = 2 * yy_alloc_incr + g2_bb_part_alloc;
 
       const uintptr_t bigstack_avail = bigstack_left();
       if (per_thread_alloc * calc_thread_ct > bigstack_avail) {
@@ -7903,7 +7889,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       ctx.yy_bufs[0] = S_CAST(double*, bigstack_alloc_raw(yy_main_alloc));
       ctx.yy_bufs[1] = S_CAST(double*, bigstack_alloc_raw(yy_main_alloc));
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        ctx.y_transpose_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc_incr));
         ctx.g2_bb_part_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(g2_bb_part_alloc));
       }
       FillGaussianDArr(gg_size / 2, max_thread_ct, sfmtp, g1);
