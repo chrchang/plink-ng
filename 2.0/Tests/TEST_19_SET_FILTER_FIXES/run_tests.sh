@@ -24,7 +24,7 @@ check() {
 # --- Sets and annotation ---
 
 # 600 variants, 1 kb apart.
-plink --dummy 4 600 --make-bed --out tmp_sets > /dev/null
+plink --dummy 4 600 --seed 1 --make-bed --out tmp_sets > /dev/null
 awk 'BEGIN { OFS = "\t" } { $4 = 1000 * NR; print }' tmp_sets.bim > tmp_sets_pos.bim
 mv tmp_sets_pos.bim tmp_sets.bim
 
@@ -103,20 +103,22 @@ check "--oblig-missing with repeated entries" $om_ok
 
 # --bp-space compared last_pos + min_bp_space in int32, which overflowed for
 # positions near 2^31, so nearby variants were kept.  Positions run from
-# 1.90e9 to 2.12e9, 20 Mb apart; it must match plink2.
-plink --dummy 5 12 --make-bed --out tmp_bp > /dev/null
+# 1.90e9 to 2.12e9, 20 Mb apart; the variants kept must match plink2's.
+# (Only CHR/ID/POS are compared, since PLINK 1.9 makes the minor allele A1
+# while plink2 keeps the input allele order.)
+plink --dummy 5 12 --seed 1 --make-bed --out tmp_bp > /dev/null
 awk 'BEGIN { OFS = "\t" } { $4 = 1900000000 + 20000000 * (NR - 1); print }' tmp_bp.bim > tmp_bp_pos.bim
 mv tmp_bp_pos.bim tmp_bp.bim
 plink --bfile tmp_bp --bp-space 150000000 --make-just-bim --out tmp_bp19 > /dev/null
 $plink2 --bfile tmp_bp --bp-space 150000000 --make-just-bim --out tmp_bp2 > /dev/null
-test -s tmp_bp2.bim && cmp -s tmp_bp19.bim tmp_bp2.bim
+test -s tmp_bp2.bim && test "$(cut -f1,2,4 tmp_bp19.bim)" = "$(cut -f1,2,4 tmp_bp2.bim)"
 check "--bp-space near the int32 position limit matches plink2" $?
 
 # --cm-map <file> <chr> treated an '@' in the file name as the chromosome
 # placeholder anyway, so it looked for map11.txt.  (plink2 rejects an '@'
 # filename together with a chromosome, so the reference is the same map
 # under a name without '@'.)
-plink --dummy 4 10 --make-bed --out tmp_cm > /dev/null
+plink --dummy 4 10 --seed 1 --make-bed --out tmp_cm > /dev/null
 awk 'BEGIN { OFS = "\t" } { $4 = 100000 * NR; print }' tmp_cm.bim > tmp_cm_pos.bim
 mv tmp_cm_pos.bim tmp_cm.bim
 printf 'position COMBINED_rate(cM/Mb) Genetic_Map(cM)\n50000 1.0 0.05\n400000 2.0 0.4\n1200000 0.5 2.0\n' > 'tmp_map@1.txt'
