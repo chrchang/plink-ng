@@ -160,8 +160,7 @@ checks=(
     "--clump-best matches PLINK 1.07"
     "--clump-replicate matches PLINK 1.07"
     "--clump-index-first matches PLINK 1.07"
-    "--clump-best with two files matches PLINK 1.07"
-    "--clump-best --clump-replicate matches PLINK 1.07"
+    "--clump-best --clump-replicate with two files matches PLINK 1.07"
     "--simulate-label matches PLINK 1.07"
 )
 if [[ ! -x "$plink107" ]]; then
@@ -418,14 +417,15 @@ awk 'NF > 5 && NR > 1 { n = split($12, sp, ","); if (n == 1 && sp[1] ~ /\([0-9]+
 awk -f $compare_tokens tmp_cl19_as107.clumped tmp_cl107.clumped 2> /dev/null && test "$(cat tmp_rep_dropped.txt)" -gt 0 && ! cmp -s tmp_cl19.clumped tmp_clthree.clumped
 next_check $?
 same_clump "--clump tmp_res1.txt,tmp_res2.txt --clump-index-first" clumped tmp_cltwo.clumped
-# With two files, --clump-best requires --clump-index-first.  Proxies come
-# from either file, unless --clump-replicate is also given; then they only
-# come from the second file (and clumps aren't filtered).
-same_clump "--clump tmp_res1.txt,tmp_res3.txt --clump-best --clump-index-first" "clumped clumped.best"
-cp tmp_cl19.clumped.best tmp_clbest2.clumped.best
+# With two files, --clump-best requires --clump-index-first, and (as
+# documented) only takes proxies from the second file, imitating PLINK 1.07's
+# behavior with --clump-replicate; --clump-replicate itself is ignored.  (PLINK
+# 1.07 takes proxies from either file without --clump-replicate.)
 same_clump "--clump tmp_res1.txt,tmp_res3.txt --clump-best --clump-replicate --clump-index-first" "clumped clumped.best"
-! cmp -s tmp_cl19.clumped.best tmp_clbest2.clumped.best && grep -q ' NA ' tmp_cl19.clumped.best
-check "--clump-replicate restricts --clump-best proxies to the second file" $?
+plink --bfile tmp_ld --clump tmp_res1.txt,tmp_res3.txt --clump-best --clump-index-first --out tmp_clbest2 > /dev/null 2>&1
+cmp -s tmp_cl19.clumped.best tmp_clbest2.clumped.best && \
+    awk 'NR > 1 { if ($2 != "NA") { ++found; if ($7 != 2) bad = 1 } } END { exit (bad || !found) }' tmp_clbest2.clumped.best && grep -q ' NA ' tmp_clbest2.clumped.best
+check "--clump-best with two files only takes proxies from the second file" $?
 
 # --- Simulation ---
 

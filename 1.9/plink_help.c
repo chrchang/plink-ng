@@ -2067,9 +2067,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-index-first       : Extract --clump index vars. from only first file.\n"
 "  --clump-replicate         : Exclude clumps which don't contain\n"
 "                              p2-significant results (including the index\n"
-"                              variant's) from at least two files.  With\n"
-"                              --clump-best, instead only take proxies from\n"
-"                              the second file.\n"
+"                              variant's) from at least two files.\n"
 	       );
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index var.\n"
