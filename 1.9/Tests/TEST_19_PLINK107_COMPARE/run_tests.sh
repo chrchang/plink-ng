@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # PLINK 1.9 commands with no plink2 equivalent, checked against PLINK 1.07:
-# --genome, --cluster --K, --mh, --bd and --homog.  The reports must be
-# identical.  (Ported from the old 1.9/tests_old suite.)
+# --genome, --cluster --K, --mh, --bd, --homog, and QT --assoc --adjust
+# (plink2 computes the GC column of t-test results from 1-df chi-square
+# quantiles of the p-values, while PLINK 1.07 and 1.9 use T^2 and the t
+# distribution).  The reports must be identical.  (Ported from the old
+# 1.9/tests_old suite.)
 #
 # Usage: ./run_tests.sh {plink 1.9 dir}
 # plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
@@ -25,6 +28,8 @@ checks=(
     "--mh matches PLINK 1.07"
     "--bd matches PLINK 1.07"
     "--homog matches PLINK 1.07"
+    "QT --assoc --adjust matches PLINK 1.07"
+    "QT --assoc --adjust --lambda matches PLINK 1.07"
 )
 if [[ ! -x "$plink107" ]]; then
     echo "note: PLINK 1.07 not found at $plink107; skipping checks that need it"
@@ -84,5 +89,22 @@ p107 --bfile tmp_cc --within tmp_strata.txt --homog --out tmp_homog107
 plink --bfile tmp_cc --within tmp_strata.txt --homog --out tmp_homog19 > /dev/null
 cmp -s tmp_homog107.homog tmp_homog19.homog && test "$(wc -l < tmp_homog19.homog)" -eq 2101
 check "${checks[4]}" $?
+
+# QT --assoc --adjust: 387 samples (387 % 4 == 3), 200 variants.  The
+# estimated lambda is above 1 here, and --lambda 1.2 checks a fixed value.
+plink --dummy 387 200 0.03 acgt scalar-pheno --seed 11 --make-bed --out tmp_qt > /dev/null
+awk 'BEGIN { OFS = "\t" } { $4 = 1000 * NR; print }' tmp_qt.bim > tmp_qt.bim.new
+mv tmp_qt.bim.new tmp_qt.bim
+
+p107 --bfile tmp_qt --assoc --adjust --out tmp_qadj107
+plink --bfile tmp_qt --assoc --adjust --out tmp_qadj19 > /dev/null
+cmp -s tmp_qadj107.qassoc.adjusted tmp_qadj19.qassoc.adjusted && test "$(wc -l < tmp_qadj19.qassoc.adjusted)" -eq 201 && \
+    grep -q 'lambda (based on median chisq) = 1\.0[1-9]' tmp_qadj19.log
+check "${checks[5]}" $?
+
+p107 --bfile tmp_qt --assoc --adjust --lambda 1.2 --out tmp_qlam107
+plink --bfile tmp_qt --assoc --adjust --lambda 1.2 --out tmp_qlam19 > /dev/null
+cmp -s tmp_qlam107.qassoc.adjusted tmp_qlam19.qassoc.adjusted && test "$(wc -l < tmp_qlam19.qassoc.adjusted)" -eq 201
+check "${checks[6]}" $?
 
 exit $failed

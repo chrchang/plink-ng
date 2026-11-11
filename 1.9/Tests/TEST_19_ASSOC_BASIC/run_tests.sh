@@ -2,10 +2,12 @@
 
 # PLINK 1.9 single-variant association tests.  plink2 is the reference where
 # it has an equivalent: QT --assoc, --linear with covariates, --gxe, --dosage,
-# --score and --adjust.  Case/control --assoc and --model have no plink2
-# equivalent, so check_model.awk recomputes their statistics from the
-# genotype counts.  (Ported from the old 1.9/tests_old suite, which compared
-# against PLINK 1.07.)
+# --score and case/control --adjust.  Case/control --assoc and --model have no
+# plink2 equivalent, so check_model.awk recomputes their statistics from the
+# genotype counts.  (QT --adjust is checked against PLINK 1.07 in
+# TEST_19_PLINK107_COMPARE, since plink2 computes its GC column differently.)
+# (Ported from the old 1.9/tests_old suite, which compared against PLINK
+# 1.07.)
 #
 # Usage: ./run_tests.sh {plink 1.9 dir} {plink2 build dir} {up to 2 plink2 args}
 # plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
@@ -81,17 +83,11 @@ awk 'BEGIN { OFS = "\t" } { $4 = 1000 * NR; print }' tmp_qt.bim > tmp_qt.bim.new
 mv tmp_qt.bim.new tmp_qt.bim
 glm="--glm allow-no-covars omit-ref"
 
-plink --bfile tmp_qt --keep-allele-order --assoc --adjust --out tmp_qassoc > /dev/null
+plink --bfile tmp_qt --keep-allele-order --assoc --out tmp_qassoc > /dev/null
 $plink2 --bfile tmp_qt $glm --out tmp_qassoc2 > /dev/null
 # NMISS BETA SE T P
 awk -v c1=2,4,5,6,8,9 -v c2=3,11,12,13,14,15 -f $compare_cols tmp_qassoc.qassoc tmp_qassoc2.PHENO1.glm.linear
 check "QT --assoc matches plink2 --glm" $?
-
-# The GC column is left out: PLINK 1.9 converts the t statistics to chi-square
-# values differently.
-$plink2 --adjust-file tmp_qassoc.qassoc --out tmp_qadj2 > /dev/null 2>&1
-awk -v c1=2,3,5,6,7,8,9,10 -v c2=2,3,5,6,7,8,9,10 -v tol=2e-3 -v skip1=0 -v skip2=0 -f $compare_cols <(by_id tmp_qassoc.qassoc.adjusted) <(by_id tmp_qadj2.adjusted)
-check "QT --adjust matches plink2 --adjust-file" $?
 
 # --linear with two of four covariates.  Every row (ADD and the covariates)
 # must match.
