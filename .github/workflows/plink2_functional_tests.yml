@@ -2,7 +2,8 @@ name: PLINK2 functional tests
 
 # Builds PLINK 2.0 and PLINK 1.9 from this repository and runs the
 # self-contained suite in 2.0/Tests, which compares plink2 output against
-# plink 1.9 output and checks a number of round trips.
+# plink 1.9 output and checks a number of round trips.  PLINK 1.9 regression
+# tests are in 1.9/Tests, run by plink19_tests.yml.
 #
 # Everything this needs (including the test data) is in the repository, so
 # unlike the weekly GLM workflow this can run on every pull request.
@@ -13,6 +14,7 @@ on:
       - master
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
       - '.github/scripts/apt-install.sh'
@@ -21,6 +23,7 @@ on:
       - master
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
       - '.github/scripts/apt-install.sh'

@@ -198,41 +198,6 @@ cd TEST_GENE_REPORT
 cd ..
 echo "TEST_GENE_REPORT passed."
 
-cd TEST_19_REVIEW_FIXES
-./run_tests.sh > TEST_19_REVIEW_FIXES.log
-cd ..
-echo "TEST_19_REVIEW_FIXES passed."
-
-cd TEST_19_ASSOC_LD_FIXES
-./run_tests.sh $d $2 $3 > TEST_19_ASSOC_LD_FIXES.log
-cd ..
-echo "TEST_19_ASSOC_LD_FIXES passed."
-
-cd TEST_19_PLINK107_FIXES
-./run_tests.sh > TEST_19_PLINK107_FIXES.log
-cd ..
-echo "TEST_19_PLINK107_FIXES passed."
-
-cd TEST_19_CONVERSION_FIXES
-./run_tests.sh $d $2 $3 > TEST_19_CONVERSION_FIXES.log
-cd ..
-echo "TEST_19_CONVERSION_FIXES passed."
-
-cd TEST_19_SET_FILTER_FIXES
-./run_tests.sh $d $2 $3 > TEST_19_SET_FILTER_FIXES.log
-cd ..
-echo "TEST_19_SET_FILTER_FIXES passed."
-
-cd TEST_19_DFAM_MDS_FIXES
-./run_tests.sh > TEST_19_DFAM_MDS_FIXES.log
-cd ..
-echo "TEST_19_DFAM_MDS_FIXES passed."
-
-cd TEST_19_PERM_FIXES
-./run_tests.sh > TEST_19_PERM_FIXES.log
-cd ..
-echo "TEST_19_PERM_FIXES passed."
-
 cd TEST_INFO_TO_COLS
 ./run_tests.sh $d $2 $3 > TEST_INFO_TO_COLS.log
 cd ..
@@ -458,20 +423,10 @@ cd TEST_VALIDATE_DUP_ALLELE
 cd ..
 echo "TEST_VALIDATE_DUP_ALLELE passed."
 
-cd TEST_19_BCF_CHECKS
-./run_tests.sh $d $2 $3 > TEST_19_BCF_CHECKS.log
-cd ..
-echo "TEST_19_BCF_CHECKS passed."
-
 cd TEST_ALLELE_UNIQUENESS
 ./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
 cd ..
 echo "TEST_ALLELE_UNIQUENESS passed."
-
-cd TEST_19_LONG_CONTIG
-./run_tests.sh $d $2 $3 > TEST_19_LONG_CONTIG.log
-cd ..
-echo "TEST_19_LONG_CONTIG passed."
 
 cd TEST_LEGACY_FLAG_ALIASES
 ./run_tests.sh $d $2 $3 > TEST_LEGACY_FLAG_ALIASES.log
