@@ -15,6 +15,7 @@ on:
       - '1.9/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
+      - '.github/scripts/apt-install.sh'
   pull_request:
     branches:
       - master
@@ -22,12 +23,16 @@ on:
       - '1.9/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
+      - '.github/scripts/apt-install.sh'
   workflow_dispatch:
 
 jobs:
   run_tests:
     name: 2.0/Tests on ${{ matrix.os }} ${{ matrix.simd }}
     runs-on: ${{ matrix.os }}
+    # Normally about 10 minutes.  This bounds a hang (e.g. on unreachable
+    # package mirrors) well below GitHub's 6-hour default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -45,9 +50,9 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        # apt-install.sh retries if the package mirrors are unreachable.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          .github/scripts/apt-install.sh \
             build-essential \
             libopenblas-dev \
             liblapack-dev \
