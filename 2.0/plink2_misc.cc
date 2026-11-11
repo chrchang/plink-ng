@@ -440,6 +440,7 @@ PglErr ApplyCmMap(const char* cm_map_fname, const char* cm_map_chrname, const ui
     // Chromosomes to try, and the code each one is named by in the map file.
     const uint32_t chr_ct = cip->chr_ct;
     uint32_t updated_chrom_ct = 0;
+    uint32_t open_fail_ct = 0;
     uint32_t explicit_chr_fo_idx = UINT32_MAX;
     if (cm_map_chrname) {
       const uint32_t chr_name_slen = strlen(cm_map_chrname);
@@ -477,6 +478,7 @@ PglErr ApplyCmMap(const char* cm_map_fname, const char* cm_map_chrname, const ui
       if (reterr) {
         if (at_sign_ptr && ((reterr == kPglRetOpenFail) || (reterr == kPglRetReadFail))) {
           logerrprintfww("Warning: --cm-map failed to open %s.\n", cur_fname);
+          ++open_fail_ct;
           reterr = kPglRetSuccess;
           CleanupTextStream2(cur_fname, &txs, &reterr);
           reterr = kPglRetSuccess;
@@ -649,6 +651,13 @@ PglErr ApplyCmMap(const char* cm_map_fname, const char* cm_map_chrname, const ui
         updated_chrom_ct = PopcountWords(seen_chrs, BitCtToWordCt(cip->max_code + 1 + cip->name_ct));
         break;
       }
+    }
+    if (unlikely(open_fail_ct && (!updated_chrom_ct))) {
+      // every file the '@' pattern named was missing; almost certainly a
+      // wrong path or pattern
+      logerrprintfww("Error: --cm-map failed to open any file matching %s.\n", cm_map_fname);
+      reterr = kPglRetOpenFail;
+      goto ApplyCmMap_ret_1;
     }
     logprintf("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
   }

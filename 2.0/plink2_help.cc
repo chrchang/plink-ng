@@ -3386,7 +3386,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   belongs, e.g.\n"
 "                                   'genetic_map_chr@_combined_b37.txt', or use\n"
 "                                   an Eagle-style map with a leading chromosome\n"
-"                                   column.\n"
+"                                   column.  With a '@' pattern, chromosomes\n"
+"                                   without a map file are skipped with a\n"
+"                                   warning, but it's an error if none of the\n"
+"                                   files exist.\n"
                );
     HelpPrint("update-chr\0update-cm\0update-map\0update-name\0zero-cms\0", &help_ctrl, 0,
 "  --update-chr  <f> [chrcol] [IDcol]  [skip] : Update variant chromosome codes.\n"

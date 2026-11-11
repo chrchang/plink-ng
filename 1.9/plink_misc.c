@@ -486,6 +486,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
   uint32_t post_at_sign_len = 0;
   uint32_t updated_chrom_ct = 0;
+  uint32_t open_fail_ct = 0;
   int32_t prev_chrom = -3;
   int32_t retval = 0;
   char* at_sign_ptr;
@@ -537,8 +538,12 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
 	}
 	bufptr = uint32toa(uii, fname_write);
 	memcpy(bufptr, at_sign_ptr, post_at_sign_len);
-	if (fopen_checked(fname_buf, "r", &shapeitfile)) {
+	// A missing per-chromosome file is only a warning here, so don't use
+	// fopen_checked(), which logs an error.
+	shapeitfile = fopen(fname_buf, "r");
+	if (!shapeitfile) {
 	  LOGERRPRINTFWW("Warning: --cm-map failed to open %s.\n", fname_buf);
+	  open_fail_ct++;
 	  continue;
 	}
       } else {
@@ -712,6 +717,12 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       if (loaded_chrom_mask_4col) {
         break;
       }
+    }
+    if (open_fail_ct && (!updated_chrom_ct)) {
+      // every file the '@' pattern named was missing; almost certainly a
+      // wrong path or pattern
+      LOGERRPRINTFWW("Error: --cm-map failed to open any file matching %s.\n", cm_map_fname);
+      goto apply_cm_map_ret_OPEN_FAIL;
     }
     LOGPRINTF("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
   }
