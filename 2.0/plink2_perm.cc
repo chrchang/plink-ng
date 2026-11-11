@@ -444,9 +444,12 @@ BoolErr WritePermReportBody(const uintptr_t* orig_variant_include, const ChrInfo
           cswritep = strcpya_k(cswritep, "NA\tNA");
         } else {
           const double orig_permstat = orig_permstats[valid_allele_idx];
-          const uint32_t emp2_lower_bound = LowerBoundNonemptyD(mperm_best_stats, perms_total, orig_permstat);
+          // [emp2_lower_bound, emp2_upper_bound) is the range of
+          // mperm_best_stats tied with orig_permstat.
+          const double tol = PermstatTieTol(orig_permstat);
+          const uint32_t emp2_lower_bound = LowerBoundNonemptyD(mperm_best_stats, perms_total, orig_permstat - tol);
           uint32_t emp2_upper_bound = emp2_lower_bound;
-          while ((emp2_upper_bound != perms_total) && (mperm_best_stats[emp2_upper_bound] == orig_permstat)) {
+          while ((emp2_upper_bound != perms_total) && (mperm_best_stats[emp2_upper_bound] <= orig_permstat + tol)) {
             ++emp2_upper_bound;
           }
           uint32_t emp2_ct_x2 = emp2_lower_bound + emp2_upper_bound;

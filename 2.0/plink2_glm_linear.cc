@@ -5170,8 +5170,10 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
     const uintptr_t* sample_include_union = sample_include;
     uint32_t sample_union_ct = sample_ct;
     if (sample_ct_x || sample_ct_y) {
-      const uint32_t x_samples_are_different = (sample_ct_x != sample_ct) || (!wordsequal(sample_include, common->sample_include_x, raw_sample_ctl));
-      const uint32_t y_samples_are_different = (sample_ct_y != sample_ct) || (!wordsequal(sample_include, common->sample_include_y, raw_sample_ctl));
+      // sample_ct_x == 0 means chrX uses the main sample set, and
+      // sample_include_x is null then; likewise for chrY.
+      const uint32_t x_samples_are_different = sample_ct_x && ((sample_ct_x != sample_ct) || (!wordsequal(sample_include, common->sample_include_x, raw_sample_ctl)));
+      const uint32_t y_samples_are_different = sample_ct_y && ((sample_ct_y != sample_ct) || (!wordsequal(sample_include, common->sample_include_y, raw_sample_ctl)));
       if (x_samples_are_different || y_samples_are_different) {
         uintptr_t* sample_include_union_tmp;
         if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include_union_tmp))) {
@@ -5790,9 +5792,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
                     primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                   const double orig_ln_pval = orig_ln_pvals[valid_allele_idx];
-                  if (orig_ln_pval >= primary_ln_pval) {
-                    valid_allele_emp1_ctx2s[valid_allele_idx] += 1 + (orig_ln_pval > primary_ln_pval);
-                  }
+                  valid_allele_emp1_ctx2s[valid_allele_idx] += PermstatEmp1Incr2(orig_ln_pval, primary_ln_pval, 1);
                   if (perm_adapt) {
                     if (pidx == adapt_check_pidx) {
                       const uint32_t perm_ct = perm_idx_start + pidx + 1;
@@ -5802,7 +5802,6 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
                         valid_allele_emp1_denoms[valid_allele_idx] = perm_ct + 1;
                         goto GlmLinearPerm_allele_iterate;
                       }
-                      adapt_check_pidx += S_CAST(int32_t, adaptive_intercept + u31tod(perm_ct) * adaptive_slope);
                     }
                   } else {
                     if (primary_ln_pval < cur_mperm_best_stats[pidx]) {
@@ -5819,6 +5818,14 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
                   beta_se_iter2 = &(beta_se_iter2[subbatch_size * (2 * k1LU) * max_reported_test_ct]);
                 }
               }  // for nonomitted_allele_idx
+              if (perm_adapt && (pidx == adapt_check_pidx)) {
+                // Advance only after every allele of this variant has been
+                // checked.  (This used to happen inside the allele loop, so
+                // later alleles skipped the check while an earlier allele was
+                // still active.)
+                const uint32_t perm_ct = perm_idx_start + pidx + 1;
+                adapt_check_pidx += S_CAST(int32_t, adaptive_intercept + u31tod(perm_ct) * adaptive_slope);
+              }
               beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
             }  // for pidx
             if (!beta_se_multiallelic_fused) {

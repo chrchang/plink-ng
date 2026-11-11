@@ -518,6 +518,11 @@ cd TEST_GLM_JOINT_DF
 cd ..
 echo "TEST_GLM_JOINT_DF passed."
 
+cd TEST_GLM_PERM
+./run_tests.sh $d $2 $3 > TEST_GLM_PERM.log
+cd ..
+echo "TEST_GLM_PERM passed."
+
 cd TEST_LD_CONSOLE_CHRX_FEMALES
 ./run_tests.sh $d $2 $3 > TEST_LD_CONSOLE_CHRX_FEMALES.log
 cd ..
