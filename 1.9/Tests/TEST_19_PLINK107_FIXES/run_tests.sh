@@ -3,12 +3,19 @@
 # Regression tests for PLINK 1.9 fixes, checked against PLINK 1.07 where it
 # has an equivalent command.  Each check failed before its fix.
 #
-# Usage: ./run_tests.sh
-# Requires plink (1.9) to be in the system PATH.  The PLINK 1.07 binary is
+# Usage: ./run_tests.sh {plink 1.9 dir}
+# plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
+# is empty or omitted.  The PLINK 1.07 binary is
 # taken from $PLINK107, defaulting to the build in the repository's 1.07/
 # directory; the checks that need it are skipped if it isn't there.
 
 set -uo pipefail
+
+# plink 1.9 from {plink 1.9 dir}, or from the PATH if that is empty or omitted.
+plink19="${1:+$1/}plink"
+plink() {
+    command "$plink19" "$@"
+}
 
 plink107="${PLINK107:-../../../1.07/plink}"
 have107=0

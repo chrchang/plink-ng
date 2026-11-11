@@ -81,18 +81,15 @@ jobs:
             make -j"$NPROC"
           fi
 
-      - name: Put PLINK 1.9 on PATH
-        run: echo "$GITHUB_WORKSPACE/1.9" >> "$GITHUB_PATH"
-
       - name: Report versions
         run: |
-          plink --version
+          1.9/plink --version
           2.0/build_dynamic/plink2 --version
           1.07/plink --noweb --version || true
 
       - name: Run 1.9/Tests
         working-directory: 1.9/Tests
-        run: ./run_tests.sh "$GITHUB_WORKSPACE/2.0/build_dynamic"
+        run: ./run_tests.sh "$GITHUB_WORKSPACE/1.9" "$GITHUB_WORKSPACE/2.0/build_dynamic"
 
       - name: Upload test logs on failure
         if: failure()

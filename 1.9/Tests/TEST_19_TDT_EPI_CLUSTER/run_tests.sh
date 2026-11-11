@@ -6,10 +6,17 @@
 # with --epistasis-summary-merge (against a single run).  (Ported from the
 # old 1.9/tests_old suite, which compared against PLINK 1.07.)
 #
-# Usage: ./run_tests.sh
-# Requires plink (1.9) to be in the system PATH.
+# Usage: ./run_tests.sh {plink 1.9 dir}
+# plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
+# is empty or omitted.
 
 set -uo pipefail
+
+# plink 1.9 from {plink 1.9 dir}, or from the PATH if that is empty or omitted.
+plink19="${1:+$1/}plink"
+plink() {
+    command "$plink19" "$@"
+}
 
 failed=0
 check() {

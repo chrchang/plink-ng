@@ -7,12 +7,19 @@
 # genotype counts.  (Ported from the old 1.9/tests_old suite, which compared
 # against PLINK 1.07.)
 #
-# Usage: ./run_tests.sh {plink2 build dir} {up to 2 plink2 args}
-# Requires plink (1.9) to be in the system PATH.
+# Usage: ./run_tests.sh {plink 1.9 dir} {plink2 build dir} {up to 2 plink2 args}
+# plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
+# is empty or omitted.  {plink2 build dir} defaults to
+# ../../../2.0/build_dynamic.
 
 set -uo pipefail
 
-plink2="$1/plink2 ${2:-} ${3:-}"
+# plink 1.9 from {plink 1.9 dir}, or from the PATH if that is empty or omitted.
+plink19="${1:+$1/}plink"
+plink() {
+    command "$plink19" "$@"
+}
+plink2="${2:-../../../2.0/build_dynamic}/plink2 ${3:-} ${4:-}"
 compare_cols="../compare_cols.awk"
 
 failed=0
