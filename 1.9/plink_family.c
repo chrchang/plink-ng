@@ -2211,7 +2211,10 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   loadbuf[unfiltered_sample_ctl2 - 1] = 0;
   workbuf[unfiltered_sample_ctp1l2 - 1] = 0;
   hh_exists &= XMHH_EXISTS;
-  if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 1, sample_exclude, sex_male, nullptr, &sample_male_include2)) {
+  // bugfix (11 Nov 2026): sample_exclude is an exclude mask, so is_include
+  // must be 0; otherwise heterozygous haploid calls of males on chrX weren't
+  // set to missing.
+  if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 0, sample_exclude, sex_male, nullptr, &sample_male_include2)) {
     goto tdt_ret_NOMEM;
   }
   if (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM)) {

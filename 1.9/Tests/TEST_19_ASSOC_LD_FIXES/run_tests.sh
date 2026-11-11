@@ -3,10 +3,19 @@
 # Regression tests for PLINK 1.9 association, regression, LD and epistasis
 # fixes that change numeric output.  Each check failed before its fix.
 #
-# Usage: ./run_tests.sh {plink2 build dir} {up to 2 plink2 args}
-# Requires plink (1.9) to be in the system PATH.
+# Usage: ./run_tests.sh {plink 1.9 dir} {plink2 build dir} {up to 2 plink2 args}
+# plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
+# is empty or omitted.  {plink2 build dir} defaults to
+# ../../../2.0/build_dynamic.
 
 set -uo pipefail
+
+# plink 1.9 from {plink 1.9 dir}, or from the PATH if that is empty or omitted.
+plink19="${1:+$1/}plink"
+plink() {
+    command "$plink19" "$@"
+}
+plink2="${2:-../../../2.0/build_dynamic}/plink2 ${3:-} ${4:-}"
 
 failed=0
 check() {
@@ -180,13 +189,13 @@ awk 'NR % 7 == 3 { print $2 }' tmp_ld.bim > tmp_ld_snps.txt
 win="--ld-window 99999 --ld-window-kb 100000 --ld-window-r2 0"
 ld_ok=0
 plink --bfile tmp_ld --r2 dprime $win --out tmp_ld19_w > /dev/null
-$1/plink2 ${2:-} ${3:-} --bfile tmp_ld --r2-phased cols=+dprime $win --out tmp_ld2_w > /dev/null
+$plink2 --bfile tmp_ld --r2-phased cols=+dprime $win --out tmp_ld2_w > /dev/null
 awk -f compare_ld.awk tmp_ld19_w.ld tmp_ld2_w.vcor || ld_ok=1
 plink --bfile tmp_ld --r2 inter-chr dprime --ld-window-r2 0 --out tmp_ld19_i > /dev/null
-$1/plink2 ${2:-} ${3:-} --bfile tmp_ld --r2-phased inter-chr cols=+dprime --ld-window-r2 0 --out tmp_ld2_i > /dev/null
+$plink2 --bfile tmp_ld --r2-phased inter-chr cols=+dprime --ld-window-r2 0 --out tmp_ld2_i > /dev/null
 awk -f compare_ld.awk tmp_ld19_i.ld tmp_ld2_i.vcor || ld_ok=1
 plink --bfile tmp_ld --r2 dprime $win --ld-snp-list tmp_ld_snps.txt --out tmp_ld19_s > /dev/null
-$1/plink2 ${2:-} ${3:-} --bfile tmp_ld --r2-phased cols=+dprime $win --ld-snp-list tmp_ld_snps.txt --out tmp_ld2_s > /dev/null
+$plink2 --bfile tmp_ld --r2-phased cols=+dprime $win --ld-snp-list tmp_ld_snps.txt --out tmp_ld2_s > /dev/null
 awk -f compare_ld.awk tmp_ld19_s.ld tmp_ld2_s.vcor || ld_ok=1
 check "--r2 dprime on chrX matches plink2" $ld_ok
 

@@ -1,8 +1,18 @@
 #!/bin/bash
 
 # PLINK 1.9 --bcf: invalid GT allele indices and out-of-order contig IDX.
+#
+# Usage: ./run_tests.sh {plink 1.9 dir}
+# plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
+# is empty or omitted.
 
 set -exo pipefail
+
+# plink 1.9 from {plink 1.9 dir}, or from the PATH if that is empty or omitted.
+plink19="${1:+$1/}plink"
+plink() {
+    command "$plink19" "$@"
+}
 
 # plink's error exit codes are small; a crash would be 128 or more.
 rejects() {

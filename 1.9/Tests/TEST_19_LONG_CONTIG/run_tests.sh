@@ -1,8 +1,18 @@
 #!/bin/bash
 
 # PLINK 1.9 with contig names longer than its filename buffer.
+#
+# Usage: ./run_tests.sh {plink 1.9 dir}
+# plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
+# is empty or omitted.
 
 set -exo pipefail
+
+# plink 1.9 from {plink 1.9 dir}, or from the PATH if that is empty or omitted.
+plink19="${1:+$1/}plink"
+plink() {
+    command "$plink19" "$@"
+}
 
 long_contig=$(printf 'c%.0s' $(seq 1 15900))
 awk -v OFS='\t' 'BEGIN { for (i = 1; i <= 40; ++i) { print "s" i, "s" i, 0, 0, 1 + i % 2, 1 } }' > tmp.fam

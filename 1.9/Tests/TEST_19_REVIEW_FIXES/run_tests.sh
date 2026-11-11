@@ -2,7 +2,18 @@
 
 # Regression tests for PLINK 1.9 command-line and output bugs.  Each check
 # failed before its fix.
+#
+# Usage: ./run_tests.sh {plink 1.9 dir}
+# plink (1.9) is taken from {plink 1.9 dir}, or from the system PATH if that
+# is empty or omitted.
+
 set -uo pipefail
+
+# plink 1.9 from {plink 1.9 dir}, or from the PATH if that is empty or omitted.
+plink19="${1:+$1/}plink"
+plink() {
+    command "$plink19" "$@"
+}
 
 failed=0
 check() {
