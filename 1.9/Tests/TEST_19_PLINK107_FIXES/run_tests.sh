@@ -95,12 +95,15 @@ fi
 # C2 is a positive match ('+': members must agree).  PLINK 1.07 has no missing
 # code, so it gets a unique C1 value per missing sample instead, which under a
 # negative match imposes no constraint, just as a missing value does.
+# 'old-tiebreaks' is needed for PLINK 1.9 to break IBS ties as PLINK 1.07
+# does; otherwise the tied pairs are merged in whatever order the C library's
+# qsort() leaves them, which differs between glibc and macOS.
 plink --dummy 24 400 0.01 --seed 9 --make-bed --out tmp_mt > /dev/null
 awk '{ i = NR - 1; print $1, $2, (i % 5 == 2)? "NA" : "g" (i % 3), "h" (i % 2) }' tmp_mt.fam > tmp_mt19.match
 awk '{ if ($3 == "NA") $3 = "u_" $2; print }' tmp_mt19.match > tmp_mt107.match
 echo "- +" > tmp_mt.type
 if [[ $have107 -eq 1 ]]; then
-    plink --bfile tmp_mt --cluster --match tmp_mt19.match NA --match-type tmp_mt.type --out tmp_mt19 > /dev/null
+    plink --bfile tmp_mt --cluster old-tiebreaks --match tmp_mt19.match NA --match-type tmp_mt.type --out tmp_mt19 > /dev/null
     "$plink107" --noweb --bfile tmp_mt --cluster --match tmp_mt107.match --match-type tmp_mt.type --out tmp_mt107 > /dev/null
     mt_ok=0
     for f in 1 2 3; do
