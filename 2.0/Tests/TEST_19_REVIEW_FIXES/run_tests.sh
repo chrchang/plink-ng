@@ -18,7 +18,7 @@ rc_of() {
     echo $?
 }
 
-plink --dummy 8 4 --make-bed --out tmp_data > /dev/null
+plink --dummy 8 4 --seed 1 --make-bed --out tmp_data > /dev/null
 
 # Invalid --recode parameter must be rejected, not ignored.
 test "$(rc_of --bfile tmp_data --recode hvjunk)" -eq 5
@@ -213,7 +213,7 @@ check "--linear standard-beta ignores samples with missing genotypes" $?
 
 # --write-set printed the wrong variant IDs for sets stored as a bitfield,
 # which starts at a multiple of 128 variants.
-plink --dummy 4 600 --make-bed --out tmp_ws > /dev/null
+plink --dummy 4 600 --seed 1 --make-bed --out tmp_ws > /dev/null
 { echo S1; for i in $(seq 300 2 398); do echo snp$i; done; echo END; } > tmp_ws_in.set
 plink --bfile tmp_ws --set tmp_ws_in.set --write-set --out tmp_ws > /dev/null
 test "$(grep -v '^$' tmp_ws.set)" = "$(cat tmp_ws_in.set)"
@@ -250,14 +250,16 @@ done
 check "misspelled --mcc/--set-max/--tag-mode2/--write-set-r2 are rejected" $cl_ok
 
 # --vif's condition had a misplaced negation, so it was accepted with any
-# command instead of only --linear and --epistasis.
-plink --dummy 20 30 0.02 scalar-pheno --make-bed --out tmp_qt > /dev/null
+# command instead of only --linear and --epistasis.  (The accepted cases use
+# the seeded quantitative-trait data: --epistasis on tmp_data's 8 samples
+# fails whenever fewer than two are cases or controls.)
+plink --dummy 20 30 0.02 scalar-pheno --seed 1 --make-bed --out tmp_qt > /dev/null
 vif_ok=0
 test "$(rc_of --bfile tmp_data --assoc --vif 50)" -eq 5 || vif_ok=1
 grep -q 'vif must be used with' tmp_out.txt || vif_ok=1
 test "$(rc_of --bfile tmp_data --fast-epistasis --vif 50)" -eq 5 || vif_ok=1
 test "$(rc_of --bfile tmp_qt --linear --vif 50)" -eq 0 || vif_ok=1
-test "$(rc_of --bfile tmp_data --epistasis --vif 50)" -eq 0 || vif_ok=1
+test "$(rc_of --bfile tmp_qt --epistasis --vif 50)" -eq 0 || vif_ok=1
 check "--vif is only accepted with --linear/--epistasis" $vif_ok
 
 # --cnv-write freq / --cnv-write-freq checked the --cnv-freq-method2 value
