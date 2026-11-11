@@ -1434,6 +1434,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                   one chromosome, include a '@' in the first\n"
 "                                   parameter where the chrom. number belongs,\n"
 "                                   e.g. 'genetic_map_chr@_combined_b37.txt'.\n"
+"                                   Autosomes without a map file are skipped\n"
+"                                   with a warning, but it's an error if none of\n"
+"                                   the files exist.\n"
 "  --zero-cms         : Zero out centimorgan positions.\n"
 	       );
     help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,

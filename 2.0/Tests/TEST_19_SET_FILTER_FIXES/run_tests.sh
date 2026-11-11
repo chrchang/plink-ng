@@ -129,4 +129,36 @@ test -s tmp_cm_plain.bim && cmp -s tmp_cm_at.bim tmp_cm_plain.bim && \
     test "$(cut -f3 tmp_cm_plain.bim | head -n 1)" != "0"
 check "--cm-map with a chromosome and '@' in the file name" $?
 
+# With an '@' pattern, a missing per-chromosome map file is skipped with a
+# warning, but it was also logged as an error ("Failed to open ...") while
+# the run exited 0; and when no file existed at all, the run still exited 0
+# with no cM positions set.  Now a partial match logs only the warning, and
+# no match at all is an error.
+awk 'BEGIN { OFS = "\t" } { $1 = (NR <= 5)? 1 : 2; print }' tmp_cm.bim > tmp_cm2.bim
+cp tmp_cm.bed tmp_cm2.bed
+cp tmp_cm.fam tmp_cm2.fam
+mkdir -p tmp_cm_part tmp_cm_none
+cp tmp_map_plain.txt tmp_cm_part/m1.txt
+cmp_ok=0
+plink --bfile tmp_cm2 --cm-map 'tmp_cm_part/m@.txt' --make-just-bim --out tmp_cm_part > /dev/null 2>&1 || cmp_ok=1
+grep -q '^Warning: --cm-map failed to open tmp_cm_part/m2.txt' tmp_cm_part.log || cmp_ok=1
+grep -q '^Error' tmp_cm_part.log && cmp_ok=1
+test "$(cut -f3 tmp_cm_part.bim | head -n 5)" = "$(cut -f3 tmp_cm_plain.bim | head -n 5)" || cmp_ok=1
+plink --bfile tmp_cm2 --cm-map 'tmp_cm_none/m@.txt' --make-just-bim --out tmp_cm_none > /dev/null 2>&1
+rc=$?
+test "$rc" -gt 0 && test "$rc" -lt 128 || cmp_ok=1
+grep -q 'failed to open any file matching' tmp_cm_none.log || cmp_ok=1
+check "--cm-map '@' pattern with missing map files" $cmp_ok
+# plink2 already logged only the warning, but also exited 0 when no file
+# existed.
+cmp2_ok=0
+$plink2 --bfile tmp_cm2 --cm-map 'tmp_cm_part/m@.txt' --make-just-bim --out tmp_cm2_part > /dev/null 2>&1 || cmp2_ok=1
+grep -q '^Error' tmp_cm2_part.log && cmp2_ok=1
+test "$(cut -f3 tmp_cm2_part.bim | head -n 5)" = "$(cut -f3 tmp_cm_part.bim | head -n 5)" || cmp2_ok=1
+$plink2 --bfile tmp_cm2 --cm-map 'tmp_cm_none/m@.txt' --make-just-bim --out tmp_cm2_none > /dev/null 2>&1
+rc=$?
+test "$rc" -gt 0 && test "$rc" -lt 128 || cmp2_ok=1
+grep -q 'failed to open any file matching' tmp_cm2_none.log || cmp2_ok=1
+check "plink2 --cm-map '@' pattern with missing map files" $cmp2_ok
+
 exit $failed
