@@ -13671,11 +13671,21 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
     cur_window_size = (uintptr_t)(cc_ptr - cur_clump_base);
     if (require_multifile) {
-      if (cur_window_size < 2) {
+      // As described in the PLINK 1.07 documentation: keep the clump iff its
+      // p2-significant results, including the index variant's own (when it is
+      // p2-significant), come from at least two files.  (Before 11 Nov 2026,
+      // the index variant's file was not counted.)
+      if (!cur_window_size) {
 	continue;
       }
-      uii = cur_clump_base[0].fidx;
-      for (ulii = 1; ulii < cur_window_size; ulii++) {
+      if (pval < p2_thresh) {
+	uii = index_fidx;
+	ulii = 0;
+      } else {
+	uii = cur_clump_base[0].fidx;
+	ulii = 1;
+      }
+      for (; ulii < cur_window_size; ulii++) {
         if (uii != cur_clump_base[ulii].fidx) {
 	  break;
 	}
