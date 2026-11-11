@@ -13030,8 +13030,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       logerrprint("Error: --clump-best can no longer be used with more than two --clump files.\n(Contact the developers if this is problematic.)\n");
       goto clump_reports_ret_INVALID_CMDLINE;
     }
-    // only draw proxies from this file
-    best_fidx_match = file_ct;
+    // As in PLINK 1.07: with --clump-replicate, only draw proxies from the
+    // second file (index variants are only drawn from the first); otherwise,
+    // draw them from any file.  (Before 11 Nov 2026, proxies were always drawn
+    // from the last file.)
+    best_fidx_match = require_multifile? file_ct : 0;
   }
   // Suppose the current line has a super-long allele code which must be saved
   // (since it will go into the ANNOT field).  Then the new allocation may need
@@ -13528,7 +13531,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
+	      if (((!best_fidx_match) || (uii == best_fidx_match)) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
 		best_entry_ptr = clump_entry_ptr;
@@ -13655,7 +13658,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
+	      if (((!best_fidx_match) || (uii == best_fidx_match)) && ((!best_entry_ptr) || (fabs(cur_r2) > fabs(max_r2)))) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
 		best_entry_ptr = clump_entry_ptr;
@@ -13670,12 +13673,22 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       }
     }
     cur_window_size = (uintptr_t)(cc_ptr - cur_clump_base);
-    if (require_multifile) {
-      if (cur_window_size < 2) {
+    if (require_multifile && (!clump_best)) {
+      // As described in the PLINK 1.07 documentation: keep the clump iff its
+      // p2-significant results, including the index variant's own (when it is
+      // p2-significant), come from at least two files.  (Before 11 Nov 2026,
+      // the index variant's file was not counted.)
+      if (!cur_window_size) {
 	continue;
       }
-      uii = cur_clump_base[0].fidx;
-      for (ulii = 1; ulii < cur_window_size; ulii++) {
+      if (pval < p2_thresh) {
+	uii = index_fidx;
+	ulii = 0;
+      } else {
+	uii = cur_clump_base[0].fidx;
+	ulii = 1;
+      }
+      for (; ulii < cur_window_size; ulii++) {
         if (uii != cur_clump_base[ulii].fidx) {
 	  break;
 	}
@@ -13741,7 +13754,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
         fputs(cur_a2, outfile_best);
         fputs(bufptr3, outfile_best);
         g_textbuf[0] = ' ';
-        bufptr = uint32toa_w8x(best_fidx_match, ' ', &(g_textbuf[1]));
+        bufptr = uint32toa_w8x(best_entry_ptr->fidx, ' ', &(g_textbuf[1]));
 	if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile_best)) {
 	  goto clump_reports_ret_WRITE_FAIL;
 	}

@@ -6063,11 +6063,9 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --clump-replicate requires multiple --clump files.\n");
           goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (clump_info.modifier & CLUMP_BEST) {
-	  logprint("Note: --clump-replicate no longer has any effect when used with --clump-best.\n");
-	} else {
-          clump_info.modifier |= CLUMP_REPLICATE;
-	}
+	// With --clump-best, this forces cross-file proxies instead of filtering
+	// clumps, as in PLINK 1.07.
+        clump_info.modifier |= CLUMP_REPLICATE;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "lump-snp-field", 15)) {
         if (!clump_info.fname_ct) {
