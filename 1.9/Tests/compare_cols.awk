@@ -1,7 +1,8 @@
 # Compares columns of two whitespace-delimited files, line by line, with a
 # relative tolerance for numbers (PLINK 1.9 often prints only 4 significant
 # digits).  Exits 1, printing the first few mismatches to stderr, if any
-# compared field differs or the files have different line counts.
+# compared field differs, the files have different line counts, or there is
+# nothing to compare.
 #
 # Usage: awk -v c1=<cols> -v c2=<cols> [-v skip1=<n>] [-v skip2=<n>]
 #            [-v tol=<x>] [-v abstol=<x>] -f compare_cols.awk file1 file2
@@ -68,6 +69,10 @@ FNR > skip2 {
 END {
     if (ct1 != ct2) {
         printf "line counts differ: %d vs %d\n", ct1, ct2 > "/dev/stderr"
+        exit 1
+    }
+    if (!ct1) {
+        print "compare_cols.awk: nothing to compare" > "/dev/stderr"
         exit 1
     }
     exit (bad > 0)

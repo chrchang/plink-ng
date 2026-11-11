@@ -107,4 +107,24 @@ cd TEST_19_PLINK107_COMPARE
 cd ..
 echo "TEST_19_PLINK107_COMPARE passed."
 
+cd TEST_19_FILTERS_VS_PLINK2
+./run_tests.sh "$p19" $d $3 $4 > TEST_19_FILTERS_VS_PLINK2.log
+cd ..
+echo "TEST_19_FILTERS_VS_PLINK2 passed."
+
+cd TEST_19_EDIT_IO_VS_PLINK2
+./run_tests.sh "$p19" $d $3 $4 > TEST_19_EDIT_IO_VS_PLINK2.log
+cd ..
+echo "TEST_19_EDIT_IO_VS_PLINK2 passed."
+
+cd TEST_19_PHENO_CHRSET_VS_PLINK2
+./run_tests.sh "$p19" $d $3 $4 > TEST_19_PHENO_CHRSET_VS_PLINK2.log
+cd ..
+echo "TEST_19_PHENO_CHRSET_VS_PLINK2 passed."
+
+cd TEST_19_LD_FAMILY_VS_PLINK2
+./run_tests.sh "$p19" $d $3 $4 > TEST_19_LD_FAMILY_VS_PLINK2.log
+cd ..
+echo "TEST_19_LD_FAMILY_VS_PLINK2 passed."
+
 echo "All tests passed."
