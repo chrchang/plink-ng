@@ -21,6 +21,7 @@ on:
       - master
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_sanitizers.yml'
       - '.github/scripts/apt-install.sh'
@@ -29,6 +30,7 @@ on:
       - master
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_sanitizers.yml'
       - '.github/scripts/apt-install.sh'

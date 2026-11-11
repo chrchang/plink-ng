@@ -1,0 +1,90 @@
+name: PLINK 1.9 tests
+
+# Builds PLINK 1.9 from this repository and runs the regression suite in
+# 1.9/Tests.  A few of those tests use plink2 as a reference, so PLINK 2.0 is
+# built too.
+#
+# PLINK 1.9 changes much less often than PLINK 2.0, so this only runs when
+# 1.9/ changes.  (Changes to 1.9/ also trigger the 2.0/Tests workflows, which
+# use plink 1.9 as a reference.)
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '1.9/**'
+      - '.github/workflows/plink19_tests.yml'
+      - '.github/scripts/apt-install.sh'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '1.9/**'
+      - '.github/workflows/plink19_tests.yml'
+      - '.github/scripts/apt-install.sh'
+  workflow_dispatch:
+
+jobs:
+  run_tests:
+    name: 1.9/Tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    # This bounds a hang (e.g. on unreachable package mirrors) well below
+    # GitHub's 6-hour default.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        # apt-install.sh retries if the package mirrors are unreachable.
+        run: |
+          .github/scripts/apt-install.sh \
+            build-essential \
+            libopenblas-dev \
+            liblapack-dev \
+            liblapacke-dev \
+            zlib1g-dev \
+            libzstd-dev
+
+      - name: Determine parallelism
+        run: echo "NPROC=$(getconf _NPROCESSORS_ONLN)" >> "$GITHUB_ENV"
+
+      - name: Build PLINK 1.9
+        working-directory: 1.9
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            make -j"$NPROC" ZLIB=-lz BLASFLAGS="-llapack -lopenblas"
+          else
+            make -j"$NPROC" ZLIB=-lz
+          fi
+
+      - name: Build PLINK 2.0
+        working-directory: 2.0/build_dynamic
+        run: make -j"$NPROC"
+
+      - name: Put PLINK 1.9 on PATH
+        run: echo "$GITHUB_WORKSPACE/1.9" >> "$GITHUB_PATH"
+
+      - name: Report versions
+        run: |
+          plink --version
+          2.0/build_dynamic/plink2 --version
+
+      - name: Run 1.9/Tests
+        working-directory: 1.9/Tests
+        run: ./run_tests.sh "$GITHUB_WORKSPACE/2.0/build_dynamic"
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plink19-test-logs-${{ matrix.os }}
+          path: 1.9/Tests/**/*.log
+          if-no-files-found: ignore
