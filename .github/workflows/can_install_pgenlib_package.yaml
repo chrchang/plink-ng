@@ -6,6 +6,7 @@ on:
     paths:
       - 2.0/pgenlibr/**
       - .github/workflows/can_install_pgenlib_package.yaml
+      - .github/scripts/apt-install.sh
   pull_request:
 
 name: can_install_pgenlib_package
@@ -14,6 +15,9 @@ jobs:
   can_install_pgenlib_package:
 
     runs-on: ubuntu-latest
+    # Normally about 7 minutes.  This bounds a hang (e.g. setup-r stuck on
+    # unreachable package mirrors) well below GitHub's 6-hour default.
+    timeout-minutes: 20
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -34,8 +38,9 @@ jobs:
       - uses: r-lib/actions/setup-r@v2
 
       # Prequisite for using the 'remotes' R package
+      # (apt-install.sh retries if the package mirrors are unreachable.)
       - name: Install libcurl4-openssl-dev
-        run: sudo apt install -qq libcurl4-openssl-dev
+        run: .github/scripts/apt-install.sh libcurl4-openssl-dev
 
       - name: Install pgenlibr
         run: |

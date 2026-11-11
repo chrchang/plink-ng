@@ -58,6 +58,9 @@ jobs:
     # needs: check_commits  # COMMENTED OUT - no longer conditional on commit check
     # if: needs.check_commits.outputs.new_commits == 'true'  # COMMENTED OUT - runs unconditionally
     runs-on: ${{ matrix.os }}
+    # Normally about 5-10 minutes.  This bounds a hang (e.g. on unreachable
+    # package mirrors) well below GitHub's 6-hour default.
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -71,9 +74,9 @@ jobs:
       # Linux-specific dependencies
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        # apt-install.sh retries if the package mirrors are unreachable.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          .github/scripts/apt-install.sh \
             build-essential \
             libopenblas-dev \
             liblapack-dev \
