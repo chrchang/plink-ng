@@ -5060,6 +5060,13 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
         chrom_fo_idx++;
         refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_min_ploidy_1);
 	g_min_ploidy_1 |= uii;
+	if ((!glm_xchr_model) && g_min_ploidy_1) {
+	  // excluded from analysis; skip to the next chromosome
+	  marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	    goto glm_linear_assoc_ret_READ_FAIL;
+	  }
+	}
       } while ((!glm_xchr_model) && g_min_ploidy_1);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       wptr_start = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, uii, writebuf));
@@ -5243,7 +5250,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    zval = dxx / se;
 	    pval = calc_tprob(zval, cur_sample_valid_ct - cur_param_ct);
 	    if (param_idx == 1) {
-	      if (mperm_save_all) {
+	      if (mperm_save_all && (!constraint_ct_max)) {
 		dtoa_gx(fabs(zval), '\0', &(numbuf[1]));
 		fputs(numbuf, outfile_msa);
 	      }
@@ -5296,6 +5303,15 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  if (cur_constraint_ct) {
 	    dxx = g_linear_mt[0].regression_results[cur_param_ct - 1];
 	    *orig_stats_ptr = dxx;
+	    if (mperm_save_all) {
+	      // the permutation threads save the joint test statistic
+	      if (dxx >= 0) {
+		dtoa_gx(dxx, '\0', &(numbuf[1]));
+		fputs(numbuf, outfile_msa);
+	      } else {
+		fputs(" NA", outfile_msa);
+	      }
+	    }
 	    pval = chiprob_p(dxx, cur_constraint_ct);
 	    if (orig_pvals) {
 	      orig_pvals[marker_idx3] = pval;
@@ -5322,6 +5338,14 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    *orig_stats_ptr = -9;
 	    if (orig_pvals) {
 	      orig_pvals[marker_idx3] = -9;
+	    }
+	    if (mperm_save_all) {
+	      // the permutation threads skip this variant
+	      fputs(" NA", outfile_msa);
+	      msa_ptr = &(g_mperm_save_all[marker_idx3 * perm_batch_size]);
+	      for (perm_idx = 0; perm_idx < perm_batch_size; perm_idx++) {
+		*msa_ptr++ = -9;
+	      }
 	    }
 	  }
 	} else {
@@ -5460,7 +5484,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32toa(uii + ujj, wptr);
 	dptr = &(g_mperm_save_all[uii]);
-	for (ukk = 0; ukk < marker_ct; ukk++) {
+	for (ukk = 0; ukk < marker_initial_ct; ukk++) {
 	  *wptr++ = ' ';
 	  dxx = dptr[ukk * ulii];
 	  if (dxx >= 0) {
@@ -6554,6 +6578,13 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
         chrom_fo_idx++;
         refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_min_ploidy_1);
 	g_min_ploidy_1 |= uii;
+	if ((!glm_xchr_model) && g_min_ploidy_1) {
+	  // excluded from analysis; skip to the next chromosome
+	  marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	    goto glm_logistic_assoc_ret_READ_FAIL;
+	  }
+	}
       } while ((!glm_xchr_model) && g_min_ploidy_1);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       wptr_start = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, uii, writebuf));
@@ -6689,7 +6720,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    zval = dxx / se;
 	    pval = chiprob_p(zval * zval, 1);
 	    if (param_idx == 1) {
-	      if (mperm_save_all) {
+	      if (mperm_save_all && (!constraint_ct_max)) {
 		dtoa_gx(zval * zval, '\0', &(numbuf[1]));
 		fputs(numbuf, outfile_msa);
 	      }
@@ -6749,6 +6780,15 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	  if (cur_constraint_ct) {
 	    dxx = (double)g_logistic_mt[0].regression_results[cur_param_ct - skip_intercept];
 	    *orig_stats_ptr = dxx;
+	    if (mperm_save_all) {
+	      // the permutation threads save the joint test statistic
+	      if (dxx >= 0) {
+		dtoa_gx(dxx, '\0', &(numbuf[1]));
+		fputs(numbuf, outfile_msa);
+	      } else {
+		fputs(" NA", outfile_msa);
+	      }
+	    }
 	    pval = chiprob_p(dxx, cur_constraint_ct);
 	    if (orig_pvals) {
 	      orig_pvals[marker_idx3] = pval;
@@ -6775,6 +6815,14 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    *orig_stats_ptr = -9;
 	    if (orig_pvals) {
 	      orig_pvals[marker_idx3] = -9;
+	    }
+	    if (mperm_save_all) {
+	      // the permutation threads skip this variant
+	      fputs(" NA", outfile_msa);
+	      msa_ptr = &(g_mperm_save_all[marker_idx3 * perm_batch_size]);
+	      for (perm_idx = 0; perm_idx < perm_batch_size; perm_idx++) {
+		*msa_ptr++ = -9;
+	      }
 	    }
 	  }
 	} else {
@@ -6911,7 +6959,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32toa(uii + ujj, wptr);
 	dptr = &(g_mperm_save_all[uii]);
-	for (ukk = 0; ukk < marker_ct; ukk++) {
+	for (ukk = 0; ukk < marker_initial_ct; ukk++) {
 	  *wptr++ = ' ';
 	  dxx = dptr[ukk * ulii];
 	  if (dxx >= 0) {

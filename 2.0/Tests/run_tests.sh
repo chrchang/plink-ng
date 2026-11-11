@@ -228,6 +228,11 @@ cd TEST_19_DFAM_MDS_FIXES
 cd ..
 echo "TEST_19_DFAM_MDS_FIXES passed."
 
+cd TEST_19_PERM_FIXES
+./run_tests.sh > TEST_19_PERM_FIXES.log
+cd ..
+echo "TEST_19_PERM_FIXES passed."
+
 cd TEST_INFO_TO_COLS
 ./run_tests.sh $d $2 $3 > TEST_INFO_TO_COLS.log
 cd ..
