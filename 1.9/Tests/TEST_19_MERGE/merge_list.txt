@@ -1,0 +1,3 @@
+merge.ped merge.map
+merge2.ped merge2.map
+merge3.ped merge3.map

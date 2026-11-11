@@ -1,8 +1,8 @@
 name: PLINK 1.9 tests
 
 # Builds PLINK 1.9 from this repository and runs the regression suite in
-# 1.9/Tests.  A few of those tests use plink2 as a reference, so PLINK 2.0 is
-# built too.
+# 1.9/Tests.  Many of those tests use plink2 as a reference, so PLINK 2.0 is
+# built too, and those covering commands plink2 lacks use PLINK 1.07 (1.07/).
 #
 # PLINK 1.9 changes much less often than PLINK 2.0, so this only runs when
 # 1.9/ changes.  (Changes to 1.9/ also trigger the 2.0/Tests workflows, which
@@ -14,6 +14,7 @@ on:
       - master
     paths:
       - '1.9/**'
+      - '1.07/**'
       - '.github/workflows/plink19_tests.yml'
       - '.github/scripts/apt-install.sh'
   pull_request:
@@ -21,6 +22,7 @@ on:
       - master
     paths:
       - '1.9/**'
+      - '1.07/**'
       - '.github/workflows/plink19_tests.yml'
       - '.github/scripts/apt-install.sh'
   workflow_dispatch:
@@ -69,6 +71,16 @@ jobs:
         working-directory: 2.0/build_dynamic
         run: make -j"$NPROC"
 
+      # The 1.07 Makefile's UNIX configuration links statically by default.
+      - name: Build PLINK 1.07
+        working-directory: 1.07
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            make -j"$NPROC" SYS=UNIX FORCE_DYNAMIC=1
+          else
+            make -j"$NPROC"
+          fi
+
       - name: Put PLINK 1.9 on PATH
         run: echo "$GITHUB_WORKSPACE/1.9" >> "$GITHUB_PATH"
 
@@ -76,6 +88,7 @@ jobs:
         run: |
           plink --version
           2.0/build_dynamic/plink2 --version
+          1.07/plink --noweb --version || true
 
       - name: Run 1.9/Tests
         working-directory: 1.9/Tests
