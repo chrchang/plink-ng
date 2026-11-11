@@ -5683,9 +5683,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               // bugfix (17 May 2018): this was using reported_test_ct instead
               // of cur_reported_test_ct.
               primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
-            } else {
-              // reset, in case the previous chromosome had a joint test
-              primary_reported_test_idx = include_intercept;
             }
             if (chr_col) {
               char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
@@ -6784,9 +6781,6 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
               }
               if (cur_constraint_ct) {
                 primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
-              } else {
-                // reset, in case the previous chromosome had a joint test
-                primary_reported_test_idx = 0;
               }
             }
             uintptr_t allele_idx_offset_base = calc_variant_uidx * 2;

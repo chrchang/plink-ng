@@ -2167,9 +2167,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
             suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
               primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
-            } else {
-              // reset, in case the previous chromosome had a joint test
-              primary_reported_test_idx = include_intercept;
             }
             if (chr_col) {
               char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
@@ -4664,9 +4661,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
               suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
               if (cur_constraint_ct) {
                 primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
-              } else {
-                // reset, in case the previous chromosome had a joint test
-                primary_reported_test_idx = include_intercept;
               }
               if (chr_col) {
                 char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
@@ -5750,9 +5744,6 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
               }
               if (cur_constraint_ct) {
                 primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
-              } else {
-                // reset, in case the previous chromosome had a joint test
-                primary_reported_test_idx = 0;
               }
             }
             uintptr_t allele_idx_offset_base = calc_variant_uidx * 2;
