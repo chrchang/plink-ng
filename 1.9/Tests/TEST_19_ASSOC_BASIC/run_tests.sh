@@ -63,6 +63,15 @@ $plink2 --adjust-file tmp_adj.assoc --out tmp_adj2 > /dev/null 2>&1
 awk -v c1=2,3,4,5,6,7,8,9,10 -v c2=2,4,5,6,7,8,9,10,11 -v tol=2e-3 -v skip1=0 -v skip2=0 -f $compare_cols <(by_id tmp_adj.assoc.adjusted) <(by_id tmp_adj2.adjusted)
 check "case/control --adjust matches plink2 --adjust-file" $?
 
+# The estimated lambda above is clamped to 1, so GC equals UNADJ there.  With
+# a fixed lambda of 1.2, GC must differ from UNADJ, and both versions compute
+# it from 1-df chi-square statistics, so it must match.
+plink --bfile tmp_cc --assoc --adjust --lambda 1.2 --out tmp_lam > /dev/null
+$plink2 --adjust-file tmp_adj.assoc --lambda 1.2 --out tmp_lam2 > /dev/null 2>&1
+awk -v c1=2,3,4,5,6,7,8,9,10 -v c2=2,4,5,6,7,8,9,10,11 -v tol=2e-3 -v skip1=0 -v skip2=0 -f $compare_cols <(by_id tmp_lam.assoc.adjusted) <(by_id tmp_lam2.adjusted) && \
+    awk 'NR > 1 && $3 < 0.5 && $4 <= $3 * 1.01 { bad = 1 } END { exit bad }' tmp_lam.assoc.adjusted
+check "case/control --adjust --lambda GC column matches plink2 --adjust-file" $?
+
 # --- Quantitative trait ---
 
 # 387 samples, 200 variants.  --keep-allele-order keeps A1 as the .bim A1,
