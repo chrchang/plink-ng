@@ -1796,8 +1796,11 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + covar_ct_x * (1 + add_interactions);
-    uint32_t biallelic_predictor_ct_y = 2 + covar_ct_y * (1 + add_interactions);
+    // Same formula as for the rest of the genome.  (domdev_third can currently
+    // only be set here when chrX/chrY are skipped or analyzed with the main
+    // sample set, so the extra terms are a safeguard.)
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
@@ -4150,8 +4153,11 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + covar_ct_x * (1 + add_interactions);
-    uint32_t biallelic_predictor_ct_y = 2 + covar_ct_y * (1 + add_interactions);
+    // Same formula as for the rest of the genome.  (domdev_third can currently
+    // only be set here when chrX/chrY are skipped or analyzed with the main
+    // sample set, so the extra terms are a safeguard.)
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
@@ -4286,8 +4292,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           continue;
         }
         if (common->nm_precomp_x) {
-          // domdev_third can't be set here.
-          if (bigstack_alloc_d((2 + (1 - is_qt_residualize) * covar_ct_x) * subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
+          // Stride matches the FillPhenoAndXtY() calls below.
+          if (bigstack_alloc_d((2 + domdev_third + (1 - is_qt_residualize) * covar_ct_x) * subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
             continue;
           }
         }
@@ -4297,7 +4303,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           continue;
         }
         if (common->nm_precomp_y) {
-          if (bigstack_alloc_d((2 + (1 - is_qt_residualize) * covar_ct_y) * subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
+          if (bigstack_alloc_d((2 + domdev_third + (1 - is_qt_residualize) * covar_ct_y) * subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
             continue;
           }
         }
@@ -5218,8 +5224,11 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + covar_ct_x * (1 + add_interactions);
-    uint32_t biallelic_predictor_ct_y = 2 + covar_ct_y * (1 + add_interactions);
+    // Same formula as for the rest of the genome.  (domdev_third can currently
+    // only be set here when chrX/chrY are skipped or analyzed with the main
+    // sample set, so the extra terms are a safeguard.)
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
@@ -5470,8 +5479,8 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
           continue;
         }
         if (common->nm_precomp_x) {
-          // domdev_third can't be set here.
-          if (bigstack_alloc_d((2 + covar_ct_x) * max_subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
+          // Stride matches the FillPhenoAndXtY() calls below.
+          if (bigstack_alloc_d((2 + domdev_third + covar_ct_x) * max_subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
             continue;
           }
         }
@@ -5481,7 +5490,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
           continue;
         }
         if (common->nm_precomp_y) {
-          if (bigstack_alloc_d((2 + covar_ct_y) * max_subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
+          if (bigstack_alloc_d((2 + domdev_third + covar_ct_y) * max_subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
             continue;
           }
         }

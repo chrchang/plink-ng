@@ -5274,7 +5274,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         biallelic_predictor_ct_x = 0;
       }
       if (sample_ct_y) {
-        biallelic_predictor_ct_y = PopcountWords(parameter_subset_y, BitCtToWordCt(biallelic_predictor_ct_x));
+        biallelic_predictor_ct_y = PopcountWords(parameter_subset_y, BitCtToWordCt(biallelic_predictor_ct_y));
       } else {
         biallelic_predictor_ct_y = 0;
       }
@@ -6266,8 +6266,11 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + covar_ct_x * (1 + add_interactions);
-    uint32_t biallelic_predictor_ct_y = 2 + covar_ct_y * (1 + add_interactions);
+    // Same formula as for the rest of the genome.  (domdev_third can currently
+    // only be set here when chrX/chrY are skipped or analyzed with the main
+    // sample set, so the extra terms are a safeguard.)
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
