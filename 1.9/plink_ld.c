@@ -13780,6 +13780,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
 #endif
     final_clump_ct++;
+    // min_bp and max_bp are inclusive; interval_in_setdef() takes a half-open
+    // interval.  (bugfix, 11 Nov 2026: clumps ending at a range's first
+    // position weren't reported as overlapping it.)
     min_bp = cur_bp;
     max_bp = cur_bp;
     if (cur_window_size) {
@@ -13851,7 +13854,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
 	uljj = 0;
 	for (ulii = 0; ulii < cur_rg_ct; ulii++) {
-	  if (interval_in_setdef(cur_rg_setdefs[ulii], min_bp, max_bp)) {
+	  if (interval_in_setdef(cur_rg_setdefs[ulii], min_bp, max_bp + 1)) {
             if (uljj) {
 	      putc_unlocked(',', outfile_ranges);
 	    } else {
@@ -14040,7 +14043,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	fputs("            GENES: ", outfile);
 	uljj = 0;
 	for (ulii = 0; ulii < cur_rg_ct; ulii++) {
-	  if (interval_in_setdef(cur_rg_setdefs[ulii], min_bp, max_bp)) {
+	  if (interval_in_setdef(cur_rg_setdefs[ulii], min_bp, max_bp + 1)) {
             if (uljj) {
 	      if (uljj & 7) {
 		putc_unlocked(',', outfile);

@@ -4332,6 +4332,9 @@ int32_t main(int32_t argc, char** argv) {
 	fill_bits(1, chrom_info.autosome_ct, chrom_info.chrom_mask);
 	set_bit(chrom_info.xymt_codes[XY_OFFSET], chrom_info.chrom_mask);
 	chrom_info.is_include_stack = 1;
+	// bugfix (11 Nov 2026): without this, the default chromosome mask
+	// replaced this one, so --autosome-xy had no effect.
+	chrom_flag_present = 1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-extra-chr", 15)) {
 	if (load_rare == LOAD_RARE_23) {
