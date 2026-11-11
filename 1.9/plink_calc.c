@@ -7618,7 +7618,9 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   FILE* outfile2 = nullptr;
   FILE* outfile3 = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+#ifndef __LP64__
   uint64_t dists_alloc = 0;
+#endif
   uint32_t unweighted_and_flat = ((calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) || (dist_calc_type & DISTANCE_FLAT_MISSING)) && (!distance_wts_fname) && (distance_exp == 0.0);
   uint32_t missing_wt_needed = ((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) && (!unweighted_and_flat);
   uint32_t unwt_needed = 0;
@@ -7680,8 +7682,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   triangle_fill(sample_ct, dist_thread_ct, parallel_idx, parallel_tot, 1, 1, g_thread_start);
   llxx = g_thread_start[dist_thread_ct];
   llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
-  dists_alloc = llxx * sizeof(double);
 #ifndef __LP64__
+  dists_alloc = llxx * sizeof(double);
   if (dists_alloc > 0x7fffffff) {
     goto calc_distance_ret_NOMEM;
   }
