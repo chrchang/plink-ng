@@ -6213,8 +6213,10 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
     const uintptr_t* sample_include_union = sample_include;
     uint32_t sample_union_ct = sample_ct;
     if (sample_ct_x || sample_ct_y) {
-      const uint32_t x_samples_are_different = (sample_ct_x != sample_ct) || (!wordsequal(sample_include, common->sample_include_x, raw_sample_ctl));
-      const uint32_t y_samples_are_different = (sample_ct_y != sample_ct) || (!wordsequal(sample_include, common->sample_include_y, raw_sample_ctl));
+      // sample_ct_x == 0 means chrX uses the main sample set, and
+      // sample_include_x is null then; likewise for chrY.
+      const uint32_t x_samples_are_different = sample_ct_x && ((sample_ct_x != sample_ct) || (!wordsequal(sample_include, common->sample_include_x, raw_sample_ctl)));
+      const uint32_t y_samples_are_different = sample_ct_y && ((sample_ct_y != sample_ct) || (!wordsequal(sample_include, common->sample_include_y, raw_sample_ctl)));
       if (x_samples_are_different || y_samples_are_different) {
         uintptr_t* sample_include_union_tmp;
         if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include_union_tmp))) {
@@ -6827,9 +6829,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
                   permstat = -FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                 }
                 const double orig_permstat = orig_logistic_permstats[valid_allele_idx];
-                if (orig_permstat <= permstat) {
-                  valid_allele_emp1_ctx2s[valid_allele_idx] += 1 + (orig_permstat < permstat);
-                }
+                valid_allele_emp1_ctx2s[valid_allele_idx] += PermstatEmp1Incr2(orig_permstat, permstat, 0);
                 if (perm_adapt) {
                   if (perm_idx == adapt_check_pidx) {
                     const uint32_t perm_ct = perm_idx + 1;

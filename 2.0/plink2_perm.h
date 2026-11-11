@@ -60,6 +60,27 @@ typedef struct PermConfigStruct {
 
 void InitPermConfig(PermConfig* perm_config_ptr);
 
+// The original test statistics come from the main --glm regression code,
+// while the permutation statistics come from separate code which computes the
+// same quantities in a different order.  So when a permutation reproduces the
+// original statistic exactly (common with discrete phenotypes), the two
+// values can still differ in their last few bits.  Values within a relative
+// kEpsilon (2^{-30}) of each other are treated as tied; true differences
+// between statistics are many orders of magnitude larger.
+HEADER_INLINE double PermstatTieTol(double orig_permstat) {
+  return kEpsilon * fabs(orig_permstat);
+}
+
+// Returns 2 if permstat is more extreme than orig_permstat, 1 if they're tied,
+// and 0 otherwise.
+HEADER_INLINE uint32_t PermstatEmp1Incr2(double orig_permstat, double permstat, uint32_t lower_stat_is_more_extreme) {
+  const double tol = PermstatTieTol(orig_permstat);
+  if (fabs(permstat - orig_permstat) <= tol) {
+    return 1;
+  }
+  return 2 * (lower_stat_is_more_extreme? (permstat < orig_permstat) : (permstat > orig_permstat));
+}
+
 void CleanupPermConfig(PermConfig* perm_config_ptr);
 
 // (2^31 - 1000001) / 2
