@@ -1,0 +1,7 @@
+F ggf 0 0 1 1 A A A A A A A A
+F ggm 0 0 2 1 A A A A A A A A
+F gf ggf ggm 1 1 A A A A 0 0 A A
+F gm 0 0 2 1 A A A C A A A A
+F fa gf gm 1 1 0 0 0 0 0 0 A A
+F mo 0 0 2 1 A C A C A C A C
+F ch fa mo 1 2 C C C C C C C C

@@ -2936,9 +2936,9 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
   double ll_med;
   double lh_med;
   double hh_med;
-  double dll_sd;
-  double dhl_sd;
-  double dhh_sd;
+  double dll_sem;
+  double dhl_sem;
+  double dhh_sem;
   double dxx;
   double dyy;
   double dzz;
@@ -3029,31 +3029,31 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
   logprint("Case/control distance analysis:\n");
   if (g_case_ct < 2) {
     dxx = 0.0;
-    dhh_sd = 0.0;
+    dhh_sem = 0.0;
   } else {
     dww = (double)(((uintptr_t)g_case_ct * (g_case_ct - 1)) / 2);
     dxx = g_reg_tot_x / dww;
-    dhh_sd = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
+    dhh_sem = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
   }
   if (!(g_case_ct && g_ctrl_ct)) {
     dyy = 0.0;
-    dhl_sd = 0.0;
+    dhl_sem = 0.0;
   } else {
     dww = (double)((uintptr_t)g_case_ct * g_ctrl_ct);
     dyy = g_reg_tot_xy / dww;
-    dhl_sd = sqrt((dhl_ssq / dww - dyy * dyy) / (dww - 1.0));
+    dhl_sem = sqrt((dhl_ssq / dww - dyy * dyy) / (dww - 1.0));
   }
   if (g_ctrl_ct < 2) {
     dzz = 0.0;
-    dll_sd = 0.0;
+    dll_sem = 0.0;
   } else {
     dww = (double)(((uintptr_t)g_ctrl_ct * (g_ctrl_ct - 1)) / 2);
     dzz = g_reg_tot_y / dww;
-    dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
+    dll_sem = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
   }
-  LOGPRINTF("  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
-  LOGPRINTF("  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
-  LOGPRINTF("  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
+  LOGPRINTF("  Mean (sem), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sem, hh_med);
+  LOGPRINTF("  Mean (sem), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sem, lh_med);
+  LOGPRINTF("  Mean (sem), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sem, ll_med);
   if (2 * g_jackknife_d >= (g_case_ct + g_ctrl_ct)) {
     logprint("Delete-d jackknife skipped because d is too large.\n");
   } else {
