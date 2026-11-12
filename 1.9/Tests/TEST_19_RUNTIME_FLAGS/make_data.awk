@@ -42,14 +42,18 @@ BEGIN {
         for (j = 1; j <= m; ++j) {
             if (fam && (r >= 2)) {
                 # One allele from each parent (blanked below if missing).
-                a1 = g[i - r, j, 1 + (rnd() < 0.5)]
-                a2 = g[i - r + 1, j, 1 + (rnd() < 0.5)]
+                a1 = par[0, j, 1 + (rnd() < 0.5)]
+                a2 = par[1, j, 1 + (rnd() < 0.5)]
             } else {
                 a1 = allele(j)
                 a2 = allele(j)
+                # Only the current family's founders are kept: mawk 1.3.3
+                # (Debian 10's default awk) can crash on very large arrays.
+                if (fam) {
+                    par[r, j, 1] = a1
+                    par[r, j, 2] = a2
+                }
             }
-            g[i, j, 1] = a1
-            g[i, j, 2] = a2
             if (rnd() < 0.02) {
                 line = line " 0 0"
             } else {
