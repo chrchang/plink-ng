@@ -273,4 +273,28 @@ paste tmp_sq_bin.txt tmp_sq_txt.txt | awk '
 check "--r2 square bin matches the text matrix across blocks" $?
 rm -f tmp_sq.bed tmp_sq_bin.txt tmp_sq_txt.txt tmp_sq_txt.ld tmp_sq_bin.ld.bin
 
+# --- Meta-analysis ---
+
+# --meta-analysis 'weighted-z' computed P(WZ) with PLINK 1.07's normdist()
+# approximation, as 1 - 2|normdist(|z|) - 0.5|: off by ~0.4% in the tail, and
+# 0 for any p below ~1e-16.  It must match plink2's P_WZ.  Three studies of
+# 120 variants, with a quarter of the p-values spread down to 1e-300.
+for st in 1 2 3; do
+    awk -v s=$((st * 7)) 'function rnd() { s = (s * 69069 + 1) % 4294967296; return s / 4294967296 }
+    BEGIN {
+        print "CHR BP SNP A1 A2 OR SE P NMISS"
+        for (j = 1; j <= 120; ++j) {
+            e = int(rnd() * 300)
+            if (j % 4) e = int(rnd() * 6)
+            p = (0.2 + 0.7 * rnd()) * 10 ^ (-e)
+            if (p < 1e-300) p = 1e-300
+            printf "1 %d v%d A G %.4f %.4f %.4g %d\n", 1000 * j, j, exp((rnd() - 0.4) * 0.6), 0.05 + 0.1 * rnd(), p, 500 + int(rnd() * 1500)
+        }
+    }' > tmp_meta$st.assoc
+done
+plink --meta-analysis tmp_meta1.assoc tmp_meta2.assoc tmp_meta3.assoc + weighted-z --out tmp_meta19 > /dev/null 2>&1
+$plink2 --meta-analysis tmp_meta1.assoc tmp_meta2.assoc tmp_meta3.assoc + weighted-z --out tmp_meta2 > /dev/null 2>&1
+test -s tmp_meta19.meta && test -s tmp_meta2.meta && awk -f compare_wz.awk tmp_meta2.meta tmp_meta19.meta
+check "--meta-analysis weighted-z P(WZ) matches plink2" $?
+
 exit $failed
