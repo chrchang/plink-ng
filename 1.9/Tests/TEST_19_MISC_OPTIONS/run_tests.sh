@@ -218,7 +218,9 @@ pool_sizes() {
     awk 'NR > 1 && $1 ~ /^S/ && $2 != "CON" && $2 != "UNION" { n[$1]++ } END { for (k in n) print k, n[k] }' "$1" | sort
 }
 match_groups() {
-    awk 'NR > 1 && $1 ~ /^S/ && $2 != "CON" && $2 != "UNION" { g[$1 " " $13] = 1 } END { print length(g) }' "$1"
+    # (counted on insertion: mawk 1.3.3, Debian 10's default awk, has no
+    # length(array))
+    awk 'NR > 1 && $1 ~ /^S/ && $2 != "CON" && $2 != "UNION" && !(($1 " " $13) in g) { g[$1 " " $13] = 1; ++ct } END { print ct + 0 }' "$1"
 }
 # --pool-size 5 must give the default report without the 3-sample pool
 # (ignoring blank separator lines).
