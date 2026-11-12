@@ -159,7 +159,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
               // PAR1, PAR2
               const uint32_t par_idx_m1 = ctou32(chrset_iter[3]) - '1';
               if ((par_idx_m1 < 2) && ((chrset_iter[4] == ',') || (chrset_iter[4] == '>'))) {
-                cip->xymt_codes[kChrOffsetPAR1] = explicit_autosome_ct + 1 + kChrOffsetPAR1 + par_idx_m1;
+                cip->xymt_codes[kChrOffsetPAR1 + par_idx_m1] = explicit_autosome_ct + 1 + kChrOffsetPAR1 + par_idx_m1;
               }
             }
           }

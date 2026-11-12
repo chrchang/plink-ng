@@ -6355,6 +6355,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --clump-bins values >= 1 do not make sense.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
+              prev_ln = cur_ln;
               *ln_bin_boundaries_iter++ = cur_ln * (1.0 + kSmallEpsilon);
               if (*arg_iter == '\0') {
                 break;
