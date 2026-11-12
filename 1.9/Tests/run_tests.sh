@@ -147,4 +147,9 @@ cd TEST_19_RUNTIME_FLAGS
 cd ..
 echo "TEST_19_RUNTIME_FLAGS passed."
 
+cd TEST_19_NOREF_FLAGS
+./run_tests.sh "$p19" > TEST_19_NOREF_FLAGS.log
+cd ..
+echo "TEST_19_NOREF_FLAGS passed."
+
 echo "All tests passed."
