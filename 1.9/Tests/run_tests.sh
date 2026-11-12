@@ -132,4 +132,9 @@ cd TEST_19_PLINK107_OPTIONS
 cd ..
 echo "TEST_19_PLINK107_OPTIONS passed."
 
+cd TEST_19_MISC_OPTIONS
+./run_tests.sh "$p19" > TEST_19_MISC_OPTIONS.log
+cd ..
+echo "TEST_19_MISC_OPTIONS passed."
+
 echo "All tests passed."
