@@ -7981,6 +7981,9 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     generate_qt_cluster_perms_smajor_thread((void*)ulii);
   }
   join_threads(threads, g_perm_generation_thread_ct);
+  // bugfix: this was never set, so qassoc_set_thread() skipped every variant
+  // and the permutation statistics were uninitialized memory.
+  g_assoc_thread_ct = max_thread_ct;
   if (bigstack_alloc_d(MODEL_BLOCKSIZE * perm_vec_ct, &g_mperm_save_all) ||
       bigstack_alloc_d(marker_ct * perm_vec_ct, &chisq_pmajor)) {
     goto qassoc_set_test_ret_NOMEM;

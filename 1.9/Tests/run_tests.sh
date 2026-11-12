@@ -142,4 +142,9 @@ cd TEST_19_RECALC
 cd ..
 echo "TEST_19_RECALC passed."
 
+cd TEST_19_RUNTIME_FLAGS
+./run_tests.sh "$p19" > TEST_19_RUNTIME_FLAGS.log
+cd ..
+echo "TEST_19_RUNTIME_FLAGS passed."
+
 echo "All tests passed."
