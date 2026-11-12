@@ -486,6 +486,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
   uint32_t post_at_sign_len = 0;
   uint32_t updated_chrom_ct = 0;
+  uint32_t open_fail_ct = 0;
   int32_t prev_chrom = -3;
   int32_t retval = 0;
   char* at_sign_ptr;
@@ -503,7 +504,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   int32_t bp_old;
   int32_t bp_new;
   {
-    at_sign_ptr = strchr(cm_map_fname, '@');
+    at_sign_ptr = cm_map_chrname? nullptr : strchr(cm_map_fname, '@');
     if (cm_map_chrname) {
       const uint32_t chrom_name_slen = strlen(cm_map_chrname);
       int32_t cur_chrom_code = get_chrom_code(cm_map_chrname, chrom_info_ptr, chrom_name_slen);
@@ -537,8 +538,12 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
 	}
 	bufptr = uint32toa(uii, fname_write);
 	memcpy(bufptr, at_sign_ptr, post_at_sign_len);
-	if (fopen_checked(fname_buf, "r", &shapeitfile)) {
+	// A missing per-chromosome file is only a warning here, so don't use
+	// fopen_checked(), which logs an error.
+	shapeitfile = fopen(fname_buf, "r");
+	if (!shapeitfile) {
 	  LOGERRPRINTFWW("Warning: --cm-map failed to open %s.\n", fname_buf);
+	  open_fail_ct++;
 	  continue;
 	}
       } else {
@@ -712,6 +717,12 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       if (loaded_chrom_mask_4col) {
         break;
       }
+    }
+    if (open_fail_ct && (!updated_chrom_ct)) {
+      // every file the '@' pattern named was missing; almost certainly a
+      // wrong path or pattern
+      LOGERRPRINTFWW("Error: --cm-map failed to open any file matching %s.\n", cm_map_fname);
+      goto apply_cm_map_ret_OPEN_FAIL;
     }
     LOGPRINTF("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
   }
@@ -5305,6 +5316,19 @@ static inline uint32_t uint32_decode_5_hi_uchar(const char* start) {
   return uii;
 }
 
+// Writes the two-sided p-value of weighted-Z statistic zz in an 11-character
+// field.  This previously used 1 - 2|normdist(|zz|) - 0.5|, where normdist()
+// is PLINK 1.07's Abramowitz-Stegun approximation: it was off by ~0.4% in the
+// tail, and cancellation made it print 0 for any p below ~1e-16.  The 1df
+// chi-square tail of zz^2 is the same quantity, computed accurately.
+static char* meta_write_wz_p(double zz, double output_min_p, char* wptr) {
+  const double pval = chiprob_p(zz * zz, 1);
+  if (pval < 0.0) {
+    return memcpya(wptr, "         NA", 11);
+  }
+  return dtoa_g_wxp4(MAXV(pval, output_min_p), 11, wptr);
+}
+
 int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snpfield_search_order, char* bpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* sefield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -5865,7 +5889,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    }
 	  }
 	}
-	if (scan_double(token_ptrs[1], &cur_beta) || (cur_beta == INFINITY) || ((!input_beta) && (!(cur_beta >= 0))) || (input_beta && ((cur_beta != cur_beta) || (cur_beta == -INFINITY)))) {
+	if (scan_double(token_ptrs[1], &cur_beta) || (cur_beta == INFINITY) || ((!input_beta) && (!(cur_beta > 0))) || (input_beta && ((cur_beta != cur_beta) || (cur_beta == -INFINITY)))) {
 	  problem_mask |= 0x10;
 	}
 	// A zero standard error is as unusable as a negative one: the
@@ -5881,7 +5905,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
           // update (13 Sep 2026): SE=0 isn't really salvageable, but treating
           // cur_p<DBL_MIN as cur_p=DBL_MIN should prevent the latter type of
           // significant result from getting lost.
-          if (cur_p < 2.2250738585072014e-308) {
+          if ((!(problem_mask & 0x80)) && (cur_p < 2.2250738585072014e-308)) {
             ++p_underflow_ct;
             cur_p = 2.2250738585072014e-308;
           }
@@ -6303,8 +6327,11 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    continue;
 	  }
 	  if (weighted_z) {
-	    if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p > 0.0)) || (cur_p > 1.0)) {
+	    if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p >= 0.0)) || (cur_p > 1.0)) {
 	      continue;
+	    }
+	    if (cur_p < 2.2250738585072014e-308) {
+	      cur_p = 2.2250738585072014e-308;
 	    }
 	    if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
 	      continue;
@@ -6359,7 +6386,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    set_bit(file_idx, (uintptr_t*)cur_data_ptr);
 	  }
 	  if (weighted_z) {
-	    dxx = ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);
+	    dxx = -ltqnorm(cur_p * 0.5) * sqrt(cur_ess);
 	    if (cur_beta > 0.0) {
 	      cur_data_ptr[-2] += dxx;
 	    } else {
@@ -6520,8 +6547,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    dxx = numer / sqrt(denom2);
 	    *wptr++ = ' ';
 	    wptr = dtoa_g_wxp4x(dxx, 11, ' ', wptr);
-	    dxx = 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5);
-	    wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 11, wptr);
+	    wptr = meta_write_wz_p(dxx, output_min_p, wptr);
 	  }
 	} else {
           // quasi-bugfix (20 Dec 2017): under 'report-all', report basic
@@ -6553,8 +6579,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
               dxx = numer / sqrt(denom2);
               *wptr++ = ' ';
               wptr = dtoa_g_wxp4x(dxx, 11, ' ', wptr);
-              dxx = 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5);
-              wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 11, wptr);
+              wptr = meta_write_wz_p(dxx, output_min_p, wptr);
             }
           } else {
 	    wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);

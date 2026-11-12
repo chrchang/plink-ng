@@ -2,7 +2,8 @@ name: PLINK2 functional tests
 
 # Builds PLINK 2.0 and PLINK 1.9 from this repository and runs the
 # self-contained suite in 2.0/Tests, which compares plink2 output against
-# plink 1.9 output and checks a number of round trips.
+# plink 1.9 output and checks a number of round trips.  PLINK 1.9 regression
+# tests are in 1.9/Tests, run by plink19_tests.yml.
 #
 # Everything this needs (including the test data) is in the repository, so
 # unlike the weekly GLM workflow this can run on every pull request.
@@ -13,21 +14,28 @@ on:
       - master
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
+      - '.github/scripts/apt-install.sh'
   pull_request:
     branches:
       - master
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
+      - '.github/scripts/apt-install.sh'
   workflow_dispatch:
 
 jobs:
   run_tests:
     name: 2.0/Tests on ${{ matrix.os }} ${{ matrix.simd }}
     runs-on: ${{ matrix.os }}
+    # Normally about 10 minutes.  This bounds a hang (e.g. on unreachable
+    # package mirrors) well below GitHub's 6-hour default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -45,9 +53,9 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        # apt-install.sh retries if the package mirrors are unreachable.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          .github/scripts/apt-install.sh \
             build-essential \
             libopenblas-dev \
             liblapack-dev \

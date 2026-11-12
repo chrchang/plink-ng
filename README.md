@@ -94,6 +94,15 @@ cd 2.0/Tests
 ./run_tests.sh ../build_dynamic
 ```
 
+`1.9/Tests` holds PLINK 1.9 regression tests. They take the PLINK 1.9 build
+directory (or use `plink` from the `PATH` if it is empty or omitted), and many
+use plink2 as a reference:
+
+```
+cd 1.9/Tests
+./run_tests.sh .. ../../2.0/build_dynamic
+```
+
 ## Repository layout
 
 | Directory | Contents |

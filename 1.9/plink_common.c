@@ -2106,7 +2106,7 @@ char* dtoa_e(double dxx, char* start) {
 	xp10 |= 8;
       }
     }
-    if (dxx < 9.999994999999e-4) {
+    if (dxx < 9.9999994999999e-4) {
       dxx *= 10000;
       xp10 |= 4;
     }
@@ -7306,12 +7306,12 @@ void count_set_freq_hap_120v(const __m128i* vptr, const __m128i* vend, const __m
     loader2 = _mm_srli_epi64(loader, 1);
     loader3 = *include_vec++;
     partial = _mm_add_epi64(partial, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
-    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
+    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_xor_si128(loader, loader2)));
     loader = *vptr++;
     loader2 = _mm_srli_epi64(loader, 1);
     loader3 = *include_vec++;
     partial = _mm_add_epi64(partial, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
-    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
+    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_xor_si128(loader, loader2)));
     partial2 = _mm_add_epi64(_mm_and_si128(partial, m2), _mm_and_si128(_mm_srli_epi64(partial, 2), m2));
     partial2m = _mm_add_epi64(_mm_and_si128(partialm, m2), _mm_and_si128(_mm_srli_epi64(partialm, 2), m2));
 
@@ -7324,12 +7324,12 @@ void count_set_freq_hap_120v(const __m128i* vptr, const __m128i* vend, const __m
     loader2 = _mm_srli_epi64(loader, 1);
     loader3 = *include_vec++;
     partial = _mm_add_epi64(partial, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
-    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
+    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_xor_si128(loader, loader2)));
     loader = *vptr++;
     loader2 = _mm_srli_epi64(loader, 1);
     loader3 = *include_vec++;
     partial = _mm_add_epi64(partial, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
-    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
+    partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_xor_si128(loader, loader2)));
     partial2 = _mm_add_epi64(partial2, _mm_add_epi64(_mm_and_si128(partial, m2), _mm_and_si128(_mm_srli_epi64(partial, 2), m2)));
     partial2m = _mm_add_epi64(partial2m, _mm_add_epi64(_mm_and_si128(partialm, m2), _mm_and_si128(_mm_srli_epi64(partialm, 2), m2)));
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(partial2, m4), _mm_and_si128(_mm_srli_epi64(partial2, 4), m4)));

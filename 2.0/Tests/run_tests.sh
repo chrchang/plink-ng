@@ -423,20 +423,10 @@ cd TEST_VALIDATE_DUP_ALLELE
 cd ..
 echo "TEST_VALIDATE_DUP_ALLELE passed."
 
-cd TEST_19_BCF_CHECKS
-./run_tests.sh $d $2 $3 > TEST_19_BCF_CHECKS.log
-cd ..
-echo "TEST_19_BCF_CHECKS passed."
-
 cd TEST_ALLELE_UNIQUENESS
 ./run_tests.sh $d $2 $3 > TEST_ALLELE_UNIQUENESS.log
 cd ..
 echo "TEST_ALLELE_UNIQUENESS passed."
-
-cd TEST_19_LONG_CONTIG
-./run_tests.sh $d $2 $3 > TEST_19_LONG_CONTIG.log
-cd ..
-echo "TEST_19_LONG_CONTIG passed."
 
 cd TEST_LEGACY_FLAG_ALIASES
 ./run_tests.sh $d $2 $3 > TEST_LEGACY_FLAG_ALIASES.log
@@ -482,6 +472,11 @@ cd TEST_GLM_JOINT_DF
 ./run_tests.sh $d $2 $3 > TEST_GLM_JOINT_DF.log
 cd ..
 echo "TEST_GLM_JOINT_DF passed."
+
+cd TEST_GLM_PERM
+./run_tests.sh $d $2 $3 > TEST_GLM_PERM.log
+cd ..
+echo "TEST_GLM_PERM passed."
 
 cd TEST_LD_CONSOLE_CHRX_FEMALES
 ./run_tests.sh $d $2 $3 > TEST_LD_CONSOLE_CHRX_FEMALES.log
@@ -637,5 +632,50 @@ cd TEST_VCF_LAD_FILTER
 ./run_tests.sh $d $2 $3 > TEST_VCF_LAD_FILTER.log
 cd ..
 echo "TEST_VCF_LAD_FILTER passed."
+
+cd TEST_FILTER_FLAGS
+./run_tests.sh $d $2 $3 > TEST_FILTER_FLAGS.log
+cd ..
+echo "TEST_FILTER_FLAGS passed."
+
+cd TEST_VCF_IMPORT_FLAGS
+./run_tests.sh $d $2 $3 > TEST_VCF_IMPORT_FLAGS.log
+cd ..
+echo "TEST_VCF_IMPORT_FLAGS passed."
+
+cd TEST_PMERGE_MODES
+./run_tests.sh $d $2 $3 > TEST_PMERGE_MODES.log
+cd ..
+echo "TEST_PMERGE_MODES passed."
+
+cd TEST_COL_MATCH_FILTERS
+./run_tests.sh $d $2 $3 > TEST_COL_MATCH_FILTERS.log
+cd ..
+echo "TEST_COL_MATCH_FILTERS passed."
+
+cd TEST_SPECIES_FLAGS
+./run_tests.sh $d $2 $3 > TEST_SPECIES_FLAGS.log
+cd ..
+echo "TEST_SPECIES_FLAGS passed."
+
+cd TEST_KING_MATRIX
+./run_tests.sh $d $2 $3 > TEST_KING_MATRIX.log
+cd ..
+echo "TEST_KING_MATRIX passed."
+
+cd TEST_PHENO_TRANSFORMS
+./run_tests.sh $d $2 $3 > TEST_PHENO_TRANSFORMS.log
+cd ..
+echo "TEST_PHENO_TRANSFORMS passed."
+
+cd TEST_ADJUST_FILE_FIELDS
+./run_tests.sh $d $2 $3 > TEST_ADJUST_FILE_FIELDS.log
+cd ..
+echo "TEST_ADJUST_FILE_FIELDS passed."
+
+cd TEST_CLUMP_FIELDS
+./run_tests.sh $d $2 $3 > TEST_CLUMP_FIELDS.log
+cd ..
+echo "TEST_CLUMP_FIELDS passed."
 
 echo "All tests passed."

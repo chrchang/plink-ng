@@ -1796,8 +1796,11 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + covar_ct_x * (1 + add_interactions);
-    uint32_t biallelic_predictor_ct_y = 2 + covar_ct_y * (1 + add_interactions);
+    // Same formula as for the rest of the genome.  (domdev_third can currently
+    // only be set here when chrX/chrY are skipped or analyzed with the main
+    // sample set, so the extra terms are a safeguard.)
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
@@ -4150,8 +4153,11 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + covar_ct_x * (1 + add_interactions);
-    uint32_t biallelic_predictor_ct_y = 2 + covar_ct_y * (1 + add_interactions);
+    // Same formula as for the rest of the genome.  (domdev_third can currently
+    // only be set here when chrX/chrY are skipped or analyzed with the main
+    // sample set, so the extra terms are a safeguard.)
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
@@ -4286,8 +4292,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           continue;
         }
         if (common->nm_precomp_x) {
-          // domdev_third can't be set here.
-          if (bigstack_alloc_d((2 + (1 - is_qt_residualize) * covar_ct_x) * subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
+          // Stride matches the FillPhenoAndXtY() calls below.
+          if (bigstack_alloc_d((2 + domdev_third + (1 - is_qt_residualize) * covar_ct_x) * subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
             continue;
           }
         }
@@ -4297,7 +4303,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           continue;
         }
         if (common->nm_precomp_y) {
-          if (bigstack_alloc_d((2 + (1 - is_qt_residualize) * covar_ct_y) * subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
+          if (bigstack_alloc_d((2 + domdev_third + (1 - is_qt_residualize) * covar_ct_y) * subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
             continue;
           }
         }
@@ -5170,8 +5176,10 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
     const uintptr_t* sample_include_union = sample_include;
     uint32_t sample_union_ct = sample_ct;
     if (sample_ct_x || sample_ct_y) {
-      const uint32_t x_samples_are_different = (sample_ct_x != sample_ct) || (!wordsequal(sample_include, common->sample_include_x, raw_sample_ctl));
-      const uint32_t y_samples_are_different = (sample_ct_y != sample_ct) || (!wordsequal(sample_include, common->sample_include_y, raw_sample_ctl));
+      // sample_ct_x == 0 means chrX uses the main sample set, and
+      // sample_include_x is null then; likewise for chrY.
+      const uint32_t x_samples_are_different = sample_ct_x && ((sample_ct_x != sample_ct) || (!wordsequal(sample_include, common->sample_include_x, raw_sample_ctl)));
+      const uint32_t y_samples_are_different = sample_ct_y && ((sample_ct_y != sample_ct) || (!wordsequal(sample_include, common->sample_include_y, raw_sample_ctl)));
       if (x_samples_are_different || y_samples_are_different) {
         uintptr_t* sample_include_union_tmp;
         if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include_union_tmp))) {
@@ -5216,8 +5224,11 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
     uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + covar_ct_x * (1 + add_interactions);
-    uint32_t biallelic_predictor_ct_y = 2 + covar_ct_y * (1 + add_interactions);
+    // Same formula as for the rest of the genome.  (domdev_third can currently
+    // only be set here when chrX/chrY are skipped or analyzed with the main
+    // sample set, so the extra terms are a safeguard.)
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
@@ -5468,8 +5479,8 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
           continue;
         }
         if (common->nm_precomp_x) {
-          // domdev_third can't be set here.
-          if (bigstack_alloc_d((2 + covar_ct_x) * max_subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
+          // Stride matches the FillPhenoAndXtY() calls below.
+          if (bigstack_alloc_d((2 + domdev_third + covar_ct_x) * max_subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
             continue;
           }
         }
@@ -5479,7 +5490,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
           continue;
         }
         if (common->nm_precomp_y) {
-          if (bigstack_alloc_d((2 + covar_ct_y) * max_subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
+          if (bigstack_alloc_d((2 + domdev_third + covar_ct_y) * max_subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
             continue;
           }
         }
@@ -5790,9 +5801,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
                     primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                   const double orig_ln_pval = orig_ln_pvals[valid_allele_idx];
-                  if (orig_ln_pval >= primary_ln_pval) {
-                    valid_allele_emp1_ctx2s[valid_allele_idx] += 1 + (orig_ln_pval > primary_ln_pval);
-                  }
+                  valid_allele_emp1_ctx2s[valid_allele_idx] += PermstatEmp1Incr2(orig_ln_pval, primary_ln_pval, 1);
                   if (perm_adapt) {
                     if (pidx == adapt_check_pidx) {
                       const uint32_t perm_ct = perm_idx_start + pidx + 1;
@@ -5802,7 +5811,6 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
                         valid_allele_emp1_denoms[valid_allele_idx] = perm_ct + 1;
                         goto GlmLinearPerm_allele_iterate;
                       }
-                      adapt_check_pidx += S_CAST(int32_t, adaptive_intercept + u31tod(perm_ct) * adaptive_slope);
                     }
                   } else {
                     if (primary_ln_pval < cur_mperm_best_stats[pidx]) {
@@ -5819,6 +5827,14 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
                   beta_se_iter2 = &(beta_se_iter2[subbatch_size * (2 * k1LU) * max_reported_test_ct]);
                 }
               }  // for nonomitted_allele_idx
+              if (perm_adapt && (pidx == adapt_check_pidx)) {
+                // Advance only after every allele of this variant has been
+                // checked.  (This used to happen inside the allele loop, so
+                // later alleles skipped the check while an earlier allele was
+                // still active.)
+                const uint32_t perm_ct = perm_idx_start + pidx + 1;
+                adapt_check_pidx += S_CAST(int32_t, adaptive_intercept + u31tod(perm_ct) * adaptive_slope);
+              }
               beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
             }  // for pidx
             if (!beta_se_multiallelic_fused) {
