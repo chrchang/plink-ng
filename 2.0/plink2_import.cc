@@ -5009,6 +5009,9 @@ BcfParseErr BcfParseLadMain(const unsigned char* lad_main, uint32_t lad_value_ty
         sum += cur_val;
       }
     }
+    if (sum > 0x7fffffff) {
+      sum = 0x7fffffff;
+    }
     uint32_t is_haploid = 0;
     if (gt_main) {
       if (gt_value_ct == 1) {
