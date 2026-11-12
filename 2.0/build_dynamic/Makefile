@@ -262,6 +262,7 @@ static_plink2lib_test: plink2lib.a ../pgen_compress.cc
 .PHONY: clean
 clean:
 	rm -f *.o
+	rm -f plink2.s
 	rm -f plink2
 	rm -f pgen_compress
 	rm -f pgenlib.a
