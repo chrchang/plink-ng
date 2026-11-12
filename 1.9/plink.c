@@ -1854,7 +1854,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (bigstack_alloc_d((sample_ct * (sample_ct - 1)) / 2, &g_dists)) {
       goto plink_ret_NOMEM;
     }
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, nullptr, nullptr, 0, 0, g_dists, 0, nullptr, nullptr);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, nullptr, nullptr, 0, 0, 0.0, g_dists, 0, nullptr, nullptr);
     if (retval) {
       goto plink_ret_1;
     }

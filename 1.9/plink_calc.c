@@ -8635,7 +8635,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
   }
   if (read_dists_fname) {
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_starts, sample_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_ct && (!is_group_avg), cluster_sorted_ibs, neighbor_n2, neighbor_quantiles, neighbor_qindices);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_starts, sample_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_ct && (!is_group_avg), 0.5 / ((double)((int32_t)marker_ct)), cluster_sorted_ibs, neighbor_n2, neighbor_quantiles, neighbor_qindices);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -9273,7 +9273,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	fill_double_zero((ulii * (ulii - 1)) / 2, mds_plot_dmatrix_copy);
       }
       if (read_dists_fname) {
-	retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : nullptr, is_mds_cluster? sample_to_cluster : nullptr, 2, 0, mds_plot_dmatrix_copy, 0, nullptr, nullptr);
+	retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : nullptr, is_mds_cluster? sample_to_cluster : nullptr, 2, 0, 0.5 / ((double)((int32_t)marker_ct)), mds_plot_dmatrix_copy, 0, nullptr, nullptr);
       } else {
 	retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, nullptr, mds_plot_dmatrix_copy, 0, nullptr, nullptr, nullptr, 0.0, 0, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : nullptr, is_mds_cluster? sample_to_cluster : nullptr);
       }

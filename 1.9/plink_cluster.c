@@ -1041,7 +1041,12 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double ibs_scale, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+  // The file holds allele-count distances (as written by "--distance triangle
+  // bin").  If ibs_scale is nonzero (0.5 / variant count), they are converted
+  // to the IBS similarities --cluster, --neighbour and --mds-plot work with.
+  // (Before 11 Nov 2026, those commands used the distances directly as
+  // similarities.)
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* dist_file = nullptr;
   FILE* id_file = nullptr;
@@ -1173,6 +1178,11 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     if (fread(dists, 1, fpos, dist_file) < fpos) {
       goto read_dists_ret_READ_FAIL;
     }
+    if (ibs_scale != 0.0) {
+      for (ulii = 0; ulii < (sample_ct * (sample_ct - 1)) / 2; ulii++) {
+        dists[ulii] = 1.0 - dists[ulii] * ibs_scale;
+      }
+    }
     if (neighbor_n2) {
       dptr = dists;
       for (memidx1 = 1; memidx1 < sample_ct; memidx1++) {
@@ -1203,6 +1213,9 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
 	  }
 	  if (fread(&cur_ibs, 1, sizeof(double), dist_file) < sizeof(double)) {
 	    goto read_dists_ret_READ_FAIL;
+	  }
+	  if (ibs_scale != 0.0) {
+	    cur_ibs = 1.0 - cur_ibs * ibs_scale;
 	  }
 	  if (memidx2 < memidx1) {
 	    dists[trimem + memidx2] += cur_ibs;
@@ -1237,6 +1250,9 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
 	  }
 	  if (fread(&cur_ibs, 1, sizeof(double), dist_file) < sizeof(double)) {
 	    goto read_dists_ret_READ_FAIL;
+	  }
+	  if (ibs_scale != 0.0) {
+	    cur_ibs = 1.0 - cur_ibs * ibs_scale;
 	  }
 	  if (!is_max_dist) {
 	    if (clidx2 < clidx1) {
