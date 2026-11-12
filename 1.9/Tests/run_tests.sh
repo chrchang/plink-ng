@@ -137,4 +137,9 @@ cd TEST_19_MISC_OPTIONS
 cd ..
 echo "TEST_19_MISC_OPTIONS passed."
 
+cd TEST_19_RECALC
+./run_tests.sh "$p19" > TEST_19_RECALC.log
+cd ..
+echo "TEST_19_RECALC passed."
+
 echo "All tests passed."
