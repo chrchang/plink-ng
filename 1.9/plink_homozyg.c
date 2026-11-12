@@ -1153,7 +1153,11 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
     joint_acc += (joint_sum1 & 0x0f0f0f0f) + ((joint_sum1 >> 4) & 0x0f0f0f0f);
     mismatch_acc += (mismatch_sum1 & 0x0f0f0f0f) + ((mismatch_sum1 >> 4) & 0x0f0f0f0f);
     joint_homozyg_ct += (joint_acc * 0x01010101) >> 24;
-    joint_homozyg_mismatch_ct += (mismatch_sum1 * 0x01010101) >> 24;
+    // bugfix (11 Nov 2026): this summed mismatch_sum1 (the last six words'
+    // 4-bit partial sums) instead of mismatch_acc, so 32-bit builds undercounted
+    // mismatches and --homozyg group put mismatched ROHs in the same
+    // allelic-match group.
+    joint_homozyg_mismatch_ct += (mismatch_acc * 0x01010101) >> 24;
     words_left -= 12;
   }
 #endif
