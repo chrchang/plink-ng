@@ -5316,6 +5316,19 @@ static inline uint32_t uint32_decode_5_hi_uchar(const char* start) {
   return uii;
 }
 
+// Writes the two-sided p-value of weighted-Z statistic zz in an 11-character
+// field.  This previously used 1 - 2|normdist(|zz|) - 0.5|, where normdist()
+// is PLINK 1.07's Abramowitz-Stegun approximation: it was off by ~0.4% in the
+// tail, and cancellation made it print 0 for any p below ~1e-16.  The 1df
+// chi-square tail of zz^2 is the same quantity, computed accurately.
+static char* meta_write_wz_p(double zz, double output_min_p, char* wptr) {
+  const double pval = chiprob_p(zz * zz, 1);
+  if (pval < 0.0) {
+    return memcpya(wptr, "         NA", 11);
+  }
+  return dtoa_g_wxp4(MAXV(pval, output_min_p), 11, wptr);
+}
+
 int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snpfield_search_order, char* bpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* sefield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -6534,8 +6547,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	    dxx = numer / sqrt(denom2);
 	    *wptr++ = ' ';
 	    wptr = dtoa_g_wxp4x(dxx, 11, ' ', wptr);
-	    dxx = 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5);
-	    wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 11, wptr);
+	    wptr = meta_write_wz_p(dxx, output_min_p, wptr);
 	  }
 	} else {
           // quasi-bugfix (20 Dec 2017): under 'report-all', report basic
@@ -6567,8 +6579,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
               dxx = numer / sqrt(denom2);
               *wptr++ = ' ';
               wptr = dtoa_g_wxp4x(dxx, 11, ' ', wptr);
-              dxx = 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5);
-              wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 11, wptr);
+              wptr = meta_write_wz_p(dxx, output_min_p, wptr);
             }
           } else {
 	    wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);

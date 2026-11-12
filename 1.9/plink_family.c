@@ -3382,6 +3382,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uint32_t success_2incr;
   uint32_t uii;
   uint32_t ujj;
+  uint32_t ukk;
+  double quarter_het_parent_ct;
   if (perm_adapt) {
     perm_adapt_stop = g_perm_adapt_stop;
     adaptive_intercept = g_adaptive_intercept;
@@ -3536,7 +3538,12 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    continue;
 	  }
 
-	  quad_denom += (2 - (parental_a1_ct & 1)) * nonmissing_sib_ct;
+	  // bugfix (11 Nov 2026): the variance term counts only affected
+	  // children with genotypes, as in the unpermuted calculation and PLINK
+	  // 1.07, not all genotyped children.  That count can vary across
+	  // permutations here, so it's added to denoms[] below instead of to
+	  // quad_denom.
+	  quarter_het_parent_ct = 0.25 * ((double)((int32_t)(2 - (parental_a1_ct & 1))));
 	  cur_flipa = &(flipa[fs_idx * perm_vec_wcta]);
 	  fill_uint_zero(perm_vec_ct, cur_case_a1_cts);
 #ifdef __LP64__
@@ -3632,6 +3639,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	  if (nonmissing_sib_ct == sibling_ct) {
 	    cur_flipa = &(flipa[fs_idx * perm_vec_wcta]);
 	    cur_max_incr = orig_case_ct * parental_a1_ct;
+	    dxx = quarter_het_parent_ct * ((double)((int32_t)orig_case_ct));
 	    for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
 	      uii = cur_case_a1_cts[perm_idx];
 	      if (IS_SET(cur_flipa, perm_idx)) {
@@ -3639,6 +3647,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	      }
 	      total_counts[perm_idx] += uii;
 	      twice_numers[perm_idx] += (int32_t)(2 * uii) - (int32_t)cur_max_incr;
+	      denoms[perm_idx] += dxx;
 	    }
 	  } else {
 	    // cur_case_ct also varies; need to compute case_missing_ct for
@@ -3690,9 +3699,11 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 #endif
 	    for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
 	      uii = cur_case_a1_cts[perm_idx];
-	      ujj = (orig_case_ct - cur_case_missing_cts[perm_idx]) * parental_a1_ct;
+	      ukk = orig_case_ct - cur_case_missing_cts[perm_idx];
+	      ujj = ukk * parental_a1_ct;
 	      twice_numers[perm_idx] += (int32_t)(2 * uii) - ((int32_t)ujj);
 	      total_counts[perm_idx] += uii;
+	      denoms[perm_idx] += quarter_het_parent_ct * ((double)((int32_t)ukk));
 	    }
 	  }
 	}
