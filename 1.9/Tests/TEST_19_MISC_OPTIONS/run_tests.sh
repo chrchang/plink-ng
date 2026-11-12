@@ -297,8 +297,12 @@ check "--ld-xchr 3 weights females in --indep-pairwise" $ld3_ok
 # --read-dists loads the allele-count distances "--distance triangle bin"
 # writes.  With a matrix written from the same data, every command that
 # accepts it must give the same report as calculating from the genotypes.
-# (--cluster, --neighbour and --mds-plot convert the distances to IBS
-# similarities; before 11 Nov 2026, they used the distances directly.)
+# With missing calls, that takes the matching missingness treatment:
+# --groupdist, --regress-distance and --ibs-test use --distance's default
+# weighted correction, while --cluster, --neighbour and --mds-plot use none,
+# i.e. a 'flat-missing' matrix.  (--cluster, --neighbour and --mds-plot
+# convert the distances to IBS similarities; before 11 Nov 2026, they used
+# the distances directly.)
 # Report lines of a log (leaving out the "Options in effect" block, the run
 # details, and the lines that differ between loading and calculating).
 report_lines() {
@@ -312,8 +316,9 @@ for missing in 0 0.03; do
     awk '{ $6 = 1 + NR % 2; print }' tmp_rd.fam > tmp_rd.fam.new
     mv tmp_rd.fam.new tmp_rd.fam
     awk 'BEGIN { s = 3 } { s = (s * 69069 + 1) % 4294967296; print $1, $2, int(s / 65536) % 1000 / 100 }' tmp_rd.fam > tmp_rd_qt.txt
-    rm -f tmp_rd_dist.*
+    rm -f tmp_rd_dist.* tmp_rd_flat.*
     plink --bfile tmp_rd --distance triangle bin --out tmp_rd_dist > /dev/null 2>&1
+    plink --bfile tmp_rd --distance triangle bin flat-missing --out tmp_rd_flat > /dev/null 2>&1
     # --groupdist, --regress-distance, --ibs-test (report in the log).
     for cmd in "--groupdist 50:dists between" "--pheno tmp_rd_qt.txt --regress-distance 50:Regression slope" "--ibs-test 2000:Between-group IBS"; do
         plink --bfile tmp_rd ${cmd%%:*} --seed 3 --out tmp_rd_geno > /dev/null 2>&1
@@ -324,29 +329,31 @@ for missing in 0 0.03; do
     for cmd in "--cluster" "--cluster old-tiebreaks" "--cluster group-avg" "--cluster old-tiebreaks --K 3"; do
         rm -f tmp_rdc_geno.cluster* tmp_rdc_read.cluster*
         plink --bfile tmp_rd $cmd --out tmp_rdc_geno > /dev/null 2>&1
-        plink --bfile tmp_rd $cmd --read-dists tmp_rd_dist.dist.bin tmp_rd_dist.dist.id --out tmp_rdc_read > /dev/null 2>&1
+        plink --bfile tmp_rd $cmd --read-dists tmp_rd_flat.dist.bin tmp_rd_flat.dist.id --out tmp_rdc_read > /dev/null 2>&1
         for f in 1 2; do
             test -s tmp_rdc_geno.cluster$f && cmp -s tmp_rdc_geno.cluster$f tmp_rdc_read.cluster$f || cl_ok=1
         done
     done
     rm -f tmp_rdc_read.cluster1
-    plink --bfile tmp_rd --cluster old-tiebreaks --read-dists tmp_rd_dist.dist.bin --out tmp_rdc_read > /dev/null 2>&1
+    plink --bfile tmp_rd --cluster old-tiebreaks --read-dists tmp_rd_flat.dist.bin --out tmp_rdc_read > /dev/null 2>&1
     plink --bfile tmp_rd --cluster old-tiebreaks --out tmp_rdc_geno > /dev/null 2>&1
     cmp -s tmp_rdc_geno.cluster1 tmp_rdc_read.cluster1 || cl_ok=1
-    # --neighbour and --mds-plot, without missing calls only: with missing
-    # calls, their genotype-based calculations handle missingness differently
-    # from --distance.
-    if [[ $missing == 0 ]]; then
-        for cmd in "--neighbour 1 3" "--cluster old-tiebreaks --mds-plot 2" "--cluster old-tiebreaks --K 3 --mds-plot 2 by-cluster"; do
-            rm -f tmp_rdn_geno.* tmp_rdn_read.*
-            plink --bfile tmp_rd $cmd --out tmp_rdn_geno > /dev/null 2>&1
-            plink --bfile tmp_rd $cmd --read-dists tmp_rd_dist.dist.bin tmp_rd_dist.dist.id --out tmp_rdn_read > /dev/null 2>&1
-            for e in nearest mds; do
-                if [[ -e tmp_rdn_geno.$e ]]; then
-                    test -s tmp_rdn_geno.$e && cmp -s tmp_rdn_geno.$e tmp_rdn_read.$e || nb_ok=1
-                fi
-            done
+    # --neighbour and --mds-plot.  With missing calls, the default matrix
+    # must give a different --neighbour report, so the flat-missing matrix
+    # is the one that matters.
+    for cmd in "--neighbour 1 3" "--cluster old-tiebreaks --mds-plot 2" "--cluster old-tiebreaks --K 3 --mds-plot 2 by-cluster"; do
+        rm -f tmp_rdn_geno.* tmp_rdn_read.*
+        plink --bfile tmp_rd $cmd --out tmp_rdn_geno > /dev/null 2>&1
+        plink --bfile tmp_rd $cmd --read-dists tmp_rd_flat.dist.bin tmp_rd_flat.dist.id --out tmp_rdn_read > /dev/null 2>&1
+        for e in nearest mds; do
+            if [[ -e tmp_rdn_geno.$e ]]; then
+                test -s tmp_rdn_geno.$e && cmp -s tmp_rdn_geno.$e tmp_rdn_read.$e || nb_ok=1
+            fi
         done
+    done
+    if [[ $missing != 0 ]]; then
+        plink --bfile tmp_rd --neighbour 1 3 --read-dists tmp_rd_dist.dist.bin tmp_rd_dist.dist.id --out tmp_rdn_dflt > /dev/null 2>&1
+        ! cmp -s tmp_rdn_geno.nearest tmp_rdn_dflt.nearest || nb_ok=1
     fi
 done
 check "--read-dists gives the same --groupdist/--regress-distance/--ibs-test reports" $rd_ok

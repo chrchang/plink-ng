@@ -1891,7 +1891,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --read-dists <dist file> [id file] : Load a triangular binary distance matrix\n"
 "                                       (allele-count units assumed, as written\n"
 "                                       by \"--distance triangle bin\") instead\n"
-"                                       of recalculating from scratch.\n"
+"                                       of recalculating from scratch.  With\n"
+"                                       missing calls, --cluster, --neighbour\n"
+"                                       and --mds-plot match recalculation when\n"
+"                                       the matrix was written with\n"
+"                                       'flat-missing', and --ibs-test,\n"
+"                                       --groupdist and --regress-distance\n"
+"                                       when it was written without it.\n"
 	       );
     help_print("ppc-gap\tmin\tmax\tgenome\tZ-genome", &help_ctrl, 0,
 "  --ppc-gap <val>    : Minimum number of base pairs, in thousands, between\n"
