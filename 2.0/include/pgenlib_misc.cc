@@ -3719,6 +3719,24 @@ uint32_t ScanVrtypeGroups(const uintptr_t* variant_include, const unsigned char*
       continue;
     }
     const unsigned char* cur_vrtypes = &(vrtypes[widx * kBitsPerWord]);
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+    {
+      // Movemask emulation is relatively expensive on ARM, so first check
+      // (ignoring variant_include) whether any vrtype in this word has an
+      // active bit; this is usually false.  The _vec0255_is_nonzero() ARM
+      // implementation only needs a single narrowing shift.
+      // This is ~2x as fast on M1 when no active bits are present, and ~13%
+      // slower in the worst case (active bits in every word, but only in
+      // excluded variants).
+      VecUc any_vv = vecuc_loadu(cur_vrtypes) & active_vmask;
+      for (uint32_t vec_idx = 1; vec_idx != kBitsPerWord / kBytesPerVec; ++vec_idx) {
+        any_vv |= vecuc_loadu(&(cur_vrtypes[vec_idx * kBytesPerVec])) & active_vmask;
+      }
+      if (!_vec0255_is_nonzero(any_vv != vecuc_setzero())) {
+        continue;
+      }
+    }
+#endif
     uintptr_t hit_word = 0;
     for (uint32_t vec_idx = 0; vec_idx != kBitsPerWord / kBytesPerVec; ++vec_idx) {
       const VecUc vv = vecuc_loadu(&(cur_vrtypes[vec_idx * kBytesPerVec]));
