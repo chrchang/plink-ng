@@ -494,12 +494,7 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
         // PgfiInitPhase2() only checks for multiallelic hardcalls when
         // variant record types are stored with 8 bits, but bit 3 can also be
         // set in the 4-bit case.
-        for (uint32_t vidx = 0; vidx != raw_variant_ct; ++vidx) {
-          if (pgfi.vrtypes[vidx] & 8) {
-            multiallelic_hc_found = 1;
-            break;
-          }
-        }
+        multiallelic_hc_found = (ScanVrtypeGroups(nullptr, pgfi.vrtypes, 0, raw_variant_ct, 8) != 0);
       }
       if (multiallelic_hc_found) {
         max_allele_ct = UINT32_MAX;
