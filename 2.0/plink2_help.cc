@@ -2980,7 +2980,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("indv\0keep\0samples\0", &help_ctrl, 0,
 "  --indv <sample ID>   : Filter out all samples except for those matching\n"
 "                         the provided sample ID.  (Separate the parts of a\n"
-"                         multipart sample ID with spaces.)\n"
+"                         multipart sample ID with spaces.  If no SID is\n"
+"                         provided, all SIDs match.)\n"
               );
     HelpPrint("thin\0thin-count\0", &help_ctrl, 0,
 "  --thin <p>           : Randomly remove variants, retaining each with prob. p.\n"
@@ -3069,7 +3070,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      'first': Natural-sort SIDs and keep the first one.\n"
 "      'first-ascii': ASCII-sort SIDs and keep the first one.\n"
 "      'last': Natural-sort SIDs and keep the last one.\n"
-"      'last-ascii': Natural-sort SIDs and keep the last one.\n"
+"      'last-ascii': ASCII-sort SIDs and keep the last one.\n"
 "    * With 'parents-only', this filter is only applied to parents.\n"
               );
     /*

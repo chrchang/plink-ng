@@ -485,10 +485,22 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
       }
     }
     uint32_t max_allele_ct = 2;
-    if (pgfi.gflags & kfPgenGlobalMultiallelicHardcallFound) {
-      max_allele_ct = UINT32_MAX;
-    } else if (pgfi.gflags & kfPgenGlobalDosagePresent) {
-      max_allele_ct = UINT32_MAXM1;
+    if ((header_ctrl >> 4) & 3) {
+      // allele counts stored in header
+      max_allele_ct = pgfi.max_allele_ct;
+    } else {
+      uint32_t multiallelic_hc_found = (pgfi.gflags / kfPgenGlobalMultiallelicHardcallFound) & 1;
+      if ((!multiallelic_hc_found) && (!pgfi.const_vrec_width) && ((header_ctrl & 15) < 4)) {
+        // PgfiInitPhase2() only checks for multiallelic hardcalls when
+        // variant record types are stored with 8 bits, but bit 3 can also be
+        // set in the 4-bit case.
+        multiallelic_hc_found = (ScanVrtypeGroups(nullptr, pgfi.vrtypes, 0, raw_variant_ct, 8) != 0);
+      }
+      if (multiallelic_hc_found) {
+        max_allele_ct = UINT32_MAX;
+      } else if (pgfi.gflags & kfPgenGlobalDosagePresent) {
+        max_allele_ct = UINT32_MAXM1;
+      }
     }
     PgenInfoPrint(pgenname, &pgfi, header_exts, header_ctrl, max_allele_ct);
   }

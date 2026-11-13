@@ -673,4 +673,19 @@ cd TEST_CLUMP_FIELDS
 cd ..
 echo "TEST_CLUMP_FIELDS passed."
 
+cd TEST_PGEN_INFO_COUNTS
+./run_tests.sh $d $2 $3 > TEST_PGEN_INFO_COUNTS.log
+cd ..
+echo "TEST_PGEN_INFO_COUNTS passed."
+
+cd TEST_GLM_OUTPUT_FLAGS
+./run_tests.sh $d $2 $3 > TEST_GLM_OUTPUT_FLAGS.log
+cd ..
+echo "TEST_GLM_OUTPUT_FLAGS passed."
+
+cd TEST_SAMPLE_ID_PHENO_FLAGS
+./run_tests.sh $d $2 $3 > TEST_SAMPLE_ID_PHENO_FLAGS.log
+cd ..
+echo "TEST_SAMPLE_ID_PHENO_FLAGS passed."
+
 echo "All tests passed."
