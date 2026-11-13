@@ -3677,6 +3677,145 @@ uint64_t PglHeaderBaseEndOffset(uint32_t variant_ct, uintptr_t vrec_len_byte_ct,
   return offset;
 }
 
+uint32_t ScanVrtypeGroups(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint64_t vrtype_groups) {
+  // Active vrtype bits.  A group's bits are removed together, as soon as any
+  // of them is found.
+  uint32_t active_mask = 0;
+  for (uint64_t groups_remaining = vrtype_groups; groups_remaining; groups_remaining >>= 8) {
+    active_mask |= groups_remaining & 0xff;
+  }
+  uint32_t found_bits = 0;
+  if ((!active_mask) || (variant_uidx_start >= variant_uidx_end)) {
+    return 0;
+  }
+#ifdef USE_SSE2
+  // Per vector of vrtypes: (vrtypes & active_mask) is nonzero in exactly the
+  // bytes where an active bit is set, and an unsigned saturating add of 0x7f
+  // moves that to the top bit of each byte, so movemask produces a
+  // one-bit-per-variant mask which can be compared directly against
+  // variant_include.  This is cheaper than expanding variant_include to a
+  // byte mask, and doesn't require USE_SSE42/USE_AVX2.
+  // We only branch once per variant_include word, since a per-vector branch
+  // is poorly predicted when variant_include is sparse.
+  const uint32_t widx_start = variant_uidx_start / kBitsPerWord;
+  const uint32_t widx_end = DivUp(variant_uidx_end, kBitsPerWord);
+  const uintptr_t first_word_mask = (~k0LU) << (variant_uidx_start % kBitsPerWord);
+  // vrtypes[] bytes outside [variant_uidx_start, variant_uidx_end) are not
+  // guaranteed to be zero, and variant_include bits past variant_uidx_end
+  // may be set.
+  const uint32_t trailing_variant_ct = variant_uidx_end % kBitsPerWord;
+  const uintptr_t last_word_mask = trailing_variant_ct? ((k1LU << trailing_variant_ct) - 1) : (~k0LU);
+  const VecUc m7f = vecuc_set1(0x7f);
+  VecUc active_vmask = vecuc_set1(active_mask);
+  for (uint32_t widx = widx_start; widx != widx_end; ++widx) {
+    // TODO: It should be possible to accelerate this further (in typical
+    // cases) by making the inner loop run over more vectors at a time, and
+    // using e.g. an initial goto to avoid needing to check widx == widx_start
+    // on every iteration (unless modern compilers automatically take care of
+    // that now?).
+    uintptr_t include_word = variant_include? variant_include[widx] : (~k0LU);
+    if (widx == widx_start) {
+      include_word &= first_word_mask;
+    }
+    if (widx + 1 == widx_end) {
+      include_word &= last_word_mask;
+    }
+    if (!include_word) {
+      continue;
+    }
+    const unsigned char* cur_vrtypes = &(vrtypes[widx * kBitsPerWord]);
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+    {
+      // Movemask emulation is relatively expensive on ARM, so first check
+      // (ignoring variant_include) whether any vrtype in this word has an
+      // active bit; this is usually false.  The _vec0255_is_nonzero() ARM
+      // implementation only needs a single narrowing shift.
+      // This is ~2x as fast on M1 when no active bits are present, and ~13%
+      // slower in the worst case (active bits in every word, but only in
+      // excluded variants).
+      VecUc any_vv = vecuc_loadu(cur_vrtypes) & active_vmask;
+      for (uint32_t vec_idx = 1; vec_idx != kBitsPerWord / kBytesPerVec; ++vec_idx) {
+        any_vv |= vecuc_loadu(&(cur_vrtypes[vec_idx * kBytesPerVec])) & active_vmask;
+      }
+      if (!_vec0255_is_nonzero(any_vv != vecuc_setzero())) {
+        continue;
+      }
+    }
+#endif
+    uintptr_t hit_word = 0;
+    for (uint32_t vec_idx = 0; vec_idx != kBitsPerWord / kBytesPerVec; ++vec_idx) {
+      const VecUc vv = vecuc_loadu(&(cur_vrtypes[vec_idx * kBytesPerVec]));
+      const uintptr_t cur_hits = vecuc_movemask(vecuc_adds(vv & active_vmask, m7f));
+      hit_word |= cur_hits << (vec_idx * kBytesPerVec);
+    }
+    hit_word &= include_word;
+    if (hit_word) {
+      // Rare path: each pass removes at least one group, so this runs at most
+      // 8 times.
+      uint32_t cur_found = 0;
+      do {
+        cur_found |= cur_vrtypes[ctzw(hit_word)];
+        hit_word &= hit_word - 1;
+      } while (hit_word);
+      cur_found &= active_mask;
+      found_bits |= cur_found;
+      for (uint64_t groups_remaining = vrtype_groups; groups_remaining; groups_remaining >>= 8) {
+        const uint32_t cur_group = groups_remaining & 0xff;
+        if (cur_group & cur_found) {
+          active_mask &= ~cur_group;
+        }
+      }
+      if (!active_mask) {
+        return found_bits;
+      }
+      active_vmask = vecuc_set1(active_mask);
+    }
+  }
+#else
+  // 32-bit: each vrtypes word covers 4 variants, i.e. one nybble of
+  // variant_include.
+  const uint32_t qidx_start = variant_uidx_start / 4;
+  const uint32_t qidx_end = DivUp(variant_uidx_end, 4);
+  const uintptr_t first_nybble_mask = (15U << (variant_uidx_start % 4)) & 15;
+  const uint32_t trailing_variant_ct = variant_uidx_end % 4;
+  const uintptr_t last_nybble_mask = trailing_variant_ct? ((1U << trailing_variant_ct) - 1) : 15;
+  for (uint32_t qidx = qidx_start; qidx != qidx_end; ++qidx) {
+    // 8 nybbles per 32-bit variant_include word
+    uintptr_t include_nybble = variant_include? ((variant_include[qidx / 8] >> (4 * (qidx % 8))) & 15) : 15;
+    if (qidx == qidx_start) {
+      include_nybble &= first_nybble_mask;
+    }
+    if (qidx + 1 == qidx_end) {
+      include_nybble &= last_nybble_mask;
+    }
+    if (!include_nybble) {
+      continue;
+    }
+    // dcba -> d0000000c0000000b0000000a
+    const uintptr_t include_bytes = ((include_nybble * 0x204081) & kMask0101) * 0xff;
+    uintptr_t cur_word;
+    memcpy(&cur_word, &(vrtypes[qidx * 4]), 4);
+    uintptr_t hits = cur_word & include_bytes & (active_mask * kMask0101);
+    if (hits) {
+      hits |= hits >> 16;
+      hits |= hits >> 8;
+      const uint32_t cur_found = hits & 0xff;
+      found_bits |= cur_found;
+      for (uint64_t groups_remaining = vrtype_groups; groups_remaining; groups_remaining >>= 8) {
+        const uint32_t cur_group = groups_remaining & 0xff;
+        if (cur_group & cur_found) {
+          active_mask &= ~cur_group;
+        }
+      }
+      if (!active_mask) {
+        return found_bits;
+      }
+    }
+  }
+#endif
+  return found_bits;
+}
+
 BoolErr PglDosagesAreInvalid(const uintptr_t* __restrict dosage_present, const uint16_t* __restrict dosage_main, uint32_t dosage_ct, const uintptr_t* __restrict dphase_present, const int16_t* __restrict dphase_delta, uint32_t dphase_ct) {
   uint32_t max_dosage = 0;
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {

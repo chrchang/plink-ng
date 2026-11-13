@@ -1715,7 +1715,6 @@ unsigned char* FillBgen13PloidyAndMissingness(const uintptr_t* genovec, const ui
       // -> 0,8,16,24,32,40,48,56, with extraneous bits set
       cur_hardcall_missing8 = cur_hardcall_missing8 * 0x41041;
       // 0,1,2,3,4,5,6,7 -> 0,8,16,24,32,40,48,56, with extraneous bits set
-      // this operation also appears in GflagsVfilter(), may want to wrap it
       cur_dosage_missing8 = ((cur_dosage_missing8 & 0xfe) * 0x2040810204080LLU) | (cur_dosage_missing8 & 1);
       const uint64_t cur_missing8 = ((cur_hardcall_missing8 & cur_dosage_missing8) & 0x101010101010101LLU) << 7;
 #endif
