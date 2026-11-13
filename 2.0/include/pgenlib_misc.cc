@@ -3708,6 +3708,11 @@ uint32_t ScanVrtypeGroups(const uintptr_t* variant_include, const unsigned char*
   const VecUc m7f = vecuc_set1(0x7f);
   VecUc active_vmask = vecuc_set1(active_mask);
   for (uint32_t widx = widx_start; widx != widx_end; ++widx) {
+    // TODO: It should be possible to accelerate this further (in typical
+    // cases) by making the inner loop run over more vectors at a time, and
+    // using e.g. an initial goto to avoid needing to check widx == widx_start
+    // on every iteration (unless modern compilers automatically take care of
+    // that now?).
     uintptr_t include_word = variant_include? variant_include[widx] : (~k0LU);
     if (widx == widx_start) {
       include_word &= first_word_mask;
