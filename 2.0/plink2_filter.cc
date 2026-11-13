@@ -1641,12 +1641,8 @@ void KeepOneId(const char* sample_id_flattened, const SampleIdInfo* siip, uint32
         cur_sid = nullptr;
         cur_sid_blen = 0;
       }
-    } else {
-      if (sids) {
-        cur_sid = &(g_one_char_strs[96]);  // "0"
-        cur_sid_blen = 2;
-      }
     }
+    // If no SID was provided, match all SIDs, consistent with --keep.
     const char* sample_ids = siip->sample_ids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;
