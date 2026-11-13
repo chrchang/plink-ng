@@ -1639,6 +1639,13 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
         }
 #endif
       }
+      if (vrtype_and_fpos_storage < 4) {
+        // No phase or dosage, so 4-bit vrtypes; multiallelic hardcalls (bit
+        // 3) are still possible.
+        if (ScanVrtypeGroups(nullptr, pgfip->vrtypes, vblock_idx_start * kPglVblockSize, vidx_end, 8)) {
+          new_gflags |= kfPgenGlobalMultiallelicHardcallFound;
+        }
+      }
     }
     if (vrtype_and_fpos_storage >= 4) {
       // Likely for one of {hphase, dosage} to be present without the
@@ -1663,8 +1670,6 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       }
       const VecW or_vvec_bit3 = vecw_slli(or_vvec, 4);
       if (vecw_movemask(or_vvec_bit3)) {
-        // note that, if no phase or dosage data is present, we don't
-        // look for multiallelic hardcalls.
         new_gflags |= kfPgenGlobalMultiallelicHardcallFound;
       }
       const VecW or_vvec_bit4 = vecw_slli(or_vvec, 3);

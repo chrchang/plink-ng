@@ -1608,6 +1608,8 @@ PglErr AllocAndFillVariantLastAlidxs(const uintptr_t* allele_idx_offsets, uint32
 // wrapper that initializes them to variant_uidx's chromosome bounds.)
 void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, uint32_t variant_uidx, uint32_t bp_radius, uint32_t* start_vidxp, uint32_t* end_vidxp);
 
+// Returns the subset of {hardcall phase, dosage, dosage phase} in
+// input_gflags actually present in the variant_include variants.
 PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags);
 
 HEADER_INLINE const char* const* GetVariantAlleles(const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_uidx, uint32_t* allele_ctp) {
