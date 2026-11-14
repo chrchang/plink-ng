@@ -56,6 +56,8 @@ typedef struct zstRFILEMainStruct {
   ZSTD_DStream* zds;
   ZSTD_inBuffer zib;
   const char* errmsg;
+  char io_error[512];
+  uint32_t is_remote;
   PglErr reterr;  // kPglRetSkipped == ordinary eof
 } zstRFILEMain;
 

@@ -1,0 +1,96 @@
+name: PLINK2 S3 TESTS
+
+on:
+  push:
+    paths:
+      - 2.0/include/**
+      - 2.0/Python/**
+      - 2.0/Makefile*
+      - 2.0/build_dynamic/Makefile
+      - 2.0/plink2.cc
+      - 2.0/plink2_import.cc
+      - 2.0/Tests/TEST_S3/**
+      - .github/workflows/s3_tests.yml
+  pull_request:
+    paths:
+      - 2.0/include/**
+      - 2.0/Python/**
+      - 2.0/Makefile*
+      - 2.0/build_dynamic/Makefile
+      - 2.0/plink2.cc
+      - 2.0/plink2_import.cc
+      - 2.0/Tests/TEST_S3/**
+      - .github/workflows/s3_tests.yml
+  workflow_dispatch:
+
+jobs:
+  s3_tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux exercises the fopencookie backend, macOS the funopen one.
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo -n apt-get update
+          sudo -n apt-get install -y build-essential libcurl4-openssl-dev liblapacke-dev libopenblas-dev zlib1g-dev
+
+      - name: Set up MinIO installer (Linux)
+        if: runner.os == 'Linux'
+        uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          run-install: false
+          cache: false
+
+      # macOS runners have no docker, so MinIO runs natively.  dl.min.io no
+      # longer serves standalone binaries, hence Homebrew.
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install curl zlib minio minio-mc
+          echo "CPATH=$(brew --prefix curl)/include:$(brew --prefix zlib)/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=$(brew --prefix curl)/lib:$(brew --prefix zlib)/lib" >> "$GITHUB_ENV"
+          echo "CURL_CONFIG=$(brew --prefix curl)/bin/curl-config" >> "$GITHUB_ENV"
+
+      # The quay.io MinIO image is no longer pullable, so Linux uses conda-forge's
+      # build too.  Only minio and mc are exposed, not the rest of that env.
+      - name: Install MinIO (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          MINIO_BIN=$(pixi exec --spec minio-server --spec minio-client -- which minio)
+          mkdir -p "$RUNNER_TEMP/miniobin"
+          ln -s "$MINIO_BIN" "$RUNNER_TEMP/miniobin/minio"
+          ln -s "$(dirname "$MINIO_BIN")/mc" "$RUNNER_TEMP/miniobin/mc"
+          echo "$RUNNER_TEMP/miniobin" >> "$GITHUB_PATH"
+
+      - name: Build plink2 with S3 support
+        working-directory: ./2.0
+        run: make -C build_dynamic USE_S3=1 SFX= -j2
+
+      - name: Confirm the binary is linked against libcurl
+        working-directory: ./2.0
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            otool -L build_dynamic/plink2 | grep -i curl
+          else
+            ldd build_dynamic/plink2 | grep -i curl
+          fi
+
+      - name: Run S3 tests
+        working-directory: ./2.0/Tests/TEST_S3
+        env:
+          KEEP_MINIO: 1
+          S3_TEST_NATIVE: 1
+        run: bash run_tests.sh ../../build_dynamic
+
+      - name: Dump MinIO logs on failure
+        if: failure()
+        working-directory: ./2.0/Tests/TEST_S3
+        run: cat tmp_s3/minio.log 2>/dev/null || true

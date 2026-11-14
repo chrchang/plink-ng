@@ -90,7 +90,7 @@ FLAGSET_DEF_START()
   kfPvarColsetAlt = (1 << kPvarColAlt)
 FLAGSET_DEF_END(PvarColFlags);
 
-PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalPvar* mpp, char* errstr_buf) {
+PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalPvar* mpp, char* errstr_buf, const S3Credentials* s3_creds) {
   // Simple, somewhat inefficient two-pass loader.  Only looks at
   // CHROM/POS/ID/REF/ALT; the first two are optional.
   const char** chr_names_tmp = nullptr;
@@ -101,7 +101,9 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   {
-    if (unlikely(TextStreamOpen(fname, &txs))) {
+    // Bypasses the TextStreamOpen() wrapper (which has no credentials
+    // parameter) so an explicit per-object S3 client can be forwarded.
+    if (unlikely(TextStreamOpenEx(fname, kMaxLongLine, 0, NumCpu(nullptr), nullptr, nullptr, &txs, s3_creds))) {
       goto LoadMinimalPvarEx_ret_FILE_FAIL;
     }
     const uint32_t chr_needed = ((flags & kfLoadMinimalPvarOmitChrom) == 0);

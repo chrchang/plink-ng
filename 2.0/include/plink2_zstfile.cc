@@ -15,11 +15,10 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "plink2_zstfile.h"
+#include "plink2_s3.h"
 
 #include <assert.h>
-#include <errno.h>
 #include <stdlib.h>
-#include <string.h>
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -29,12 +28,18 @@ static inline zstRFILEMain* GetZrfp(zstRFILE* zrf_ptr) {
   return &GET_PRIVATE(*zrf_ptr, m);
 }
 
+static const char* ZstRfileIoError(zstRFILEMain* zrfp) {
+  snprintf(zrfp->io_error, sizeof(zrfp->io_error), "%s", InputErrorMessage(zrfp->is_remote));
+  return zrfp->io_error;
+}
+
 void PreinitZstRfile(zstRFILE* zrf_ptr) {
   zstRFILEMain* zrfp = GetZrfp(zrf_ptr);
   zrfp->ff = nullptr;
   zrfp->zds = nullptr;
   zrfp->zib.src = nullptr;
   zrfp->errmsg = nullptr;
+  zrfp->is_remote = 0;
   zrfp->reterr = kPglRetEof;
 }
 
@@ -53,7 +58,8 @@ PglErr ZstRfileOpen(const char* fname, zstRFILE* zrf_ptr) {
       zrfp->errmsg = kShortErrZstAlreadyOpen;
       goto ZstRfileOpen_ret_1;
     }
-    zrfp->ff = fopen(fname, FOPEN_RB);
+    zrfp->is_remote = IsS3Uri(fname);
+    zrfp->ff = OpenMaybeS3(fname);
     if (unlikely(!zrfp->ff)) {
       goto ZstRfileOpen_ret_OPEN_FAIL;
     }
@@ -90,11 +96,11 @@ PglErr ZstRfileOpen(const char* fname, zstRFILE* zrf_ptr) {
     break;
   ZstRfileOpen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    zrfp->errmsg = strerror(errno);
+    zrfp->errmsg = ZstRfileIoError(zrfp);
     break;
   ZstRfileOpen_ret_READ_FAIL:
     reterr = kPglRetReadFail;
-    zrfp->errmsg = strerror(errno);
+    zrfp->errmsg = ZstRfileIoError(zrfp);
     break;
   }
  ZstRfileOpen_ret_1:
@@ -130,7 +136,7 @@ int32_t zstread(zstRFILE* zrf_ptr, void* dst, uint32_t len) {
         if (unlikely(!feof_unlocked(zrfp->ff))) {
           // zlib Z_ERRNO
           zrfp->reterr = kPglRetReadFail;
-          zrfp->errmsg = strerror(errno);
+          zrfp->errmsg = ZstRfileIoError(zrfp);
           return -1;
         }
         if (unlikely(nbytes)) {
@@ -165,7 +171,7 @@ int32_t zstread(zstRFILE* zrf_ptr, void* dst, uint32_t len) {
         return -2;
       }
       zrfp->reterr = kPglRetReadFail;
-      zrfp->errmsg = strerror(errno);
+      zrfp->errmsg = ZstRfileIoError(zrfp);
       return -1;
     }
     zrfp->zib.size = to_decode;
