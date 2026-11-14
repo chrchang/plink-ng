@@ -230,6 +230,40 @@ test_that("writer works", {
   ClosePgenWriter(pw)
 })
 
+test_that("multiallelic variants without a pvar have ALTs collapsed", {
+  # Without a pvar (or phase/dosage data), all variants are treated as
+  # biallelic, with ALT2+ collapsed into ALT1.  ReadAlleles() used to error
+  # out on multiallelic variants in this case.
+  tmpdir <- withr::local_tempdir()
+  pgen_path <- file.path(tmpdir, "multiallelic_nopvar.pgen")
+  acbuf_list <- list(matrix(c(0L, 1L, 1L, 1L, 0L, 0L), nrow = 2),
+                     matrix(c(0L, 2L, 1L, 2L, NA, NA), nrow = 2),
+                     matrix(c(0L, 3L, 1L, 2L, 0L, 1L), nrow = 2))
+  pw <- NewPgenWriter(pgen_path, 3L, 3L, allele_ct_limit = 4L)
+  AppendAlleles(pw, acbuf_list[[1]])
+  AppendAlleles(pw, acbuf_list[[2]])
+  AppendAlleles(pw, acbuf_list[[3]], allele_ct = 4L)
+  ClosePgenWriter(pw)
+  pgen <- NewPgen(pgen_path)
+  ibuf <- IntBuf(pgen)
+  acbuf_out <- IntAlleleCodeBuf(pgen)
+  acbuf_dbl <- AlleleCodeBuf(pgen)
+  phasepresent <- BoolBuf(pgen)
+  for (vidx in 1:3) {
+    expected <- pmin(acbuf_list[[vidx]], 1L)
+    expect_equal(GetAlleleCt(pgen, vidx), 2)
+    ReadAlleles(pgen, acbuf_out, vidx)
+    expect_identical(acbuf_out, expected)
+    ReadAlleles(pgen, acbuf_out, vidx, phasepresent)
+    expect_identical(acbuf_out, expected)
+    ReadAlleles(pgen, acbuf_dbl, vidx)
+    expect_identical(acbuf_dbl, matrix(as.numeric(expected), nrow = 2))
+    ReadHardcalls(pgen, ibuf, vidx)
+    expect_identical(ibuf, as.integer(colSums(expected)))
+  }
+  ClosePgen(pgen)
+})
+
 test_that("reader rejects an allele the variant does not have", {
   tmpdir <- withr::local_tempdir()
   pgen_path <- file.path(tmpdir, "alleles.pgen")

@@ -536,7 +536,11 @@ cdef class PgenReader:
             raise RuntimeError(errstr_buf[7:])
         if self._info_ptr[0].gflags & kfPgenGlobalMultiallelicHardcallFound:
             if self._info_ptr[0].allele_idx_offsets == NULL:
-                raise RuntimeError("PgenReader: multiallelic variants present, but allele_idx_offsets not provided")
+                # This flag is only set when phase or dosage data is present.
+                # Without such data, a missing allele_idx_offsets is fine: all
+                # variants are treated as biallelic, with ALT2+ collapsed into
+                # ALT1 (same as pgenlibr).
+                raise RuntimeError("PgenReader: multiallelic variants and phase/dosage info simultaneously present; allele_idx_offsets or pvar required")
 
         self._state_ptr = <PgenReaderStruct*>PyMem_Malloc(sizeof(PgenReaderStruct))
         if not self._state_ptr:
@@ -728,6 +732,18 @@ cdef class PgenReader:
         return
 
 
+    cdef PglErr get_alleles_internal(self, uint32_t variant_idx) noexcept nogil:
+        # Loads variant_idx into self._pgv for GenoarrMPToAlleleCodesMinus9().
+        # Without allele_idx_offsets, all variants are treated as biallelic,
+        # with ALT2+ collapsed into ALT1 (same as pgenlibr, and the other read
+        # functions); PgrGetMP() can't do this, since it needs
+        # allele_idx_offsets to read a multiallelic record.
+        if self._info_ptr[0].allele_idx_offsets == NULL:
+            self._pgv.patch_01_ct = 0
+            self._pgv.patch_10_ct = 0
+            return PgrGetP(self._subset_include_vec, self._subset_index, self._subset_size, variant_idx, self._state_ptr, self._pgv.genovec, self._pgv.phasepresent, self._pgv.phaseinfo, &(self._pgv.phasepresent_ct))
+        return PgrGetMP(self._subset_include_vec, self._subset_index, self._subset_size, variant_idx, self._state_ptr, &(self._pgv))
+
     cpdef read_alleles(self, uint32_t variant_idx, cnp.ndarray[cnp.int32_t,mode="c",ndim=1] allele_int32_out):
         self.check_open()
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
@@ -738,7 +754,7 @@ cdef class PgenReader:
 
         cdef PglErr reterr
         with nogil:
-            reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
+            reterr = self.get_alleles_internal(variant_idx)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_alleles() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
@@ -758,7 +774,7 @@ cdef class PgenReader:
 
         cdef PglErr reterr
         with nogil:
-            reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
+            reterr = self.get_alleles_internal(variant_idx)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_alleles_and_phasepresent() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
@@ -1265,7 +1281,7 @@ cdef class PgenReader:
             if allele_int32_out.shape[1] < 2 * subset_size:
                 raise RuntimeError("Variant-major read_alleles_range() allele_int32_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
             for variant_idx in prange(variant_idx_start, variant_idx_end, nogil=True):
-                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
+                reterr = self.get_alleles_internal(variant_idx)
                 if reterr != kPglRetSuccess:
                     with gil:
                         raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_range() error " + str(reterr))
@@ -1376,7 +1392,7 @@ cdef class PgenReader:
                 if variant_idx >= raw_variant_ct:
                     with gil:
                         raise RuntimeError("read_alleles_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
+                reterr = self.get_alleles_internal(variant_idx)
                 if reterr != kPglRetSuccess:
                     with gil:
                         raise RuntimeError("read_alleles_list() error " + str(reterr))
@@ -1486,7 +1502,7 @@ cdef class PgenReader:
             if phasepresent_out.shape[1] < subset_size:
                 raise RuntimeError("Variant-major read_alleles_and_phasepresent_range() phasepresent_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ")")
             for variant_idx in prange(variant_idx_start, variant_idx_end, nogil=True):
-                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
+                reterr = self.get_alleles_internal(variant_idx)
                 if reterr != kPglRetSuccess:
                     with gil:
                         raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_and_phasepresent_range() error " + str(reterr))
@@ -1533,7 +1549,7 @@ cdef class PgenReader:
                 if variant_idx >= raw_variant_ct:
                     with gil:
                         raise RuntimeError("read_alleles_and_phasepresent_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
+                reterr = self.get_alleles_internal(variant_idx)
                 if reterr != kPglRetSuccess:
                     with gil:
                         raise RuntimeError("read_alleles_and_phasepresent_list() error " + str(reterr))
@@ -1732,7 +1748,7 @@ cdef class PgenReader:
             return kPglRetSuccess
         if (PgrGetVrtype(self._state_ptr, variant_idx) & 0x60) != 0:
             return kPglRetNotYetSupported
-        reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
+        reterr = self.get_alleles_internal(variant_idx)
         if reterr != kPglRetSuccess:
             return reterr
         GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, self._phasebytes_buf, self._allele_codes_buf)
