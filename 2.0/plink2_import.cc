@@ -13639,9 +13639,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (dosage_exists) {
               // don't need to scan for any more dosages
               StopThreads(&tg);
-              if ((!filter_exists) && (!allow_overstated_variant_ct)) {
-                break;
-              }
+              // Keep going to the end of the file even if we don't need
+              // variant_ct, so that we can verify the header's variant count.
               continue;
             }
           }
@@ -13660,6 +13659,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             }
           }
         }
+      }
+      if (unlikely(getc_unlocked(bgenfile) != EOF)) {
+        // --lax-bgen-import only tolerates an overstated count.
+        snprintf(g_logbuf, kLogbufSize, "Error: .bgen file contains more than the %u variant%s declared in its header.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
       }
 
       if (!filter_exists) {
@@ -14604,6 +14608,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         bgen_geno_iter = &(bgen_geno_iter[genodata_byte_ct]);
         compressed_geno_starts[++block_vidx] = bgen_geno_iter;
+      }
+      if (unlikely(getc_unlocked(bgenfile) != EOF)) {
+        // --lax-bgen-import only tolerates an overstated count.
+        snprintf(g_logbuf, kLogbufSize, "Error: .bgen file contains more than the %u variant%s declared in its header.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
       }
       variant_ct += block_vidx;
       if (multiallelic_tmp_skip_ct) {

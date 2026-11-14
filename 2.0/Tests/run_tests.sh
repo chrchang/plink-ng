@@ -688,4 +688,19 @@ cd TEST_SAMPLE_ID_PHENO_FLAGS
 cd ..
 echo "TEST_SAMPLE_ID_PHENO_FLAGS passed."
 
+cd TEST_VARIANT_FILTER_OPTS
+./run_tests.sh $d $2 $3 > TEST_VARIANT_FILTER_OPTS.log
+cd ..
+echo "TEST_VARIANT_FILTER_OPTS passed."
+
+cd TEST_LD_OPTIONS
+./run_tests.sh $d $2 $3 > TEST_LD_OPTIONS.log
+cd ..
+echo "TEST_LD_OPTIONS passed."
+
+cd TEST_IMPORT_OUTPUT_OPTS
+./run_tests.sh $d $2 $3 > TEST_IMPORT_OUTPUT_OPTS.log
+cd ..
+echo "TEST_IMPORT_OUTPUT_OPTS passed."
+
 echo "All tests passed."
