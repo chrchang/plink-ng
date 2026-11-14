@@ -935,10 +935,20 @@ void RPgenReader::ReadAllelesPhasedInternal(int variant_idx) {
     snprintf(errstr_buf, 256, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = plink2::PgrGetMP(_subset_include_vec, _subset_index, _subset_size, variant_idx, _state_ptr, &_pgv);
+  plink2::PglErr reterr;
+  if (!_info_ptr->allele_idx_offsets) {
+    // No pvar: all variants are treated as biallelic, with ALT2+ collapsed
+    // into ALT1.  PgrGetMP() can't do this, since it needs allele_idx_offsets
+    // to read a multiallelic record.
+    _pgv.patch_01_ct = 0;
+    _pgv.patch_10_ct = 0;
+    reterr = plink2::PgrGetP(_subset_include_vec, _subset_index, _subset_size, variant_idx, _state_ptr, _pgv.genovec, _pgv.phasepresent, _pgv.phaseinfo, &_pgv.phasepresent_ct);
+  } else {
+    reterr = plink2::PgrGetMP(_subset_include_vec, _subset_index, _subset_size, variant_idx, _state_ptr, &_pgv);
+  }
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
-    snprintf(errstr_buf, 256, "PgrGetMP() error %d", static_cast<int>(reterr));
+    snprintf(errstr_buf, 256, "ReadAlleles() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
 }
