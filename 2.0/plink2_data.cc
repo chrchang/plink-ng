@@ -10699,7 +10699,9 @@ PglErr UpdateChr(const uintptr_t* variant_include, const char* const* variant_id
   return reterr;
 }
 
-PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, ChrInfo* cip) {
+// If chr_idxs is non-null (input had split chromosomes), its per-variant
+// codes are updated as well; otherwise only cip's tables are.
+PglErr RenameChrs(const char* rename_chrs_fname, const uintptr_t* variant_include, uint32_t prohibit_extra_chrs, uint32_t variant_ct, ChrInfo* cip, ChrIdx* chr_idxs) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -10711,10 +10713,15 @@ PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, C
     uintptr_t* already_seen;  // by file-order
     uint32_t* new_chr_file_order;
     uint32_t* new_chr_idx_to_foidx;
+    uint32_t* old_to_new_chr_idx;
     if (unlikely(bigstack_calloc_w(chr_wct, &already_seen) ||
                  bigstack_alloc_u32(chr_ct, &new_chr_file_order) ||
-                 bigstack_alloc_u32(kChrRawEnd, &new_chr_idx_to_foidx))) {
+                 bigstack_alloc_u32(kChrRawEnd, &new_chr_idx_to_foidx) ||
+                 bigstack_alloc_u32(kChrRawEnd, &old_to_new_chr_idx))) {
       goto RenameChrs_ret_NOMEM;
+    }
+    for (uint32_t chr_idx = 0; chr_idx != kChrRawEnd; ++chr_idx) {
+      old_to_new_chr_idx[chr_idx] = chr_idx;
     }
     memcpy(new_chr_file_order, cip->chr_file_order, chr_ct * sizeof(int32_t));
     memcpy(new_chr_idx_to_foidx, cip->chr_idx_to_foidx, kChrRawEnd * sizeof(int32_t));
@@ -10757,10 +10764,30 @@ PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, C
       }
       new_chr_file_order[foidx] = new_chr_code;
       new_chr_idx_to_foidx[new_chr_code] = foidx;
+      old_to_new_chr_idx[old_chr_idx] = new_chr_code;
     }
     if (unlikely(line_idx == 1)) {
       logerrputs("Error: Empty --rename-chrs file.\n");
       goto RenameChrs_ret_MALFORMED_INPUT;
+    }
+    // Two file-order chromosome blocks can't share a code (e.g. renaming
+    // contig A to B while B is also present and not renamed away); this used
+    // to leave chr_idx_to_foidx[] inconsistent with chr_file_order[].
+    {
+      uintptr_t* new_code_seen;
+      if (unlikely(bigstack_calloc_w(BitCtToWordCt(kChrRawEnd), &new_code_seen))) {
+        goto RenameChrs_ret_NOMEM;
+      }
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+        const uint32_t new_chr_idx = new_chr_file_order[chr_fo_idx];
+        if (unlikely(IsSet(new_code_seen, new_chr_idx))) {
+          char* write_iter = strcpya_k(g_logbuf, "Error: --rename-chrs would merge two chromosomes into '");
+          write_iter = chrtoa(cip, new_chr_idx, write_iter);
+          strcpy_k(write_iter, "'; this is not supported.\n");
+          goto RenameChrs_ret_MALFORMED_INPUT_WW;
+        }
+        SetBit(new_chr_idx, new_code_seen);
+      }
     }
     const uint32_t update_ct = PopcountWords(already_seen, chr_wct);
     uintptr_t chr_foidx_base = 0;
@@ -10779,6 +10806,16 @@ PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, C
     }
     memcpy(cip->chr_file_order, new_chr_file_order, chr_ct * sizeof(int32_t));
     memcpy(cip->chr_idx_to_foidx, new_chr_idx_to_foidx, kChrRawEnd * sizeof(int32_t));
+    if (chr_idxs) {
+      // bugfix: this was previously skipped, so the rename was silently
+      // ignored when the input had split chromosomes.
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        chr_idxs[variant_uidx] = old_to_new_chr_idx[chr_idxs[variant_uidx]];
+      }
+    }
     logprintf("--rename-chrs: %u chromosome code%s updated.\n", update_ct, (update_ct == 1)? "" : "s");
   }
   while (0) {
@@ -11798,7 +11835,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
         goto MakePlink2Vsort_ret_1;
       }
     } else if (rename_chrs_fname) {
-      reterr = RenameChrs(rename_chrs_fname, (misc_flags / kfMiscProhibitExtraChr & 1), cip);
+      reterr = RenameChrs(rename_chrs_fname, variant_include, (misc_flags / kfMiscProhibitExtraChr & 1), variant_ct, cip, chr_idxs);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

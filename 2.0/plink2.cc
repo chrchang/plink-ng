@@ -4989,6 +4989,7 @@ int main(int argc, char** argv) {
 #endif
     uint32_t randmem = 0;
     uint32_t pmerge_required = 0;
+    uint32_t ld_score_cm_radius_explicit = 0;
     // --merge-{qual,filter,info,cm}-mode also apply to variant-join.
     uint32_t merge_col_mode_required = 0;
     uint32_t allow_misleading_out_arg = 0;
@@ -10100,7 +10101,7 @@ int main(int argc, char** argv) {
           // An explicit window replaces the cM default rather than adding to
           // it; otherwise a user asking for a variant-count window would
           // silently keep getting the 1 cM restriction too.
-          if (pc.ld_score_info.cm_radius == 1.0) {
+          if (!ld_score_cm_radius_explicit) {
             pc.ld_score_info.cm_radius = -1.0;
           }
         } else if (strequal_k_unsafe(flagname_p2, "d-score-window-kb")) {
@@ -10113,7 +10114,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.ld_score_info.bp_radius = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
-          if (pc.ld_score_info.cm_radius == 1.0) {
+          if (!ld_score_cm_radius_explicit) {
             pc.ld_score_info.cm_radius = -1.0;
           }
         } else if (strequal_k_unsafe(flagname_p2, "d-score-window-cm")) {
@@ -10126,6 +10127,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.ld_score_info.cm_radius = dxx * (1 + kSmallEpsilon);
+          // Flags are processed in alphabetical order, so this precedes
+          // --ld-score-window-kb (but not --ld-score-window).
+          ld_score_cm_radius_explicit = 1;
         } else if (strequal_k_unsafe(flagname_p2, "d-window-cm")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -11397,6 +11401,8 @@ int main(int argc, char** argv) {
             }
           } else {
             pc.mach_r2_min = 0.1;
+            // bugfix: mach_r2_max != 0.0 is what marks the filter as active
+            pc.mach_r2_max = 2.0;
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
