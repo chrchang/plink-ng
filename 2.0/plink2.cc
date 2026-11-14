@@ -4951,7 +4951,7 @@ int main(int argc, char** argv) {
     pc.keep_col_match_num = 0;
     pc.filter_min_allele_ct = 0;
     pc.filter_max_allele_ct = UINT32_MAX;
-    pc.bed_border_bp = 0;
+    pc.bed_border_bp = UINT32_MAX;  // set to 0 after parsing if not specified
     pc.input_missing_geno_char = '0';
     pc.output_missing_geno_char = '.';
     pc.legacy_output_missing_geno_char = '0';
@@ -5781,7 +5781,7 @@ int main(int argc, char** argv) {
             pc.bed_border_bp = S_CAST(int32_t, dxx * (1 + kSmallEpsilon));
           }
         } else if (strequal_k_unsafe(flagname_p2, "ed-border-kb")) {
-          if (unlikely(pc.bed_border_bp)) {
+          if (unlikely(pc.bed_border_bp != UINT32_MAX)) {
             logerrputs("Error: --bed-border-kb cannot be used with --bed-border-bp.\n");
             goto main_ret_INVALID_CMDLINE;
           }
@@ -15908,6 +15908,12 @@ int main(int argc, char** argv) {
     if (unlikely((pc.ld_info.flipscan_flags & kfFlipScanDprime) && pc.ld_info.flipscan_ref_freq_fname)) {
       // --flip-scan-ref-freq has no LD scan for D' to replace.
       logerrputs("Error: --flip-scan 'dprime' cannot be used with --flip-scan-ref-freq.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (pc.bed_border_bp == UINT32_MAX) {
+      pc.bed_border_bp = 0;
+    } else if (unlikely(!(pc.filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1 | kfFilterExtractIntersectBed0 | kfFilterExtractIntersectBed1 | kfFilterExcludeBed0 | kfFilterExcludeBed1)))) {
+      logerrputs("Error: --bed-border-bp/--bed-border-kb must be used with a BED-file\n--extract/--extract-intersect/--exclude.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {

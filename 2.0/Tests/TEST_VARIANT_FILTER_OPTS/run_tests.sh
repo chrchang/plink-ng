@@ -7,6 +7,8 @@
 # Regression check: --mach-r2-filter with no arguments (documented defaults
 # 0.1 and 2.0) set only the minimum, and since a zero maximum is what marks
 # the filter as inactive, it silently did nothing.
+# --bed-border-bp/-kb without a BED-file filter used to be silently ignored;
+# it's now an error.
 
 set -exo pipefail
 
@@ -69,6 +71,13 @@ check_variants tmp_data "v3 v4 v5 w1" --extract bed0 tmp_r0.bed --bed-border-bp 
 check_variants tmp_data "v2 v3 v4 v5 v6 w1" --extract bed1 tmp_r0.bed --bed-border-kb 1
 check_variants tmp_data "v1 v7 v8 w2" --exclude bed1 tmp_r0.bed --bed-border-bp 1000
 check_variants tmp_data "v3 v4 v5 v6 w1" --extract-intersect bed0 tmp_r0.bed tmp_r1.bed --bed-border-bp 1000
+# A border with no BED filter (including an ID-list --extract) is an error.
+for flags in "--bed-border-bp 500" "--bed-border-kb 0" "--extract tmp_a.txt --bed-border-bp 500"; do
+    if $plink2 --pfile tmp_data $flags --write-snplist --out tmp_bad > /dev/null 2>&1; then
+        exit 1
+    fi
+    grep -q 'must be used with a BED-file' tmp_bad.log
+done
 
 # --- --maf-succ ---
 # S1's lone ALT call gives v1..v8 a MAF of 1/8; w2 has MAF 0, which becomes

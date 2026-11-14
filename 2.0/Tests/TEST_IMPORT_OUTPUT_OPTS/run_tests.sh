@@ -11,6 +11,10 @@
 #   .pvar write then hit an assertion (or, in release builds, wrote
 #   inconsistent output).  This is now an error.
 # - When the input had split chromosomes, the rename was silently ignored.
+# - ##contig header lines kept the old names.
+#
+# Regression check for --bgen: a header that understated the variant count
+# silently dropped the trailing variants, with or without --lax-bgen-import.
 
 set -exo pipefail
 
@@ -122,13 +126,31 @@ fi
 $plink2 --bgen tmp_bgen_over.bgen ref-first --sample tmp_bgen.sample --lax-bgen-import --make-pgen --out tmp_b1 > /dev/null
 diff -q tmp_b0.pgen tmp_b1.pgen
 diff -q tmp_b0.pvar tmp_b1.pvar
+# An understated count is always an error, in both the BGEN v1.1 and v1.2+
+# code paths.
+$plink2 --pfile tmp_dummy --export bgen-1.1 --out tmp_bgen11 > /dev/null
+for v in bgen bgen11; do
+    python3 -c "
+import struct
+b = bytearray(open('tmp_$v.bgen', 'rb').read())
+m = struct.unpack_from('<I', b, 8)[0]
+struct.pack_into('<I', b, 8, m - 1)
+open('tmp_${v}_under.bgen', 'wb').write(b)
+"
+    for lax in "" --lax-bgen-import; do
+        if $plink2 --bgen tmp_${v}_under.bgen ref-first --sample tmp_$v.sample $lax --make-pgen --out tmp_bad > /dev/null 2>&1; then
+            exit 1
+        fi
+        grep -q 'more than the .* variants declared in its header' tmp_bad.log
+    done
+done
 
 # --- --alt1-allele, --var-id-multi[-nonsnp], --rename-chrs ---
 cat > tmp_m.vcf <<'VCF'
 ##fileformat=VCFv4.2
 ##contig=<ID=1,length=10000>
-##contig=<ID=scafB,length=10000>
-##contig=<ID=scafA,length=10000>
+##contig=<ID=scafB,length=20000>
+##contig=<ID=scafA,length=30000>
 ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	A	B	C
 1	100	s1	A	G	.	.	.	GT	0/1	0/0	1/1
@@ -186,12 +208,22 @@ if $plink2 --pfile tmp_m --rename-chrs tmp_rn.txt --make-pgen --out tmp_bad > /d
 fi
 $plink2 --pfile tmp_m --rename-chrs tmp_rn.txt --sort-vars --make-pgen --out tmp_rn > /dev/null
 test "$(grep -v '^#' tmp_rn.pvar | cut -f 1,3 | tr '\t\n' ': ')" = "1:s1 1:m1 1:i1 1:mx aa_scaf:a1 zz_scaf:b1 "
+# ##contig lines follow the rename and keep their lengths.
+contigs() {
+    grep '^##contig' $1 | tr '\n' ' '
+}
+test "$(contigs tmp_rn.pvar)" = "##contig=<ID=1,length=10000> ##contig=<ID=zz_scaf,length=20000> ##contig=<ID=aa_scaf,length=30000> "
 # Genotypes move with their variants.
 diff <(vcf_rows tmp_rn | sort) <(vcf_rows tmp_m | sort)
 # Swapping two names is fine.
 printf 'scafA\tscafB\nscafB\tscafA\n' > tmp_rn_swap.txt
 $plink2 --pfile tmp_m --rename-chrs tmp_rn_swap.txt --sort-vars --make-pgen --out tmp_rn_swap > /dev/null
 test "$(grep -v '^#' tmp_rn_swap.pvar | cut -f 1,3 | tail -n 2 | tr '\t\n' ': ')" = "scafA:b1 scafB:a1 "
+test "$(contigs tmp_rn_swap.pvar)" = "##contig=<ID=1,length=10000> ##contig=<ID=scafA,length=20000> ##contig=<ID=scafB,length=30000> "
+# The same with --fa lengths, which are looked up under the old names.
+printf '>scafA\nAAAA\n>scafB\nAAAAAA\n>1\nAA\n' > tmp_rn.fa
+$plink2 --pfile tmp_m --fa tmp_rn.fa --rename-chrs tmp_rn_swap.txt --sort-vars --make-pgen --out tmp_rn_fa > /dev/null
+test "$(contigs tmp_rn_fa.pvar)" = "##contig=<ID=1,length=2> ##contig=<ID=scafA,length=6> ##contig=<ID=scafB,length=4> "
 # Merging two chromosomes into one name is an error, not a crash.
 printf 'scafA\tscafB\n' > tmp_rn_merge.txt
 printf 'scafA\t1\n' > tmp_rn_merge2.txt
@@ -216,6 +248,7 @@ VCF
 printf 'scafA\tnewname\n' > tmp_rn_split.txt
 $plink2 --vcf tmp_split.vcf --rename-chrs tmp_rn_split.txt --sort-vars --make-pgen --out tmp_rn_split > /dev/null
 test "$(grep -v '^#' tmp_rn_split.pvar | cut -f 1,3 | tr '\t\n' ': ')" = "1:s0 1:s1 newname:a1 newname:a2 "
+test "$(contigs tmp_rn_split.pvar)" = "##contig=<ID=newname,length=10000> ##contig=<ID=1,length=10000> "
 diff <(vcf_rows tmp_rn_split | sort) <(grep -v '^#' tmp_split.vcf | cut -f 3-5,10- | tr '\t' ' ' | sort)
 
 # --- --merge-par ---
