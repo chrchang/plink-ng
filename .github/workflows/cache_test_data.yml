@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+permissions:
+  contents: read
+
 jobs:
   cache-test-data:
     runs-on: ubuntu-latest

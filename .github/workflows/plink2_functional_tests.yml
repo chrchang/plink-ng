@@ -29,6 +29,9 @@ on:
       - '.github/scripts/apt-install.sh'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   run_tests:
     name: 2.0/Tests on ${{ matrix.os }} ${{ matrix.simd }}

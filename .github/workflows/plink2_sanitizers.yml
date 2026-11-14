@@ -36,6 +36,9 @@ on:
       - '.github/scripts/apt-install.sh'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   run_tests:
     name: 2.0/Tests under ASan+UBSan
