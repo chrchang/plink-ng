@@ -259,6 +259,11 @@ FLAGSET_DEF_END(TestMishapFlags);
 
 PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* sample_include, TestMishapFlags flags, double min_maf, double output_min_ln, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
+// --ld-score's default 1 cM radius.  Like an explicit --ld-score-window-cm
+// value, it's stretched by kSmallEpsilon so that variants exactly 1 cM away
+// aren't excluded by floating-point error.
+static const double kLdScoreDefaultCmRadius = 1.0 * (1 + kSmallEpsilon);
+
 typedef struct VcorInfoStruct {
   NONCOPYABLE(VcorInfoStruct);
   char* ld_snp_list_fname;

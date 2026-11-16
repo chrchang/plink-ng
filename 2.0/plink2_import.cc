@@ -13661,6 +13661,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           }
         }
       }
+      // Without a filter, this scan may stop early, but the main conversion
+      // loop below reads every variant, so the understated-variant-count check
+      // happens after that loop.  With a filter, it's the other way around.
+      if (filter_exists && unlikely(getc_unlocked(bgenfile) != EOF)) {
+        // --lax-bgen-import only tolerates an overstated count.
+        snprintf(g_logbuf, kLogbufSize, "Error: .bgen file contains more than the %u variant%s declared in its header.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
+      }
 
       if (!filter_exists) {
         variant_ct = raw_variant_ct;
@@ -14039,6 +14047,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         vidx_start += cur_block_write_ct;
         prev_block_write_ct = cur_block_write_ct;
+      }
+      if ((!filter_exists) && unlikely(getc_unlocked(bgenfile) != EOF)) {
+        // --lax-bgen-import only tolerates an overstated count.
+        snprintf(g_logbuf, kLogbufSize, "Error: .bgen file contains more than the %u variant%s declared in its header.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
       }
     } else {
       // v1.2-1.3
@@ -14604,6 +14617,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         bgen_geno_iter = &(bgen_geno_iter[genodata_byte_ct]);
         compressed_geno_starts[++block_vidx] = bgen_geno_iter;
+      }
+      if (unlikely(getc_unlocked(bgenfile) != EOF)) {
+        // --lax-bgen-import only tolerates an overstated count.
+        snprintf(g_logbuf, kLogbufSize, "Error: .bgen file contains more than the %u variant%s declared in its header.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
       }
       variant_ct += block_vidx;
       if (multiallelic_tmp_skip_ct) {

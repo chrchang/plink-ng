@@ -742,11 +742,14 @@ PglErr CsFixAndWriteContigHeaderLine(const char* hkvline_iter, const char* idval
   return kPglRetSuccess;
 }
 
-PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* contig_lens, uintptr_t xheader_blen, uint32_t vcfheader, uint32_t write_filter, uint32_t write_info, uint32_t append_info_pr_header_line, char* xheader, CompressStreamState* css_ptr, char** cswritepp) {
+// chr_remap (length kChrRawEnd) is non-null iff --rename-chrs was applied; it
+// maps the chromosome codes named by the original ##contig lines to the new
+// codes.
+PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* contig_lens, const uint32_t* chr_remap, uintptr_t xheader_blen, uint32_t vcfheader, uint32_t write_filter, uint32_t write_info, uint32_t append_info_pr_header_line, char* xheader, CompressStreamState* css_ptr, char** cswritepp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
-    if ((!vcfheader) && (!contig_lens)) {
+    if ((!vcfheader) && (!contig_lens) && (!chr_remap)) {
       if (write_filter && write_info) {
         if (unlikely(CsputsStd(xheader, xheader_blen, css_ptr, cswritepp))) {
           goto PvarXheaderWrite_ret_WRITE_FAIL;
@@ -785,6 +788,28 @@ PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, co
       if (unlikely(bigstack_calloc_w(chr_ctl, &written_contig_header_lines))) {
         goto PvarXheaderWrite_ret_NOMEM;
       }
+      // If neither vcfheader nor contig_lens is set, we're only here to apply
+      // chr_remap; other ##contig lines are kept as is, and missing ones are
+      // not filled in.
+      const uint32_t regen_contigs = vcfheader || contig_lens;
+      // ##contig lines for codes that --rename-chrs assigned to another
+      // chromosome, without renaming the original holder away, are stale.
+      uintptr_t* stale_chr_codes = nullptr;
+      if (chr_remap) {
+        if (unlikely(bigstack_calloc_w(kChrMaskWords, &stale_chr_codes))) {
+          goto PvarXheaderWrite_ret_NOMEM;
+        }
+        for (uint32_t chr_idx = 0; chr_idx != kChrRawEnd; ++chr_idx) {
+          if (chr_remap[chr_idx] != chr_idx) {
+            SetBit(chr_remap[chr_idx], stale_chr_codes);
+          }
+        }
+        for (uint32_t chr_idx = 0; chr_idx != kChrRawEnd; ++chr_idx) {
+          if (chr_remap[chr_idx] != chr_idx) {
+            ClearBit(chr_idx, stale_chr_codes);
+          }
+        }
+      }
       uint32_t contig_zero_written = 0;
       char* cswritep = *cswritepp;
       // ExportVcf() has to perform a customized --merge-par operation, so it
@@ -802,11 +827,37 @@ PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, co
             logerrputs("Error: Malformed ##contig line in .pvar file.\n");
             goto PvarXheaderWrite_ret_MALFORMED_INPUT;
           }
+          uint32_t chr_idx = GetChrCodeCounted(cip, id_slen, idval);
+          if (chr_remap && (!IsI32Neg(chr_idx))) {
+            if (IsSet(stale_chr_codes, chr_idx)) {
+              continue;
+            }
+            if (!regen_contigs) {
+              const uint32_t new_chr_idx = chr_remap[chr_idx];
+              if (new_chr_idx == chr_idx) {
+                if (unlikely(CsputsStd(line_start, line_end - line_start, css_ptr, &cswritep))) {
+                  goto PvarXheaderWrite_ret_WRITE_FAIL;
+                }
+              } else {
+                cswritep = strcpya_k(cswritep, "##contig=<ID=");
+                cswritep = chrtoa(cip, new_chr_idx, cswritep);
+                if (unlikely(CsWriteRestOfHeaderLine(hkvline_iter, idval, line_end, id_slen, css_ptr, &cswritep))) {
+                  goto PvarXheaderWrite_ret_WRITE_FAIL;
+                }
+              }
+              continue;
+            }
+            chr_idx = chr_remap[chr_idx];
+          } else if (!regen_contigs) {
+            if (unlikely(CsputsStd(line_start, line_end - line_start, css_ptr, &cswritep))) {
+              goto PvarXheaderWrite_ret_WRITE_FAIL;
+            }
+            continue;
+          }
           if (hkvline_iter[-1] == '>') {
             // regenerate instead of keeping
             continue;
           }
-          const uint32_t chr_idx = GetChrCodeCounted(cip, id_slen, idval);
           if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx))) {
             continue;
           }
@@ -851,7 +902,7 @@ PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, co
       if (contig_zero_written) {
         cswritep = strcpya_k(cswritep, "##contig=<ID=0,length=2147483645>" EOLN_STR);
       }
-      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      for (uint32_t chr_fo_idx = 0; regen_contigs && (chr_fo_idx != cip->chr_ct); ++chr_fo_idx) {
         if (IsSet(written_contig_header_lines, chr_fo_idx)) {
           continue;
         }
@@ -970,7 +1021,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
     uint32_t info_col_idx = 0;  // could save this during first load instead
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     if (pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader)) {
-      reterr = PvarXheaderWrite(variant_include, cip, contig_lens, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
+      reterr = PvarXheaderWrite(variant_include, cip, contig_lens, nullptr, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
       if (unlikely(reterr)) {
         goto WritePvar_ret_1;
       }
@@ -4718,7 +4769,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     uint32_t info_col_idx = 0;  // could save this during first load instead
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     if (pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader)) {
-      reterr = PvarXheaderWrite(variant_include, cip, contig_lens, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
+      reterr = PvarXheaderWrite(variant_include, cip, contig_lens, nullptr, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
       if (unlikely(reterr)) {
         goto WritePvarSplit_ret_1;
       }
@@ -5550,7 +5601,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     uint32_t info_col_idx = 0;  // could save this during first load instead
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     if (pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader)) {
-      reterr = PvarXheaderWrite(variant_include, cip, contig_lens, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
+      reterr = PvarXheaderWrite(variant_include, cip, contig_lens, nullptr, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
       if (unlikely(reterr)) {
         goto WritePvarJoin_ret_1;
       }
@@ -10699,7 +10750,10 @@ PglErr UpdateChr(const uintptr_t* variant_include, const char* const* variant_id
   return reterr;
 }
 
-PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, ChrInfo* cip) {
+// If chr_idxs is non-null (input had split chromosomes), its per-variant
+// codes are updated as well; otherwise only cip's tables are.
+// old_to_new_chr_idx must have space for kChrRawEnd entries.
+PglErr RenameChrs(const char* rename_chrs_fname, const uintptr_t* variant_include, uint32_t prohibit_extra_chrs, uint32_t variant_ct, ChrInfo* cip, ChrIdx* chr_idxs, uint32_t* old_to_new_chr_idx) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -10715,6 +10769,9 @@ PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, C
                  bigstack_alloc_u32(chr_ct, &new_chr_file_order) ||
                  bigstack_alloc_u32(kChrRawEnd, &new_chr_idx_to_foidx))) {
       goto RenameChrs_ret_NOMEM;
+    }
+    for (uint32_t chr_idx = 0; chr_idx != kChrRawEnd; ++chr_idx) {
+      old_to_new_chr_idx[chr_idx] = chr_idx;
     }
     memcpy(new_chr_file_order, cip->chr_file_order, chr_ct * sizeof(int32_t));
     memcpy(new_chr_idx_to_foidx, cip->chr_idx_to_foidx, kChrRawEnd * sizeof(int32_t));
@@ -10757,10 +10814,30 @@ PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, C
       }
       new_chr_file_order[foidx] = new_chr_code;
       new_chr_idx_to_foidx[new_chr_code] = foidx;
+      old_to_new_chr_idx[old_chr_idx] = new_chr_code;
     }
     if (unlikely(line_idx == 1)) {
       logerrputs("Error: Empty --rename-chrs file.\n");
       goto RenameChrs_ret_MALFORMED_INPUT;
+    }
+    // Two file-order chromosome blocks can't share a code (e.g. renaming
+    // contig A to B while B is also present and not renamed away); this used
+    // to leave chr_idx_to_foidx[] inconsistent with chr_file_order[].
+    {
+      uintptr_t* new_code_seen;
+      if (unlikely(bigstack_calloc_w(BitCtToWordCt(kChrRawEnd), &new_code_seen))) {
+        goto RenameChrs_ret_NOMEM;
+      }
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+        const uint32_t new_chr_idx = new_chr_file_order[chr_fo_idx];
+        if (unlikely(IsSet(new_code_seen, new_chr_idx))) {
+          char* write_iter = strcpya_k(g_logbuf, "Error: --rename-chrs would merge two chromosomes into '");
+          write_iter = chrtoa(cip, new_chr_idx, write_iter);
+          strcpy_k(write_iter, "'; this is not supported.\n");
+          goto RenameChrs_ret_MALFORMED_INPUT_WW;
+        }
+        SetBit(new_chr_idx, new_code_seen);
+      }
     }
     const uint32_t update_ct = PopcountWords(already_seen, chr_wct);
     uintptr_t chr_foidx_base = 0;
@@ -10779,6 +10856,16 @@ PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, C
     }
     memcpy(cip->chr_file_order, new_chr_file_order, chr_ct * sizeof(int32_t));
     memcpy(cip->chr_idx_to_foidx, new_chr_idx_to_foidx, kChrRawEnd * sizeof(int32_t));
+    if (chr_idxs) {
+      // bugfix: this was previously skipped, so the rename was silently
+      // ignored when the input had split chromosomes.
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        chr_idxs[variant_uidx] = old_to_new_chr_idx[chr_idxs[variant_uidx]];
+      }
+    }
     logprintf("--rename-chrs: %u chromosome code%s updated.\n", update_ct, (update_ct == 1)? "" : "s");
   }
   while (0) {
@@ -11475,7 +11562,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
 // allocation of buffers, and generating the header line occurs directly in
 // this function, while loading the next pvar_info_strs batch and writing the
 // next .pvar line batch are one level down.
-PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* new_variant_idx_to_old, const char* const* info_keys, const uint32_t* info_keys_htable, const uint32_t* contig_lens, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_keys_htable_size, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, uint32_t write_info, uint32_t write_info_pr, uint32_t thread_ct, char* xheader, char* outname, char* outname_end) {
+PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* new_variant_idx_to_old, const char* const* info_keys, const uint32_t* info_keys_htable, const uint32_t* contig_lens, const uint32_t* chr_remap, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_keys_htable_size, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, uint32_t write_info, uint32_t write_info_pr, uint32_t thread_ct, char* xheader, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -11519,7 +11606,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
     }
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     if (pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader)) {
-      reterr = PvarXheaderWrite(nullptr, write_cip, contig_lens, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
+      reterr = PvarXheaderWrite(nullptr, write_cip, contig_lens, chr_remap, xheader_blen, (pvar_psam_flags / kfPvarColVcfheader) & 1, write_filter, write_info, write_info_pr && (!info_pr_flag_present), xheader, &css, &cswritep);
       if (unlikely(reterr)) {
         goto WritePvarResorted_ret_1;
       }
@@ -11760,6 +11847,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
 
 PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* rename_chrs_fname, const TwoColParams* update_chr_flag, const char* writer_ver, const char* zero_cluster_fname, const char* zero_cluster_phenoname, const FlipInfo* flip_info_ptr, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, uint32_t mendel_duos, ChrInfo* cip, char* xheader, ChrIdx* chr_idxs, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  uint32_t* chr_remap = nullptr;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
   {
@@ -11798,9 +11886,33 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
         goto MakePlink2Vsort_ret_1;
       }
     } else if (rename_chrs_fname) {
-      reterr = RenameChrs(rename_chrs_fname, (misc_flags / kfMiscProhibitExtraChr & 1), cip);
+      if (unlikely(bigstack_alloc_u32(kChrRawEnd, &chr_remap))) {
+        goto MakePlink2Vsort_ret_NOMEM;
+      }
+      const uint32_t orig_chr_code_end = cip->max_code + 1 + cip->name_ct;
+      reterr = RenameChrs(rename_chrs_fname, variant_include, (misc_flags / kfMiscProhibitExtraChr & 1), variant_ct, cip, chr_idxs, chr_remap);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
+      }
+      if (contig_lens) {
+        // --fa lengths are indexed by the original chromosome codes.
+        uint32_t* new_contig_lens;
+        if (unlikely(bigstack_calloc_u32(kChrRawEnd, &new_contig_lens))) {
+          goto MakePlink2Vsort_ret_NOMEM;
+        }
+        for (uint32_t chr_idx = 0; chr_idx != orig_chr_code_end; ++chr_idx) {
+          if (chr_remap[chr_idx] == chr_idx) {
+            new_contig_lens[chr_idx] = contig_lens[chr_idx];
+          }
+        }
+        // Renamed entries go second, since a rename target's old length is
+        // stale.
+        for (uint32_t chr_idx = 0; chr_idx != orig_chr_code_end; ++chr_idx) {
+          if (chr_remap[chr_idx] != chr_idx) {
+            new_contig_lens[chr_remap[chr_idx]] = contig_lens[chr_idx];
+          }
+        }
+        contig_lens = new_contig_lens;
       }
     }
 
@@ -12014,7 +12126,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       OutnameZstSet(".pvar", pvar_psam_flags & kfPvarZs, outname_end);
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePvarResorted(variant_include, &write_chr_info, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, PgrGetNonrefFlags(simple_pgrp), pvar_info_reload, variant_cms, new_variant_idx_to_old, info_keys, info_keys_htable, contig_lens, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_keys_htable_size, pvar_psam_flags, output_missing_geno_char, write_info, write_info_pr, max_thread_ct, xheader, outname, outname_end);
+      reterr = WritePvarResorted(variant_include, &write_chr_info, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, PgrGetNonrefFlags(simple_pgrp), pvar_info_reload, variant_cms, new_variant_idx_to_old, info_keys, info_keys_htable, contig_lens, chr_remap, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_keys_htable_size, pvar_psam_flags, output_missing_geno_char, write_info, write_info_pr, max_thread_ct, xheader, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

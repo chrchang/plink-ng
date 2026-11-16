@@ -13419,7 +13419,7 @@ void InitLdScore(LdScoreInfo* lsip) {
   // and --ld-window-kb are, and are off unless asked for.
   lsip->var_ct_radius = 0x7fffffff;
   lsip->bp_radius = UINT32_MAX;
-  lsip->cm_radius = 1.0;
+  lsip->cm_radius = kLdScoreDefaultCmRadius;
 }
 
 void CleanupLdScore(LdScoreInfo* lsip) {

@@ -248,3 +248,32 @@ randmem=--randmem
 $1/plink2 $2 $3 --dummy 100 200 0.01 acgt --seed 1 --make-pgen --out tmp_noroh
 $1/plink2 $2 $3 $randmem --pfile tmp_noroh --homozyg --homozyg-min-af 0 --out plink2_noroh
 awk 'FNR > 1 && $4 != 0 { print "nonzero ROH_CT at " $3; exit 1 }' plink2_noroh.hom.summary
+
+# 12. --homozyg-window-missing, --homozyg-window-threshold and
+#     --homozyg-density, against PLINK 1.9.  This variant of the fixture has
+#     ~3% of calls set missing, and the second half of the chromosome is
+#     spaced 3 kb apart, so the three runs there have densities of 2.3-3 kb
+#     per variant.  Each setting must also change the runs found, so it's
+#     known to have an effect.
+awk 'BEGIN { OFS = "\t" }
+    /^#/ { print; next }
+    {
+        v = NR;
+        $2 = (v <= 2500)? v * 1000 : 2500000 + (v - 2500) * 3000;
+        for (i = 10; i <= NF; i++) {
+            if (((NR * 31 + i * 17) % 37) == 0) { $i = "./." }
+        }
+        print
+    }' tmp_h.vcf > tmp_hm.vcf
+plink --vcf tmp_hm.vcf --double-id --make-bed --out tmp_hm > /dev/null
+$1/plink2 $2 $3 --bfile tmp_hm --homozyg --homozyg-min-af 0 --out plink2_hm
+for opt in "--homozyg-window-missing 2" "--homozyg-window-threshold 0.5" "--homozyg-density 2"; do
+    plink --bfile tmp_hm --homozyg $opt --out plink19_opt > /dev/null
+    $1/plink2 $2 $3 --bfile tmp_hm --homozyg --homozyg-min-af 0 $opt --out plink2_opt
+    compare_hom plink19_opt.hom plink2_opt.hom
+    compare_indiv plink19_opt.hom.indiv plink2_opt.hom.indiv
+    if diff -q plink2_opt.hom plink2_hm.hom > /dev/null; then
+        echo "$opt had no effect"
+        exit 1
+    fi
+done
