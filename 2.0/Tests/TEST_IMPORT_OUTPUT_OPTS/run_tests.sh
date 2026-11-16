@@ -127,9 +127,11 @@ $plink2 --bgen tmp_bgen_over.bgen ref-first --sample tmp_bgen.sample --lax-bgen-
 diff -q tmp_b0.pgen tmp_b1.pgen
 diff -q tmp_b0.pvar tmp_b1.pvar
 # An understated count is always an error, in both the BGEN v1.1 and v1.2+
-# code paths.
+# code paths.  For v1.1, dosage data and a variant filter change which pass
+# reads the whole file.
 $plink2 --pfile tmp_dummy --export bgen-1.1 --out tmp_bgen11 > /dev/null
-for v in bgen bgen11; do
+$plink2 --dummy 20 3000 dosage-freq=0.5 --seed 3 --export bgen-1.1 --out tmp_bgen11d > /dev/null
+for v in bgen bgen11 bgen11d; do
     python3 -c "
 import struct
 b = bytearray(open('tmp_$v.bgen', 'rb').read())
@@ -137,8 +139,8 @@ m = struct.unpack_from('<I', b, 8)[0]
 struct.pack_into('<I', b, 8, m - 1)
 open('tmp_${v}_under.bgen', 'wb').write(b)
 "
-    for lax in "" --lax-bgen-import; do
-        if $plink2 --bgen tmp_${v}_under.bgen ref-first --sample tmp_$v.sample $lax --make-pgen --out tmp_bad > /dev/null 2>&1; then
+    for flags in "" --lax-bgen-import "--chr 1"; do
+        if $plink2 --bgen tmp_${v}_under.bgen ref-first --sample tmp_$v.sample $flags --make-pgen --out tmp_bad > /dev/null 2>&1; then
             exit 1
         fi
         grep -q 'more than the .* variants declared in its header' tmp_bad.log
