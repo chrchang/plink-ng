@@ -105,7 +105,7 @@ uint32_t Hash32(const void* key, uint32_t len) {
   return fmix32(h1);
 }
 
-uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
+uint32_t IdHtableFindNoOverread(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
   // returns UINT32_MAX on failure
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];

@@ -3906,7 +3906,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             if (variant_skip_ct) {
               *chr_code_end = '\0';
               // can't overread, nonstd_names not in main workspace
-              const uint32_t chr_code = IdHtableFind(line_iter, TO_CONSTCPCONSTP(cip->nonstd_names), cip->nonstd_id_htable, chr_code_end - line_iter, kChrHtableSize);
+              const uint32_t chr_code = IdHtableFindNoOverread(line_iter, TO_CONSTCPCONSTP(cip->nonstd_names), cip->nonstd_id_htable, chr_code_end - line_iter, kChrHtableSize);
               if ((chr_code == UINT32_MAX) || (!IsSet(cip->chr_mask, chr_code))) {
                 line_iter = chr_code_end;
                 goto VcfToPgen_load_start;

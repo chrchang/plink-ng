@@ -578,7 +578,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               strcpy_k(R_CAST(char*, arena_top), "PHENO1");
               first_pheno_ct = 1;
             } else if (pheno_ct) {
-              const uint32_t pheno_idx = IdHtableFind("PHENO1", TO_CONSTCPCONSTP(first_pheno_names), first_pheno_names_htable, strlen("PHENO1"), pheno_names_table_size);
+              const uint32_t pheno_idx = IdHtableFindNoOverread("PHENO1", TO_CONSTCPCONSTP(first_pheno_names), first_pheno_names_htable, strlen("PHENO1"), pheno_names_table_size);
               if (pheno_idx != UINT32_MAX) {
                 SetBit(pheno_idx, cur_pheno_include);
               }
@@ -661,7 +661,9 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
             }
             ++first_sample_id_ct;
           } else {
-            const uint32_t sample_idx = IdHtableFind(idbuf, first_sample_ids, first_sample_ids_htable, id_slen, sample_id_table_size);
+            // overread ok: first_sample_ids strings are at the bottom of
+            // bigstack, followed by arena allocations
+            const uint32_t sample_idx = IdHtableFindNnt(idbuf, first_sample_ids, first_sample_ids_htable, id_slen, sample_id_table_size);
             if (sample_idx != UINT32_MAX) {
               if (unlikely(IsSet(cur_sample_include, sample_idx))) {
                 TabsToSpaces(idbuf);
@@ -3741,7 +3743,7 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
     pmcp->missing_comma_str = &(pmcp->pr_str[11]);
     pmcp->pr_pending_str = &(pmcp->pr_str[13]);
 
-    pmcp->pr_kidx = IdHtableFind("PR", info_keys, info_keys_htable, strlen("PR"), info_keys_htable_size);
+    pmcp->pr_kidx = IdHtableFindNoOverread("PR", info_keys, info_keys_htable, strlen("PR"), info_keys_htable_size);
   }
   pmcp->fnames = fnames;
   pmcp->line_idx_body_starts = line_idx_body_starts;
@@ -4653,7 +4655,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 if (!is_last) {
                   *subtoken_end = '\0';
                 }
-                const uint32_t filter_idx = IdHtableFind(filter_subtoken_iter, subtokens, filter_htable, subtoken_end - filter_subtoken_iter, htable_size);
+                const uint32_t filter_idx = IdHtableFindNoOverread(filter_subtoken_iter, subtokens, filter_htable, subtoken_end - filter_subtoken_iter, htable_size);
                 if (filter_idx == UINT32_MAX) {
                   mismatch_found = 1;
                   break;

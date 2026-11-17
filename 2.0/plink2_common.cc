@@ -2499,18 +2499,18 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
   if (!cip->name_ct) {
     return UINT32_MAX;
   }
-  // note that IdHtableFind returns UINT32_MAX if name not found
+  // note that IdHtableFindNoOverread returns UINT32_MAX if name not found
   // can't overread, nonstd_names not in main workspace
-  return IdHtableFind(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
+  return IdHtableFindNoOverread(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
 }
 
 uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name) {
   // When the chromosome name isn't null-terminated.
   // Yeah, probably want to revise this so that chr_name doesn't need to be
   // mutable here.  However, that currently requires new substitutes for both
-  // GetChrCodeRaw AND IdHtableFind (IdHtableFindNnt doesn't work due to
-  // overread); when either of those are needed for some other reason, that's a
-  // good time to revise this function.
+  // GetChrCodeRaw AND IdHtableFindNoOverread (IdHtableFindNnt doesn't work
+  // due to overread); when either of those are needed for some other reason,
+  // that's a good time to revise this function.
   char* s_end = &(chr_name[name_slen]);
   const char tmpc = *s_end;
   *s_end = '\0';

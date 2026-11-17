@@ -5627,7 +5627,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     }
     uint32_t info_end_key_idx = UINT32_MAX;
     if (pvar_info_reload) {
-      info_end_key_idx = IdHtableFind("END", info_keys, info_keys_htable, strlen("END"), info_keys_htable_size);
+      info_end_key_idx = IdHtableFindNoOverread("END", info_keys, info_keys_htable, strlen("END"), info_keys_htable_size);
     }
     if (write_info) {
       cswritep = strcpya_k(cswritep, "\tINFO");

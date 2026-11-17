@@ -529,7 +529,7 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
             ZeroWArr(raw_sample_ctl, sample_include);
             sample_ct = 0;
             if (indv_str) {
-              const uint32_t sample_uidx = IdHtableFind(indv_str, sample_ids, sample_id_htable, strlen(indv_str), sample_id_htable_size);
+              const uint32_t sample_uidx = IdHtableFindNoOverread(indv_str, sample_ids, sample_id_htable, strlen(indv_str), sample_id_htable_size);
               if (sample_uidx == UINT32_MAX) {
                 if (unlikely(!allow_no_samples)) {
                   snprintf(g_textbuf, kTextbufSize, "Error: #CHROM header line does not contain sample ID '%s'.\n", indv_str);

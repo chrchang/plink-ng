@@ -2266,7 +2266,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
           char* token_end = CurTokenEnd(shard_iter);
           *token_end = '\0';
           // can't overread, category_names not in main workspace
-          const uint32_t cur_cat_idx = IdHtableFind(shard_iter, category_names, cat_id_htable, token_end - shard_iter, id_htable_size);
+          const uint32_t cur_cat_idx = IdHtableFindNoOverread(shard_iter, category_names, cat_id_htable, token_end - shard_iter, id_htable_size);
           if (cur_cat_idx == UINT32_MAX) {
             ++skip_ct;
           } else {
@@ -2290,7 +2290,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
       const char* cat_names_iter = cat_names_flattened;
       do {
         const uint32_t cat_name_slen = strlen(cat_names_iter);
-        const uint32_t cur_cat_idx = IdHtableFind(cat_names_iter, category_names, cat_id_htable, cat_name_slen, id_htable_size);
+        const uint32_t cur_cat_idx = IdHtableFindNoOverread(cat_names_iter, category_names, cat_id_htable, cat_name_slen, id_htable_size);
         if (cur_cat_idx == UINT32_MAX) {
           ++skip_ct;
         } else {

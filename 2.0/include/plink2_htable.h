@@ -103,7 +103,7 @@ HEADER_INLINE uint32_t GetHtableFastSize(uint32_t item_ct) {
 }
 
 // cur_id DOES need to be null-terminated
-uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
+uint32_t IdHtableFindNoOverread(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
 
 // item_ids overread must be ok.  In exchange, cur_id doesn't need to be
 // null-terminated any more.

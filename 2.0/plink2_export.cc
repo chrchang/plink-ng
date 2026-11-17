@@ -7837,11 +7837,11 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           write_iter = u32toa(pr_key_idx, write_iter);
           write_iter = strcpya_k(write_iter, ">" EOLN_STR);
         } else {
-          pr_key_idx = IdHtableFind("PR", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("PR"), fif_keys_htable_size);
+          pr_key_idx = IdHtableFindNoOverread("PR", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("PR"), fif_keys_htable_size);
           assert(pr_key_idx != UINT32_MAX);
         }
       }
-      end_key_idx = IdHtableFind("END", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("END"), fif_keys_htable_size);
+      end_key_idx = IdHtableFindNoOverread("END", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("END"), fif_keys_htable_size);
       if (end_key_idx != UINT32_MAX) {
         if ((fif_keys_mutable[end_key_idx][-1] & 7) != 3) {
           // Not an INFO key of type integer; ignore.
