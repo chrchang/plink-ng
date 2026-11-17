@@ -266,7 +266,11 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
       if (unlikely(range_last < range_first)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        if (zero_based && (range_last + 1 == range_first)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Empty range (end position equal to start position) on line %" PRIuPTR " of %s.  0-based ranges are half-open, so they must end after they start.\n", line_idx, file_descrip);
+        } else {
+          snprintf(g_logbuf, kLogbufSize, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        }
         goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
       if (border_extend > range_first) {
