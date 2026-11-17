@@ -38,13 +38,10 @@ namespace plink2 {
 // similarly, copy_when_nonmissing() retired in favor of genoarr_to_nonmissing
 // followed by a for loop
 
-// Benchmark results justify replacing this with XXH3 when the latter is ready.
-// Not considering it ready yet since the development XXH_INLINE_ALL setup
-// isn't very friendly.
-//
-// (Can also try using _mm_aesenc_si128() in a similar manner to the Golang
-// runtime when SSE4.2+ is available, and otherwise keeping Murmurhash.  See
-// aeshashbody() in https://golang.org/src/runtime/asm_amd64.s .)
+// Top 32 bits of a C99 port of absl::Hash<std::string_view>'s portable code
+// path, with a fixed seed of 0 (see plink2_htable.cc).  This replaced 32-bit
+// MurmurHash3 in Nov 2026; it's ~3x faster on typical variant/sample IDs,
+// and >10x faster on long inputs.  Only reads key[0..len-1].
 //
 // Eventually want this to be a constexpr?  Seems painful to make that work,
 // though.
