@@ -3,7 +3,8 @@
 # --pmerge conflict-resolution and output-shaping flags with no other test
 # coverage: --merge-parents-mode, --merge-sex-mode, --merge-pheno-mode,
 # --merge-pheno-sort, --pheno-inner-join, --merge-xheader-mode,
-# --merge-max-alleles, and --delete-pmerge-result.
+# --merge-max-alleles, --delete-pmerge-result, and
+# --multiallelics-already-joined.
 
 set -exo pipefail
 
@@ -163,3 +164,37 @@ test ! -e tmp_del.pgen
 test ! -e tmp_del.pvar
 test ! -e tmp_del.psam
 test "$(grep -v '^#' tmp_del.afreq | cut -f 2 | tr '\n' ' ')" = "v1 v2 v3 v4 "
+
+# --multiallelics-already-joined: tmp_s has two biallelic vx records with the
+# same position and REF, which look like a split multiallelic, so the merge
+# errors out.  With the flag, they're merged as one A/C/G variant; the
+# conflicting S1/S2 calls become missing (nm-match).
+{
+    vcf_header
+    printf '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n'
+    printf '1\t100\tvx\tA\tC\t.\t.\t.\tGT\t0/1\t0/0\n'
+    printf '1\t100\tvx\tA\tG\t.\t.\t.\tGT\t0/0\t1/1\n'
+    printf '1\t200\tvy\tC\tT\t.\t.\t.\tGT\t0/1\t0/0\n'
+} > tmp_split.vcf
+{
+    vcf_header
+    printf '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS3\n'
+    printf '1\t100\tvx\tA\tC\t.\t.\t.\tGT\t1/1\n'
+    printf '1\t200\tvy\tC\tT\t.\t.\t.\tGT\t0/0\n'
+} > tmp_joined.vcf
+for x in split joined; do
+    $plink2 --vcf tmp_$x.vcf --make-pgen --out tmp_$x > /dev/null
+done
+if $plink2 --pfile tmp_split --pmerge tmp_joined --out tmp_maj_err > /dev/null 2>&1; then
+    exit 1
+fi
+grep -q "appear to be the components of a 'split' multiallelic variant" tmp_maj_err.log
+$plink2 --pfile tmp_split --pmerge tmp_joined --multiallelics-already-joined --out tmp_maj > /dev/null
+$plink2 --pfile tmp_maj --export vcf --out tmp_maj > /dev/null
+diff <(grep -v '^#' tmp_maj.vcf | cut -f 2-5,10-) - <<'EOF'
+100	vx	A	C,G	./.	./.	1/1
+200	vy	C	T	0/1	0/0	0/0
+EOF
+if $plink2 --pfile tmp_split --multiallelics-already-joined --freq --out tmp_maj_bad > /dev/null 2>&1; then
+    exit 1
+fi

@@ -3623,9 +3623,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("mendel-duos\0mendel-missing-in-denom\0me\0mendel\0set-me-missing\0", &help_ctrl, 0,
 "  --mendel-duos             : Make Mendel error checks consider samples with\n"
 "                              only one parent in the dataset.\n"
-"  --mendel-missing-in-denom : When the child has a missing genotype, or both\n"
-"                              parents have missing genotypes, don't exclude the\n"
-"                              observation from error rate denominators.\n"
+"  --mendel-missing-in-denom : Don't exclude missing genotypes from error rate\n"
+"                              denominators.  By default, a trio is left out of\n"
+"                              a variant's denominator when the child or both\n"
+"                              parents are missing, and a variant is left out of\n"
+"                              a trio member's denominator when that member, the\n"
+"                              child, or both parents are missing.\n"
               );
     HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan-ref-freq\0flip-scan-ref-pfile\0flip-scan-ref-bfile\0flipscan-window\0flipscan-window-kb\0flipscan-threshold\0flipscan-freq-diff\0flipscan-max-maj-freq\0flipscan-min-neg\0flipscan-ref-freq\0flip-scan\0flipscan\0", &help_ctrl, 0,
 "  --flip-scan-window <ct+1> : Set --flip-scan max variant ct dist. (def. 10).\n"

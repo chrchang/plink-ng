@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --mendel on chrY with non-trio samples present, and per-sample
-# observation counts.
+# observation counts, and --mendel-missing-in-denom.
 #
 # 1. The female mask (used on chrY, where females' calls are set to
 #    missing) was built by masking a collapsed (trio-sample) bitarray with
@@ -57,3 +57,30 @@ for t in 1 2 8; do
     $plink2 --pfile tmp_m --threads $t --mendel summaries-only cols=+nobsi --out tmp_m_t$t > /dev/null
     [[ "$(tail -n +2 tmp_m_t$t.imendel | tr '\n\t' ' :')" == "$(cat tmp_expected_obs.txt)" ]] || exit 1
 done
+
+# 3. --mendel-missing-in-denom: no observation is dropped from the
+#    denominators, so every OBS_CT is the full variant count.
+$plink2 --pfile tmp_m --mendel summaries-only cols=+nobsi --mendel-missing-in-denom --out tmp_m_mid > /dev/null
+[[ "$(tail -n +2 tmp_m_mid.imendel | tr '\n\t' ' :')" == "P:0:3000 M:0:3000 K:0:3000 " ]] || exit 1
+if $plink2 --pfile tmp_m --mendel-missing-in-denom --freq --out tmp_m_mid_bad > /dev/null 2>&1; then
+    exit 1
+fi
+
+# 4. The same flag changes the --me variant filter.  Four trios; v1 has one
+#    error (trio 1) and two trios with a missing child.  Without the flag the
+#    error rate is 1/2, so v1 is removed by --me 1 0.3; with it, 1/4.
+printf '#FID\tIID\tPAT\tMAT\tSEX\n' > tmp_me.psam
+for t in 1 2 3 4; do
+    printf "f$t\tp$t\t0\t0\t1\nf$t\tm$t\t0\t0\t2\nf$t\tk$t\tp$t\tm$t\t1\n" >> tmp_me.psam
+done
+{
+    printf '##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    printf '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tp1\tm1\tk1\tp2\tm2\tk2\tp3\tm3\tk3\tp4\tm4\tk4\n'
+    printf '1\t10\tv1\tA\tG\t.\t.\t.\tGT\t0/0\t0/0\t1/1\t0/0\t0/0\t0/0\t0/0\t0/0\t./.\t0/0\t0/0\t./.\n'
+    printf '1\t20\tv2\tA\tG\t.\t.\t.\tGT\t0/0\t0/0\t1/1\t0/0\t0/0\t0/0\t0/0\t0/0\t0/0\t0/0\t0/0\t0/0\n'
+} > tmp_me.vcf
+$plink2 --vcf tmp_me.vcf --psam tmp_me.psam --make-pgen --out tmp_me_data > /dev/null
+$plink2 --pfile tmp_me_data --me 1 0.3 --write-snplist --out tmp_me0 > /dev/null
+[[ "$(tr '\n' ' ' < tmp_me0.snplist)" == "v2 " ]] || exit 1
+$plink2 --pfile tmp_me_data --me 1 0.3 --mendel-missing-in-denom --write-snplist --out tmp_me1 > /dev/null
+[[ "$(tr '\n' ' ' < tmp_me1.snplist)" == "v1 v2 " ]] || exit 1
