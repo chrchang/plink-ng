@@ -44,7 +44,7 @@ namespace plink2 {
 // - The CRC32C (<= 32 bytes) and AES (> 32 bytes) code paths, and the 32-bit
 //   CityHash path, are not included; all builds compute the same function.
 //
-// HashCombineContiguous(0, key, len) matches
+// Hash64(key, len) matches
 // absl::hash_internal::MixingHashState::hash_with_seed(string_view, 0)
 // exactly, as computed by an Abseil build without hardware acceleration.
 //
@@ -169,9 +169,8 @@ static uint64_t HashCombineContiguous(uint64_t state, const unsigned char* p, ui
   return HashLenGt32(state, p, len);
 }
 
-uint32_t Hash32(const void* key, uint32_t len) {
-  // Top 32 bits, since Hashceil() and other callers use high bits.
-  return HashCombineContiguous(0, S_CAST(const unsigned char*, key), len) >> 32;
+uint64_t Hash64(const void* key, uintptr_t len) {
+  return HashCombineContiguous(0, S_CAST(const unsigned char*, key), len);
 }
 
 uint32_t IdHtableFindNoOverread(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {

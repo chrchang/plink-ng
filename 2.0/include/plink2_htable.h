@@ -38,14 +38,22 @@ namespace plink2 {
 // similarly, copy_when_nonmissing() retired in favor of genoarr_to_nonmissing
 // followed by a for loop
 
-// Top 32 bits of a C99 port of absl::Hash<std::string_view>'s portable code
-// path, with a fixed seed of 0 (see plink2_htable.cc).  This replaced 32-bit
-// MurmurHash3 in Nov 2026; it's ~3x faster on typical variant/sample IDs,
-// and >10x faster on long inputs.  Only reads key[0..len-1].
+// C99 port of absl::Hash<std::string_view>'s portable code path, with a
+// fixed seed of 0 (see plink2_htable.cc).  absl's own hash tables use all 64
+// bits (low 7 bits as a tag, the rest for bucket selection).  Only reads
+// key[0..len-1].
+uint64_t Hash64(const void* key, uintptr_t len);
+
+// Top 32 bits of Hash64() (top since Hashceil() and other callers use high
+// bits).  This replaced 32-bit MurmurHash3 in Nov 2026; it's ~3x faster on
+// typical variant/sample IDs, and >10x faster on long inputs.
+// Defined inline so that callers make a single out-of-line call, to Hash64().
 //
 // Eventually want this to be a constexpr?  Seems painful to make that work,
 // though.
-uint32_t Hash32(const void* key, uint32_t len);
+HEADER_INLINE uint32_t Hash32(const void* key, uint32_t len) {
+  return Hash64(key, len) >> 32;
+}
 
 // see http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
 // Note that this is a bit more vulnerable to adversarial input: modulo
