@@ -18,7 +18,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-// This implements a hash table over a const char* const* array of strings.
+// This implements a hash table over a const char* const* array of strings.  It
+// now utilizes a C99 port of absl::Hash<std::string_view> from Abseil LTS
+// 20260817.0, which is Apache 2-licensed (see LICENSE.htable).
 
 #include "plink2_base.h"
 
