@@ -23,7 +23,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "vcf_subset v1.1.0"
+static const char ver_str[] = "vcf_subset v1.1.1"
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
@@ -39,7 +39,7 @@ static const char ver_str[] = "vcf_subset v1.1.0"
   " 32-bit"
 #endif
 
-  " (16 May 2026)";
+  " (17 Nov 2026)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
