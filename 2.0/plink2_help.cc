@@ -2553,12 +2553,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --iid-sid           : Make --id-delim, --indv, and --sample-diff interpret\n"
 "                        two-token sample IDs as IID-SID instead of FID-IID.\n"
               );
-    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0vcf-ploidy\0vcf-ref-n-missing\0", &help_ctrl, 0,
+    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-min-lad\0vcf-max-lad\0vcf-require-gt\0vcf-ploidy\0vcf-ref-n-missing\0", &help_ctrl, 0,
 "  --vcf-require-gt    : Skip variants with no GT field.\n"
 "  --vcf-min-gq <val>  : No-call genotypes when GQ is present and below the\n"
 "                        threshold.\n"
 "  --vcf-max-dp <val>  : No-call genotypes when DP is present and above/below\n"
 "  --vcf-min-dp <val>    the threshold.\n"
+"  --vcf-max-lad <val> : Like --vcf-{max,min}-dp, but on the sum of FORMAT/LAD\n"
+"  --vcf-min-lad <val>   (missing counts as 0).  Haploid calls use ceil(min/2).\n"
 "  --vcf-half-call <m> : Specify how '0/.' and similar VCF GT values should be\n"
 "                        handled.  The following four modes are supported:\n"
 "                        * 'error'/'e' (default) errors out and reports line #.\n"
