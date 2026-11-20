@@ -3888,7 +3888,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           }
         VcfToPgen_load_start:
           ++line_idx;
-          line_iter = AdvPastDelim(line_iter, '\n');
+          line_iter = AdvPastDelimNear(line_iter, '\n');
           // In principle, it shouldn't be necessary to check the exact value
           // of reterr, but this may be useful for bug investigation.
           reterr = TextNextLineUnsafe(&vcf_txs, &line_iter);
@@ -11031,7 +11031,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
           }
         }
       }
-      line_iter = AdvPastDelim(K_CAST(char*, linebuf_iter), '\n');
+      line_iter = AdvPastDelimNear(K_CAST(char*, linebuf_iter), '\n');
     }
     if (unlikely(TextStreamErrcode2(&gen_txs, &reterr))) {
       goto OxGenToPgen_ret_TSTREAM_FAIL;
@@ -15505,7 +15505,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       // this loop is time-critical; all my attemps to merge in the haploid
       // case have caused >10% slowdowns
       if ((!is_haploid) && IsEoln(linebuf_iter[sample_ct * 4 - 1])) {
-        haps_line_iter = AdvPastDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
+        haps_line_iter = AdvPastDelimNear(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
         linebuf_iter[sample_ct * 4 - 1] = ' ';
 #ifdef USE_SSE2
         const VecU16 all0 = vecu16_set1(0x2030);
@@ -15674,7 +15674,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has more tokens than expected.\n", line_idx_haps, hapsname);
           goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
         }
-        haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
+        haps_line_iter = AdvPastDelimNear(linebuf_iter, '\n');
       }
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -16538,7 +16538,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     uint32_t vidx = 0;
-    for (; line_idx < line_ct; line_iter = AdvPastDelim(line_iter, '\n')) {
+    // line_iter is usually advanced to (or near) the end of the line before
+    // this increment, see below.
+    for (; line_idx < line_ct; line_iter = AdvPastDelimNear(line_iter, '\n')) {
       ++line_idx;
       reterr = TextGetUnsafe(&dosage_txs, &line_iter);
       if (unlikely(reterr)) {
@@ -16571,6 +16573,10 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       Dosage* dosage_main_iter = dosage_main;
       char* linebuf_iter = line_iter;
+      // Start of the current sample's tokens.  Only tracked in the
+      // format=2/format=3 loop, where linebuf_iter is nullptr after the last
+      // sample.
+      char* sample_start = line_iter;
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= sample_ctl2_m1) {
           if (widx > sample_ctl2_m1) {
@@ -16623,6 +16629,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
             if (unlikely(!linebuf_iter)) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
+            sample_start = linebuf_iter;
             double prob_2a1;
             char* str_end = ScanadvDouble(linebuf_iter, &prob_2a1);
             if (!str_end) {
@@ -16687,9 +16694,18 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         dosage_present_hwarr[widx] = dosage_present_hw;
       }
       // NextTokenMult() returns nullptr at end of line.
-      if (unlikely(linebuf_iter && (!IsEolnKns(*linebuf_iter)))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has more tokens than expected.\n", line_idx, dosagename);
-        goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
+      if (linebuf_iter) {
+        if (unlikely(!IsEolnKns(*linebuf_iter))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has more tokens than expected.\n", line_idx, dosagename);
+          goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
+        }
+        // We're at the end of the line; don't rescan it in the loop
+        // increment.
+        line_iter = linebuf_iter;
+      } else {
+        // The end of the line is shortly after the start of the last sample's
+        // tokens.
+        line_iter = sample_start;
       }
       if (!prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -17595,7 +17611,7 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, const char* missing
     line_iter = TextLineEnd(&snp_txs);
     uintptr_t variant_include_word = 0;
     uint32_t eighash = 0;
-    for (; TextGetUnsafe2(&snp_txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n')) {
+    for (; TextGetUnsafe2(&snp_txs, &line_iter); line_iter = AdvPastDelimNear(line_iter, '\n')) {
       const uint32_t variant_uidx = line_idx;
       if (unlikely(variant_uidx == raw_variant_ct_limit)) {
         if (raw_variant_ct_limit == 0x7ffffffd) {
