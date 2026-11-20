@@ -1499,6 +1499,117 @@ uintptr_t VcfScanShortallelicLine(const VcfImportBaseContext* vibcp, const char*
   return retval;
 }
 
+#ifdef __LP64__
+// Fast path for the common case where each of the kBitsPerWordD2 (32) GT
+// fields starting at gtext is exactly "[01][/|][01]\t" (or, when
+// allow_missing is set, ".[/|].\t") (diploid, biallelic, no half-calls, no
+// other FORMAT fields, not the last sample on the line).  Accepting "./."
+// roughly doubles the cost per field, so callers try allow_missing=0 first
+// and only retry with allow_missing=1 on failure.  Two
+// fields are handled per 8-byte load with SWAR operations; since the fields
+// are at fixed offsets, there's no serial dependency between loads.
+// Returns 1 and fills *genovec_wordp (and, when phase_hws isn't nullptr,
+// phase_hws[0] = phasepresent and phase_hws[1] = phaseinfo halfwords) iff all
+// 32 fields match; the caller falls back to the general parser otherwise, so
+// results and error-reporting are unchanged.
+static inline uint32_t VcfGtFastWord(const char* gtext, uint32_t allow_missing, uintptr_t* genovec_wordp, uint32_t* phase_hws) {
+  // Cheap early exit for e.g. multi-field FORMAT and haploid calls.
+  if ((gtext[3] != '\t') || ((gtext[1] != '|') && (gtext[1] != '/'))) {
+    return 0;
+  }
+  // byte layout of each 8-byte load (little-endian), two GT fields:
+  //   [a0 sep a1 '\t' a0' sep' a1' '\t']
+  const uint64_t kTabMask = 0xff000000ff000000LLU;
+  const uint64_t kTabs = 0x0900000009000000LLU;
+  const uint64_t kAlleleZeros = 0x0030003000300030LLU;
+  const uint64_t kAlleleHigh7 = 0x00fe00fe00fe00feLLU;
+  const uint64_t kAlleleLow7 = 0x007f007f007f007fLLU;
+  const uint64_t kAlleleHigh = 0x0080008000800080LLU;
+  // '.' ^ '0'
+  const uint64_t kAlleleDots = 0x001e001e001e001eLLU;
+  const uint64_t kSepLow7 = 0x00007f0000007f00LLU;
+  const uint64_t kSepHigh = 0x0000800000008000LLU;
+  const uint64_t kPipes = 0x00007c0000007c00LLU;
+  const uint64_t kSlashes = 0x00002f0000002f00LLU;
+  const uint64_t kLanes = 0x0000000100000001LLU;
+  uint64_t err = 0;
+  uintptr_t genovec_word = 0;
+  uint32_t phasepresent_hw = 0;
+  uint32_t phaseinfo_hw = 0;
+  for (uint32_t uii = 0; uii != 16; ++uii) {
+    uint64_t ww;
+    memcpy(&ww, &(gtext[uii * 8]), 8);
+    const uint64_t xx = ww ^ kAlleleZeros;
+    // separator byte is nonzero after xor with '|', and after xor with '/'
+    const uint64_t not_pipe = ((((ww ^ kPipes) & kSepLow7) + kSepLow7) | (ww ^ kPipes)) & kSepHigh;
+    const uint64_t not_slash = ((((ww ^ kSlashes) & kSepLow7) + kSepLow7) | (ww ^ kSlashes)) & kSepHigh;
+    err |= ((ww & kTabMask) ^ kTabs) | (not_pipe & not_slash);
+    // allele bits at positions 0 and 32 (first) / 16 and 48 (second); '.'
+    // contributes 0 here
+    const uint64_t first_alleles = xx & kLanes;
+    const uint64_t second_alleles = (xx >> 16) & kLanes;
+    uint64_t genos = first_alleles + second_alleles;
+    if (!allow_missing) {
+      err |= xx & kAlleleHigh7;
+    } else {
+      // per allele byte: high bit set iff not '0'/'1', resp. not '.'
+      const uint64_t not01_raw = xx & kAlleleHigh7;
+      const uint64_t not01 = (((not01_raw & kAlleleLow7) + kAlleleLow7) | not01_raw) & kAlleleHigh;
+      const uint64_t notdot_raw = (xx ^ kAlleleDots) & 0x00ff00ff00ff00ffLLU;
+      const uint64_t notdot = (((notdot_raw & kAlleleLow7) + kAlleleLow7) | notdot_raw) & kAlleleHigh;
+      // per field, at bits 7 and 39: either allele isn't '0'/'1', resp. '.'
+      const uint64_t field_not01 = not01 | (not01 >> 16);
+      const uint64_t field_notdot = notdot | (notdot >> 16);
+      err |= field_not01 & field_notdot & 0x0000008000000080LLU;
+      const uint64_t missings = ((~field_notdot) >> 7) & kLanes;
+      genos += missings | (missings << 1);
+    }
+    genovec_word |= S_CAST(uintptr_t, (genos & 3) | ((genos >> 30) & 12)) << (4 * uii);
+    if (phase_hws) {
+      // het and phased; phaseinfo set for 1|0
+      const uint64_t phased_hets = (first_alleles ^ second_alleles) & ((~not_pipe) >> 15) & kLanes;
+      const uint64_t one_zeros = phased_hets & first_alleles;
+      phasepresent_hw |= S_CAST(uint32_t, (phased_hets | (phased_hets >> 31)) & 3) << (2 * uii);
+      phaseinfo_hw |= S_CAST(uint32_t, (one_zeros | (one_zeros >> 31)) & 3) << (2 * uii);
+    }
+  }
+  if (err) {
+    return 0;
+  }
+  *genovec_wordp = genovec_word;
+  if (phase_hws) {
+    phase_hws[0] = phasepresent_hw;
+    phase_hws[1] = phaseinfo_hw;
+  }
+  return 1;
+}
+
+// Applies VcfGtFastWord() to as many leading genovec words of the line as
+// possible, stopping at the first word it can't handle; the caller must
+// exclude the last word (which contains the line's last sample) from word_ct.
+// Returns the number of words processed.  This is kept out of the general
+// parsing loops (and the general loop is resumed from the first unprocessed
+// word) since inlining it there measurably slowed down the general parser on
+// e.g. chrX lines with interspersed haploid calls.
+static uint32_t VcfGtFastPrefix(const char* gtext, uint32_t word_ct, uintptr_t* genovec, Halfword* phasepresent_alias, Halfword* phaseinfo_alias) {
+  uint32_t widx = 0;
+  for (; widx != word_ct; ++widx) {
+    const char* cur_gtext = &(gtext[widx * (kBitsPerWordD2 * 4)]);
+    if (phasepresent_alias) {
+      uint32_t phase_hws[2];
+      if (!(VcfGtFastWord(cur_gtext, 0, &(genovec[widx]), phase_hws) || VcfGtFastWord(cur_gtext, 1, &(genovec[widx]), phase_hws))) {
+        break;
+      }
+      phasepresent_alias[widx] = phase_hws[0];
+      phaseinfo_alias[widx] = phase_hws[1];
+    } else if (!(VcfGtFastWord(cur_gtext, 0, &(genovec[widx]), nullptr) || VcfGtFastWord(cur_gtext, 1, &(genovec[widx]), nullptr))) {
+      break;
+    }
+  }
+  return widx;
+}
+#endif
+
 VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, const char* linebuf_iter, uintptr_t* genovec) {
   const uint32_t sample_ct = vibcp->sample_ct;
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
@@ -1510,7 +1621,14 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
 
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
-  for (uint32_t widx = 0; ; ++widx) {
+  uint32_t widx = 0;
+#ifdef __LP64__
+  if (!qual_field_ct) {
+    widx = VcfGtFastPrefix(linebuf_iter, sample_ctl2_m1, genovec, nullptr, nullptr);
+    linebuf_iter = &(linebuf_iter[widx * (kBitsPerWordD2 * 4)]);
+  }
+#endif
+  for (; ; ++widx) {
     if (widx >= sample_ctl2_m1) {
       if (widx > sample_ctl2_m1) {
         break;
@@ -1994,7 +2112,14 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
   Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
 
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
-  for (uint32_t widx = 0; ; ++widx) {
+  uint32_t widx = 0;
+#ifdef __LP64__
+  if (!qual_field_ct) {
+    widx = VcfGtFastPrefix(linebuf_iter, sample_ctl2_m1, genovec, phasepresent_alias, phaseinfo_alias);
+    linebuf_iter = &(linebuf_iter[widx * (kBitsPerWordD2 * 4)]);
+  }
+#endif
+  for (; ; ++widx) {
     if (widx >= sample_ctl2_m1) {
       if (widx > sample_ctl2_m1) {
         if (widx % 2) {
