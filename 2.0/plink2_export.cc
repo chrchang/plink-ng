@@ -8478,7 +8478,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           *info_end = ';';
           char* info_stop = &(info_end[1]);
           do {
-            char* key_end = S_CAST(char*, rawmemchr2(info_iter, '=', ';'));
+            char* key_end = AdvToEitherDelimShort(info_iter, '=', ';');
             const uint32_t fif_idx = IdHtableFindNnt(info_iter, fif_keys, fif_keys_htable, key_end - info_iter, fif_keys_htable_size);
             // Second predicate verifies this is actually an INFO key.
             uint32_t info_type_code = 0;
@@ -8510,7 +8510,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               continue;
             }
             char* value_start = &(key_end[1]);
-            char* value_end = AdvToDelim(value_start, ';');
+            char* value_end = AdvToDelimShort(value_start, ';');
             if (info_type_code == 7) {
               // No need to count commas in this case.
               write_iter = AppendBcfCountedString(value_start, value_end - value_start, write_iter);
@@ -8625,7 +8625,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                       CopyToUnalignedOffsetF(write_uc, &fxx, value_idx);
                       value_iter = floatstr_end;
                     } else {
-                      const char* next_comma = AdvToDelim(value_iter, ',');
+                      const char* next_comma = AdvToDelimShort(value_iter, ',');
                       const uint32_t slen = next_comma - value_iter;
                       if (IsNanStr(value_iter, slen)) {
                         CopyToUnalignedOffsetU32(write_uc, &nan_bits, value_idx);

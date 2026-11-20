@@ -3806,16 +3806,16 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, uint32_t is_pr, Pva
   read_info_end[-1] = ';';
   char* read_info_iter = read_info_start;
   do {
-    char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+    char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
     const uint32_t key_slen = key_end - read_info_iter;
     if ((*key_end == ';') || ((key_end[1] == ';') && (key_slen == 2) && memequal_sk(read_info_iter, "PR"))) {
       // flag, or pending PR
       cswritep = memcpyax(cswritep, read_info_iter, key_slen, ';');
-      read_info_iter = AdvPastDelim(key_end, ';');
+      read_info_iter = AdvPastDelimShort(key_end, ';');
       continue;
     }
     char* value_iter = &(key_end[1]);
-    char* next_kv_start = AdvPastDelim(value_iter, ';');
+    char* next_kv_start = AdvPastDelimShort(value_iter, ';');
     const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
     if (kidx == UINT32_MAX) {
       // Undeclared key, retained since --merge-info-sort wasn't specified.
@@ -3840,12 +3840,12 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, uint32_t is_pr, Pva
     } else {
       *cswritep++ = '=';
       if (is_pr && (knum == kInfoVtypeA)) {
-        value_iter = AdvPastDelim(value_iter, ',');
+        value_iter = AdvPastDelimShort(value_iter, ',');
       }
       char* field_end = &(read_info_iter[-1]);
       *field_end = '=';
       while (1) {
-        char* next_eq = AdvToDelim(value_iter, '=');
+        char* next_eq = AdvToDelimShort(value_iter, '=');
         cswritep = memcpya(cswritep, value_iter, next_eq - value_iter);
         if (next_eq == field_end) {
           break;
@@ -3877,13 +3877,13 @@ PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t li
   read_info_end[-1] = ';';
   char* read_info_iter = read_info_start;
   do {
-    char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+    char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
     const uint32_t key_slen = key_end - read_info_iter;
     const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
     if (kidx == UINT32_MAX) {
       // Skip this key.  This can happen on e.g. a header conflict.
       if (*key_end != ';') {
-        key_end = AdvToDelim(&(key_end[1]), ';');
+        key_end = AdvToDelimShort(&(key_end[1]), ';');
       }
       read_info_iter = &(key_end[1]);
       continue;
@@ -3908,7 +3908,7 @@ PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t li
     if (knum == 0) {
       read_info_iter = &(key_end[1]);
     } else {
-      char* value_end = AdvToDelim(&(key_end[1]), ';');
+      char* value_end = AdvToDelimShort(&(key_end[1]), ';');
       read_info_iter = &(value_end[1]);
     }
   } while (read_info_iter != read_info_end);
@@ -4185,12 +4185,12 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           char* read_info_end = &(read_info_start[read_info_slen]);
           *read_info_end++ = ';';
           do {
-            char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+            char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
             const uint32_t key_slen = key_end - read_info_iter;
             const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
             char* value_end = key_end;
             if (*value_end != ';') {
-              value_end = AdvToDelim(&(value_end[1]), ';');
+              value_end = AdvToDelimShort(&(value_end[1]), ';');
             }
             ++value_end;
             if (kidx != UINT32_MAX) {
@@ -4747,13 +4747,13 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
         }
 
         do {
-          char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+          char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
           const uint32_t key_slen = key_end - read_info_iter;
           const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
           if (kidx == UINT32_MAX) {
             // Skip this key.  This can happen on e.g. a header conflict.
             if (*key_end != ';') {
-              key_end = AdvToDelim(&(key_end[1]), ';');
+              key_end = AdvToDelimShort(&(key_end[1]), ';');
             }
             read_info_iter = &(key_end[1]);
             continue;
@@ -4771,7 +4771,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               // other record has a known REF allele, otherwise it contradicts
               // the .pgen flag.
               if (*key_end != ';') {
-                key_end = AdvToDelim(&(key_end[1]), ';');
+                key_end = AdvToDelimShort(&(key_end[1]), ';');
               }
               read_info_iter = &(key_end[1]);
               continue;
@@ -4803,7 +4803,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               }
               read_info_iter = &(key_end[1]);
             } else {
-              char* value_end = AdvToDelim(&(key_end[1]), ';');
+              char* value_end = AdvToDelimShort(&(key_end[1]), ';');
               if (!IsSet(info_field_set, kidx)) {
                 SetBit(kidx, info_field_set);
                 if (read_info_field_order_iter) {
@@ -4879,7 +4879,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             // values include one for the REF allele.
             const uint32_t rec_first_aidx = (cur_record->is_tmp && (cur_record->pgen_pr_status & 1))? 0 : first_aidx;
             read_info_iter = &(key_end[1]);
-            char* value_end = AdvToDelim(read_info_iter, ';');
+            char* value_end = AdvToDelimShort(read_info_iter, ';');
             if (unlikely(CountByte(read_info_iter, ',', value_end - read_info_iter) != read_allele_ct - rec_first_aidx - 1)) {
               const uint32_t file_idx = cur_record->secondary_key >> 32;
               const uint32_t variant_uidx = S_CAST(uint32_t, cur_record->secondary_key);
@@ -4899,7 +4899,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 if ((!cur_ar_info_fields[write_aidx]) && (!memequal_sk(read_info_iter, ".,"))) {
                   cur_ar_info_fields[write_aidx] = read_info_iter;
                 }
-                read_info_iter = AdvPastDelim(read_info_iter, ',');
+                read_info_iter = AdvPastDelimShort(read_info_iter, ',');
                 ++read_aidx;
               } while (read_aidx != read_allele_ct);
             } else if (merge_info_mode == kMergeInfoCmModeFirst) {
@@ -4913,14 +4913,14 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 if ((!cur_ar_info_fields[write_aidx]) && ((!is_tmp) || (!memequal_sk(read_info_iter, "=,")))) {
                   cur_ar_info_fields[write_aidx] = read_info_iter;
                 }
-                read_info_iter = AdvPastDelim(read_info_iter, ',');
+                read_info_iter = AdvPastDelimShort(read_info_iter, ',');
                 ++read_aidx;
               } while (read_aidx != read_allele_ct);
             } else {
               // NmMatch
               do {
                 const uint32_t write_aidx = cur_allele_remap[read_aidx];
-                char* next_subtoken_start = AdvPastDelim(read_info_iter, ',');
+                char* next_subtoken_start = AdvPastDelimShort(read_info_iter, ',');
                 if (!memequal_sk(read_info_iter, ".,")) {
                   if (!cur_ar_info_fields[write_aidx]) {
                     cur_ar_info_fields[write_aidx] = read_info_iter;
