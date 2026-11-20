@@ -1912,107 +1912,6 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
     terminating_bytes = ~(vecuc_movemask(post31_vvec) | delimiter_bytes);
   }
 }
-
-const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
-  const uint32_t relevant_col_ct_m1 = relevant_col_ct - 1;
-  uint32_t relevant_col_idx = 0;
-  uint32_t transition_bits_to_skip_p1 = col_skips[relevant_col_idx] * 2;
-  const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
-  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecUc vvec_all_tab = vecuc_set1(9);
-  const VecUc vvec_all_space = vecuc_set1(32);
-  VecUc cur_vvec = *str_viter;
-  VecUc tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-  const VecUc vvec_all96 = vecuc_set1(96);
-  VecUc post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
-  uint32_t delimiter_bytes = vecuc_movemask(tabspace_vvec);
-  const uint32_t initial_nonterminating_bytes = vecuc_movemask(post31_vvec) | delimiter_bytes;
-  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
-  uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
-  delimiter_bytes &= leading_mask;
-  uint32_t terminating_bytes = leading_mask & (~initial_nonterminating_bytes);
-  uint32_t prev_delim_highbit = 0;
-  if (!transition_bits_to_skip_p1) {
-    // Special case: col_skips[0] can be zero.  When it is, str_iter must point
-    // to the beginning of a token.
-    prev_delim_highbit = -leading_mask;
-    transition_bits_to_skip_p1 = 1;
-  }
-  while (1) {
-    // The number of 0->1 + 1->0 bit transitions in x is
-    //   popcount(x ^ (x << 1)).
-    uint32_t cur_transitions = S_CAST(Vec8thUint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
-    uint32_t cur_transition_ct = PopcountVec8thUint(cur_transitions);
-    while (cur_transition_ct >= transition_bits_to_skip_p1) {
-      cur_transitions = ClearBottomSetBits(transition_bits_to_skip_p1 - 1, cur_transitions);
-      uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
-      const char* token_start = &(DowncastKToC(str_viter)[byte_offset_in_vec]);
-      const uint32_t cur_col_type = col_types[relevant_col_idx];
-      token_ptrs[cur_col_type] = token_start;
-      // Find end of token.
-      if (relevant_col_idx == relevant_col_ct_m1) {
-        if (terminating_bytes << (31 - byte_offset_in_vec)) {
-          return nullptr;
-        }
-        // Handle this separately, since it's ok for the last token to be
-        // terminated by something other than tab/space.
-        // cur_transitions is a misnomer here; we just need the bottom bit to
-        // tell us where the token end is.
-
-        // 33..255 is a bit more annoying to check for efficiently than
-        // 32..255.
-        const VecUc vvec_all95 = vecuc_set1(95);
-        cur_transitions &= cur_transitions - 1;
-        cur_transitions |= terminating_bytes;
-        while (!cur_transitions) {
-          ++str_viter;
-          cur_vvec = *str_viter;
-          const VecUc postspace_vvec = vecuc_adds(cur_vvec, vvec_all95);
-          cur_transitions = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
-        }
-        byte_offset_in_vec = ctzu32(cur_transitions);
-        const char* token_end = &(DowncastKToC(str_viter)[byte_offset_in_vec]);
-        token_slens[cur_col_type] = token_end - token_start;
-        return token_end;
-      }
-      cur_transition_ct -= transition_bits_to_skip_p1;
-      if (!cur_transition_ct) {
-        // Token end is in a later vector.
-        do {
-          if (terminating_bytes) {
-            return nullptr;
-          }
-          ++str_viter;
-          cur_vvec = *str_viter;
-          tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-          post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
-          delimiter_bytes = vecuc_movemask(tabspace_vvec);
-          terminating_bytes = ~(vecuc_movemask(post31_vvec) | delimiter_bytes);
-        } while (!delimiter_bytes);
-        cur_transitions = S_CAST(Vec8thUint, delimiter_bytes ^ (delimiter_bytes << 1));
-        cur_transition_ct = PopcountVec8thUint(cur_transitions);
-      } else {
-        cur_transitions &= cur_transitions - 1;
-      }
-      byte_offset_in_vec = ctzu32(cur_transitions);
-      const char* token_end = &(DowncastKToC(str_viter)[byte_offset_in_vec]);
-      token_slens[cur_col_type] = token_end - token_start;
-      ++relevant_col_idx;
-      transition_bits_to_skip_p1 = 2 * col_skips[relevant_col_idx];
-    }
-    if (terminating_bytes) {
-      return nullptr;
-    }
-    transition_bits_to_skip_p1 -= cur_transition_ct;
-    prev_delim_highbit = transition_bits_to_skip_p1 & 1;
-    ++str_viter;
-    cur_vvec = *str_viter;
-    tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-    post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
-    delimiter_bytes = vecuc_movemask(tabspace_vvec);
-    terminating_bytes = ~(vecuc_movemask(post31_vvec) | delimiter_bytes);
-  }
-}
 #endif  // USE_AVX2
 
 CXXCONST_CP NextCsvMult(const char* str_iter, uint32_t ct) {
@@ -3276,7 +3175,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
 }
 
 CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
-  // See TokenLexK0().
+  // See CurTokenEndFar().
   const VecUc vvec_all95 = vecuc_set1(95);
 #  ifdef SIMDE_ARM_NEON_A32V8_NATIVE
   const VecUc vvec_all94 = vecuc_set1(94);

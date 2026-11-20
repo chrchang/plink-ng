@@ -700,7 +700,7 @@ HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code)
 //   rawmemchr, strchrnul
 //   rawmemchr2, rawmemchr3, strnul, strchrnul_n, strchrnul2, strchrnul3,
 //     strchrnul_n_mov, incr_strchrnul_n_mov
-//   NextTokenMultFar
+//   NextTokenMultFar, CurTokenEndFar (after a short scalar probe)
 //   AdvToNthDelimChecked, AdvToNthDelim, AdvToDelimOrEnd, Memrchr,
 //     LastSpaceOrEoln
 
@@ -1030,6 +1030,38 @@ HEADER_INLINE char* AdvPastDelim(char* str_iter, char delim) {
 }
 #endif
 
+// Variants with a 2-byte scalar probe before the rawmemchr() call.  Use these
+// when the delimiter is usually 0-1 bytes away and the result is on a serial
+// dependency chain, e.g. the eoln scan right after lexing the last needed
+// .pvar column (which is frequently the last column, possibly followed by
+// '\r').  Rawmemchr()'s call + vector-to-scalar-register latency costs ~4ns
+// there (Nov 2026 testing on ARM), while the probe is ~free when it misses.
+HEADER_INLINE CXXCONST_CP AdvToDelimNear(const char* str_iter, char delim) {
+  if (str_iter[0] == delim) {
+    return S_CAST(CXXCONST_CP, str_iter);
+  }
+  if (str_iter[1] == delim) {
+    return S_CAST(CXXCONST_CP, &(str_iter[1]));
+  }
+  return AdvToDelim(&(str_iter[2]), delim);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvToDelimNear(char* str_iter, char delim) {
+  return const_cast<char*>(AdvToDelimNear(const_cast<const char*>(str_iter), delim));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP AdvPastDelimNear(const char* str_iter, char delim) {
+  return &(AdvToDelimNear(str_iter, delim)[1]);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvPastDelimNear(char* str_iter, char delim) {
+  return &(AdvToDelimNear(str_iter, delim)[1]);
+}
+#endif
+
 
 #ifdef __LP64__
 // This is a major VCF-parsing bottleneck, and inlining it makes a big
@@ -1308,13 +1340,14 @@ HEADER_INLINE char* NextTokenMult0(char* str, uint32_t ct) {
 }
 #endif
 
-#ifdef USE_AVX2
-const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens);
+// Note that these lexers deliberately use simple scalar loops to skip tokens,
+// even when AVX2 movemask or ARM narrowing-shift is available: the typical
+// token is short, and since each line's parse depends on where the previous
+// line's last token ended, vector-to-scalar-register latency is on the
+// critical path.  (A full-SIMD TokenLexK0() was ~20% slower than this on a
+// 5-column .pvar in Nov 2026 testing on ARM.)  See TokenLexK0LastFar() for the
+// case where the last token is expected to be long.
 
-HEADER_INLINE const char* TokenLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
-  return TokenLexK0(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
-}
-#else
 // assumes str_iter != nullptr
 // returns nullptr on missing token, otherwise returns pointer to end of last
 //   lexed token
@@ -1346,7 +1379,81 @@ HEADER_INLINE const char* TokenLexK0(const char* str_iter, const uint32_t* col_t
   }
   return TokenLexK(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
 }
+
+#ifdef __LP64__
+// Like CurTokenEnd(), but switches to a vector scan if the token is longer
+// than a few characters.  Same aligned-overread assumptions as rawmemchr().
+HEADER_INLINE CXXCONST_CP CurTokenEndFar(const char* str_iter) {
+  // Short scalar probe first, so that short tokens don't pay the
+  // vector-to-scalar-register latency.  (8 was the sweet spot in Nov 2026
+  // testing.)
+  for (uint32_t uii = 0; uii != 8; ++uii) {
+    ++str_iter;
+    if (ctou32(*str_iter) <= 32) {
+      return S_CAST(CXXCONST_CP, str_iter);
+    }
+  }
+  ++str_iter;
+  const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
+  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
+  // 33..255 is a bit more annoying to check for efficiently than 32..255.
+  // Saturating-add 95: high bit is set iff byte >= 33.
+  const VecUc vvec_all95 = vecuc_set1(95);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+  uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(vecuc_adds(*str_viter, vvec_all95)));
+  nontoken_bytes &= UINT32_MAX << leading_byte_ct;
+  while (!nontoken_bytes) {
+    ++str_viter;
+    nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(vecuc_adds(*str_viter, vvec_all95)));
+  }
+  return &(DowncastToXC(str_viter)[ctzu32(nontoken_bytes)]);
+#  else
+  // Wrapping-add 95 maps 0..32 to 95..127, the only bytes signed-greater than
+  // 94.
+  const VecUc vvec_all94 = vecuc_set1(94);
+  uint64_t nontoken_nybbles = arm_shrn4_uc(vecuc_signed_cmpgt(vecuc_add(*str_viter, vvec_all95), vvec_all94));
+  nontoken_nybbles &= UINT64_MAX << (4 * leading_byte_ct);
+  while (!nontoken_nybbles) {
+    ++str_viter;
+    nontoken_nybbles = arm_shrn4_uc(vecuc_signed_cmpgt(vecuc_add(*str_viter, vvec_all95), vvec_all94));
+  }
+  return &(DowncastToXC(str_viter)[ctzw(nontoken_nybbles) / 4]);
+#  endif
+}
+#else
+HEADER_INLINE CXXCONST_CP CurTokenEndFar(const char* str_iter) {
+  return S_CAST(CXXCONST_CP, CurTokenEnd(str_iter));
+}
 #endif
+
+// Same semantics as TokenLexK0(), but uses CurTokenEndFar() to find the end
+// of the last token.  Use this when the last token is often long (e.g. a .pvar
+// INFO column); stick to TokenLexK0() otherwise, since this is slightly slower
+// when the last token is short.
+HEADER_INLINE const char* TokenLexK0LastFar(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
+  const uint32_t relevant_col_ct_m1 = relevant_col_ct - 1;
+  for (uint32_t relevant_col_idx = 0; ; ++relevant_col_idx) {
+    // only col_skips[0] can be zero
+    const uint32_t cur_col_skip = col_skips[relevant_col_idx];
+    if (cur_col_skip) {
+      str_iter = NextTokenMult(str_iter, cur_col_skip);
+      if (!str_iter) {
+        return nullptr;
+      }
+    }
+    const uint32_t cur_col_type = col_types[relevant_col_idx];
+    token_ptrs[cur_col_type] = str_iter;
+    if (relevant_col_idx == relevant_col_ct_m1) {
+      const char* token_end = CurTokenEndFar(str_iter);
+      token_slens[cur_col_type] = token_end - str_iter;
+      return token_end;
+    }
+    const char* token_end = CurTokenEnd(str_iter);
+    token_slens[cur_col_type] = token_end - str_iter;
+    str_iter = token_end;
+  }
+}
 
 HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
   return K_CAST(char*, TokenLexK(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
@@ -1354,6 +1461,10 @@ HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const ui
 
 HEADER_INLINE char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
   return K_CAST(char*, TokenLexK0(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
+}
+
+HEADER_INLINE char* TokenLex0LastFar(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+  return K_CAST(char*, TokenLexK0LastFar(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
 }
 
 // ct must be positive for these functions.
