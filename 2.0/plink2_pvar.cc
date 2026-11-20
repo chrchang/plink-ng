@@ -2207,7 +2207,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           char* alt_col_end = CurTokenEnd(alt_col_start);
           extra_alt_ct = CountByte(alt_col_start, ',', alt_col_end - alt_col_start);
-          line_iter = AdvToDelim(alt_col_end, '\n');
+          line_iter = AdvToDelimNear(alt_col_end, '\n');
         }
       LoadPvar_skip_variant:
         ++exclude_ct;
