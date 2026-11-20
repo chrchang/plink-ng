@@ -1564,6 +1564,21 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     } else if ((!info_pr_exists) && (!info_reload_slen) && (!info_existp) && (!info_nonexistp) && (!info_filter.expr.etype)) {
       info_col_present = 0;
     }
+    // INFO is frequently long, so when it's the last column we lex, we split
+    // it off from the main TokenLex() call: if it's needed, its end is found
+    // by TokenLex0LastFar()'s vector scan; otherwise we just verify that it's
+    // present.  This is handled inside the existing info_col_present branch
+    // (and no new loop variable is introduced), since the no-INFO path was
+    // measurably slowed by anything more.
+    // info_col_present values in the main loop:
+    //   0: no INFO column, or INFO not needed and not the last lexed column
+    //   1: INFO needed, lexed by the main TokenLex() call
+    //   2: INFO needed, last lexed column
+    //   3: INFO not needed, last lexed column
+    if (col_types[relevant_postchr_col_ct - 1] == 6) {
+      --relevant_postchr_col_ct;
+      info_col_present = info_col_present? 2 : 3;
+    }
 
     uint32_t fexcept_ct = 0;
     uintptr_t max_fexcept_blen = 2;
@@ -1843,10 +1858,23 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
 
         // It is possible for the info_token[info_slen] assignment below to
-        // clobber the line terminator, so we advance line_iter to eoln here
-        // and never reference it again before the next line.
-        line_iter = AdvToDelim(linebuf_iter, '\n');
+        // clobber the line terminator, so we advance line_iter to eoln before
+        // it and never reference it again before the next line.
         if (info_col_present) {
+          if (info_col_present != 1) {
+            if (info_col_present == 3) {
+              if (unlikely(!NextTokenMult(linebuf_iter, col_skips[relevant_postchr_col_ct]))) {
+                goto LoadPvar_ret_MISSING_TOKENS;
+              }
+              line_iter = AdvToDelim(linebuf_iter, '\n');
+              goto LoadPvar_info_done;
+            }
+            linebuf_iter = TokenLex0LastFar(linebuf_iter, &(col_types[relevant_postchr_col_ct]), &(col_skips[relevant_postchr_col_ct]), 1, token_ptrs, token_slens);
+            if (unlikely(!linebuf_iter)) {
+              goto LoadPvar_ret_MISSING_TOKENS;
+            }
+          }
+          line_iter = AdvToDelim(linebuf_iter, '\n');
           const uint32_t info_slen = token_slens[6];
           if (info_slen > info_reload_slen) {
             info_reload_slen = info_slen;
@@ -1884,7 +1912,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               goto LoadPvar_skip_variant;
             }
           }
+        } else {
+          line_iter = AdvToDelim(linebuf_iter, '\n');
         }
+      LoadPvar_info_done:
         // POS
         // could error out on floating-point number?
         int32_t cur_bp;
