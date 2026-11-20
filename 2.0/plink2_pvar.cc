@@ -1874,7 +1874,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               goto LoadPvar_ret_MISSING_TOKENS;
             }
           }
-          line_iter = AdvToDelim(linebuf_iter, '\n');
+          line_iter = AdvToDelimNear(linebuf_iter, '\n');
           const uint32_t info_slen = token_slens[6];
           if (info_slen > info_reload_slen) {
             info_reload_slen = info_slen;
@@ -1913,7 +1913,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             }
           }
         } else {
-          line_iter = AdvToDelim(linebuf_iter, '\n');
+          line_iter = AdvToDelimNear(linebuf_iter, '\n');
         }
       LoadPvar_info_done:
         // POS
@@ -2754,7 +2754,7 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
       }
       allele_idx += cur_allele_ct;
       *allele_idx_offsets_iter++ = allele_idx;
-      const char* line_end = AdvPastDelim(alt_end, '\n');
+      const char* line_end = AdvPastDelimNear(alt_end, '\n');
       const uint32_t cur_line_blen = line_end - line_start;
       if (cur_line_blen > max_observed_line_blen) {
         max_observed_line_blen = cur_line_blen;

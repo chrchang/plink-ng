@@ -2671,7 +2671,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
           goto ScanPvarsAndMergeHeader_ret_1;
         }
 
-        char* line_end = AdvPastDelim(line_iter, '\n');
+        char* line_end = AdvPastDelimNear(line_iter, '\n');
         uint32_t line_blen = line_end - line_start;
         if (max_line_blen < line_blen) {
           max_line_blen = line_blen;
@@ -7550,7 +7550,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         if (unlikely(!line_iter)) {
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
-        line_start = AdvPastDelim(line_iter, '\n');
+        line_start = AdvPastDelimNear(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
@@ -8317,7 +8317,7 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
         if (unlikely(!line_iter)) {
           goto PmergePassSingle_ret_PVAR_REWIND_FAIL_N;
         }
-        line_start = AdvPastDelim(line_iter, '\n');
+        line_start = AdvPastDelimNear(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           goto PmergePassSingle_ret_PVAR_REWIND_FAIL_N;
@@ -9664,7 +9664,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
       }
       {
         char* chrom_start = line_start;
-        line_start = AdvPastDelim(line_start, '\n');
+        line_start = AdvPastDelimNear(last_token_end, '\n');
 
         char* chrom_end = CurTokenEnd(chrom_start);
         *chrom_end = '\0';

@@ -1030,6 +1030,38 @@ HEADER_INLINE char* AdvPastDelim(char* str_iter, char delim) {
 }
 #endif
 
+// Variants with a 2-byte scalar probe before the rawmemchr() call.  Use these
+// when the delimiter is usually 0-1 bytes away and the result is on a serial
+// dependency chain, e.g. the eoln scan right after lexing the last needed
+// .pvar column (which is frequently the last column, possibly followed by
+// '\r').  Rawmemchr()'s call + vector-to-scalar-register latency costs ~4ns
+// there (Nov 2026 testing on ARM), while the probe is ~free when it misses.
+HEADER_INLINE CXXCONST_CP AdvToDelimNear(const char* str_iter, char delim) {
+  if (str_iter[0] == delim) {
+    return S_CAST(CXXCONST_CP, str_iter);
+  }
+  if (str_iter[1] == delim) {
+    return S_CAST(CXXCONST_CP, &(str_iter[1]));
+  }
+  return AdvToDelim(&(str_iter[2]), delim);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvToDelimNear(char* str_iter, char delim) {
+  return const_cast<char*>(AdvToDelimNear(const_cast<const char*>(str_iter), delim));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP AdvPastDelimNear(const char* str_iter, char delim) {
+  return &(AdvToDelimNear(str_iter, delim)[1]);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvPastDelimNear(char* str_iter, char delim) {
+  return &(AdvToDelimNear(str_iter, delim)[1]);
+}
+#endif
+
 
 #ifdef __LP64__
 // This is a major VCF-parsing bottleneck, and inlining it makes a big
