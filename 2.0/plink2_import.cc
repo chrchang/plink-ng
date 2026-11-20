@@ -3619,8 +3619,14 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         if (TextIsMt(&vcf_txs) && (max_thread_ct > 1)) {
           decompress_thread_ct = 2;
         }
-        // this seems to saturate around 3 threads.
-        calc_thread_ct = 1 + (sample_ct > 40) + (sample_ct > 320);
+        // Retuned in Nov 2026 on an M2 Pro (12 cores), after the GT-only fast
+        // path was added: lines it handles saturate at 2-3 parse threads (the
+        // main thread is the bottleneck after that), but lines it doesn't
+        // (e.g. GT:AD:DP with no GQ/DP filter, haploid/chrX calls) kept
+        // scaling to ~6 threads when there were more than ~100 samples
+        // (~30% faster than the previous cap of 3), and to 2 threads with
+        // as few as 20 samples.
+        calc_thread_ct = 1 + (sample_ct > 12) + (sample_ct > 40) + 3 * (sample_ct > 100);
       }
       if (unlikely(CleanupTextStream2(vcfname, &vcf_txs, &reterr))) {
         goto VcfToPgen_ret_1;
