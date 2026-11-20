@@ -1628,7 +1628,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         char* orig_alt_iter = orig_alt_start;
         for (uint32_t alt_idx = 0; alt_idx != extra_orig_alt_ct; ++alt_idx) {
           orig_alt_starts[alt_idx] = orig_alt_iter;
-          orig_alt_iter = AdvToDelim(orig_alt_iter, ',');
+          orig_alt_iter = AdvToDelimShort(orig_alt_iter, ',');
           *orig_alt_iter++ = '\0';
         }
         orig_alt_starts[extra_orig_alt_ct] = orig_alt_iter;
@@ -15940,7 +15940,7 @@ PglErr InfoToColsStream(const char* pvarname, const InfoColsInfo* icip, MiscFlag
       if (extra_alt_ct) {
         const char* alt_token_end = &(alt_iter[alt_slen]);
         for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-          const char* cur_alt_end = AdvToDelim(alt_iter, ',');
+          const char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
           const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
           if (cur_allele_slen == 1) {
             const char geno_char = alt_iter[0];

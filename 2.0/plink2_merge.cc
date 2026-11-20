@@ -1881,7 +1881,7 @@ PglErr RescanOnePos(unsigned char* arena_top, uint32_t batch_size, uint32_t prev
           const uint32_t extra_alt_ct = container_of(tmp_variant_id, RescanOnePosRecord, variant_id)->allele_ct - 2;
           char* alt_iter = &(strnul(ref_allele)[1]);
           for (uint32_t extra_alt_idx = 0; extra_alt_idx != extra_alt_ct; ++extra_alt_idx) {
-            char* cur_alt_end = AdvToDelim(alt_iter, ',');
+            char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
             *cur_alt_end = '\0';
             // Missing allele prohibited here.
             *alleles_iter++ = alt_iter;
@@ -4303,7 +4303,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           const uint32_t extra_alt_ct = allele_ct - 2;
           char* alt_iter = &(cur_variant_id[other_field_offsets[1]]);
           for (uint32_t uii = 0; uii != extra_alt_ct; ++uii) {
-            char* cur_alt_end = AdvToDelim(alt_iter, ',');
+            char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
             *cur_alt_end = '\0';
             alt_iter = &(cur_alt_end[1]);
           }
@@ -7725,7 +7725,7 @@ uint32_t CountMergedAlleles(SamePosPvarRecord** same_id_records, uintptr_t merge
     // Null-terminate extra ALT alleles, as MergePvariant() does.
     char* alt_iter = &(cur_record->variant_id[cur_record->other_field_offsets[1]]);
     for (uint32_t uii = 2; uii != allele_ct; ++uii) {
-      char* cur_alt_end = AdvToDelim(alt_iter, ',');
+      char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
       *cur_alt_end = '\0';
       alt_iter = &(cur_alt_end[1]);
     }
@@ -9856,7 +9856,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         char* alt_iter = token_ptrs[3];
         alt_iter[token_slens[3]] = '\0';
         for (uint32_t allele2_idx = 1; allele2_idx != last_allele2_idx; ++allele2_idx) {
-          char* alt_end = AdvToDelim(alt_iter, ',');
+          char* alt_end = AdvToDelimShort(alt_iter, ',');
           *alt_end = '\0';
           cur_allele2s[allele2_idx] = alt_iter;
           alt_iter = &(alt_end[1]);

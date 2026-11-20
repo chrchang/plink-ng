@@ -3372,13 +3372,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
                 if (!IsSet(matched_loaded_alleles, allele_idx)) {
-                  alt_freq_iter = AdvToDelim(alt_freq_iter, ',');
+                  alt_freq_iter = AdvToDelimShort(alt_freq_iter, ',');
                   continue;
                 }
                 double dxx;
                 const char* cur_freq_end = ScanadvDouble(alt_freq_iter, &dxx);
                 if (!cur_freq_end) {
-                  cur_freq_end = AdvToDelim(alt_freq_iter, ',');
+                  cur_freq_end = AdvToDelimShort(alt_freq_iter, ',');
                   if (likely(IsNanStr(alt_freq_iter, cur_freq_end - alt_freq_iter))) {
                     goto ReadAlleleFreqs_skip_variant;
                   }
@@ -3404,7 +3404,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   const uint32_t cap_mod_10 = (loaded_allele_idx_end - 1) % 10;
 #endif
                   while (1) {
-                    const char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
+                    const char* cur_entry_end = AdvToDelimShort(alt_freq_iter, ',');
                     uint32_t loaded_allele_idx;
 #ifdef __LP64__
                     if (unlikely(ScanmovUintCapped(loaded_allele_idx_end - 1, &alt_freq_iter, &loaded_allele_idx))) {
@@ -3451,7 +3451,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   char* alt_freq_iter = alt_freq_start;
                   char* alt_freq_end = &(alt_freq_start[full_slen]);
                   while (1) {
-                    char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
+                    char* cur_entry_end = AdvToDelimShort(alt_freq_iter, ',');
                     const uint32_t cur_entry_slen = cur_entry_end - alt_freq_iter;
                     char* eq_ptr = S_CAST(char*, memchr(alt_freq_iter, '=', cur_entry_slen));
                     if (unlikely(!eq_ptr)) {

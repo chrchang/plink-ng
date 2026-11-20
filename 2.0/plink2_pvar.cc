@@ -338,7 +338,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
     } else {
-      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
+      alt1_slen = AdvToDelimShort(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
       alt1_slen = new_id_max_allele_slen;
@@ -457,7 +457,7 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
     } else {
-      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
+      alt1_slen = AdvToDelimShort(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
       if (alt1_slen > cur_max_overflow_slen) {
@@ -2112,7 +2112,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           char* alt_token_end = &(linebuf_iter[remaining_alt_char_ct]);
           for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-            char* cur_alt_end = AdvToDelim(linebuf_iter, ',');
+            char* cur_alt_end = AdvToDelimShort(linebuf_iter, ',');
             const uint32_t cur_allele_slen = cur_alt_end - linebuf_iter;
             if (cur_allele_slen == 1) {
               const char geno_char = linebuf_iter[0];
@@ -2736,7 +2736,7 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
       if (alt_col_slen > 1) {
         extra_alt_ct = CountByte(alt_iter, ',', alt_col_slen);
         for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-          const char* cur_alt_end = AdvToDelim(alt_iter, ',');
+          const char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
           const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
           if (cur_allele_slen > max_allele_slen) {
             max_allele_slen = cur_allele_slen;

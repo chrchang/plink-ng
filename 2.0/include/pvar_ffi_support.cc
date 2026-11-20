@@ -307,7 +307,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
             const char* alt_iter = alt_start;
             const char* alt_end = &(alt_start[alt_slen]);
             for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-              const char* cur_alt_end = AdvToDelim(alt_iter, ',');
+              const char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
               const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
               if (cur_allele_slen != 1) {
                 if (unlikely(!cur_allele_slen)) {
@@ -483,7 +483,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
           const char* alt_iter = alt_start;
           const char* alt_end = &(alt_start[alt_slen]);
           for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-            const char* cur_alt_end = AdvToDelim(alt_iter, ',');
+            const char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
             const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
             if (cur_allele_slen == 1) {
               allele_storage[allele_idx] = &(g_one_char_strs[2 * alt_iter[0]]);
