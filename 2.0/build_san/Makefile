@@ -166,6 +166,13 @@ ifeq ($(UNAME), Darwin)
   BLASFLAGS=-framework Accelerate
   CFLAGS += -I/usr/local/include
   CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
+  # Search the SDK's library directory before /usr/local/lib, so -lz links
+  # Apple's system zlib (about twice as fast at inflate) rather than a stock
+  # zlib that may be installed in /usr/local/lib.
+  MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null)
+  ifneq ($(MACOS_SDK),)
+    LINKFLAGS += -L$(MACOS_SDK)/usr/lib
+  endif
   LINKFLAGS += -L/usr/local/lib
   LIBTOOL=libtool
   STATIC=-static
