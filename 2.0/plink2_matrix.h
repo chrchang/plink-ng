@@ -29,6 +29,8 @@
 // BLAS functions are referred to as cblas_<fname>(), LAPACK functions are
 // referred to as LAPACK_<fname>(), and the integer index type is lapack_int.
 
+#include <math.h>  // fabs()
+
 #include "include/plink2_base.h"
 #include "include/plink2_simd.h"
 

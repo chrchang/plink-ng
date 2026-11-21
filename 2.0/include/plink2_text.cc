@@ -1712,7 +1712,8 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr) {
     cur_lf_ct = PopcountVec8thUint(lf_bytes);
     if (cur_lf_ct >= skip_ct) {
     TextSkipNz_finish:
-      // todo: check if this is faster outside of vector-space
+      // Finishing in mask space is faster than a scalar rescan; see the
+      // comment above AdvToNthDelimChecked() in plink2_string.h.
       lf_bytes = ClearBottomSetBits(skip_ct - 1, lf_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(lf_bytes) + 1;
       const uintptr_t result_addr = R_CAST(uintptr_t, consume_viter) + byte_offset_in_vec;
