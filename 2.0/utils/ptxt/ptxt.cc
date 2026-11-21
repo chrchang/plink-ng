@@ -1,76 +1,9 @@
 // Prototype plink2-library text tools.  Input may be uncompressed, gzip,
 // BGZF (decompressed in parallel), or zstd.  Lines must end in LF.
 //
-//   ptxt cut LIST FILE
-//       Like 'cut -f LIST' (tab-delimited; LIST ascending, e.g. 1-8 or 2,11).
-//   ptxt paste FILE1 FILE2
-//       Like 'paste FILE1 FILE2'.
-//   ptxt select [opts] COLS FILE
-//       Like awk '{print $3,$1,...}': any order, repeats allowed.
-//   ptxt filter [opts] EXPR FILE
-//       Print lines satisfying an awk-like expression, e.g.
-//         '$P < 5e-8 && ($1 == "22" || $CHR == "X") && abs($BETA/$SE) > 5'
-//       Fields are $N or $NAME (a header name).  Supports < <= > >= == !=,
-//       && || !, parentheses, + - * / %, and abs/log/log10/exp/sqrt.  All
-//       arguments before FILE are joined with spaces.  See the grammar comment
-//       above ExprNodeType for value semantics.
-//   ptxt keep|remove [opts] COL IDFILE FILE
-//       Print lines whose COL value is (keep) / isn't (remove) listed in
-//       IDFILE (first whitespace-delimited token of each line).
-//   ptxt count [opts] COL FILE
-//       Print "value<TAB>count" for each distinct COL value, in first-seen
-//       order.
-//   ptxt prefix|unprefix [opts] COL STR FILE
-//       Add STR to the start of COL / remove STR from the start of COL where
-//       present (e.g. 'prefix 1 chr').  Everything else is copied verbatim.
-//   ptxt tsv FILE
-//       Convert whitespace-delimited lines (e.g. PLINK 1 reports) to TSV, with
-//       awk '{$1=$1}1' OFS='\t' semantics (leading/trailing whitespace
-//       dropped, runs of spaces/tabs collapsed).
-//   ptxt sum [opts] COL FILE
-//       Print the sum of the numeric values in COL.
-//   ptxt join [opts] KEYS1 FILE1 KEYS2 FILE2
-//       Hash join: for each FILE1 line, print it once per FILE2 row whose
-//       KEYS2 columns equal its KEYS1 columns (exact string match), followed
-//       by that row's non-key columns.  FILE1 order is kept; multiple
-//       matches come out in FILE2 order.  KEYS are comma-separated lists of
-//       equal length (composite keys).  FILE2 is held in memory.
-//         -a      also print unmatched FILE1 lines, padded with -e values
-//         -e STR  fill value for -a (default NA)
-//       With -H (or names), both files have headers; the output header is
-//       FILE1's header plus FILE2's non-key column names.
-//       e.g. 'ptxt join -a SNP sumstats.tsv ID annot.tsv'
-//   ptxt sort [opts] KEY[:TYPE][,KEY[:TYPE]...] FILE
-//       Stable multi-key sort (ties keep input order, like 'sort -s').  TYPE
-//       is s (byte-order string; default), n (numeric, any decimal/scientific
-//       notation; 'g' is an alias), or c (chromosome: 1..22.., X, Y, XY, MT,
-//       optional chr prefix, then other contigs by name), plus an optional r
-//       to reverse that key.  Non-numeric/missing values of an n key always
-//       sort last.  Loads the whole input into memory; uses all cores (<=16).
-//       e.g. 'ptxt sort CHR:c,POS:n f.tsv', 'ptxt sort P:n f.tsv.gz'
-//   ptxt uniq [opts] [-c] [-r|-u] [COLS] FILE
-//       Print the first line for each distinct key (the whole line, or the
-//       COLS fields; a missing field counts as empty), in first-seen order.
-//       Input need not be sorted: without flags this is awk '!seen[$3]++',
-//       and on sorted input it matches uniq.
-//         -c  prefix each line with its key's count and a tab
-//         -r  only keys occurring more than once (uniq -d; -d is taken)
-//         -u  only keys occurring exactly once
-//       -c/-r/-u print at the end and also keep each key's first line in
-//       memory.  With -H the header is copied through ("count\t" prepended
-//       with -c).
-//
-// opts (select/filter/keep/remove/count/prefix/unprefix/sum/sort/join/uniq):
-//   -w        whitespace-delimited input (awk default field splitting)
-//   -d C      input delimiter character (default tab)
-//   -O STR    output delimiter for select and join (default: tab)
-//   -H        first line is a header.  filter/keep/remove/prefix/unprefix
-//             copy it through, sort and uniq keep it
-//             first; count/sum skip it; select treats it like any other line.
-//   --        end of options (only needed if FILE or EXPR is literally -w etc.)
-// Columns are 1-based numbers, ranges (select only, e.g. 3-5), or header
-// names (which imply -H).  Numbers in fields are parsed with correct rounding
-// (see ParseNumExact), so boundary comparisons agree with awk.
+// The user-facing documentation of every subcommand is the help text below
+// (kSummaryHelp, kModeHelp; printed by 'ptxt' and 'ptxt SUB -h'), mirrored in
+// README.md.  Keep the two in sync.
 
 // Correctly-rounded decimal parsing.  plink2's ScanadvDouble may be off by an
 // ulp or two, which flips comparisons against thresholds like "<= 0.99" when
@@ -113,6 +46,361 @@ static inline void EmitCh(char c) {
 }
 
 static void Die(const char* msg) { fprintf(stderr, "ptxt: %s\n", msg); exit(1); }
+
+// ---- help ----
+//
+// 'ptxt' alone prints the subcommand summary; 'ptxt SUB -h' (or 'ptxt help
+// SUB') prints everything about one subcommand; 'ptxt -v' prints kVersion.
+// Keep lines <= 80 columns.
+
+static const char kVersion[] = "ptxt v0.1.0 (21 Nov 2026)";
+
+static const char kSummaryHelp[] = R"HELP(
+  ptxt <subcommand> [options...] <arguments...>
+  ptxt <subcommand> -h
+  ptxt -v
+
+Fast replacements for common text-processing one-liners.  Input may be
+uncompressed, gzip, BGZF (decompressed on several threads) or zstd; use
+/dev/stdin as FILE to read from a pipe.  Output goes to stdout.  Columns are
+1-based numbers or header names.
+
+Subcommands:
+  -- Columns
+     select    columns in any order, repeats allowed    awk '{print $3,$1}'
+     cut       columns in ascending order (tab only)    cut -f
+     paste     two files side by side                   paste
+     prefix    add a leading string to a column         awk '{$1="chr"$1}1'
+     unprefix  remove a leading string from a column    sed 's/^chr//'
+     tsv       whitespace-delimited to tab-delimited    awk '{$1=$1}1' OFS=\t
+
+  -- Rows
+     filter    lines satisfying an expression           awk '$P < 5e-8'
+     keep      lines whose column is in an ID list      grep -F -w -f
+     remove    lines whose column isn't in an ID list   grep -v -F -w -f
+     uniq      first line per distinct key              awk '!seen[$3]++'
+     sort      stable multi-key sort                    sort -s -k1,1V -k2,2n
+     join      hash join on key column(s)               join
+
+  -- Summaries
+     count     number of lines per distinct value       cut | sort | uniq -c
+     sum       sum of a numeric column                  awk '{s+=$5} END...'
+
+"ptxt <subcommand> -h" describes one subcommand in full; "ptxt -v" (or -V)
+prints just the version.
+)HELP";
+
+// Options shared by most subcommands; printed after a subcommand's own help.
+static const char kColumnsHelp[] = R"HELP(
+Columns are 1-based numbers (e.g. 3) or header names (e.g. P); using a name
+implies -H.
+)HELP";
+
+static const char kInputHelp[] = R"HELP(
+Input may be uncompressed, gzip, BGZF or zstd; use /dev/stdin to read from a
+pipe.  Lines must end in LF.
+)HELP";
+
+struct ModeHelp {
+  const char* name;
+  const char* body;        // usage line(s) and description
+  const char* examples;
+  const char* header_doc;  // what -H does; nullptr if [opts] isn't accepted
+  uint32_t odelim;         // -O accepted
+  uint32_t ranges;         // column ranges accepted
+};
+
+static const ModeHelp kModeHelp[] = {
+  {"cut", R"HELP(
+  ptxt cut LIST FILE
+
+Same as 'cut -f LIST' on tab-delimited input.  LIST is a comma-separated list
+of 1-based column numbers and ranges, in ascending order (e.g. 1-8 or 2,11).
+Lines with no tab are printed whole, as cut does.  Contiguous ranges are
+copied as one block, so this is fastest when you keep runs of columns.
+
+Use 'ptxt select' to reorder or repeat columns, pick them by header name, or
+read whitespace-delimited input.
+
+)HELP", R"HELP(
+Example:
+  ptxt cut 1-5,8 calls.vcf.gz
+)HELP", nullptr, 0, 0},
+
+  {"paste", R"HELP(
+  ptxt paste FILE1 FILE2
+
+Same as 'paste FILE1 FILE2': prints each FILE1 line, a tab, then the
+corresponding FILE2 line.  It is an error for the files to have different
+numbers of lines.
+
+)HELP", R"HELP(
+Example:
+  ptxt paste ids.txt scores.txt
+)HELP", nullptr, 0, 0},
+
+  {"select", R"HELP(
+  ptxt select [options] COLS FILE
+
+Prints the COLS columns of each line, like awk '{print $3, $1, ...}'.  COLS
+is a comma-separated list; columns can be in any order and can be repeated.
+Missing fields are printed as empty strings.
+
+)HELP", R"HELP(
+Examples:
+  ptxt select SNP,P,BETA ss.tsv
+  ptxt select -w -O , 2,1,5-7 plink.assoc
+)HELP", "It is printed like any other line.", 1, 1},
+
+  {"filter", R"HELP(
+  ptxt filter [options] EXPR FILE
+
+Prints the lines that satisfy EXPR, an awk-like expression.  All arguments
+before FILE are joined with spaces, so EXPR doesn't have to be one shell
+argument (but quote it anyway, to protect $, <, >, ( and &).
+
+Syntax:
+  Fields      $N, $NAME, or $"NAME" (names imply -H)
+  Literals    numbers (any decimal or scientific notation), "strings"
+  Operators   in increasing precedence:
+                ||  (also |, or)
+                &&  (also &, and)
+                <  <=  >  >=  ==  (also =)  !=
+                +  -
+                *  /  %
+                unary !  (also not),  unary -  +
+  Functions   abs  log  log10  exp  sqrt
+  Grouping    ( )
+
+How values compare (as in awk, except for missing values):
+  - A field is a number if the whole field parses as one.
+  - Field vs "string" compares as strings.
+  - Field vs field compares numerically if both are numbers, as strings
+    otherwise.
+  - Field vs number compares numerically if the field is a number.
+    Otherwise the comparison is false, and != is true.  (This is plink2's
+    --extract-if-info convention; awk would compare as strings.)
+  - Arithmetic on a non-numeric field gives a missing value: every
+    comparison against it is false (!= is true), and it is false as a
+    condition.
+  - A bare value used as a condition is true if it is a nonzero number or a
+    nonempty string.
+  - A field past the end of the line is an empty string.
+  - Numbers are parsed with correct rounding, so boundary comparisons such as
+    0.9900 <= 0.99 agree with awk.
+
+)HELP", R"HELP(
+Examples:
+  ptxt filter '$P < 5e-8' ss.tsv
+  ptxt filter '$P < 5e-8 && ($1 == "22" || $CHR == "X")' ss.tsv.gz
+  ptxt filter 'abs($BETA / $SE) > 5 && $A1_FREQ >= 0.01' ss.tsv
+  ptxt filter -w '-log10($9) > 8' plink.assoc
+)HELP", "It is copied through.", 0, 0},
+
+  {"keep", R"HELP(
+  ptxt keep [options] COL IDFILE FILE
+  ptxt remove [options] COL IDFILE FILE
+
+'keep' prints the lines whose COL value is listed in IDFILE; 'remove' prints
+the lines whose COL value isn't.  Each ID is the first whitespace-delimited
+token on an IDFILE line; blank IDFILE lines are ignored.  Matching is exact
+string equality, via a hash table, so IDFILE can hold millions of IDs.
+
+This replaces awk 'NR==FNR {a[$1]; next} $3 in a' and 'grep -F -w -f', but
+only looks at one column (grep -w matches anywhere on the line).
+
+)HELP", R"HELP(
+Examples:
+  ptxt keep SNP hits.txt ss.tsv.gz
+  ptxt remove -w 2 bad_ids.txt plink.assoc
+)HELP", "It is copied through.", 0, 0},
+
+  {"count", R"HELP(
+  ptxt count [options] COL FILE
+
+Prints "VALUE<TAB>COUNT" for each distinct value in column COL, in the order
+the values first appear.  This replaces 'cut -f COL | sort | uniq -c' and
+awk '{c[$1]++} END {for (k in c) print k, c[k]}'; the input doesn't need to
+be sorted.  Lines that are missing COL aren't counted.
+
+Pipe the output to 'ptxt sort 2:nr /dev/stdin' to order it by count.
+
+)HELP", R"HELP(
+Example:
+  ptxt count CHR ss.tsv
+)HELP", "It is skipped.", 0, 0},
+
+  {"prefix", R"HELP(
+  ptxt prefix [options] COL STR FILE
+  ptxt unprefix [options] COL STR FILE
+
+'prefix' adds STR to the start of column COL.  'unprefix' removes STR from
+the start of COL wherever it is present.  The rest of each line, including
+delimiters, is copied unchanged.
+
+)HELP", R"HELP(
+Examples:
+  ptxt prefix 1 chr calls_b37.tsv
+  ptxt unprefix CHR chr ss.tsv.gz
+)HELP", "It is copied through.", 0, 0},
+
+  {"tsv", R"HELP(
+  ptxt tsv FILE
+
+Converts whitespace-delimited lines, such as PLINK 1 reports, to
+tab-delimited.  Leading and trailing spaces and tabs are dropped and each run
+of spaces and tabs becomes one tab, as with awk '{$1=$1}1' OFS='\t'.  This is
+what 'tr -s " " "\t"' is usually meant to do, except that tr leaves a leading
+tab on padded lines.
+
+)HELP", R"HELP(
+Example:
+  ptxt tsv plink.assoc > plink.assoc.tsv
+)HELP", nullptr, 0, 0},
+
+  {"sum", R"HELP(
+  ptxt sum [options] COL FILE
+
+Prints the sum of the numeric values in column COL.  Non-numeric and missing
+values are skipped.
+
+)HELP", R"HELP(
+Example:
+  ptxt sum -w 5 plink.frq.counts
+)HELP", "It is skipped.", 0, 0},
+
+  {"sort", R"HELP(
+  ptxt sort [options] KEY[:TYPE][,KEY[:TYPE]...] FILE
+
+Stable sort on one or more keys: lines with equal keys stay in input order,
+as with 'sort -s'.  Each KEY is a single column; later keys break ties in
+earlier ones (at most 32 keys).  TYPE is one of:
+  s   string, in byte order (default)
+  n   number, in any decimal or scientific notation ('g' is an alias).
+      Non-numeric and missing values always sort last, in either direction.
+  c   chromosome: 1, 2, ..., 22 (and higher numbers), X, Y, XY, MT (or M),
+      with or without a chr prefix (any case), then other contigs in byte
+      order.
+Append r to a TYPE (or use just r, for a reversed string key) to sort that
+key in descending order.
+
+The whole input is loaded into memory.  The sort uses all cores, up to 16;
+set PTXT_TIMING=1 to print per-phase timings to stderr.
+
+)HELP", R"HELP(
+Examples:
+  ptxt sort CHR:c,POS:n ss.tsv > ss.sorted.tsv
+  ptxt sort P:n ss.tsv.gz | head
+  ptxt sort -H 7:nr,3 ss.tsv
+)HELP", "It stays first.", 0, 0},
+
+  {"join", R"HELP(
+  ptxt join [options] [-a] [-e STR] KEYS1 FILE1 KEYS2 FILE2
+
+Hash join.  For each FILE1 line, prints that line once for every FILE2 row
+whose KEYS2 columns exactly match the line's KEYS1 columns, followed by the
+FILE2 row's non-key columns.
+  - Output keeps FILE1's order; several matching FILE2 rows come out in
+    FILE2 order.  Neither file needs to be sorted.
+  - KEYS1 and KEYS2 are comma-separated lists of the same length, so
+    composite keys (e.g. CHR,POS) work.  Ranges aren't allowed.
+  - FILE2 is held in memory and FILE1 is streamed, so put the smaller file
+    second.
+  - Short FILE2 rows are padded with empty fields.  FILE2 rows missing a key
+    column, and blank FILE2 lines, are skipped.
+
+Join options:
+  -a        Also print FILE1 lines that have no match, padded with -e values.
+  -e STR    Fill value for -a (default: NA).
+
+With -H (or any column name), both files have header lines.  The output
+header is FILE1's header followed by FILE2's non-key column names.
+
+)HELP", R"HELP(
+Examples:
+  ptxt join SNP sumstats.tsv ID annot.tsv
+  ptxt join -a -e . CHR,POS a.tsv chrom,pos b.tsv.gz
+)HELP", "Both files must have one.", 1, 0},
+
+  {"uniq", R"HELP(
+  ptxt uniq [options] [-c] [-r|-u] [COLS] FILE
+
+Prints the first line for each distinct key, in the order keys first appear.
+The key is the whole line, or the COLS columns if COLS is given (a
+comma-separated list; a missing field counts as empty, as in awk).  The input
+doesn't need to be sorted: with no flags this is awk '!seen[$3]++', and on
+sorted input the output matches uniq's.
+
+Uniq options:
+  -c        Put each key's count and a tab in front of its line.
+  -r        Only print keys that occur more than once ('uniq -d'; -d is
+            ptxt's delimiter option).
+  -u        Only print keys that occur exactly once.
+-c, -r and -u print their output at the end, keeping each key's first line in
+memory.  Without them, lines are printed as soon as they're read.
+
+Sorted input is especially fast: while keys arrive in ascending order no
+hash table is needed.
+
+)HELP", R"HELP(
+Examples:
+  ptxt uniq SNP ss.tsv                  # drop repeated SNP IDs
+  ptxt uniq -c -r CHR,POS ss.tsv.gz     # list duplicated positions
+  sort ids.txt | ptxt uniq /dev/stdin
+)HELP", "It is copied through, with\n"
+        "            \"count<TAB>\" in front under -c.", 0, 0},
+};
+
+static const ModeHelp* FindModeHelp(const char* mode) {
+  if (!strcmp(mode, "remove")) mode = "keep";
+  else if (!strcmp(mode, "unprefix")) mode = "prefix";
+  for (const ModeHelp& h : kModeHelp) {
+    if (!strcmp(h.name, mode)) return &h;
+  }
+  return nullptr;
+}
+
+static void PrintBanner() {
+  // Right-align the tagline at column 80, as plink2 does.
+  static const char kTagline[] = "text tools built on the plink2 library";
+  printf("%s%*s\n", kVersion, static_cast<int>(80 - strlen(kVersion)), kTagline);
+}
+
+[[noreturn]] static void PrintSummaryHelp(int exit_code) {
+  PrintBanner();
+  fputs(kSummaryHelp, stdout);
+  exit(exit_code);
+}
+
+[[noreturn]] static void PrintModeHelp(const ModeHelp* h, int exit_code) {
+  fputs(h->body + 1, stdout);  // skip the raw string's leading newline
+  if (h->header_doc) {
+    fputs("Common options:\n"
+          "  -w        Whitespace-delimited input (awk's default field splitting).\n"
+          "  -d C      Input delimiter character (default: tab).\n", stdout);
+    if (h->odelim) fputs("  -O STR    Output delimiter (default: tab).\n", stdout);
+    printf("  -H        The first line is a header.  %s\n", h->header_doc);
+    fputs("  --        End of options; needed only if the next argument is\n"
+          "            literally one of the options above.\n", stdout);
+    fputs(kColumnsHelp, stdout);
+    if (h->ranges) fputs("Ranges such as 3-5 (or 5-3, descending) are allowed.\n", stdout);
+  }
+  // The body ends with a blank line; the sections after it don't.
+  if (h->header_doc) putchar('\n');
+  fputs(kInputHelp + 1, stdout);
+  fputs(h->examples, stdout);
+  exit(exit_code);
+}
+
+static const char* g_mode = "";
+
+static bool IsHelpFlag(const char* a) { return !strcmp(a, "-h") || !strcmp(a, "--help"); }
+
+// For argument-count errors: the one-line synopsis plus a pointer to -h.
+[[noreturn]] static void DieUsage(const char* synopsis) {
+  fprintf(stderr, "ptxt: usage: %s\n(\"ptxt %s -h\" for details.)\n", synopsis, g_mode);
+  exit(1);
+}
 
 static void OpenTs(const char* fname, TextStream* txsp) {
   PreinitTextStream(txsp);
@@ -184,6 +472,7 @@ static int ParseOpts(int argc, char** argv, int start, Opts* o, uint32_t join_op
   for (; i < argc; ++i) {
     const char* a = argv[i];
     if (!strcmp(a, "--")) { ++i; break; }
+    if (IsHelpFlag(a)) PrintModeHelp(FindModeHelp(g_mode), 0);
     const uint32_t is_join_opt = join_opts && (!strcmp(a, "-a") || !strcmp(a, "-e"));
     if (strcmp(a, "-w") && strcmp(a, "-H") && strcmp(a, "-d") && strcmp(a, "-O") && !is_join_opt) break;
     if (!strcmp(a, "-w")) o->delim = '\0';
@@ -397,7 +686,7 @@ static inline uint32_t HashStr(const char* s, uint32_t len) { return Hash32(s, l
 
 // ---- modes ----
 static void ModeCut(int argc, char** argv) {
-  if (argc != 4) Die("usage: ptxt cut LIST FILE");
+  if (argc != 4) DieUsage("ptxt cut LIST FILE");
   std::vector<uint32_t> cols;
   for (char* p = argv[2]; *p; ) {
     uint32_t a = strtoul(p, &p, 10), b = a;
@@ -446,7 +735,7 @@ static void ModeCut(int argc, char** argv) {
 }
 
 static void ModePaste(int argc, char** argv) {
-  if (argc != 4) Die("usage: ptxt paste FILE1 FILE2");
+  if (argc != 4) DieUsage("ptxt paste FILE1 FILE2");
   TextStream t1, t2; OpenTs(argv[2], &t1); OpenTs(argv[3], &t2);
   char *l1, *l2;
   while (!TextNextLine(&t1, &l1)) {
@@ -462,7 +751,7 @@ static void ModePaste(int argc, char** argv) {
 static void ModeSelect(int argc, char** argv) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o);
-  if (argc - i != 2) Die("usage: ptxt select [opts] COLS FILE");
+  if (argc - i != 2) DieUsage("ptxt select [options] COLS FILE");
   Input in; OpenInput(argv[i + 1], argv[i], &o, &in);
   const std::vector<uint32_t>& req = in.cols;
   // Sorted unique needed columns, and map from request slot to needed slot.
@@ -1009,7 +1298,7 @@ static Val EvalExpr(const std::vector<ExprNode>& nodes, uint32_t idx, ExprLine* 
 static void ModeFilter(int argc, char** argv) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o);
-  if (argc - i < 2) Die("usage: ptxt filter [opts] EXPR FILE");
+  if (argc - i < 2) DieUsage("ptxt filter [options] EXPR FILE");
   // All args before FILE are joined with spaces, so quoting is optional
   // where the shell permits.
   std::string src;
@@ -1082,7 +1371,7 @@ static void ModeFilter(int argc, char** argv) {
 static void ModeKeep(int argc, char** argv, uint32_t invert) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o);
-  if (argc - i != 3) Die("usage: ptxt keep|remove [opts] COL IDFILE FILE");
+  if (argc - i != 3) DieUsage("ptxt keep|remove [options] COL IDFILE FILE");
   StrSet ids;
   {
     TextStream its; OpenTs(argv[i + 1], &its);
@@ -1120,7 +1409,7 @@ static void ModeKeep(int argc, char** argv, uint32_t invert) {
 static void ModeCount(int argc, char** argv) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o);
-  if (argc - i != 2) Die("usage: ptxt count [opts] COL FILE");
+  if (argc - i != 2) DieUsage("ptxt count [options] COL FILE");
   Input in; OpenInput(argv[i + 1], argv[i], &o, &in);
   const uint32_t col = SingleCol(in);
   const char delim = o.delim;
@@ -1158,7 +1447,7 @@ static void ModeCount(int argc, char** argv) {
 static void ModePrefix(int argc, char** argv, uint32_t remove) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o);
-  if (argc - i != 3) Die("usage: ptxt prefix|unprefix [opts] COL STR FILE");
+  if (argc - i != 3) DieUsage("ptxt prefix|unprefix [options] COL STR FILE");
   const char* str = argv[i + 1];
   const uint32_t slen = strlen(str);
   Input in; OpenInput(argv[i + 2], argv[i], &o, &in);
@@ -1190,7 +1479,7 @@ static void ModePrefix(int argc, char** argv, uint32_t remove) {
 }
 
 static void ModeTsv(int argc, char** argv) {
-  if (argc != 3) Die("usage: ptxt tsv FILE");
+  if (argc != 3) DieUsage("ptxt tsv FILE");
   TextStream txs; OpenTs(argv[2], &txs);
   char* line;
   while (!TextNextLine(&txs, &line)) {
@@ -1212,7 +1501,7 @@ static void ModeTsv(int argc, char** argv) {
 static void ModeSum(int argc, char** argv) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o);
-  if (argc - i != 2) Die("usage: ptxt sum [opts] COL FILE");
+  if (argc - i != 2) DieUsage("ptxt sum [options] COL FILE");
   Input in; OpenInput(argv[i + 1], argv[i], &o, &in);
   const uint32_t col = SingleCol(in);
   const char delim = o.delim;
@@ -1277,7 +1566,7 @@ static void SplitFields(char* line, char* lend, char delim, std::vector<char*>* 
 static void ModeJoin(int argc, char** argv) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o, 1);
-  if (argc - i != 4) Die("usage: ptxt join [opts] KEYS1 FILE1 KEYS2 FILE2");
+  if (argc - i != 4) DieUsage("ptxt join [options] [-a] [-e STR] KEYS1 FILE1 KEYS2 FILE2");
   std::vector<ColTok> toks1, toks2;
   if (ParseCols(argv[i], &toks1)) o.header = 1;
   if (ParseCols(argv[i + 2], &toks2)) o.header = 1;
@@ -1621,7 +1910,7 @@ static void ParallelFor(uint32_t thread_ct, uintptr_t n, F fn) {
 static void ModeSort(int argc, char** argv) {
   Opts o;
   int i = ParseOpts(argc, argv, 2, &o);
-  if (argc - i != 2) Die("usage: ptxt sort [opts] KEY[:TYPE][,KEY[:TYPE]...] FILE");
+  if (argc - i != 2) DieUsage("ptxt sort [options] KEY[:TYPE][,KEY[:TYPE]...] FILE");
   SortCtx ctx;
   ParseSortKeys(argv[i], &ctx.keys);
   const uint32_t nk = ctx.keys.size();
@@ -1898,7 +2187,7 @@ static void ModeUniq(int argc, char** argv) {
     else break;
     ++i;
   }
-  if (argc - i != 1 && argc - i != 2) Die("usage: ptxt uniq [opts] [-c] [-r|-u] [COLS] FILE");
+  if (argc - i != 1 && argc - i != 2) DieUsage("ptxt uniq [options] [-c] [-r|-u] [COLS] FILE");
   if (dups && singles) Die("-r and -u are mutually exclusive");
   const uint32_t whole = (argc - i == 1);
   Input in; OpenInput(argv[argc - 1], whole ? nullptr : argv[i], &o, &in);
@@ -1989,9 +2278,34 @@ static void ModeUniq(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
-  if (argc < 3) {
-    Die("usage: ptxt {cut|paste|select|filter|keep|remove|count|prefix|unprefix|tsv|sum|sort|join|uniq} ...");
+  // 'ptxt' alone and 'ptxt SUB' alone print help and fail, as plink2 does
+  // with no arguments; explicit help requests succeed.
+  if (argc == 1) PrintSummaryHelp(1);
+  if (!strcmp(argv[1], "-v") || !strcmp(argv[1], "-V") || !strcmp(argv[1], "--version")) {
+    if (argc > 2) {
+      fprintf(stderr, "ptxt: %s takes no arguments\n", argv[1]);
+      return 1;
+    }
+    printf("%s\n", kVersion);
+    return 0;
   }
+  if (IsHelpFlag(argv[1]) || !strcmp(argv[1], "help")) {
+    if (argc == 2) PrintSummaryHelp(0);
+    const ModeHelp* h = FindModeHelp(argv[2]);
+    if (!h) {
+      fprintf(stderr, "ptxt: unrecognized subcommand '%s'; run 'ptxt' with no arguments for a list\n", argv[2]);
+      return 1;
+    }
+    PrintModeHelp(h, 0);
+  }
+  g_mode = argv[1];
+  const ModeHelp* mode_help = FindModeHelp(g_mode);
+  if (!mode_help) {
+    fprintf(stderr, "ptxt: unrecognized subcommand '%s'; run 'ptxt' with no arguments for a list\n", g_mode);
+    return 1;
+  }
+  if (argc == 2) PrintModeHelp(mode_help, 1);
+  if (IsHelpFlag(argv[2])) PrintModeHelp(mode_help, 0);
   g_outbuf = static_cast<char*>(malloc(kOutBufSize)); g_outw = g_outbuf;
   const char* mode = argv[1];
   if (!strcmp(mode, "cut")) ModeCut(argc, argv);
@@ -2008,7 +2322,7 @@ int main(int argc, char** argv) {
   else if (!strcmp(mode, "sort")) ModeSort(argc, argv);
   else if (!strcmp(mode, "join")) ModeJoin(argc, argv);
   else if (!strcmp(mode, "uniq")) ModeUniq(argc, argv);
-  else Die("unrecognized mode");
+  else Die("unrecognized subcommand");
   Flush();
   return 0;
 }

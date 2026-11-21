@@ -332,8 +332,42 @@ else
   echo "(zstd not found; skipping zstd tests)"
 fi
 
-# ---- usage errors ----
-fails "unknown mode" "$P frobnicate x" "unrecognized mode"
+# ---- help and usage errors ----
+fails "unknown subcommand" "$P frobnicate x" "unrecognized subcommand"
+fails "help for unknown subcommand" "$P help frobnicate" "unrecognized subcommand"
+# 'ptxt' alone prints the summary but exits nonzero, like plink2.
+fails "no arguments" "$P" "ptxt <subcommand> -h"
+if ! out=$("$P" --help) || [[ "$out" != *"Subcommands:"* ]]; then
+  echo "FAIL: ptxt --help"; exit 1
+fi
+PASS=$((PASS + 1))
+# Every subcommand in the summary has full help: 'SUB -h', 'help SUB' and
+# '-h' after other options all give the same text, starting with SUB's
+# synopsis, and it fits in 80 columns.
+SUBS=$("$P" --help | awk '/^     [a-z]+  / {print $1}')
+[[ $(wc -w <<< "$SUBS") -eq 14 ]] || { echo "FAIL: summary lists $(wc -w <<< "$SUBS") subcommands"; exit 1; }
+for sub in $SUBS; do
+  check "$sub -h = help $sub" "$P help $sub" "$P $sub -h"
+  if ! out=$("$P" $sub -h) || [[ "$out" != *"ptxt $sub "* ]]; then
+    echo "FAIL: $sub -h doesn't show its synopsis"; exit 1
+  fi
+  if awk 'length > 80 {bad = 1} END {exit !bad}' <<< "$out"; then
+    echo "FAIL: $sub -h has lines over 80 columns"; exit 1
+  fi
+  PASS=$((PASS + 1))
+done
+awk 'length > 80 {bad = 1} END {exit !bad}' <<< "$("$P" --help)" && { echo "FAIL: summary has lines over 80 columns"; exit 1; }
+for v in -v -V --version; do
+  expect "$v" "$P $v" 'ptxt v0.1.0 (21 Nov 2026)\n'
+done
+[[ $("$P" --help | head -1) == "ptxt v0.1.0 (21 Nov 2026) "* ]] || { echo "FAIL: banner lacks version"; exit 1; }
+PASS=$((PASS + 1))
+fails "-v with arguments" "$P -v sort" "takes no arguments"
+check "-h after options" "$P sort -h" "$P sort -H -w -h"
+check "-h after uniq flags" "$P uniq -h" "$P uniq -c -h"
+check "--help" "$P join -h" "$P join -a --help"
+fails "subcommand alone" "$P sort" "ptxt sort [options]"
+fails "usage hint" "$P cut 1" "\"ptxt cut -h\" for details"
 fails "missing file" "$P cut 1 does_not_exist.tsv" "failed to open"
 
 echo "All $PASS ptxt tests passed."

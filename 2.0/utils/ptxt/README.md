@@ -34,6 +34,12 @@ opts: -w (whitespace-delimited)  -d C (delimiter)  -O STR (output delimiter)
       -H (header line)  -- (end of options)
 ```
 
+`ptxt` with no arguments prints a grouped summary of the subcommands, and
+`ptxt -v` (or `-V`) prints the version.
+`ptxt SUB -h` (or `ptxt help SUB`, or just `ptxt SUB`) prints everything about
+one subcommand: its options, how it treats a header line, and examples. It
+covers the same ground as the subcommand sections below; keep the two in sync.
+
 Columns are 1-based numbers or header names (names imply `-H`). `select`
 also takes ranges such as `3-5`. Comma-separated lists give several columns,
 or a composite key for `join` and `uniq`.
