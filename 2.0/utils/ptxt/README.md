@@ -12,6 +12,32 @@ used in bioinformatics scripts (`cut`, `paste`, `awk` one-liners, `sort`,
   implementation (BSD tools, GNU coreutils, gawk, mawk) on typical inputs:
   summary statistics, VCFs and PLINK reports. See [Performance](#performance).
 
+## Syntax summary
+
+```
+ptxt cut LIST FILE                                    # cut -f LIST (LIST ascending)
+ptxt paste FILE1 FILE2                                # paste
+ptxt select [opts] COLS FILE                          # awk '{print $3, $1}'
+ptxt filter [opts] EXPR FILE                          # awk 'EXPR'
+ptxt keep [opts] COL IDFILE FILE                      # lines whose COL is in IDFILE
+ptxt remove [opts] COL IDFILE FILE                    # lines whose COL isn't in IDFILE
+ptxt count [opts] COL FILE                            # value<TAB>count per distinct value
+ptxt prefix [opts] COL STR FILE                       # add STR to the start of COL
+ptxt unprefix [opts] COL STR FILE                     # remove STR from the start of COL
+ptxt tsv FILE                                         # awk '{$1=$1}1' OFS='\t'
+ptxt sum [opts] COL FILE                              # sum of COL
+ptxt sort [opts] KEY[:TYPE][,KEY[:TYPE]...] FILE      # TYPE: s, n (or g), c; append r to reverse
+ptxt join [opts] [-a] [-e STR] KEYS1 FILE1 KEYS2 FILE2  # hash join, FILE1 order kept
+ptxt uniq [opts] [-c] [-r|-u] [COLS] FILE             # awk '!seen[KEY]++'; uniq on sorted input
+
+opts: -w (whitespace-delimited)  -d C (delimiter)  -O STR (output delimiter)
+      -H (header line)  -- (end of options)
+```
+
+Columns are 1-based numbers or header names (names imply `-H`). `select`
+also takes ranges such as `3-5`. Comma-separated lists give several columns,
+or a composite key for `join` and `uniq`.
+
 ## Building and testing
 
 ```
