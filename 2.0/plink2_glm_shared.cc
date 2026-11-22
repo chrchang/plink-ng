@@ -81,6 +81,21 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
       sample_cov_row[pred_idx2] = prefer_fma(neg_pred1_mean_adj, dbl_2d_buf[input_pred_idx2], predictor_dotprods_row[input_pred_idx2]) * sample_ct_m1_recip;
     }
   }
+  // A predictor that's constant on the current samples (e.g. a covariate
+  // that only varies among samples with missing genotypes) is collinear with
+  // the intercept.  Its computed variance is a difference of nearly equal
+  // numbers, so it's only exactly zero when the constant happens to be zero;
+  // use a relative threshold instead.  (Legitimate predictors are many orders
+  // of magnitude above this threshold, since the covariates are rescaled and
+  // the genotype column has bounded scale; rounding noise for a constant
+  // column is at most ~sample_ct * epsilon.)
+  for (uintptr_t pred_idx = 0; pred_idx != relevant_predictor_ct; ++pred_idx) {
+    const uintptr_t input_pred_idx = pred_idx + first_predictor_idx;
+    const double ssq = predictor_dotprods[input_pred_idx * (predictor_ct + 1)];
+    if (inverse_corr_buf[pred_idx * relevant_predictor_ct_p1] * sample_ct_m1_d <= ssq * (1.0 / 1073741824.0)) {
+      return SetGlmErr0(kGlmErrcodeVifInfinite);
+    }
+  }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
   for (uintptr_t pred_idx = 0; pred_idx != relevant_predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * relevant_predictor_ct_p1]);
@@ -215,8 +230,96 @@ GlmErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* corr
   return 0;
 }
 
-PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, const char** cur_covar_names, GlmErr* glm_err_ptr) {
+// Genotype columns with MAF in [0.01, 0.5] have sum-of-squares <= 1.5n and
+// (sample variance) * (n-1) >= 0.0198(n-1); the regression code is
+// considered numerically safe when every predictor's
+// (sum of squares) / ((sample variance) * (n-1)) ratio, relative to this
+// range, stays within a factor of 2^20.
+//
+// If center_ok is set, each covariate is centered and scaled to unit sample
+// variance.  The model has an intercept, so this reparameterization leaves
+// the fit unchanged, but it alters the intercept and the meaning of
+// interaction-model main effects; center_ok must therefore be false when
+// either of those is reported.  In that case, each covariate is only divided
+// by its root mean square, which cannot help when |mean| / stdev is very
+// large.
+//
+// covar_sums[] must contain the original column sums.  On success, the
+// covariates are rescaled in place, covar_sums[] is updated to the rescaled
+// sums, covar_beta_mults[] is filled with the factors that convert
+// coefficients and standard errors of the rescaled covariates (and their
+// interaction terms) back to original units, and 0 is returned.  If the
+// rescaled covariates would fail the scale check, nothing is modified and 1
+// is returned.  stats_buf[] must have space for 2 * covar_ct elements.
+static BoolErr RescaleCovars(uintptr_t sample_ct, uintptr_t covar_ct, uint32_t center_ok, double* covars_cmaj, double* covar_sums, double* covar_beta_mults, double* stats_buf) {
+  const double sample_ct_d = u31tod(sample_ct);
+  const double sample_ct_recip = 1.0 / sample_ct_d;
+  double max_ssq = 1.5 * sample_ct_d;
+  double min_ssq_minus_sqmean = 0.0198 * u31tod(sample_ct - 1);
+  double* means = stats_buf;
+  double* inv_scales = &(stats_buf[covar_ct]);
+  for (uintptr_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+    const double* cur_covar = &(covars_cmaj[covar_idx * sample_ct]);
+    const double mean = covar_sums[covar_idx] * sample_ct_recip;
+    // two-pass, since the one-pass value suffers from cancellation in exactly
+    // the cases we care about here
+    double ssq = 0.0;
+    double centered_ssq = 0.0;
+    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const double val = cur_covar[sample_idx];
+      ssq += val * val;
+      const double centered_val = val - mean;
+      centered_ssq += centered_val * centered_val;
+    }
+    // Most of the covariate's precision has already been lost if its
+    // variation is this small relative to its magnitude.  (This can't happen
+    // when the original covariates pass the scale check.)
+    if (centered_ssq * 68719476736.0 <= ssq) {
+      return 1;
+    }
+    double inv_scale;
+    double new_ssq;
+    double new_centered_ssq;
+    if (center_ok) {
+      inv_scale = 1.0 / sqrt(centered_ssq / u31tod(sample_ct - 1));
+      new_centered_ssq = centered_ssq * inv_scale * inv_scale;
+      new_ssq = new_centered_ssq;
+    } else {
+      inv_scale = 1.0 / sqrt(ssq * sample_ct_recip);
+      new_centered_ssq = centered_ssq * inv_scale * inv_scale;
+      new_ssq = ssq * inv_scale * inv_scale;
+    }
+    if (new_ssq > max_ssq) {
+      max_ssq = new_ssq;
+    }
+    if (new_centered_ssq < min_ssq_minus_sqmean) {
+      min_ssq_minus_sqmean = new_centered_ssq;
+    }
+    means[covar_idx] = mean;
+    inv_scales[covar_idx] = inv_scale;
+  }
+  if (min_ssq_minus_sqmean * 1048576.0 < max_ssq) {
+    return 1;
+  }
+  for (uintptr_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+    double* cur_covar = &(covars_cmaj[covar_idx * sample_ct]);
+    const double shift = center_ok? means[covar_idx] : 0.0;
+    const double inv_scale = inv_scales[covar_idx];
+    double new_sum = 0.0;
+    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const double new_val = (cur_covar[sample_idx] - shift) * inv_scale;
+      cur_covar[sample_idx] = new_val;
+      new_sum += new_val;
+    }
+    covar_sums[covar_idx] = new_sum;
+    covar_beta_mults[covar_idx] = inv_scale;
+  }
+  return 0;
+}
+
+PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t center_ok, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, double** covar_beta_mults_ptr, const char** cur_covar_names, GlmErr* glm_err_ptr) {
   *glm_err_ptr = 0;
+  *covar_beta_mults_ptr = nullptr;
   if (covar_ct == local_covar_ct) {
     // bugfix (5 Mar 2018): need to copy local-covar names
     for (uintptr_t local_covar_read_idx = 0; local_covar_read_idx != covar_ct; ++local_covar_read_idx) {
@@ -257,6 +360,8 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
   // variance of each fixed covariate column, and error out when the range of
   // either value exceeds ~6 orders of magnitude.  (Conveniently, this catches
   // the fairly common "year of birth" problem.)
+  // Update (Nov 2026): we now always rescale the covariates with
+  // RescaleCovars(), and only error out if that doesn't fix the problem.
   // Initial ssq and variance values correspond to genotype columns with a MAF
   // range of [0.01, 0.5].
   double max_ssq = 1.5 * u31tod(sample_ct);
@@ -340,14 +445,28 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
     }
   }
   BigstackEndSet(new_covar_name_alloc);
-  if (min_ssq_minus_sqmean * 1048576.0 < max_ssq) {
-    // Could automatically variance-standardize, while keeping track of the
-    // linear transformations so we can translate results back to original
-    // units in the final output.
-    // However, this can have a surprising interaction with the VIF check, so
-    // it should come with an option to disable the auto-standardization.
-    *glm_err_ptr = SetGlmErr0(kGlmErrcodeUnstableScale);
-    return kPglRetSkipped;
+  // Always rescale the fixed covariates (and record the factors needed to
+  // translate coefficients back to the original units): this improves the
+  // conditioning of everything downstream, and genotype-term results are
+  // unaffected.  If the original covariates failed the scale check and
+  // rescaling doesn't fix that, error out.
+  {
+    const uint32_t orig_scale_ok = (min_ssq_minus_sqmean * 1048576.0 >= max_ssq);
+    double* covar_beta_mults;
+    double* stats_buf;
+    if (unlikely(bigstack_end_alloc_d(new_nonlocal_covar_ct, &covar_beta_mults) ||
+                 bigstack_alloc_d(2 * new_nonlocal_covar_ct, &stats_buf))) {
+      return kPglRetNomem;
+    }
+    if (!RescaleCovars(sample_ct, new_nonlocal_covar_ct, center_ok, covars_cmaj, dbl_2d_buf, covar_beta_mults, stats_buf)) {
+      *covar_beta_mults_ptr = covar_beta_mults;
+    } else if (orig_scale_ok) {
+      // Possible in scale-only mode; just keep the original covariates.
+      BigstackEndSet(new_covar_name_alloc);
+    } else {
+      *glm_err_ptr = SetGlmErr0(kGlmErrcodeUnstableScale);
+      return kPglRetSkipped;
+    }
   }
   assert(covar_write_iter == &(covars_cmaj[new_nonlocal_covar_ct * sample_ct]));
   MultiplySelfTranspose(covars_cmaj, new_nonlocal_covar_ct, sample_ct, covar_dotprod);

@@ -1191,8 +1191,9 @@ static inline uintptr_t MultinomialInvertDbl2dCt(uintptr_t dim) {
   return dim * MAXV(dim, 7);
 }
 
-BoolErr GlmAllocFillAndTestPhenoCovarsMultinomial(const uintptr_t* sample_include, const PhenoCol* pheno_col, const uint32_t* cat_to_level, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t level_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t firth_mode, MultinomialSet* setp, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+BoolErr GlmAllocFillAndTestPhenoCovarsMultinomial(const uintptr_t* sample_include, const PhenoCol* pheno_col, const uint32_t* cat_to_level, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t level_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t firth_mode, MultinomialSet* setp, double** covar_beta_mults_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
   *glm_err_ptr = 0;
+  *covar_beta_mults_ptr = nullptr;
   setp->firth_null = 0;
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uint32_t pred_ct = new_covar_ct + 1;
@@ -1229,7 +1230,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsMultinomial(const uintptr_t* sample_includ
                  bigstack_alloc_d(new_covar_ct * new_covar_ct, &inverse_corr_buf))) {
       return 1;
     }
-    PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, 0, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, nullptr, inverse_corr_buf, covars_cmaj, *cur_covar_names_ptr, glm_err_ptr);
+    PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, 0, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, 1, covar_dotprod, nullptr, inverse_corr_buf, covars_cmaj, covar_beta_mults_ptr, *cur_covar_names_ptr, glm_err_ptr);
     if (unlikely(reterr)) {
       return (reterr == kPglRetNomem);
     }
