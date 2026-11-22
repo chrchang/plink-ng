@@ -1575,10 +1575,15 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     //   1: INFO needed, lexed by the main TokenLex() call
     //   2: INFO needed, last lexed column
     //   3: INFO not needed, last lexed column
+    // AVX2 builds don't do this, since their full-SIMD TokenLexK0() already
+    // handles a long last token well, and the second lexing pass made
+    // INFO-containing .pvar loading 5-8% slower in Nov 2026 testing.
+#ifndef USE_AVX2
     if (col_types[relevant_postchr_col_ct - 1] == 6) {
       --relevant_postchr_col_ct;
       info_col_present = info_col_present? 2 : 3;
     }
+#endif
 
     uint32_t fexcept_ct = 0;
     uintptr_t max_fexcept_blen = 2;
