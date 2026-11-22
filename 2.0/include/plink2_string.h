@@ -1379,14 +1379,26 @@ HEADER_INLINE char* NextTokenMult0(char* str, uint32_t ct) {
 }
 #endif
 
-// Note that these lexers deliberately use simple scalar loops to skip tokens,
-// even when AVX2 movemask or ARM narrowing-shift is available: the typical
+// Outside of AVX2 builds, these lexers deliberately use simple scalar loops
+// to skip tokens, even when ARM narrowing-shift is available: the typical
 // token is short, and since each line's parse depends on where the previous
 // line's last token ended, vector-to-scalar-register latency is on the
-// critical path.  (A full-SIMD TokenLexK0() was ~20% slower than this on a
-// 5-column .pvar in Nov 2026 testing on ARM.)  See TokenLexK0LastFar() for the
-// case where the last token is expected to be long.
+// critical path.  (A NEON port of the full-SIMD TokenLexK0() was ~20% slower
+// than this on a 5-column .pvar in Nov 2026 testing on ARM.)  See
+// TokenLexK0LastFar() for the case where the last token is expected to be
+// long.
+// AVX2 movemask is cheap enough that the reverse holds there: in Nov 2026
+// x86 testing, the scalar lexers made .pvar loading up to ~11% slower when
+// INFO was present (no difference on a 5-column .pvar), so AVX2 builds keep
+// the full-SIMD TokenLexK0().
 
+#ifdef USE_AVX2
+const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens);
+
+HEADER_INLINE const char* TokenLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
+  return TokenLexK0(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
+}
+#else
 // assumes str_iter != nullptr
 // returns nullptr on missing token, otherwise returns pointer to end of last
 //   lexed token
@@ -1418,6 +1430,7 @@ HEADER_INLINE const char* TokenLexK0(const char* str_iter, const uint32_t* col_t
   }
   return TokenLexK(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
 }
+#endif  // !USE_AVX2
 
 #ifdef __LP64__
 // Like CurTokenEnd(), but switches to a vector scan if the token is longer
