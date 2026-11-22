@@ -602,7 +602,76 @@ void SolveLinearSystemF(const float* ll, const float* yy, uint32_t predictor_ct,
   }
 }
 
-BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, float* __restrict coef, uint32_t* is_unfinished_ptr, float* __restrict ll, float* __restrict pp, float* __restrict vv, float* __restrict hh, float* __restrict grad, float* __restrict dcoef) {
+// Categorical-covariate structure; see the "categorical-covariate structure"
+// section below.
+typedef struct CatPredLayoutStruct {
+  uint32_t family_ct;
+  const uint32_t* pred_starts;  // predictor index of each family's first dummy
+  const uint32_t* dummy_cts;
+  const uint32_t* levels;  // family-major, row stride level_stride
+  uintptr_t level_stride;
+  const double* val0s;  // per dummy, family-major
+  const double* val1s;
+  double* scratch;  // CatScratchDoubleCt() elements
+} CatPredLayout;
+
+typedef struct CatWorkStruct {
+  uint32_t dense_ct;
+  uint32_t dense_ctav;
+  uint32_t* dense_idxs;
+  double* dense_xx;  // gathered dense predictor rows, stride sample_ctav
+  double* dense_hh;  // dense_ct x dense_ctav
+  double* dense_vec;  // dense_ctav
+  double* level_sums;  // per family: (dense_ct + 2) x (dummy_ct + 1)
+  double* joint_sums;  // per family pair (f < g): (L_f + 1) x (L_g + 1)
+  // Extra buffers for Firth regression and the single-precision wrappers.
+  double* nbufs[5];  // sample_ctav each
+  double* kk_buf;  // predictor_ct x RoundUpPow2(predictor_ct, kDoublePerDVec)
+  double* kvecs[2];  // RoundUpPow2(predictor_ct, kDoublePerDVec) each
+  double* nk_buf;  // dense_ct x sample_ctav
+} CatWork;
+
+// A sample set's categorical structure after --parameters.  Dummies excluded
+// by --parameters are treated like the omitted category (a family's
+// remaining dummies are still mutually exclusive), and families with no
+// remaining dummies are dropped.
+typedef struct CatSetStruct {
+  uint32_t family_ct;  // remaining families
+  // Set when the per-sample levels can't be used as-is (remapping, or
+  // dropped families).
+  uint32_t copy_needed;
+  uint32_t* orig_family_idxs;
+  uint32_t* pred_starts;
+  uint32_t* dummy_cts;
+  uint32_t* remap_offsets;
+  uint32_t* remaps;  // per remaining family: original level -> new level
+  uint32_t* level_buf;  // family_ct * sample_ct
+  double* val0s;
+  double* val1s;
+} CatSet;
+
+// CatSet's val0s/val1s live at the end of the CatScratchDoubleCt() buffer.
+static inline double* CatSetDoubles(const CatCovarLayout* cl, double* cat_scratch, uintptr_t cat_scratch_dbl_ct) {
+  return &(cat_scratch[cat_scratch_dbl_ct - 2 * S_CAST(uintptr_t, cl->dummy_ct)]);
+}
+
+uint32_t CatKeptDummyCt(const CatCovarLayout* cl, const uintptr_t* parameter_subset, uint32_t domdev_third);
+uintptr_t CatScratchDoubleCt(const CatCovarLayout* cl, uint32_t max_predictor_ct, uint32_t kept_dummy_ct, uint32_t sample_ct);
+uintptr_t CatU32Ct(const CatCovarLayout* cl, uint32_t sample_ct);
+static void CatSetInit(const CatCovarLayout* cl, const uintptr_t* parameter_subset, uint32_t covar_param_start, uint32_t pred_base, uint32_t round_to_float, double* dbl_buf, uint32_t* u32_buf, CatSet* cs);
+static void CatSetVariantLayout(const CatCovarLayout* cl, const CatSet* cs, const uintptr_t* sample_nm, uint32_t sample_ct, uint32_t missing_ct, double* scratch, CatPredLayout* cat_pl);
+static void CatWorkInitFromF(const CatPredLayout* cat, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, CatWork* cw);
+static void CatHessianF(const CatPredLayout* cat, CatWork* cw, const float* ww, uint32_t sample_ct, uint32_t predictor_ct, float* hh);
+static void CatGradF(const CatPredLayout* cat, CatWork* cw, const float* rr, uint32_t sample_ct, uint32_t predictor_ct, float* grad);
+static void CatEtaF(const CatPredLayout* cat, CatWork* cw, const float* coef, uint32_t sample_ct, uint32_t predictor_ct, float* eta);
+static void CatFirthHdiagWeightsF(const CatPredLayout* cat, CatWork* cw, const float* mm, const float* yy, const float* pp, const float* vv, uint32_t sample_ct, uint32_t predictor_ct, float* hdiag, float* ww);
+
+BoolErr LogisticRegressionCatF(const float* yy, const float* xx, const float* sample_offsets, const CatPredLayout* cat, uint32_t sample_ct, uint32_t predictor_ct, float* __restrict coef, uint32_t* is_unfinished_ptr, float* __restrict ll, float* __restrict pp, float* __restrict vv, float* __restrict hh, float* __restrict grad, float* __restrict dcoef) {
+  // cat: if non-null, categorical-covariate structure of xx; see CatPredLayout.
+  CatWork cw;
+  if (cat) {
+    CatWorkInitFromF(cat, xx, sample_ct, predictor_ct, &cw);
+  }
   // Similar to first part of logistic.cpp fitLM(), but incorporates changes
   // from Pascal Pons et al.'s TopCoder code.
   //
@@ -640,7 +709,11 @@ BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sampl
   ZeroFArr(sample_ctav - sample_ct, &(vv[sample_ct]));
   for (uint32_t iteration = 0; ; ++iteration) {
     // P[i] = \sum_j X[i][j] * coef[j];
-    ColMajorFmatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    if (!cat) {
+      ColMajorFmatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    } else {
+      CatEtaF(cat, &cw, coef, sample_ct, predictor_ct, pp);
+    }
     if (sample_offsets) {
       AddFVec(sample_offsets, sample_ctav, pp);
     }
@@ -667,11 +740,19 @@ BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sampl
     //    be handled with one loop over the samples; covers all categories
     // 4. similarly, one loop over the samples is enough to update all category
     //    pairs between two categorical covariates
-    ComputeHessianF(xx, vv, sample_ct, predictor_ct, hh);
+    if (!cat) {
+      ComputeHessianF(xx, vv, sample_ct, predictor_ct, hh);
+    } else {
+      CatHessianF(cat, &cw, vv, sample_ct, predictor_ct, hh);
+    }
 
     // grad = X^T P
     // Separate categorical loop also possible here
-    MultMatrixDxnVectNF(xx, pp, sample_ct, predictor_ct, grad);
+    if (!cat) {
+      MultMatrixDxnVectNF(xx, pp, sample_ct, predictor_ct, grad);
+    } else {
+      CatGradF(cat, &cw, pp, sample_ct, predictor_ct, grad);
+    }
 
     CholeskyDecompositionF(hh, predictor_ct, ll);
 
@@ -720,6 +801,10 @@ BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sampl
       return 0;
     }
   }
+}
+
+BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, float* __restrict coef, uint32_t* is_unfinished_ptr, float* __restrict ll, float* __restrict pp, float* __restrict vv, float* __restrict hh, float* __restrict grad, float* __restrict dcoef) {
+  return LogisticRegressionCatF(yy, xx, sample_offsets, nullptr, sample_ct, predictor_ct, coef, is_unfinished_ptr, ll, pp, vv, hh, grad, dcoef);
 }
 
 #ifdef __LP64__
@@ -873,7 +958,12 @@ void FirthComputeSecondWeightsF(const float* hdiag, const float* vv, __maybe_unu
 #endif
 }
 
-BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, float* beta, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* ustar, float* delta, float* hdiag, float* ww, float* hh0, float* tmpnxk_buf) {
+BoolErr FirthRegressionCatF(const float* yy, const float* xx, const float* sample_offsets, const CatPredLayout* cat, uint32_t sample_ct, uint32_t predictor_ct, float* beta, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* ustar, float* delta, float* hdiag, float* ww, float* hh0, float* tmpnxk_buf) {
+  // cat: if non-null, categorical-covariate structure of xx; see CatPredLayout.
+  CatWork cw;
+  if (cat) {
+    CatWorkInitFromF(cat, xx, sample_ct, predictor_ct, &cw);
+  }
   // This is a port of Georg Heinze's logistf 1.24.1 R function (called with
   // pl=FALSE), adapted to use many of plink 1.9's optimizations; see
   //   https://github.com/georgheinze/logistf
@@ -943,7 +1033,11 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
   for (uint32_t iter_idx = 0; ; ++iter_idx) {
     // P[i] = \sum_j beta[j] * X[i][j];
     // categorical optimization possible here
-    ColMajorFmatrixVectorMultiplyStrided(xx, beta, sample_ct, sample_ctav, predictor_ct, pp);
+    if (!cat) {
+      ColMajorFmatrixVectorMultiplyStrided(xx, beta, sample_ct, sample_ctav, predictor_ct, pp);
+    } else {
+      CatEtaF(cat, &cw, beta, sample_ct, predictor_ct, pp);
+    }
     if (sample_offsets) {
       AddFVec(sample_offsets, sample_ctav, pp);
     }
@@ -959,7 +1053,11 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
 
     // hessian = X diag(V) X'
     // note that only lower triangle is filled here
-    ComputeHessianF(xx, vv, sample_ct, predictor_ct, hh0);
+    if (!cat) {
+      ComputeHessianF(xx, vv, sample_ct, predictor_ct, hh0);
+    } else {
+      CatHessianF(cat, &cw, vv, sample_ct, predictor_ct, hh0);
+    }
 
     // we shouldn't need to compute the log directly, since underflow <->
     // regression failure, right?  check this.
@@ -975,11 +1073,19 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
     // for later MultMatrixDxnVectNF() call
     ReflectFmatrix0(predictor_ct, predictor_ctav, hh0);
 
-    FirthComputeHdiagWeightsF(yy, xx, pp, hh0, vv, predictor_ct, predictor_ctav, sample_ct, sample_ctav, hdiag, ww, tmpnxk_buf);
+    if (!cat) {
+      FirthComputeHdiagWeightsF(yy, xx, pp, hh0, vv, predictor_ct, predictor_ctav, sample_ct, sample_ctav, hdiag, ww, tmpnxk_buf);
+    } else {
+      CatFirthHdiagWeightsF(cat, &cw, hh0, yy, pp, vv, sample_ct, predictor_ct, hdiag, ww);
+    }
 
     // gradient = X' W
     // categorical optimization possible here
-    MultMatrixDxnVectNF(xx, ww, sample_ct, predictor_ct, ustar);
+    if (!cat) {
+      MultMatrixDxnVectNF(xx, ww, sample_ct, predictor_ct, ustar);
+    } else {
+      CatGradF(cat, &cw, ww, sample_ct, predictor_ct, ustar);
+    }
     if (iter_idx) {
       float ustar_max = 0.0;
       for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
@@ -1000,7 +1106,11 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
     loglik_old = loglik;
 
     FirthComputeSecondWeightsF(hdiag, vv, sample_ct, sample_ctav, ww);
-    ComputeHessianF(xx, ww, sample_ct, predictor_ct, hh);
+    if (!cat) {
+      ComputeHessianF(xx, ww, sample_ct, predictor_ct, hh);
+    } else {
+      CatHessianF(cat, &cw, ww, sample_ct, predictor_ct, hh);
+    }
     if (InvertSymmdefFmatrixFirstHalf(predictor_ct, predictor_ctav, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
       return 1;
     }
@@ -1029,6 +1139,10 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
       beta[pred_uidx] += delta[pred_uidx];
     }
   }
+}
+
+BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, float* beta, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* ustar, float* delta, float* hdiag, float* ww, float* hh0, float* tmpnxk_buf) {
+  return FirthRegressionCatF(yy, xx, sample_offsets, nullptr, sample_ct, predictor_ct, beta, is_unfinished_ptr, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0, tmpnxk_buf);
 }
 
 BoolErr FirthRegressionResidualizedF(const float* yy, const float* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, float* beta, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* ustar, float* delta, float* hdiag, float* ww, float* hh0_buf, float* tmpnxk_buf, float* mean_centered_pmaj_buf, float* sample_offsets_buf) {
@@ -1448,6 +1562,28 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
         // changes at multiallelic variants.
       }
       assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeF(cur_sample_ct, cur_biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
+      // Fast path for categorical covariates and mutually exclusive indicator
+      // groups (no local covariates); see GlmLogisticThreadD().
+      const CatCovarLayout* cat_layout;
+      if (is_y && common->sample_include_y) {
+        cat_layout = &(ctx->cat_layout_y);
+      } else if (is_regular_x && common->sample_include_x) {
+        cat_layout = &(ctx->cat_layout_x);
+      } else {
+        cat_layout = &(ctx->cat_layout);
+      }
+      uint32_t cat_ok = ctx->cat_enabled && cat_layout->family_ct && (!local_covar_ct);
+      double* cat_scratch = nullptr;
+      CatSet cat_set;
+      if (cat_ok) {
+        assert(cat_layout->sample_ct == cur_sample_ct);
+        const uint32_t kept_dummy_ct = CatKeptDummyCt(cat_layout, cur_parameter_subset, domdev_third);
+        const uintptr_t cat_scratch_dbl_ct = CatScratchDoubleCt(cat_layout, max_predictor_ct, kept_dummy_ct, cur_sample_ct);
+        cat_scratch = S_CAST(double*, arena_alloc_raw_rd(cat_scratch_dbl_ct * sizeof(double), &workspace_iter));
+        uint32_t* cat_u32_buf = S_CAST(uint32_t*, arena_alloc_raw_rd(CatU32Ct(cat_layout, cur_sample_ct) * sizeof(int32_t), &workspace_iter));
+        CatSetInit(cat_layout, cur_parameter_subset, 2 + domdev_third, 2 + domdev_third - main_omitted, 1, CatSetDoubles(cat_layout, cat_scratch, cat_scratch_dbl_ct), cat_u32_buf, &cat_set);
+        cat_ok = (cat_set.family_ct != 0);
+      }
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const double* corr_inv = nullptr;
@@ -2260,7 +2396,13 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 }
               }
               if (!cur_cc_residualize) {
-                if (LogisticRegressionF(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf)) {
+                CatPredLayout cat_pl;
+                const CatPredLayout* cur_cat = nullptr;
+                if (cat_ok) {
+                  CatSetVariantLayout(cat_layout, &cat_set, sample_nm, cur_sample_ct, missing_ct, cat_scratch, &cat_pl);
+                  cur_cat = &cat_pl;
+                }
+                if (LogisticRegressionCatF(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, cur_cat, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf)) {
                   if (is_sometimes_firth) {
                     ZeroFArr(cur_predictor_ctav, coef_return);
                     goto GlmLogisticThreadF_firth_fallback;
@@ -2325,7 +2467,13 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 }
               }
               if (!cur_cc_residualize) {
-                if (FirthRegressionF(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
+                CatPredLayout firth_cat_pl;
+                const CatPredLayout* firth_cat = nullptr;
+                if (cat_ok) {
+                  CatSetVariantLayout(cat_layout, &cat_set, sample_nm, cur_sample_ct, missing_ct, cat_scratch, &firth_cat_pl);
+                  firth_cat = &firth_cat_pl;
+                }
+                if (FirthRegressionCatF(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, firth_cat, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
                   glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
                   goto GlmLogisticThreadF_skip_regression;
                 }
@@ -2819,27 +2967,7 @@ void SolveLinearSystemD(const double* ll, const double* yy, uint32_t predictor_c
 // pass over the samples, instead of one pass per dummy (or per dummy pair):
 //   sum_i w_i x_d[i] y[i] = b_d * sum_i w_i y[i] + a_d * sum_{i in level d+1} w_i y[i].
 
-typedef struct CatPredLayoutStruct {
-  uint32_t family_ct;
-  const uint32_t* pred_starts;  // predictor index of each family's first dummy
-  const uint32_t* dummy_cts;
-  const uint32_t* levels;  // family-major, row stride level_stride
-  uintptr_t level_stride;
-  const double* val0s;  // per dummy, family-major
-  const double* val1s;
-  double* scratch;  // CatScratchDoubleCt() elements
-} CatPredLayout;
 
-typedef struct CatWorkStruct {
-  uint32_t dense_ct;
-  uint32_t dense_ctav;
-  uint32_t* dense_idxs;
-  double* dense_xx;  // gathered dense predictor rows, stride sample_ctav
-  double* dense_hh;  // dense_ct x dense_ctav
-  double* dense_vec;  // dense_ctav
-  double* level_sums;  // per family: (dense_ct + 2) x (dummy_ct + 1)
-  double* joint_sums;  // per family pair (f < g): (L_f + 1) x (L_g + 1)
-} CatWork;
 
 // Number of a sample set's dummy columns that survive --parameters (whose
 // covariate parameters start at index 2 + domdev_third).  Assumes no local
@@ -2874,13 +3002,12 @@ uintptr_t CatScratchDoubleCt(const CatCovarLayout* cl, uint32_t max_predictor_ct
       ct += lp1 * (cl->dummy_cts[family_idx2] + 1);
     }
   }
+  // CatWork extra buffers
+  const uintptr_t max_predictor_ctav = RoundUpPow2(max_predictor_ct, kDoublePerDVec);
+  ct += 5 * sample_ctav + max_predictor_ct * max_predictor_ctav + 2 * max_predictor_ctav + max_dense_ct * sample_ctav + 4 * kDoublePerDVec;
   return ct + 2 * S_CAST(uintptr_t, cl->dummy_ct);
 }
 
-// CatSet's val0s/val1s live at the end of the CatScratchDoubleCt() buffer.
-static inline double* CatSetDoubles(const CatCovarLayout* cl, double* cat_scratch, uintptr_t cat_scratch_dbl_ct) {
-  return &(cat_scratch[cat_scratch_dbl_ct - 2 * S_CAST(uintptr_t, cl->dummy_ct)]);
-}
 
 // CatSet uint32s: 5 * family_ct + dummy_ct, plus family_ct * sample_ct levels.
 uintptr_t CatU32Ct(const CatCovarLayout* cl, uint32_t sample_ct) {
@@ -2897,30 +3024,12 @@ uintptr_t CatWorkspaceBytes(const CatCovarLayout* cl, const uintptr_t* parameter
   return RoundUpPow2(CatScratchDoubleCt(cl, max_predictor_ct, kept_dummy_ct, sample_ct) * sizeof(double), kCacheline) + RoundUpPow2(CatU32Ct(cl, sample_ct) * sizeof(int32_t), kCacheline);
 }
 
-// A sample set's categorical structure after --parameters.  Dummies excluded
-// by --parameters are treated like the omitted category (a family's
-// remaining dummies are still mutually exclusive), and families with no
-// remaining dummies are dropped.
-typedef struct CatSetStruct {
-  uint32_t family_ct;  // remaining families
-  // Set when the per-sample levels can't be used as-is (remapping, or
-  // dropped families).
-  uint32_t copy_needed;
-  uint32_t* orig_family_idxs;
-  uint32_t* pred_starts;
-  uint32_t* dummy_cts;
-  uint32_t* remap_offsets;
-  uint32_t* remaps;  // per remaining family: original level -> new level
-  uint32_t* level_buf;  // family_ct * sample_ct
-  double* val0s;
-  double* val1s;
-} CatSet;
 
 // covar_param_start: --parameters index of the first covariate (2 +
 // domdev_third).  pred_base: predictor row of the first covariate (2 +
-// domdev_third - main_omitted).  This mirrors how GlmLogisticThreadD() fills
-// the covariate rows.
-static void CatSetInit(const CatCovarLayout* cl, const uintptr_t* parameter_subset, uint32_t covar_param_start, uint32_t pred_base, double* dbl_buf, uint32_t* u32_buf, CatSet* cs) {
+// domdev_third - main_omitted).  This mirrors how the logistic threads fill
+// the covariate rows.  round_to_float should be set for single precision.
+static void CatSetInit(const CatCovarLayout* cl, const uintptr_t* parameter_subset, uint32_t covar_param_start, uint32_t pred_base, uint32_t round_to_float, double* dbl_buf, uint32_t* u32_buf, CatSet* cs) {
   const uint32_t orig_family_ct = cl->family_ct;
   cs->orig_family_idxs = u32_buf;
   cs->pred_starts = &(u32_buf[orig_family_ct]);
@@ -2949,8 +3058,15 @@ static void CatSetInit(const CatCovarLayout* cl, const uintptr_t* parameter_subs
     uint32_t kept_ct = 0;
     for (uint32_t dummy_idx = 0; dummy_idx != orig_dummy_ct; ++dummy_idx) {
       if ((!parameter_subset) || IsSet(parameter_subset, covar_param_start + first_covar_idx + dummy_idx)) {
-        cs->val0s[kept_dummy_base + kept_ct] = cl->val0s[orig_dummy_base + dummy_idx];
-        cs->val1s[kept_dummy_base + kept_ct] = cl->val1s[orig_dummy_base + dummy_idx];
+        double val0 = cl->val0s[orig_dummy_base + dummy_idx];
+        double val1 = cl->val1s[orig_dummy_base + dummy_idx];
+        if (round_to_float) {
+          // match the single-precision covariate matrix exactly
+          val0 = S_CAST(double, S_CAST(float, val0));
+          val1 = S_CAST(double, S_CAST(float, val1));
+        }
+        cs->val0s[kept_dummy_base + kept_ct] = val0;
+        cs->val1s[kept_dummy_base + kept_ct] = val1;
         ++kept_ct;
         remap[dummy_idx + 1] = kept_ct;
         ++row;
@@ -3049,8 +3165,46 @@ static void CatWorkInit(const CatPredLayout* cat, const double* xx, uint32_t sam
     scratch = &(scratch[(dense_ct + 2) * (cat->dummy_cts[family_idx] + 1)]);
   }
   cw->joint_sums = scratch;
-  for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
-    memcpy(&(cw->dense_xx[dense_idx * sample_ctav]), &(xx[cw->dense_idxs[dense_idx] * sample_ctav]), sample_ctav * sizeof(double));
+  for (uint32_t family_idx = 0; family_idx != cat->family_ct; ++family_idx) {
+    const uintptr_t lp1 = cat->dummy_cts[family_idx] + 1;
+    for (uint32_t family_idx2 = family_idx + 1; family_idx2 != cat->family_ct; ++family_idx2) {
+      scratch = &(scratch[lp1 * (cat->dummy_cts[family_idx2] + 1)]);
+    }
+  }
+  scratch = R_CAST(double*, RoundUpPow2(R_CAST(uintptr_t, scratch), kBytesPerDVec));
+  for (uint32_t uii = 0; uii != 5; ++uii) {
+    cw->nbufs[uii] = scratch;
+    scratch = &(scratch[sample_ctav]);
+  }
+  const uintptr_t predictor_ctav = RoundUpPow2(predictor_ct, kDoublePerDVec);
+  cw->kk_buf = scratch;
+  scratch = &(scratch[predictor_ct * predictor_ctav]);
+  cw->kvecs[0] = scratch;
+  scratch = &(scratch[predictor_ctav]);
+  cw->kvecs[1] = scratch;
+  scratch = &(scratch[predictor_ctav]);
+  cw->nk_buf = scratch;
+  if (xx) {
+    for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+      memcpy(&(cw->dense_xx[dense_idx * sample_ctav]), &(xx[cw->dense_idxs[dense_idx] * sample_ctav]), sample_ctav * sizeof(double));
+    }
+  }
+}
+
+// Single-precision version: the dense predictor rows are gathered into double
+// precision, and the per-iteration computations below are done in double
+// precision.
+static void CatWorkInitFromF(const CatPredLayout* cat, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, CatWork* cw) {
+  CatWorkInit(cat, nullptr, sample_ct, predictor_ct, cw);
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uintptr_t sample_ctavf = RoundUpPow2(sample_ct, kFloatPerFVec);
+  for (uint32_t dense_idx = 0; dense_idx != cw->dense_ct; ++dense_idx) {
+    const float* src = &(xx[cw->dense_idxs[dense_idx] * sample_ctavf]);
+    double* dst = &(cw->dense_xx[dense_idx * sample_ctav]);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      dst[sample_idx] = S_CAST(double, src[sample_idx]);
+    }
+    ZeroDArr(sample_ctav - sample_ct, &(dst[sample_ct]));
   }
 }
 
@@ -3245,6 +3399,207 @@ static void CatEta(const CatPredLayout* cat, CatWork* cw, const double* coef, ui
     val1s = &(val1s[dummy_ct]);
   }
 }
+// Single-precision wrappers (see CatWorkInitFromF()).  ww/rr/coef/eta use
+// float vectors; hh has the usual float layout (row stride
+// RoundUpPow2(predictor_ct, kFloatPerFVec), lower triangle filled).
+static void CatHessianF(const CatPredLayout* cat, CatWork* cw, const float* ww, uint32_t sample_ct, uint32_t predictor_ct, float* hh) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  double* wd = cw->nbufs[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    wd[sample_idx] = S_CAST(double, ww[sample_idx]);
+  }
+  ZeroDArr(sample_ctav - sample_ct, &(wd[sample_ct]));
+  const uintptr_t stride_d = RoundUpPow2(predictor_ct, kDoublePerDVec);
+  const uintptr_t stride_f = RoundUpPow2(predictor_ct, kFloatPerFVec);
+  CatHessian(cat, cw, wd, sample_ct, predictor_ct, cw->kk_buf);
+  for (uint32_t row_idx = 0; row_idx != predictor_ct; ++row_idx) {
+    const double* src = &(cw->kk_buf[row_idx * stride_d]);
+    float* dst = &(hh[row_idx * stride_f]);
+    for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+      dst[col_idx] = S_CAST(float, src[col_idx]);
+    }
+  }
+}
+
+static void CatGradF(const CatPredLayout* cat, CatWork* cw, const float* rr, uint32_t sample_ct, uint32_t predictor_ct, float* grad) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  double* rd = cw->nbufs[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    rd[sample_idx] = S_CAST(double, rr[sample_idx]);
+  }
+  ZeroDArr(sample_ctav - sample_ct, &(rd[sample_ct]));
+  double* gd = cw->kvecs[0];
+  CatGrad(cat, cw, rd, sample_ct, gd);
+  for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+    grad[pred_idx] = S_CAST(float, gd[pred_idx]);
+  }
+}
+
+static void CatEtaF(const CatPredLayout* cat, CatWork* cw, const float* coef, uint32_t sample_ct, uint32_t predictor_ct, float* eta) {
+  double* cd = cw->kvecs[0];
+  for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+    cd[pred_idx] = S_CAST(double, coef[pred_idx]);
+  }
+  double* ed = cw->nbufs[0];
+  CatEta(cat, cw, cd, sample_ct, ed);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    eta[sample_idx] = S_CAST(float, ed[sample_idx]);
+  }
+}
+
+// Firth hat-matrix diagonal h[i] = v[i] x_i^T M x_i, with M the inverse
+// information matrix (full symmetric, row stride
+// RoundUpPow2(predictor_ct, kDoublePerDVec)).  Writing
+//   x_i = d_i + c + sum_f a_{f,l} e_{f,l}
+// (d_i: dense entries; c: every dummy's val0 at its position; e_{f,l}: unit
+// vector at family f's active dummy l, if any, with a = val1 - val0):
+//   x_i^T M x_i = d_i^T M d_i + 2 d_i^T (M c) + c^T M c
+//                 + 2 sum_f a_{f,l} (M_{(f,l),.} d_i + (M c)_{(f,l)})
+//                 + sum_{f,g} a_{f,l} a_{g,m} M_{(f,l),(g,m)}.
+// vv, pp, yy are double vectors; fills hdiag and the score weights
+// ww[i] = (y[i] - p[i]) + h[i] (0.5 - p[i]) (tau = 0.5).
+static void CatFirthHdiagWeights(const CatPredLayout* cat, CatWork* cw, const double* mm, const double* yy, const double* pp, const double* vv, uint32_t sample_ct, uint32_t predictor_ct, double* hdiag, double* ww) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uintptr_t stride = RoundUpPow2(predictor_ct, kDoublePerDVec);
+  const uint32_t dense_ct = cw->dense_ct;
+  const uint32_t dense_ctav = cw->dense_ctav;
+  const uint32_t* dense_idxs = cw->dense_idxs;
+  const double* dense_xx = cw->dense_xx;
+  const uint32_t family_ct = cat->family_ct;
+  // M_dd (dense x dense block), reusing dense_hh
+  double* mdd = cw->dense_hh;
+  for (uint32_t dense_idx1 = 0; dense_idx1 != dense_ct; ++dense_idx1) {
+    const double* mm_row = &(mm[dense_idxs[dense_idx1] * stride]);
+    double* mdd_row = &(mdd[dense_idx1 * dense_ctav]);
+    for (uint32_t dense_idx2 = 0; dense_idx2 != dense_ct; ++dense_idx2) {
+      mdd_row[dense_idx2] = mm_row[dense_idxs[dense_idx2]];
+    }
+    ZeroDArr(dense_ctav - dense_ct, &(mdd_row[dense_ct]));
+  }
+  // mc = M c, cmc = c^T M c
+  double* mc = cw->kvecs[1];
+  ZeroDArr(predictor_ct, mc);
+  {
+    const double* val0s = cat->val0s;
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      const uint32_t pred_start = cat->pred_starts[family_idx];
+      const uint32_t dummy_ct = cat->dummy_cts[family_idx];
+      for (uint32_t dummy_idx = 0; dummy_idx != dummy_ct; ++dummy_idx) {
+        const double cval = val0s[dummy_idx];
+        const double* mm_row = &(mm[(pred_start + dummy_idx) * stride]);
+        for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+          mc[pred_idx] += cval * mm_row[pred_idx];
+        }
+      }
+      val0s = &(val0s[dummy_ct]);
+    }
+  }
+  double cmc = 0.0;
+  {
+    const double* val0s = cat->val0s;
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      const uint32_t pred_start = cat->pred_starts[family_idx];
+      const uint32_t dummy_ct = cat->dummy_cts[family_idx];
+      for (uint32_t dummy_idx = 0; dummy_idx != dummy_ct; ++dummy_idx) {
+        cmc += val0s[dummy_idx] * mc[pred_start + dummy_idx];
+      }
+      val0s = &(val0s[dummy_ct]);
+    }
+  }
+  double* mc_dense = cw->dense_vec;
+  for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+    mc_dense[dense_idx] = 2 * mc[dense_idxs[dense_idx]];
+  }
+  // dm = d M_dd, sample-major within each column (dense_ct x sample_ctav)
+  double* dm = cw->nk_buf;
+  ColMajorMatrixMultiplyStrided(dense_xx, mdd, sample_ct, sample_ctav, dense_ct, dense_ctav, dense_ct, sample_ctav, dm);
+  // per-sample family info
+  double* qq = hdiag;  // accumulate x^T M x here first
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    double dxx = cmc;
+    for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+      const double dval = dense_xx[dense_idx * sample_ctav + sample_idx];
+      dxx += dval * (dm[dense_idx * sample_ctav + sample_idx] + mc_dense[dense_idx]);
+    }
+    qq[sample_idx] = dxx;
+  }
+  // family terms
+  const double* fam_val0s = cat->val0s;
+  const double* fam_val1s = cat->val1s;
+  uint32_t* active_idxs = R_CAST(uint32_t*, cw->kvecs[0]);  // family_ct entries
+  double* active_as = cw->nbufs[4];  // family_ct entries; nbufs[4] unused here
+  // Precompute, for each family's level, the predictor index and a (0 for
+  // level 0).
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    double dxx = 0.0;
+    uint32_t active_ct = 0;
+    fam_val0s = cat->val0s;
+    fam_val1s = cat->val1s;
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      const uint32_t dummy_ct = cat->dummy_cts[family_idx];
+      const uint32_t level = cat->levels[family_idx * cat->level_stride + sample_idx];
+      if (level) {
+        const uint32_t pred_idx = cat->pred_starts[family_idx] + level - 1;
+        const double aa = fam_val1s[level - 1] - fam_val0s[level - 1];
+        const double* mm_row = &(mm[pred_idx * stride]);
+        double rr = mc[pred_idx];
+        for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+          rr += mm_row[dense_idxs[dense_idx]] * dense_xx[dense_idx * sample_ctav + sample_idx];
+        }
+        dxx += 2 * aa * rr;
+        // pairwise terms with previously seen active dummies, plus diagonal
+        for (uint32_t active_idx = 0; active_idx != active_ct; ++active_idx) {
+          dxx += 2 * aa * active_as[active_idx] * mm_row[active_idxs[active_idx]];
+        }
+        dxx += aa * aa * mm_row[pred_idx];
+        active_idxs[active_ct] = pred_idx;
+        active_as[active_ct] = aa;
+        ++active_ct;
+      }
+      fam_val0s = &(fam_val0s[dummy_ct]);
+      fam_val1s = &(fam_val1s[dummy_ct]);
+    }
+    const double cur_hdiag = vv[sample_idx] * (qq[sample_idx] + dxx);
+    hdiag[sample_idx] = cur_hdiag;
+    const double cur_pi = pp[sample_idx];
+    ww[sample_idx] = (yy[sample_idx] - cur_pi) + cur_hdiag * (0.5 - cur_pi);
+  }
+  ZeroDArr(sample_ctav - sample_ct, &(hdiag[sample_ct]));
+  ZeroDArr(sample_ctav - sample_ct, &(ww[sample_ct]));
+}
+
+// Single-precision wrapper.  mm is the float inverse information matrix (full
+// symmetric, row stride RoundUpPow2(predictor_ct, kFloatPerFVec)).
+static void CatFirthHdiagWeightsF(const CatPredLayout* cat, CatWork* cw, const float* mm, const float* yy, const float* pp, const float* vv, uint32_t sample_ct, uint32_t predictor_ct, float* hdiag, float* ww) {
+  const uintptr_t stride_d = RoundUpPow2(predictor_ct, kDoublePerDVec);
+  const uintptr_t stride_f = RoundUpPow2(predictor_ct, kFloatPerFVec);
+  double* mmd = cw->kk_buf;
+  for (uint32_t row_idx = 0; row_idx != predictor_ct; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx != predictor_ct; ++col_idx) {
+      mmd[row_idx * stride_d + col_idx] = S_CAST(double, mm[row_idx * stride_f + col_idx]);
+    }
+  }
+  double* yd = cw->nbufs[1];
+  double* pd = cw->nbufs[2];
+  double* vd = cw->nbufs[3];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    yd[sample_idx] = S_CAST(double, yy[sample_idx]);
+    pd[sample_idx] = S_CAST(double, pp[sample_idx]);
+    vd[sample_idx] = S_CAST(double, vv[sample_idx]);
+  }
+  // hdiag into nbufs[0]; ww written in place over yd (each element is read
+  // before it's overwritten)
+  double* hd = cw->nbufs[0];
+  CatFirthHdiagWeights(cat, cw, mmd, yd, pd, vd, sample_ct, predictor_ct, hd, yd);
+  const uintptr_t sample_ctavf = RoundUpPow2(sample_ct, kFloatPerFVec);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    hdiag[sample_idx] = S_CAST(float, hd[sample_idx]);
+    ww[sample_idx] = S_CAST(float, yd[sample_idx]);
+  }
+  ZeroFArr(sample_ctavf - sample_ct, &(hdiag[sample_ct]));
+  ZeroFArr(sample_ctavf - sample_ct, &(ww[sample_ct]));
+}
+
 // ---- end categorical-covariate structure ----
 
 BoolErr LogisticRegressionCatD(const double* yy, const double* xx, const double* sample_offsets, const CatPredLayout* cat, uint32_t sample_ct, uint32_t predictor_ct, uint32_t* is_unfinished_ptr, double* __restrict coef, double* __restrict ll, double* __restrict pp, double* __restrict vv, double* __restrict hh, double* __restrict grad, double* __restrict dcoef, MatrixInvertBuf1* __restrict mi_buf, double* __restrict dbl_2d_buf) {
@@ -3581,7 +3936,14 @@ void FirthComputeSecondWeightsD(const double* hdiag, const double* vv, __maybe_u
 #endif
 }
 
-BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t free_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
+static BoolErr FirthRegressionConstrainedCatD(const double* yy, const double* xx, const double* sample_offsets, const CatPredLayout* cat, uint32_t sample_ct, uint32_t predictor_ct, uint32_t free_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
+  // cat: if non-null, categorical-covariate structure of xx; see
+  // CatPredLayout.  Requires free_predictor_ct == predictor_ct.
+  CatWork cw;
+  if (cat) {
+    assert(free_predictor_ct == predictor_ct);
+    CatWorkInit(cat, xx, sample_ct, predictor_ct, &cw);
+  }
   // This is a port of Georg Heinze's logistf 1.24.1 R function (called with
   // pl=FALSE), adapted to use many of plink 1.9's optimizations; see
   //   https://github.com/georgheinze/logistf
@@ -3663,7 +4025,11 @@ BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const do
   for (uint32_t iter_idx = 0; ; ++iter_idx) {
     // P[i] = \sum_j beta[j] * X[i][j];
     // categorical optimization possible here
-    ColMajorMatrixVectorMultiplyStrided(xx, beta, sample_ct, sample_ctav, predictor_ct, pp);
+    if (!cat) {
+      ColMajorMatrixVectorMultiplyStrided(xx, beta, sample_ct, sample_ctav, predictor_ct, pp);
+    } else {
+      CatEta(cat, &cw, beta, sample_ct, pp);
+    }
     if (sample_offsets) {
       AddDVec(sample_offsets, sample_ctav, pp);
     }
@@ -3679,7 +4045,11 @@ BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const do
 
     // hessian = X diag(V) X'
     // note that only lower triangle is filled here
-    ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh0);
+    if (!cat) {
+      ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh0);
+    } else {
+      CatHessian(cat, &cw, vv, sample_ct, predictor_ct, hh0);
+    }
     // we shouldn't need to compute the log directly, since underflow <->
     // regression failure, right?  check this.
     if (InvertSymmdefMatrixFirstHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf)) {
@@ -3693,11 +4063,19 @@ BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const do
     // MultMatrixDxnVectND() call
     ReflectStridedMatrix0(predictor_ct, predictor_ctav, hh0);
 
-    FirthComputeHdiagWeightsD(yy, xx, pp, hh0, vv, predictor_ct, predictor_ctav, sample_ct, sample_ctav, hdiag, ww, tmpnxk_buf);
+    if (!cat) {
+      FirthComputeHdiagWeightsD(yy, xx, pp, hh0, vv, predictor_ct, predictor_ctav, sample_ct, sample_ctav, hdiag, ww, tmpnxk_buf);
+    } else {
+      CatFirthHdiagWeights(cat, &cw, hh0, yy, pp, vv, sample_ct, predictor_ct, hdiag, ww);
+    }
 
     // gradient = X' W
     // categorical optimization possible here
-    MultMatrixDxnVectND(xx, ww, sample_ct, predictor_ct, ustar);
+    if (!cat) {
+      MultMatrixDxnVectND(xx, ww, sample_ct, predictor_ct, ustar);
+    } else {
+      CatGrad(cat, &cw, ww, sample_ct, ustar);
+    }
     if (iter_idx) {
       double ustar_max = 0.0;
       for (uint32_t pred_uidx = 0; pred_uidx != free_predictor_ct; ++pred_uidx) {
@@ -3723,7 +4101,11 @@ BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const do
     }
 
     FirthComputeSecondWeightsD(hdiag, vv, sample_ct, sample_ctav, ww);
-    ComputeHessianD(xx, ww, sample_ct, free_predictor_ct, hh);
+    if (!cat) {
+      ComputeHessianD(xx, ww, sample_ct, free_predictor_ct, hh);
+    } else {
+      CatHessian(cat, &cw, ww, sample_ct, predictor_ct, hh);
+    }
     if (InvertSymmdefStridedMatrix(free_predictor_ct, free_predictor_ctav, hh, inv_1d_buf, dbl_2d_buf)) {
       return 1;
     }
@@ -3751,6 +4133,14 @@ BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const do
       beta[pred_uidx] += delta[pred_uidx];
     }
   }
+}
+
+BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t free_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
+  return FirthRegressionConstrainedCatD(yy, xx, sample_offsets, nullptr, sample_ct, predictor_ct, free_predictor_ct, beta, is_unfinished_ptr, hh, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0, tmpnxk_buf);
+}
+
+static BoolErr FirthRegressionCatD(const double* yy, const double* xx, const double* sample_offsets, const CatPredLayout* cat, uint32_t sample_ct, uint32_t predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
+  return FirthRegressionConstrainedCatD(yy, xx, sample_offsets, cat, sample_ct, predictor_ct, predictor_ct, beta, is_unfinished_ptr, hh, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0, tmpnxk_buf);
 }
 
 BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
@@ -4602,7 +4992,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         const uintptr_t cat_scratch_dbl_ct = CatScratchDoubleCt(cat_layout, max_predictor_ct, kept_dummy_ct, cur_sample_ct);
         cat_scratch = S_CAST(double*, arena_alloc_raw_rd(cat_scratch_dbl_ct * sizeof(double), &workspace_iter));
         uint32_t* cat_u32_buf = S_CAST(uint32_t*, arena_alloc_raw_rd(CatU32Ct(cat_layout, cur_sample_ct) * sizeof(int32_t), &workspace_iter));
-        CatSetInit(cat_layout, cur_parameter_subset, 2 + domdev_third, 2 + domdev_third - main_omitted, CatSetDoubles(cat_layout, cat_scratch, cat_scratch_dbl_ct), cat_u32_buf, &cat_set);
+        CatSetInit(cat_layout, cur_parameter_subset, 2 + domdev_third, 2 + domdev_third - main_omitted, 0, CatSetDoubles(cat_layout, cat_scratch, cat_scratch_dbl_ct), cat_u32_buf, &cat_set);
         cat_ok = (cat_set.family_ct != 0);
       }
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
@@ -5519,7 +5909,13 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 }
               }
               if (!cur_cc_residualize) {
-                if (FirthRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
+                CatPredLayout firth_cat_pl;
+                const CatPredLayout* firth_cat = nullptr;
+                if (cat_ok) {
+                  CatSetVariantLayout(cat_layout, &cat_set, sample_nm, cur_sample_ct, missing_ct, cat_scratch, &firth_cat_pl);
+                  firth_cat = &firth_cat_pl;
+                }
+                if (FirthRegressionCatD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, firth_cat, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
                   glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
                   goto GlmLogisticThreadD_skip_regression;
                 }
@@ -5908,7 +6304,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       }
     }
     ctx->cat_enabled = 0;
-    if ((!is_single_prec) && (!local_covar_ct)) {
+    if (!local_covar_ct) {
       // see GlmLogisticThreadD()
       uintptr_t cat_bytes = CatWorkspaceBytes(&(ctx->cat_layout), parameter_subset, domdev_third, biallelic_predictor_ct + max_extra_allele_ct, sample_ct);
       if (sample_ct_x) {

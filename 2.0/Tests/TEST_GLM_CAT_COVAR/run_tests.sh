@@ -3,19 +3,22 @@
 # --glm logistic regression with categorical covariates and groups of
 # mutually exclusive indicator covariates.
 #
-# Double-precision logistic regression exploits the structure of categorical
-# covariates' dummy columns, and of runs of two-valued covariates whose "on"
-# (larger) values mark disjoint sample sets (e.g. from --split-cat-pheno),
-# when computing the Hessian, gradient, and linear predictor.  Results must
-# match a run where the same indicators are negated (coded 0/-1; equivalent
-# after internal rescaling, up to sign), which takes the generic dense path.  Covers several categorical covariates
-# (including a 2-level one), a sample with a missing categorical value,
-# missing genotype calls, a multiallelic variant, chrX and chrY (which have
-# their own sample sets), 0/1 and 1/2 indicator coding, --parameters with
-# the indicator groups (dropping some
-# indicators of a group, whole groups, or the genotype term), the genotypic
-# and interaction models, 'intercept' (scale-only covariate
-# rescaling), Firth fallback, and multiple threads.
+# Logistic and Firth regression (double and single precision) exploit the
+# structure of categorical covariates' dummy columns, and of runs of
+# two-valued covariates whose "on" (larger) values mark disjoint sample sets
+# (e.g. from --split-cat-pheno), when computing Hessians, gradients, the
+# linear predictor, and Firth hat values.  Results must match a run where the
+# same indicators are negated (coded 0/-1; equivalent after internal
+# rescaling, up to sign), which takes the generic dense path.
+#
+# Covers several categorical covariates (including a 2-level one), a sample
+# with a missing categorical value, missing genotype calls, a multiallelic
+# variant, chrX and chrY (which have their own sample sets), 0/1 and 1/2
+# indicator coding, --parameters with the indicator groups (dropping some
+# indicators of a group, whole groups, or keeping an indicator only for its
+# interaction term), the genotypic and interaction models, 'intercept'
+# (scale-only covariate rescaling), Firth fallback, always-Firth, single
+# precision, and multiple threads.
 
 set -exo pipefail
 
@@ -139,6 +142,10 @@ run_cmp() {
     name=$1
     kind=$2
     shift 2
+    loose=""
+    case "$*" in
+        *single-prec-cc*) loose="--loose" ;;
+    esac
     if [ $kind = cat ]; then
         $plink2 --pfile tmp_data --covar tmp_covar_cat.txt "$@" --out tmp_${kind}_$name > /dev/null
     else
@@ -148,7 +155,7 @@ run_cmp() {
     found=0
     for f in tmp_numneg_$name.*.glm.*; do
         suffix=${f#tmp_numneg_$name.}
-        python3 compare.py tmp_${kind}_$name.$suffix $f
+        python3 compare.py $loose tmp_${kind}_$name.$suffix $f
         found=1
     done
     [ $found -eq 1 ]
@@ -158,6 +165,12 @@ for kind in cat num01 num12; do
     run_cmp default $kind --glm cols=+beta
     run_cmp nofirth $kind --glm no-firth --threads 3
     run_cmp genotypic $kind --glm genotypic no-firth
+done
+# Firth regression, and single precision (logistic and Firth).
+for kind in cat num01 num12; do
+    run_cmp firth $kind --glm firth
+    run_cmp sp $kind --glm single-prec-cc no-firth --threads 2
+    run_cmp spfirth $kind --glm single-prec-cc firth
 done
 # 'intercept' and 'interaction' prevent centering, so the 1/2 coding isn't
 # equivalent there.
@@ -179,3 +192,5 @@ run_cmp params_partial12 num12 --parameters 1-2,4,6-9,14-16,19 --glm no-firth
 # excluded, so the regression sees 10 of the BATCH group's 11 indicators; the
 # main genotype term is also omitted.
 run_cmp params_remap num01 --parameters 2-12,15-20,31 --glm interaction no-firth --threads 2
+run_cmp params_remap_firth num01 --parameters 2-12,15-20,31 --glm interaction firth
+run_cmp params_remap_sp num01 --parameters 2-12,15-20,31 --glm interaction single-prec-cc firth
