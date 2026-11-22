@@ -5,11 +5,17 @@ on:
   schedule:
     - cron: '0 0 * * 0'  # every Sunday at midnight
 
+permissions:
+  contents: read
+
 jobs:
   # Step 1: Single commit check job
   # COMMENTED OUT - Workflow now runs every week regardless of new commits
   # check_commits:
   #   runs-on: ubuntu-latest
+  #   permissions:
+  #     contents: read
+  #     actions: read  # needed by gh run list
   #   outputs:
   #     new_commits: ${{ steps.commit_check.outputs.new_commits }}
   #   steps:
@@ -52,6 +58,9 @@ jobs:
     # needs: check_commits  # COMMENTED OUT - no longer conditional on commit check
     # if: needs.check_commits.outputs.new_commits == 'true'  # COMMENTED OUT - runs unconditionally
     runs-on: ${{ matrix.os }}
+    # Normally about 5-10 minutes.  This bounds a hang (e.g. on unreachable
+    # package mirrors) well below GitHub's 6-hour default.
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -60,13 +69,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # Linux-specific dependencies
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        # apt-install.sh retries if the package mirrors are unreachable.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          .github/scripts/apt-install.sh \
             build-essential \
             libopenblas-dev \
             liblapack-dev \
@@ -75,48 +85,14 @@ jobs:
             unzip \
             bc
 
-      # Restore batch counter
-      - name: Restore batch counter
-        id: restore-batch
-        uses: actions/cache/restore@v4
-        with:
-          path: .batch_counter
-          key: glm-batch-counter-${{ github.run_id }}
-          restore-keys: |
-            glm-batch-counter-
-
-      # Determine next batch number
+      # Derived from the date, so a failed run or an evicted cache cannot skip a batch
       - name: Determine batch number
         id: batch
         run: |
-          # Read batch counter with fallback
-          CURRENT_BATCH=0
-          if [ -f .batch_counter ]; then
-            CURRENT_BATCH=$(cat .batch_counter 2>/dev/null || echo 0)
-            echo "Previous batch: $CURRENT_BATCH"
-          else
-            echo "No previous batch found, starting at 0"
-          fi
-          
-          # Validate it's a number
-          if ! [[ "$CURRENT_BATCH" =~ ^[0-9]+$ ]]; then
-            echo "⚠️ Invalid batch counter, resetting to 0"
-            CURRENT_BATCH=0
-          fi
-          
-          # Increment and wrap around (1-12)
-          NEXT_BATCH=$(( (CURRENT_BATCH % 12) + 1 ))
-          echo "Running batch: $NEXT_BATCH of 12"
-          echo "$NEXT_BATCH" > .batch_counter
-          
-          # Export for use in later steps
-          echo "batch_number=$NEXT_BATCH" >> $GITHUB_OUTPUT
-
-      # Set batch number as environment variable
-      - name: Set batch number environment variable
-        run: |
-          echo "GLM_BATCH_NUM=${{ steps.batch.outputs.batch_number }}" >> $GITHUB_ENV
-          echo "Running Batch ${{ steps.batch.outputs.batch_number }} of 12"
+          BATCH=$(( 10#$(date -u +%V) % 12 + 1 ))
+          echo "batch_number=$BATCH" >> "$GITHUB_OUTPUT"
+          echo "GLM_BATCH_NUM=$BATCH" >> "$GITHUB_ENV"
+          echo "Running Batch $BATCH of 12"
 
       # Restore cached test data
       - name: Restore cached test data
@@ -143,11 +119,3 @@ jobs:
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
           2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
-
-      ## Save batch counter for next run
-      - name: Save batch counter
-        uses: actions/cache/save@v4
-        if: always()  # Save even if tests fail
-        with:
-          path: .batch_counter
-          key: glm-batch-counter-${{ github.run_id }}

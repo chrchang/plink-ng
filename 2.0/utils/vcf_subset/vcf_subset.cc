@@ -23,7 +23,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "vcf_subset v1.1.0"
+static const char ver_str[] = "vcf_subset v1.1.1"
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
@@ -39,7 +39,7 @@ static const char ver_str[] = "vcf_subset v1.1.0"
   " 32-bit"
 #endif
 
-  " (16 May 2026)";
+  " (17 Nov 2026)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -529,7 +529,7 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
             ZeroWArr(raw_sample_ctl, sample_include);
             sample_ct = 0;
             if (indv_str) {
-              const uint32_t sample_uidx = IdHtableFind(indv_str, sample_ids, sample_id_htable, strlen(indv_str), sample_id_htable_size);
+              const uint32_t sample_uidx = IdHtableFindNoOverread(indv_str, sample_ids, sample_id_htable, strlen(indv_str), sample_id_htable_size);
               if (sample_uidx == UINT32_MAX) {
                 if (unlikely(!allow_no_samples)) {
                   snprintf(g_textbuf, kTextbufSize, "Error: #CHROM header line does not contain sample ID '%s'.\n", indv_str);
@@ -711,7 +711,12 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
       char* info_start = &(filter_end[1]);
       char* info_end = strchrnul_n(info_start, '\t');
       if (!erase_info) {
-        write_iter = memcpya(write_iter, line_start, info_end - line_start);
+        // CR-LF: don't copy the '\r' when INFO is the last column.
+        const char* info_copy_end = info_end;
+        if ((*info_end == '\n') && (info_copy_end[-1] == '\r')) {
+          --info_copy_end;
+        }
+        write_iter = memcpya(write_iter, line_start, info_copy_end - line_start);
       } else {
         write_iter = memcpyax(write_iter, line_start, info_start - line_start, '.');
       }
@@ -1158,6 +1163,10 @@ int main(int argc, char** argv) {
     }
     if (indv_str && keeppath) {
       fputs("Error: --indv and --keep cannot be used simultaneously.\n", stderr);
+      goto main_ret_INVALID_CMDLINE;
+    }
+    if (no_samples && (indv_str || keeppath)) {
+      fputs("Error: --no-samples cannot be used with --indv or --keep.\n", stderr);
       goto main_ret_INVALID_CMDLINE;
     }
 

@@ -93,9 +93,6 @@ static inline BoolErr ScanUintCappedFinish(const char* str_iter, uint64_t cap, u
     const uint64_t cur_digit2 = ctou64(*str_iter++) - 48;
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
-      if (unlikely(val > cap)) {
-        return 1;
-      }
       break;
     }
     val = val * 100 + cur_digit * 10 + cur_digit2;
@@ -103,13 +100,18 @@ static inline BoolErr ScanUintCappedFinish(const char* str_iter, uint64_t cap, u
       return 1;
     }
   }
+  // a lone digit hasn't been checked yet
+  if (unlikely(val > cap)) {
+    return 1;
+  }
   *valp = val;
   return 0;
 }
 
 BoolErr ScanPosintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
+  // Reads an integer in [1, cap].  Assumes we don't need to advance past any
+  // spaces (returns error on space).
   // '0' has ascii code 48
-  assert(ctou32(str_iter[0]) > 32);
   *valp = ctou32(*str_iter++) - 48;
   if (*valp >= 10) {
     // permit leading '+' (ascii 43), but not '++' or '+-'
@@ -137,8 +139,8 @@ BoolErr ScanPosintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
 // mode.  If similar logic ever goes into an inner loop, remove all unlikely()
 // annotations in this function and its children.
 BoolErr ScanUintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
-  // Reads an integer in [0, cap].  Assumes first character is nonspace.
-  assert(ctou32(str_iter[0]) > 32);
+  // Reads an integer in [0, cap].  Assumes we don't need to advance past any
+  // spaces (returns error on space).
   uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
@@ -162,8 +164,8 @@ BoolErr ScanUintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
 }
 
 BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
-  // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
-  assert(ctou32(str_iter[0]) > 32);
+  // Reads an integer in [-bound, bound].  Assumes we don't need to advance
+  // past any spaces (returns error on space).
   *valp = ctou32(*str_iter++) - 48;
   int32_t sign = 1;
   if (ctou32(*valp) >= 10) {
@@ -173,7 +175,8 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (unlikely(*valp >= 10)) {
+    // must be an unsigned comparison: ' ', '\t', '\n', etc. are below '0'
+    if (unlikely(S_CAST(uint32_t, *valp) >= 10)) {
       return 1;
     }
   }
@@ -185,8 +188,9 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
 }
 #else  // not __LP64__
 BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
+  // Reads an integer in [1, cap].  Assumes we don't need to advance past any
+  // spaces (returns error on space).
   // '0' has ascii code 48
-  assert(ctou32(str_iter[0]) > 32);
   uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (unlikely(val != 0xfffffffbU)) {
@@ -206,6 +210,10 @@ BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t c
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > cap_div_10 * 10 + cap_mod_10)) {
+        return 1;
+      }
       *valp = val;
       return 0;
     }
@@ -218,8 +226,8 @@ BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t c
 }
 
 BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
-  // Reads an integer in [0, cap].  Assumes first character is nonspace.
-  assert(ctou32(str_iter[0]) > 32);
+  // Reads an integer in [0, cap].  Assumes we don't need to advance past any
+  // spaces (returns error on space).
   uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
@@ -238,6 +246,10 @@ BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > cap_div_10 * 10 + cap_mod_10)) {
+        return 1;
+      }
       *valp = val;
       return 0;
     }
@@ -249,8 +261,8 @@ BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap
 }
 
 BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp) {
-  // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
-  assert(ctou32(str_iter[0]) > 32);
+  // Reads an integer in [-bound, bound].  Assumes we don't need to advance
+  // past any spaces (returns error on space).
   uint32_t val = ctou32(*str_iter++) - 48;
   int32_t sign = 1;
   if (val >= 10) {
@@ -267,6 +279,10 @@ BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_
   for (; ; ++str_iter) {
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
+      // a lone digit hasn't been checked yet
+      if (unlikely(val > bound_div_10 * 10 + bound_mod_10)) {
+        return 1;
+      }
       *valp = sign * S_CAST(int32_t, val);
       return 0;
     }

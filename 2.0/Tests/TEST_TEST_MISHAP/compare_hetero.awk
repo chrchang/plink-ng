@@ -1,8 +1,7 @@
 # Compares the HETERO rows of a PLINK 1.9 .missing.hap report against
-# plink2's.  Those are the rows that do not depend on how the two programs
-# label the flanking haplotypes, and PLINK 1.9's haplotype rows are not
-# comparable in general: its EM step emits numerically degenerate rows (counts
-# like 9.99e-16/2.02e-14) where plink2 reports 0/0.
+# plink2's numerically.  The haplotype rows are checked by label only
+# (compare_labels.awk): PLINK 1.9's EM step emits numerically degenerate rows
+# (counts like 9.99e-16/2.02e-14) where plink2 reports 0/0.
 #
 #   1.9:     SNP HAPLOTYPE F_0 F_1 M_H1 M_H2 CHISQ P FLANKING
 #   plink2:  #ID HAPLOTYPE F_0 F_1 M_H1 M_H2 CHISQ P FLANKING

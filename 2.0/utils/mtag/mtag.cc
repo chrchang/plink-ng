@@ -1704,7 +1704,7 @@ int main(int argc, char** argv) {
       const uintptr_t start = (variant_ct * (thread_ct - 1)) / thread_ct;
       uint32_t singular_ct;
       MtagComputeRange(&ctx, start, variant_ct, main_workbuf, &singular_ct);
-      ctx.singular_ct += singular_ct;
+      __atomic_fetch_add(&ctx.singular_ct, singular_ct, __ATOMIC_RELAXED);
       JoinThreads(&tg);
     } else {
       uint32_t singular_ct;
@@ -1718,16 +1718,23 @@ int main(int argc, char** argv) {
   }
 
   if (!skip_maxfdr) {
-    const uint32_t state_ct = 1U << trait_ct;
-    unsigned char* states = S_CAST(unsigned char*, malloc(state_ct * trait_ct));
-    if (!states) {
-      fprintf(stderr, "Error: out of memory.\n");
-      return 1;
-    }
-    // itertools.product([False, True], repeat=T): the last trait varies fastest.
-    for (uint32_t k = 0; k != state_ct; ++k) {
-      for (uint32_t t = 0; t != trait_ct; ++t) {
-        states[k * trait_ct + t] = (k >> (trait_ct - 1 - t)) & 1;
+    // --intervals >= 2, so the grid has at least C(2^T + 1, 2) > 2e8 points
+    // once T >= 15; don't enumerate the 2^T states (1U << T is undefined for
+    // T >= 32) just to skip the computation.
+    const uint32_t grid_too_big = (trait_ct >= 15);
+    const uint32_t state_ct = grid_too_big? 0 : (1U << trait_ct);
+    unsigned char* states = nullptr;
+    if (!grid_too_big) {
+      states = S_CAST(unsigned char*, malloc(state_ct * trait_ct));
+      if (!states) {
+        fprintf(stderr, "Error: out of memory.\n");
+        return 1;
+      }
+      // itertools.product([False, True], repeat=T): the last trait varies fastest.
+      for (uint32_t k = 0; k != state_ct; ++k) {
+        for (uint32_t t = 0; t != trait_ct; ++t) {
+          states[k * trait_ct + t] = (k >> (trait_ct - 1 - t)) & 1;
+        }
       }
     }
     // The reference's recommended --n_approx: one sample-size row, the mean.
@@ -1751,7 +1758,9 @@ int main(int argc, char** argv) {
     }
     // C(intervals + state_ct - 1, state_ct - 1) lattice points.
     uint64_t grid_ct = 1;
-    {
+    if (grid_too_big) {
+      grid_ct = 200000001LLU;
+    } else {
       const uint32_t num_dims = state_ct - 1;
       const uint32_t pool = intervals + num_dims;
       for (uint32_t i = 0; i != num_dims; ++i) {
@@ -1859,8 +1868,10 @@ int main(int argc, char** argv) {
       return 1;
     }
     uint32_t alloc_fail = 0;
+    // the non-threaded path formats every row into bufs[0]
+    const uint32_t used_thread_ct = ((thread_ct >= 2) && (variant_ct >= 4096))? thread_ct : 1;
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
-      const uintptr_t rows = ((variant_ct * (tidx + 1)) / thread_ct) - ((variant_ct * tidx) / thread_ct);
+      const uintptr_t rows = (tidx < used_thread_ct)? (((variant_ct * (tidx + 1)) / used_thread_ct) - ((variant_ct * tidx) / used_thread_ct)) : 0;
       bufs[tidx] = S_CAST(char*, malloc(rows * max_row_blen + 64));
       buf_used[tidx] = 0;
       if (!bufs[tidx]) {
@@ -1888,7 +1899,6 @@ int main(int argc, char** argv) {
       MtagFormatRange(&wctx, 0, variant_ct, bufs[0], &(buf_used[0]));
     }
     CleanupThreads(&wtg);
-    const uint32_t used_thread_ct = ((thread_ct >= 2) && (variant_ct >= 4096))? thread_ct : 1;
     for (uint32_t tidx = 0; tidx != used_thread_ct; ++tidx) {
       if (buf_used[tidx] && (fwrite(bufs[tidx], 1, buf_used[tidx], outfile) != buf_used[tidx])) {
         fprintf(stderr, "Error: write failure on %s.\n", outname);

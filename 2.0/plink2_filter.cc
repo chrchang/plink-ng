@@ -1577,7 +1577,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     if (duplicate_ct) {
       // "At least" since this does not count duplicate IDs absent from the
       // .fam.
-      logerrprintf("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
+      logerrprintf("Warning: At least %u duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
     }
   }
  KeepOrRemove_ret_1:
@@ -1641,12 +1641,8 @@ void KeepOneId(const char* sample_id_flattened, const SampleIdInfo* siip, uint32
         cur_sid = nullptr;
         cur_sid_blen = 0;
       }
-    } else {
-      if (sids) {
-        cur_sid = &(g_one_char_strs[96]);  // "0"
-        cur_sid_blen = 2;
-      }
     }
+    // If no SID was provided, match all SIDs, consistent with --keep.
     const char* sample_ids = siip->sample_ids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;
@@ -1943,7 +1939,7 @@ const PhenoCol* GetPhenoCovarCol(const char* cur_name, const KeepIfInternalT* ct
   const uintptr_t max_covar_name_blen = ctx->max_covar_name_blen;
   if (name_blen <= max_covar_name_blen) {
     const char* covar_names = ctx->covar_names;
-    const uint32_t covar_ct = ctx->pheno_ct;
+    const uint32_t covar_ct = ctx->covar_ct;
     for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
       if (memequal(cur_name, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
         return &(ctx->covar_cols[covar_idx]);
@@ -2078,10 +2074,20 @@ PglErr KeepIfInternal(const CmpExpr* cmp_expr, const KeepIfInternalT* ctx, uintp
           snprintf(g_logbuf, kLogbufSize, "%sbinary phenotype/covariate must be compared to case/%c or control/ctrl/%c.\n", ctx->errmsg_start, '2' - affection_01, '1' - affection_01);
           goto KeepIfInternal_ret_INCONSISTENT_INPUT_WW;
         }
-        if (val_12 == 2) {
-          BitvecAnd(cur_pheno_col->data.cc, raw_sample_ctl, cur_include);
+        if (!is_neq) {
+          if (val_12 == 2) {
+            BitvecAnd(cur_pheno_col->data.cc, raw_sample_ctl, cur_include);
+          } else {
+            BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, cur_include);
+          }
         } else {
-          BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, cur_include);
+          // Missing-phenotype samples are kept, as in the other branches.
+          if (val_12 == 2) {
+            BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, cur_include);
+          } else {
+            BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, cur_include_intersect);
+            BitvecInvmask(cur_include_intersect, raw_sample_ctl, cur_include);
+          }
         }
       } else {
         assert(cur_pheno_col->type_code == kPhenoDtypeCat);
@@ -2260,7 +2266,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
           char* token_end = CurTokenEnd(shard_iter);
           *token_end = '\0';
           // can't overread, category_names not in main workspace
-          const uint32_t cur_cat_idx = IdHtableFind(shard_iter, category_names, cat_id_htable, token_end - shard_iter, id_htable_size);
+          const uint32_t cur_cat_idx = IdHtableFindNoOverread(shard_iter, category_names, cat_id_htable, token_end - shard_iter, id_htable_size);
           if (cur_cat_idx == UINT32_MAX) {
             ++skip_ct;
           } else {
@@ -2284,7 +2290,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
       const char* cat_names_iter = cat_names_flattened;
       do {
         const uint32_t cat_name_slen = strlen(cat_names_iter);
-        const uint32_t cur_cat_idx = IdHtableFind(cat_names_iter, category_names, cat_id_htable, cat_name_slen, id_htable_size);
+        const uint32_t cur_cat_idx = IdHtableFindNoOverread(cat_names_iter, category_names, cat_id_htable, cat_name_slen, id_htable_size);
         if (cur_cat_idx == UINT32_MAX) {
           ++skip_ct;
         } else {
@@ -2299,7 +2305,11 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     const uint32_t selected_cat_ct = PopcountWords(cat_include, cat_ctl);
     if (!selected_cat_ct) {
       logerrprintf("Warning: No matching --%s-cat-names category names.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
-    } else {
+    }
+    // --keep-cats/--keep-cat-names excludes every sample outside the named
+    // categories, so an empty selection must remove everyone rather than be
+    // skipped.  (An empty --remove-cats selection removes no one.)
+    if (selected_cat_ct || (!is_remove)) {
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
       uintptr_t sample_uidx_base = 0;
       uintptr_t cur_bits = sample_include[0];
@@ -2916,7 +2926,17 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       if (!use_obs_ct) {
         header_cols &= ~kfReadFreqColsetObsCt;
       }
-      if (semifinal_header_cols != header_cols) {
+      // A list-form column appearing after the corresponding ALT1/single-value
+      // column cancels the latter, leaving a column whose type is no longer in
+      // header_cols.
+      uint32_t has_dropped_col = 0;
+      for (uint32_t relevant_col_idx = 0; relevant_col_idx != relevant_col_ct; ++relevant_col_idx) {
+        if (!((S_CAST(uint32_t, header_cols) >> col_types[relevant_col_idx]) & 1)) {
+          has_dropped_col = 1;
+          break;
+        }
+      }
+      if ((semifinal_header_cols != header_cols) || has_dropped_col) {
         // remove redundant columns
         uint32_t relevant_col_idx_read = 0;
         while ((S_CAST(uint32_t, header_cols) >> col_types[relevant_col_idx_read]) & 1) {
@@ -3062,7 +3082,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         } else {
           allele_idx_offset_base = allele_idx_offsets[variant_uidx];
           cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
-          if (biallelic_only) {
+          if (biallelic_only && (cur_allele_ct > 2)) {
             goto ReadAlleleFreqs_skip_variant;
           }
         }
@@ -3124,6 +3144,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   SetBit(internal_allele_idx, matched_internal_alleles);
                   SetBit(loaded_allele_idx_end, matched_loaded_alleles);
                   loaded_to_internal_allele_idx[loaded_allele_idx_end] = internal_allele_idx;
+                  // otherwise the BitIter0() loop above runs past the last
+                  // allele on the next loaded allele code
+                  --unmatched_allele_ct;
                   break;
                 }
               }
@@ -3234,7 +3257,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               het_refalt[het_refalt_slen] = ',';
               const char* het_refalt_iter = het_refalt;
               const char* het_refalt_end = &(het_refalt[het_refalt_slen]);
-              for (uint32_t alt_allele_idx = 1; alt_allele_idx != cur_allele_ct; ++alt_allele_idx) {
+              for (uint32_t alt_allele_idx = 1; alt_allele_idx != loaded_allele_idx_end; ++alt_allele_idx) {
                 if (unlikely(het_refalt_iter >= het_refalt_end)) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
@@ -3259,7 +3282,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             diploid_cts[diploid_cts_slen] = ',';
             const char* diploid_cts_iter = diploid_cts;
             const char* diploid_cts_end = &(diploid_cts[diploid_cts_slen]);
-            for (uint32_t second_allele_idx = main_allele_idx_start; second_allele_idx != cur_allele_ct; ++second_allele_idx) {
+            for (uint32_t second_allele_idx = main_allele_idx_start; second_allele_idx != loaded_allele_idx_end; ++second_allele_idx) {
               uint32_t internalx = UINT32_MAX;
               if (IsSet(matched_loaded_alleles, second_allele_idx)) {
                 internalx = loaded_to_internal_allele_idx[second_allele_idx];
@@ -3301,7 +3324,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             hap_alt[hap_alt_slen] = ',';
             const char* hap_alt_iter = hap_alt;
             const char* hap_alt_end = &(hap_alt[hap_alt_slen]);
-            for (uint32_t alt_allele_idx = 1; alt_allele_idx != cur_allele_ct; ++alt_allele_idx) {
+            for (uint32_t alt_allele_idx = 1; alt_allele_idx != loaded_allele_idx_end; ++alt_allele_idx) {
               if (unlikely(hap_alt_iter >= hap_alt_end)) {
                 goto ReadAlleleFreqs_ret_INVALID_FREQS;
               }
@@ -3349,13 +3372,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
                 if (!IsSet(matched_loaded_alleles, allele_idx)) {
-                  alt_freq_iter = AdvToDelim(alt_freq_iter, ',');
+                  alt_freq_iter = AdvToDelimShort(alt_freq_iter, ',');
                   continue;
                 }
                 double dxx;
                 const char* cur_freq_end = ScanadvDouble(alt_freq_iter, &dxx);
                 if (!cur_freq_end) {
-                  cur_freq_end = AdvToDelim(alt_freq_iter, ',');
+                  cur_freq_end = AdvToDelimShort(alt_freq_iter, ',');
                   if (likely(IsNanStr(alt_freq_iter, cur_freq_end - alt_freq_iter))) {
                     goto ReadAlleleFreqs_skip_variant;
                   }
@@ -3381,7 +3404,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   const uint32_t cap_mod_10 = (loaded_allele_idx_end - 1) % 10;
 #endif
                   while (1) {
-                    const char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
+                    const char* cur_entry_end = AdvToDelimShort(alt_freq_iter, ',');
                     uint32_t loaded_allele_idx;
 #ifdef __LP64__
                     if (unlikely(ScanmovUintCapped(loaded_allele_idx_end - 1, &alt_freq_iter, &loaded_allele_idx))) {
@@ -3428,7 +3451,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   char* alt_freq_iter = alt_freq_start;
                   char* alt_freq_end = &(alt_freq_start[full_slen]);
                   while (1) {
-                    char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
+                    char* cur_entry_end = AdvToDelimShort(alt_freq_iter, ',');
                     const uint32_t cur_entry_slen = cur_entry_end - alt_freq_iter;
                     char* eq_ptr = S_CAST(char*, memchr(alt_freq_iter, '=', cur_entry_slen));
                     if (unlikely(!eq_ptr)) {
@@ -3651,7 +3674,7 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele
   }
 }
 
-PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const uint32_t* sample_oblig_nony_cts, const uint32_t* sample_oblig_y_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const uint32_t* sample_oblig_nony_cts, const uint32_t* sample_oblig_y_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, const uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t y_nosex_missing_stats, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -3677,14 +3700,16 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
       if (sample_hethap_cts) {
         cur_missing_geno_ct += sample_hethap_cts[sample_uidx];
       }
-      const uint32_t is_male = IsSet(sex_male, sample_uidx);
-      uint32_t cur_max_ct = max_missing_cts[is_male];
+      // With --y-nosex-missing-stats, sex-0 samples also have chrY missing
+      // counts.
+      const uint32_t uses_y = IsSet(sex_male, sample_uidx) || (y_nosex_missing_stats && (!IsSet(sex_nm, sample_uidx)));
+      uint32_t cur_max_ct = max_missing_cts[uses_y];
       if (sample_oblig_nony_cts) {
         // --oblig-missing: same adjustment as --geno, on the other axis.  chrY
         // variants only count against males, matching the denominator above.
         uint32_t cur_oblig_ct = sample_oblig_nony_cts[sample_uidx];
         uint32_t cur_denom = variant_ct - variant_ct_y;
-        if (is_male) {
+        if (uses_y) {
           cur_oblig_ct += sample_oblig_y_cts[sample_uidx];
           cur_denom = variant_ct;
         }
@@ -3746,7 +3771,7 @@ PglErr SelectSidRepresentatives(const uintptr_t* sex_nm, const uintptr_t* sex_ma
       goto SelectSidRepresentatives_ret_1;
     }
     char* idbuf;
-    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen + 1, &idbuf))) {
+    if (unlikely(bigstack_alloc_c(max_3id_blen, &idbuf))) {
       goto SelectSidRepresentatives_ret_NOMEM;
     }
     uintptr_t* all_parents = nullptr;
@@ -3865,7 +3890,9 @@ void CleanupObligMissingData(ObligMissingData* omdp) {
 // sample belongs to at most one), and the variant file attaches variants to
 // them (a variant may be in several).  IDs which are absent from the dataset
 // are ignored, as in PLINK 1.x.
-PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, ObligMissingData* omdp) {
+// As in PLINK 1.x, every call covered by a block must actually be missing;
+// anything else is an error.
+PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, PgenReader* simple_pgrp, ObligMissingData* omdp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   const char* cur_fname = omip->sample_fname;
@@ -4073,7 +4100,7 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
     if (missing_block_ct) {
       logerrprintfww("Warning: %" PRIuPTR " entr%s in %s had block IDs missing from %s.\n", missing_block_ct, (missing_block_ct == 1)? "y" : "ies", omip->variant_fname, omip->sample_fname);
     }
-    const uintptr_t entry_ct = entries_end - entries;
+    uintptr_t entry_ct = entries_end - entries;
     if (!entry_ct) {
       logerrprintfww("Warning: --oblig-missing ignored, since %s has no entries which match both the dataset and %s.\n", omip->variant_fname, omip->sample_fname);
       free_cond(omdp->sample_block_idxs);
@@ -4081,6 +4108,17 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
       goto LoadObligMissing_ret_1;
     }
     STD_SORT(entry_ct, u64cmp, entries);
+    {
+      // Remove duplicate variant-block pairs; they would otherwise be counted
+      // twice.
+      uintptr_t write_idx = 1;
+      for (uintptr_t read_idx = 1; read_idx != entry_ct; ++read_idx) {
+        if (entries[read_idx] != entries[write_idx - 1]) {
+          entries[write_idx++] = entries[read_idx];
+        }
+      }
+      entry_ct = write_idx;
+    }
     uint64_t* final_entries;
     if (unlikely(pgl_malloc(entry_ct * sizeof(int64_t), &final_entries))) {
       goto LoadObligMissing_ret_NOMEM;
@@ -4090,6 +4128,74 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
     omdp->entry_ct = entry_ct;
     omdp->block_ct = block_ct;
     logprintf("--oblig-missing: %" PRIuPTR " block%s, %" PRIuPTR " variant-block pair%s.\n", block_ct, (block_ct == 1)? "" : "s", entry_ct, (entry_ct == 1)? "" : "s");
+    if (simple_pgrp) {
+      // Group the samples by block, as indexes into the subsetted genotype
+      // vector, so that each variant-block pair only visits its own members.
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      uint32_t* sample_include_cumulative_popcounts;
+      uint32_t* block_starts;
+      uint32_t* block_fill;
+      uint32_t* block_members;
+      uintptr_t* missingness;
+      uintptr_t* genovec_buf;
+      if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                   bigstack_calloc_u32(block_ct + 1, &block_starts) ||
+                   bigstack_alloc_u32(block_ct, &block_fill) ||
+                   bigstack_alloc_u32(sample_ct, &block_members) ||
+                   bigstack_alloc_w(BitCtToWordCt(sample_ct), &missingness) ||
+                   bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf))) {
+        goto LoadObligMissing_ret_NOMEM;
+      }
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const uint32_t cur_block_idx = sample_block_idxs[sample_uidx];
+        if (cur_block_idx != UINT32_MAX) {
+          block_starts[cur_block_idx + 1] += 1;
+        }
+      }
+      for (uintptr_t cur_block_idx = 0; cur_block_idx != block_ct; ++cur_block_idx) {
+        block_starts[cur_block_idx + 1] += block_starts[cur_block_idx];
+      }
+      memcpy(block_fill, block_starts, block_ct * sizeof(int32_t));
+      sample_uidx_base = 0;
+      cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const uint32_t cur_block_idx = sample_block_idxs[sample_uidx];
+        if (cur_block_idx != UINT32_MAX) {
+          block_members[block_fill[cur_block_idx]++] = sample_idx;
+        }
+      }
+      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+      uint64_t confirmed_ct = 0;
+      uint32_t prev_variant_uidx = UINT32_MAX;
+      for (uintptr_t entry_idx = 0; entry_idx != entry_ct; ++entry_idx) {
+        const uint64_t cur_entry = final_entries[entry_idx];
+        const uint32_t variant_uidx = cur_entry >> 32;
+        if (variant_uidx != prev_variant_uidx) {
+          reterr = PgrGetMissingness(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, missingness, genovec_buf);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto LoadObligMissing_ret_1;
+          }
+          prev_variant_uidx = variant_uidx;
+        }
+        const uint32_t cur_block_idx = S_CAST(uint32_t, cur_entry);
+        const uint32_t member_end = block_starts[cur_block_idx + 1];
+        for (uint32_t member_idx = block_starts[cur_block_idx]; member_idx != member_end; ++member_idx) {
+          if (unlikely(!IsSet(missingness, block_members[member_idx]))) {
+            logerrprintfww("Error: Nonmissing --oblig-missing genotype at variant '%s'. (To force it to missing, use --zero-cluster.)\n", variant_ids[variant_uidx]);
+            goto LoadObligMissing_ret_INCONSISTENT_INPUT;
+          }
+        }
+        confirmed_ct += member_end - block_starts[cur_block_idx];
+      }
+      logprintf("--oblig-missing: %" PRIu64 " call%s confirmed missing.\n", confirmed_ct, (confirmed_ct == 1)? "" : "s");
+    }
   }
   while (0) {
   LoadObligMissing_ret_NOMEM:
@@ -4108,6 +4214,9 @@ PglErr LoadObligMissing(const ObligMissingInfo* omip, const uintptr_t* sample_in
     break;
   LoadObligMissing_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
+    break;
+  LoadObligMissing_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  LoadObligMissing_ret_1:
@@ -4212,12 +4321,13 @@ BoolErr ObligMissingSampleCts(const ObligMissingData* omdp, const uintptr_t* var
   return 0;
 }
 
-void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, const uint32_t* variant_oblig_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, const uint32_t* variant_oblig_cts, uint32_t sample_ct, uint32_t y_sample_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   geno_thresh *= 1 + kSmallEpsilon;
   const uint32_t missing_max_ct_nony = S_CAST(int32_t, geno_thresh * u31tod(sample_ct));
-  const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(male_ct));
+  const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(y_sample_ct));
   uint32_t cur_missing_max_ct = missing_max_ct_nony;
+  uint32_t in_y = 0;
   uint32_t removed_ct = 0;
   uint32_t y_thresh = UINT32_MAX;
   uint32_t y_end = UINT32_MAX;
@@ -4235,9 +4345,11 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
       if (variant_uidx < y_end) {
         y_thresh = y_end;
         cur_missing_max_ct = missing_max_ct_y;
+        in_y = 1;
       } else {
         y_thresh = UINT32_MAX;
         cur_missing_max_ct = missing_max_ct_nony;
+        in_y = 0;
       }
     }
     uint32_t cur_missing_ct = variant_missing_cts[variant_uidx];
@@ -4250,7 +4362,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
       // the denominator.  A block member which is actually genotyped can push
       // the difference below zero, so it is clamped rather than wrapped.
       const uint32_t cur_oblig_ct = variant_oblig_cts[variant_uidx];
-      const uint32_t cur_denom = (cur_missing_max_ct == missing_max_ct_y)? male_ct : sample_ct;
+      const uint32_t cur_denom = in_y? y_sample_ct : sample_ct;
       if (cur_oblig_ct >= cur_denom) {
         continue;
       }
@@ -4435,7 +4547,7 @@ PglErr EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets,
     logerrputs("Alternatively, if the strictness is intentional (e.g. you are preparing data\nfor a method that requires variants to be near Hardy-Weinberg equilibrium),\nexplicitly specify a sample-size term of 0.\n");
     return kPglRetInconsistentInput;
   } else if ((hwe_sample_size_term <= 0) && (S_CAST(uint64_t, max_obs) * 9 > S_CAST(uint64_t, min_obs) * 10)) {
-    logerrprintfww("Warning: --hwe observation counts vary by more than 10%. Consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or filtering out high-missingness variants with --geno.\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "");
+    logerrprintfww("Warning: --hwe observation counts vary by more than 10%%. Consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or filtering out high-missingness variants with --geno.\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "");
   }
   logprintfww("--hwe%s%s: %u variant%s removed due to Hardy-Weinberg exact test (%s).\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "", removed_ct, (removed_ct == 1)? "" : "s", nonfounders? "all samples" : "founders only");
   *variant_ct_ptr -= removed_ct;

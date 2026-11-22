@@ -1079,7 +1079,9 @@ int32_t main(int32_t argc, char** argv) {
         bufptr = skip_initial_spaces(token_endnn(bufptr));
       }
       if (dosagebuf_width < marker_ct) {
-	bufptr = next_token_mult(bufptr, marker_ct - dosagebuf_width - 1);
+	if (marker_ct - dosagebuf_width > 1) {
+	  bufptr = next_token_mult(bufptr, marker_ct - dosagebuf_width - 1);
+	}
 	if (no_more_tokens_kns(bufptr)) {
 	  fprintf(stderr, "Error: Fewer tokens than expected on line %" PRIuPTR " of --dose file.\n", dose_line_idx);
 	  goto main_ret_INVALID_FORMAT;
@@ -1097,6 +1099,10 @@ int32_t main(int32_t argc, char** argv) {
     if (ulii >= next_loadbuf_size) {
       next_loadbuf_size = ulii + 1;
     }
+  }
+  if (!sample_ct) {
+    fputs("Error: No samples in --dose file.\n", stderr);
+    goto main_ret_INVALID_FORMAT;
   }
   if (fclose_null(&outfile_pfam)) {
     goto main_ret_WRITE_FAIL;

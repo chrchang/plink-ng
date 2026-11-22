@@ -342,7 +342,7 @@ int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uintptr_t colu
 	  if (pad || spaces_after_last) {
 	    fwrite(spacebuf, 1, col_widths[cur_col_idx] - prev_col_width, outfile);
 	  }
-	} else {
+	} else if (cur_col_width) {
 	  fwrite(spacebuf, 1, col_widths[cur_col_idx] - cur_col_width, outfile);
 	  if (rjbuf_len) {
 	    fwrite(rjustify_buf, 1, rjbuf_len, outfile);
@@ -396,6 +396,7 @@ int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uintptr_t colu
       no_final_newline = 0;
     }
     readptr = g_readbuf;
+    token_end = readptr;
     readbuf_end = &(g_readbuf[cur_read]);
   }
 

@@ -678,7 +678,7 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 	  memcpy(perm_vecst, wbuf, 16);
 	  perm_vecst = &(perm_vecst[4]);
 	transpose_perm1s_loop_start:
-	  fill_uint_zero(2, wbuf);
+	  fill_uint_zero(4, wbuf);
 	  wshift = 0;
 	}
 	wbptr = wbuf;

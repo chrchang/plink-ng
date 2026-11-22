@@ -52,6 +52,7 @@ typedef struct ExportfStruct {
   IdpasteFlags idpaste_flags;
   char id_delim;
   uint32_t bgen_bits;
+  uint32_t bgz_clvl;
   VcfExportMode vcf_mode;
   char* export_allele_fname;
 } ExportfInfo;

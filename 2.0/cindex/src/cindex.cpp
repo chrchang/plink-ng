@@ -1,4 +1,7 @@
 #include "include/plink2_base.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_memory.h"
+#include "include/plink2_simd.h"
 #include <algorithm>
 
 #include <Rcpp.h>
@@ -13,9 +16,9 @@ typedef struct CIndexRecStruct {
   }
 } CIndexRec;
 
-uint32_t PopcountLookup(const uintptr_t* new_yhat_present, const uint16_t* new_yhat_64b_popcounts, const uint16_t* new_yhat_2kib_popcounts, const uint32_t* new_yhat_64kib_popcounts, uint32_t widx);
+uint32_t PopcountLookup(const uintptr_t* new_yhat_present, const uint16_t* new_yhat_64b_popcounts, const uint32_t* new_yhat_2kib_popcounts, const uint32_t* new_yhat_64kib_popcounts, uint32_t widx);
 
-double CIndexTieheavyMain(const CIndexRec* recs, uintptr_t size, unsigned char* wkspace, uintptr_t* new_yhat_present, uint16_t* new_yhat_64b_popcounts, uint16_t* new_yhat_2kib_popcounts, uint32_t* new_yhat_64kib_popcounts);
+double CIndexTieheavyMain(const CIndexRec* recs, uintptr_t size, unsigned char* wkspace, uintptr_t* new_yhat_present, uint16_t* new_yhat_64b_popcounts, uint32_t* new_yhat_2kib_popcounts, uint32_t* new_yhat_64kib_popcounts);
 
 double CIndexWeighted(NumericVector yhat, NumericVector y, SEXP status, const double* weightsd, uintptr_t orig_size);
 
@@ -31,6 +34,15 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status, Nullable<Numeric
   }
   if (size != static_cast<uintptr_t>(y.size())) {
     stop("yhat and y must have the same length");
+  }
+  {
+    const double* yhatd = &(yhat[0]);
+    const double* yd = &(y[0]);
+    for (uintptr_t ulii = 0; ulii != size; ++ulii) {
+      if ((yhatd[ulii] != yhatd[ulii]) || (yd[ulii] != yd[ulii])) {
+        stop("yhat and y cannot contain NA/NaN values");
+      }
+    }
   }
   if (w.isNotNull()) {
     NumericVector weights = w.get();
@@ -76,16 +88,17 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status, Nullable<Numeric
   // - recs: N CIndexRec
   // - new_yhat_present: N bits
   // - new_yhat_64b_popcounts: DivUp(N, 512) uint16s
-  // - new_yhat_2kib_popcounts: DivUp(N, 512*32) uint16s
+  // - new_yhat_2kib_popcounts: DivUp(N, 512*32) uint32s (a full interval has
+  //   2^16 bits when the cacheline is 128 bytes, which doesn't fit in 16 bits)
   // - new_yhat_64kib_popcounts: DivUp(N, 512*32*32) uint16s
   const uintptr_t recs_vec_ct = plink2::DivUp(sizeof(CIndexRec) * size, plink2::kBytesPerVec);
   const uintptr_t new_yhat_present_cacheline_ct = plink2::DivUp(size, plink2::kBitsPerCacheline);
   const uintptr_t new_yhat_present_vec_ct = new_yhat_present_cacheline_ct * plink2::kVecsPerCacheline;
   const uintptr_t new_yhat_64b_popcounts_cacheline_ct = plink2::DivUp(new_yhat_present_cacheline_ct, plink2::kInt16PerCacheline);
   const uintptr_t new_yhat_64b_popcounts_vec_ct = new_yhat_64b_popcounts_cacheline_ct * plink2::kVecsPerCacheline;
-  const uintptr_t new_yhat_2kib_popcounts_cacheline_ct = plink2::DivUp(new_yhat_64b_popcounts_cacheline_ct, plink2::kInt16PerCacheline);
+  const uintptr_t new_yhat_2kib_popcounts_cacheline_ct = plink2::DivUp(new_yhat_64b_popcounts_cacheline_ct, plink2::kInt32PerCacheline);
   const uintptr_t new_yhat_2kib_popcounts_vec_ct = new_yhat_2kib_popcounts_cacheline_ct * plink2::kVecsPerCacheline;
-  const uintptr_t new_yhat_64kib_popcounts_vec_ct = plink2::DivUp(new_yhat_2kib_popcounts_cacheline_ct, plink2::kInt32PerVec);
+  const uintptr_t new_yhat_64kib_popcounts_vec_ct = plink2::DivUp(plink2::DivUp(new_yhat_64b_popcounts_cacheline_ct, plink2::kInt16PerCacheline), plink2::kInt32PerVec);
   const uintptr_t vec_ct = recs_vec_ct + new_yhat_present_vec_ct + new_yhat_64b_popcounts_vec_ct + new_yhat_2kib_popcounts_vec_ct + new_yhat_64kib_popcounts_vec_ct;
   unsigned char* wkspace;
   if (plink2::cachealigned_malloc(vec_ct * plink2::kBytesPerVec, &wkspace)) {
@@ -99,7 +112,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status, Nullable<Numeric
   wkspace_iter = &(wkspace_iter[new_yhat_present_vec_ct * plink2::kBytesPerVec]);
   uint16_t* new_yhat_64b_popcounts = reinterpret_cast<uint16_t*>(wkspace_iter);
   wkspace_iter = &(wkspace_iter[new_yhat_64b_popcounts_vec_ct * plink2::kBytesPerVec]);
-  uint16_t* new_yhat_2kib_popcounts = reinterpret_cast<uint16_t*>(wkspace_iter);
+  uint32_t* new_yhat_2kib_popcounts = reinterpret_cast<uint32_t*>(wkspace_iter);
   wkspace_iter = &(wkspace_iter[new_yhat_2kib_popcounts_vec_ct * plink2::kBytesPerVec]);
   uint32_t* new_yhat_64kib_popcounts = reinterpret_cast<uint32_t*>(wkspace_iter);
   wkspace_iter = &(wkspace_iter[new_yhat_64kib_popcounts_vec_ct * plink2::kBytesPerVec]);
@@ -260,7 +273,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status, Nullable<Numeric
   return plink2::u63tod(numer_x2) / plink2::u63tod(denom * 2);
 }
 
-uint32_t PopcountLookup(const uintptr_t* new_yhat_present, const uint16_t* new_yhat_64b_popcounts, const uint16_t* new_yhat_2kib_popcounts, const uint32_t* new_yhat_64kib_popcounts, uint32_t widx) {
+uint32_t PopcountLookup(const uintptr_t* new_yhat_present, const uint16_t* new_yhat_64b_popcounts, const uint32_t* new_yhat_2kib_popcounts, const uint32_t* new_yhat_64kib_popcounts, uint32_t widx) {
   uint32_t result = 0;
   const uint32_t idx_64kib = widx / (plink2::kWordsPerCacheline * plink2::kInt16PerCacheline * plink2::kInt16PerCacheline);
   for (uint32_t uii = 0; uii != idx_64kib; ++uii) {
@@ -294,7 +307,7 @@ uint32_t PopcountLookup(const uintptr_t* new_yhat_present, const uint16_t* new_y
   return result;
 }
 
-double CIndexTieheavyMain(const CIndexRec* recs, uintptr_t size, unsigned char* wkspace, uintptr_t* new_yhat_present, uint16_t* new_yhat_64b_popcounts, uint16_t* new_yhat_2kib_popcounts, uint32_t* new_yhat_64kib_popcounts) {
+double CIndexTieheavyMain(const CIndexRec* recs, uintptr_t size, unsigned char* wkspace, uintptr_t* new_yhat_present, uint16_t* new_yhat_64b_popcounts, uint32_t* new_yhat_2kib_popcounts, uint32_t* new_yhat_64kib_popcounts) {
   // Alternate tie-handling strategy: maintain an additional array which tracks
   // the number of times we've seen each yhat_int value.
   uint32_t* yhat_int_multiplicities = static_cast<uint32_t*>(calloc(size, sizeof(int32_t)));
@@ -497,11 +510,18 @@ double CIndexWeighted(NumericVector yhat, NumericVector y, SEXP status, const do
   const uintptr_t yhat_int_multiplicities_vec_ct = plink2::DivUp(size, plink2::kInt32PerVec);
 
   const uintptr_t partial_wts_cacheline_ct = plink2::DivUp(size, plink2::kInt32PerCacheline);
-  const uintptr_t partial_wts_64b_cacheline_ct = plink2::DivUp(partial_wts_cacheline_ct, plink2::kInt32PerCacheline);
-  const uintptr_t partial_wts_1kib_cacheline_ct = plink2::DivUp(partial_wts_64b_cacheline_ct, plink2::kInt32PerCacheline);
-  const uintptr_t partial_wts_16kib_cacheline_ct = plink2::DivUp(partial_wts_1kib_cacheline_ct, plink2::kInt32PerCacheline);
-  const uintptr_t partial_wts_256kib_cacheline_ct = plink2::DivUp(partial_wts_16kib_cacheline_ct, plink2::kInt32PerCacheline);
-  const uintptr_t partial_wts_4mib_cacheline_ct = plink2::DivUp(partial_wts_256kib_cacheline_ct, plink2::kInt32PerCacheline);
+  // Each index level has one entry per 16 entries of the previous level,
+  // regardless of the cacheline size.
+  const uintptr_t partial_wts_64b_ct = plink2::DivUp(size, 16);
+  const uintptr_t partial_wts_1kib_ct = plink2::DivUp(partial_wts_64b_ct, 16);
+  const uintptr_t partial_wts_16kib_ct = plink2::DivUp(partial_wts_1kib_ct, 16);
+  const uintptr_t partial_wts_256kib_ct = plink2::DivUp(partial_wts_16kib_ct, 16);
+  const uintptr_t partial_wts_4mib_ct = plink2::DivUp(partial_wts_256kib_ct, 16);
+  const uintptr_t partial_wts_64b_cacheline_ct = plink2::DivUp(partial_wts_64b_ct, plink2::kInt32PerCacheline);
+  const uintptr_t partial_wts_1kib_cacheline_ct = plink2::DivUp(partial_wts_1kib_ct, plink2::kInt32PerCacheline);
+  const uintptr_t partial_wts_16kib_cacheline_ct = plink2::DivUp(partial_wts_16kib_ct, plink2::kInt32PerCacheline);
+  const uintptr_t partial_wts_256kib_cacheline_ct = plink2::DivUp(partial_wts_256kib_ct, plink2::kInt32PerCacheline);
+  const uintptr_t partial_wts_4mib_cacheline_ct = plink2::DivUp(partial_wts_4mib_ct, plink2::kInt32PerCacheline);
 
   const uintptr_t vec_ct = recs_vec_ct + 2 * yhat_int_multiplicities_vec_ct + (partial_wts_cacheline_ct + partial_wts_64b_cacheline_ct + partial_wts_1kib_cacheline_ct + partial_wts_16kib_cacheline_ct + partial_wts_256kib_cacheline_ct + partial_wts_4mib_cacheline_ct) * plink2::kVecsPerCacheline;
   unsigned char* wkspace;
@@ -637,5 +657,6 @@ double CIndexWeighted(NumericVector yhat, NumericVector y, SEXP status, const do
     numer_x2 += cur_wt * (2 * static_cast<uint64_t>(WtSumLookup(partial_wts, partial_wts_64b, partial_wts_1kib, partial_wts_16kib, partial_wts_256kib, partial_wts_4mib, yhat_int)) + tie_wt_sums[yhat_int]);
   }
   plink2::aligned_free(wkspace);
-  return plink2::u63tod(numer_x2) / plink2::u63tod(denom * 2);
+  // numer_x2 and denom * 2 can be >= 2^63 here (but are < 2^64)
+  return S_CAST(double, numer_x2) / S_CAST(double, denom * 2);
 }

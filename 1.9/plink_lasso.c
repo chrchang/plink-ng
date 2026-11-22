@@ -44,10 +44,11 @@ int32_t transpose_covar(const uintptr_t* sample_exclude, const uintptr_t* pheno_
       *writeptr++ = dxx;
     }
   }
-  if (ssq * ((double)sample_valid_ct) == sum * sum) {
+  const double subtract_by = sum * sample_valid_ct_recip;
+  // exact comparison misses e.g. a constant 0.1 due to rounding error
+  if (ssq - sum * subtract_by <= ssq * 1e-12) {
     return -1;
   }
-  const double subtract_by = sum * sample_valid_ct_recip;
   const double multiply_by = sqrt_n_recip * sqrt(sample_valid_ctm1d / (ssq - sum * subtract_by));
   writeptr = writeptr_start;
   for (uint32_t sample_idx = 0; sample_idx < sample_valid_ct; ++sample_idx) {
@@ -169,8 +170,8 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     if (marker_uidx >= chrom_end) {
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
+      min_ploidy_1 |= uii;
     }
-    min_ploidy_1 |= uii;
     if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_collapsed)) {
       goto lasso_bigmem_ret_READ_FAIL;
     }
@@ -514,6 +515,7 @@ int32_t lasso_lambda(const uintptr_t* marker_exclude, const uintptr_t* marker_re
       uint32_t marker_uidx = 0;
       uint32_t is_x = 0;
       uint32_t is_y = 0;
+      uint32_t min_ploidy_1 = 0;
       double* dptr = data_window;
       uint32_t partial_marker_idx = 0;
       if (fseeko(bedfile, bed_offset, SEEK_SET)) {
@@ -527,11 +529,11 @@ int32_t lasso_lambda(const uintptr_t* marker_exclude, const uintptr_t* marker_re
 	    goto lasso_lambda_ret_READ_FAIL;
 	  }
 	}
-	uint32_t min_ploidy_1 = 0;
 	uint32_t uii;
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
+	  min_ploidy_1 |= uii;
 	}
 	uii = load_and_normalize(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx), min_ploidy_1, hh_or_mt_exists, sample_include2, sample_male_include2, is_x, is_y, sqrt_n_recip, dptr);
 	if (uii == 2) {
@@ -737,6 +739,19 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   if (bigstack_alloc_d(covar_ct + marker_ct, &xhat)) {
     goto lasso_smallmem_ret_NOMEM;
   }
+  dptr = covar_data_arr;
+  for (col_idx = 0; col_idx < covar_ct; col_idx++) {
+    dxx = 0.0;
+    dptr2 = pheno_d_collapsed;
+    for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
+      dxx += (*dptr++) * (*dptr2++);
+    }
+    xhat[col_idx] = dxx;
+    dxx = fabs(dxx);
+    if (dxx > lambda_max) {
+      lambda_max = dxx;
+    }
+  }
   if (rand_matrix) {
     if (bigstack_alloc_d(sample_valid_ct * DEFAULT_WARM_START_ITERS, &data_window) ||
         bigstack_alloc_d(DEFAULT_WARM_START_ITERS * DEFAULT_WARM_START_ITERS, &prod_matrix)) {
@@ -763,6 +778,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     if (marker_uidx >= chrom_end) {
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
+      min_ploidy_1 |= uii;
     }
     uii = load_and_normalize(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx), min_ploidy_1, hh_or_mt_exists, sample_include2, sample_male_include2, is_x, is_y, sqrt_n_recip, dptr);
     if (uii == 2) {
@@ -877,6 +893,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
       if (marker_uidx >= chrom_end) {
 	chrom_fo_idx++;
 	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
+	min_ploidy_1 |= uii;
       }
       if (load_and_normalize(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx), min_ploidy_1, hh_or_mt_exists, sample_include2, sample_male_include2, is_x, is_y, sqrt_n_recip, data_window)) {
 	goto lasso_smallmem_ret_READ_FAIL;
@@ -915,6 +932,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
 	  if (marker_uidx >= chrom_end) {
 	    chrom_fo_idx++;
 	    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
+	    min_ploidy_1 |= uii;
 	  }
 	  if (load_and_normalize(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx), min_ploidy_1, hh_or_mt_exists, sample_include2, sample_male_include2, is_x, is_y, sqrt_n_recip, data_window)) {
 	    goto lasso_smallmem_ret_READ_FAIL;
@@ -1123,7 +1141,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     } while (sample_idx < sample_valid_ct);
     dyy = dxx;
   }
-  if (dyy * ((double)((intptr_t)sample_valid_ct)) == dxx * dxx) {
+  if (dyy - dxx * dxx / ((double)((intptr_t)sample_valid_ct)) <= dyy * 1e-12) {
     logerrprint("Warning: Skipping --lasso since phenotype is constant.\n");
     goto lasso_ret_1;
   }

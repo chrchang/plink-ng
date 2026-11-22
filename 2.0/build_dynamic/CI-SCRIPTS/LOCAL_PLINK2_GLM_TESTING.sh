@@ -77,6 +77,9 @@ run_plink() {
     local glm_flags="hide-covar"
     if [[ "$model" == "logistic" ]]; then
         glm_flags="no-firth hide-covar"
+    elif [[ "$model" == "firth" ]]; then
+        # The R reference fits every variant with logistf, so plink2 must too (not the hybrid model)
+        glm_flags="firth hide-covar"
     fi
 
     local cov_suffix
@@ -157,7 +160,7 @@ compare_to_r() {
             ref_file="${datapath}${fname}_${phenotype}_${cov_suffix}_glm_logistic_keep${n}_logistic.csv"
             ;;
         firth)
-            glm_file="${outprefix}.${phenotype}.glm.logistic.hybrid"
+            glm_file="${outprefix}.${phenotype}.glm.firth"
             ref_file="${datapath}${fname}_${phenotype}_${cov_suffix}_glm_firth_keep${n}_firth.csv"
             ;;
     esac
@@ -177,7 +180,8 @@ compare_to_r() {
         echo -e "${GREEN}✅ Files found. Running Python comparison...${RESET}"
 
         # Capture Python output
-        comparison_output=$(python3 "$compare_script" "$glm_file" "$ref_file" 2>&1)
+        compare_rc=0
+        comparison_output=$(python3 "$compare_script" "$glm_file" "$ref_file" 2>&1) || compare_rc=$?
 
         echo -e "\n${BOLD}${BLUE}╔════════════════════════════════════════════════════════════╗${RESET}"
         echo -e "${BOLD}${BLUE}║           CORRELATION RESULTS vs THRESHOLD                 ║${RESET}"
@@ -186,13 +190,16 @@ compare_to_r() {
         
         # Check for correlations below threshold
         correlation_failed=false
+        differences_failed=false
         while IFS= read -r line; do
             # Extract correlation values from lines containing numbers
-            if [[ "$line" =~ ([0-9]+\.[0-9]+) ]]; then
+            if [[ "$line" =~ (-?[0-9]+\.[0-9]+|[Nn]a[Nn]) ]]; then
                 corr_value="${BASH_REMATCH[1]}"
                 
-                # Use bc for floating point comparison
-                if (( $(echo "$corr_value < $correlation_threshold" | bc -l) )); then
+                # Use bc for floating point comparison; a nan correlation
+                # (e.g. no SNPs merged) is a failure, and a negative one
+                # (sign-flipped betas) is below the threshold.
+                if [[ "$corr_value" == [Nn]a[Nn] ]] || (( $(echo "$corr_value < $correlation_threshold" | bc -l) )); then
                     correlation_failed=true
                     echo -e "${RED}  ❌ FAIL: $line${RESET}"
                     echo -e "${RED}     └─ Correlation $corr_value < $correlation_threshold (BELOW THRESHOLD)${RESET}"
@@ -208,11 +215,16 @@ compare_to_r() {
         
         echo -e "${BOLD}${BLUE}════════════════════════════════════════════════════════════${RESET}\n"
         
-        # Exit if correlation threshold not met
-        if [[ "$correlation_failed" == "true" ]]; then
+        # The script exits nonzero if values differ too much, or if it crashes
+        if [[ "$compare_rc" -ne 0 ]]; then
+            differences_failed=true
+        fi
+
+        if [[ "$correlation_failed" == "true" || "$differences_failed" == "true" ]]; then
             echo -e "\n${RED}╔════════════════════════════════════════════════════════════╗${RESET}" >&2
             echo -e "${RED}║                    ❌ TEST FAILED ❌                       ║${RESET}" >&2
-            echo -e "${RED}║  One or more correlations below ${correlation_threshold} threshold          ║${RESET}" >&2
+            [[ "$correlation_failed" == "true" ]] && echo -e "${RED}  One or more correlations below ${correlation_threshold}${RESET}" >&2
+            [[ "$differences_failed" == "true" ]] && echo -e "${RED}  Median differences above the limit, or the comparison script failed${RESET}" >&2
             echo -e "${RED}╚════════════════════════════════════════════════════════════╝${RESET}" >&2
             echo -e "${RED}${BOLD}Failed Test Details:${RESET}" >&2
             echo -e "${RED}  Test:       $test_counter of $total_tests${RESET}" >&2
@@ -226,7 +238,7 @@ compare_to_r() {
             echo -e "${YELLOW}  Completed: $((test_counter - 1)) of $total_tests tests${RESET}" >&2
             echo -e "${YELLOW}  Remaining: $((total_tests - test_counter)) tests (not run)${RESET}" >&2
             echo -e "" >&2
-            echo -e "${RED}${BOLD}Required Action: Fix correlation issues before proceeding${RESET}\n" >&2
+            echo -e "${RED}${BOLD}Required Action: Fix the failed check before proceeding${RESET}\n" >&2
             exit 1
         else
             echo -e "${GREEN}${BOLD}✅ ALL CORRELATIONS PASSED (≥ $correlation_threshold)${RESET}\n"

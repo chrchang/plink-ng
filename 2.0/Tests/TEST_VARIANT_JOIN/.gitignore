@@ -1,0 +1,9 @@
+dosage.vcf
+dup.vcf
+expected_*.txt
+fields.vcf
+pr.vcf
+rand.vcf
+tmp_*
+longinfo.vcf
+symbolic.vcf

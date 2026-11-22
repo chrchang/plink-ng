@@ -31,11 +31,11 @@ compare_hom() {
         }
         /^#/ { next }
         {
-            # FID IID CHROM ID1 ID2 POS1 POS2 KB NSNP DENSITY PHOM PHET
+            # FID IID CHROM POS1 POS2 ID1 ID2 KB NSNP DENSITY PHOM PHET
             ++n2;
-            key = $1 "_" $2 "_" $4;
+            key = $1 "_" $2 "_" $6;
             if (!(key in seen)) { print "run not found in PLINK 1.9 output: " key; failed = 1; exit 1 }
-            if (snp2[key] != $5 || pos1[key] != $6 || pos2[key] != $7 || nsnp[key] != $9) {
+            if (snp2[key] != $7 || pos1[key] != $4 || pos2[key] != $5 || nsnp[key] != $9) {
                 print "boundary mismatch on " key; failed = 1; exit 1
             }
             if (!close_enough(kb[key], $8) || !close_enough(density[key], $10) ||
@@ -76,6 +76,27 @@ compare_indiv() {
 }
 
 compare_summary() {
+    awk '
+        FNR == NR {
+            if (FNR > 1) { rohct[$2] = $5; ++n1 }
+            next
+        }
+        /^#/ { next }
+        {
+            ++n2;
+            if (rohct[$3] != $4) {
+                print "summary mismatch on " $3; failed = 1; exit 1
+            }
+        }
+        END {
+            if (failed) { exit 1 }
+            if (n1 != n2) { print "variant count mismatch: " n1 " vs " n2; exit 1 }
+            print n1 " variants matched"
+        }
+    ' "$1" "$2"
+}
+
+compare_summary_cc() {
     awk '
         FNR == NR {
             if (FNR > 1) { aff[$2] = $4; unaff[$2] = $5; ++n1 }
@@ -153,7 +174,7 @@ diff -q plink2.hom plink2_zs.hom
 
 # 7. cols= drops the columns it doesn't name.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=chrom,pos,nsnp --homozyg-min-af 0 --out plink2_cols
-head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	ID1	ID2	POS1	POS2	NSNP'
+head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	POS1	POS2	ID1	ID2	NSNP'
 # cols= named no .hom.indiv column, so only IID survives there.
 head -n 1 plink2_cols.hom.indiv | grep -qx '#IID'
 
@@ -204,3 +225,55 @@ awk '
 # 9. cols= without froh drops the column.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=nseg,kbtot --homozyg-min-af 0 --out plink2_nofroh
 head -n 1 plink2_nofroh.hom.indiv | grep -qx '#IID	NSEG	KB'
+
+# 10. pheno= stratifies the .hom.summary ROH_CT column by category, with the
+#     category names in the header; the counts must add up to the unstratified
+#     ROH_CT (every sample has a binary phenotype value here).
+awk '{print $1 "\t" $2 "\t" (NR % 2? 2 : 1)}' tmp_data.fam > tmp_pheno.txt
+$1/plink2 $2 $3 --bfile tmp_data --pheno tmp_pheno.txt --homozyg pheno=PHENO1 --homozyg-min-af 0 --out plink2_pheno
+head -n 1 plink2_pheno.hom.summary | grep -qx '#CHROM	POS	ID	CASE	CONTROL'
+awk '
+    FNR == NR { if (FNR > 1) { tot[$3] = $4 } next }
+    FNR > 1 {
+        if ($4 + $5 != tot[$3]) { print "stratified counts do not sum to ROH_CT at " $3; exit 1 }
+        if ($4 > 0 || $5 > 0) { nonzero = 1 }
+    }
+    END { if (!nonzero) { print "every stratified count is zero"; exit 1 } }
+' plink2.hom.summary plink2_pheno.hom.summary
+
+# 11. With no runs at all, every .hom.summary count must be zero, even when the
+#     workspace was not clean (--randmem), which small inputs otherwise hide.
+randmem=--randmem
+[[ "$2 $3" == *--randmem* ]] && randmem=
+$1/plink2 $2 $3 --dummy 100 200 0.01 acgt --seed 1 --make-pgen --out tmp_noroh
+$1/plink2 $2 $3 $randmem --pfile tmp_noroh --homozyg --homozyg-min-af 0 --out plink2_noroh
+awk 'FNR > 1 && $4 != 0 { print "nonzero ROH_CT at " $3; exit 1 }' plink2_noroh.hom.summary
+
+# 12. --homozyg-window-missing, --homozyg-window-threshold and
+#     --homozyg-density, against PLINK 1.9.  This variant of the fixture has
+#     ~3% of calls set missing, and the second half of the chromosome is
+#     spaced 3 kb apart, so the three runs there have densities of 2.3-3 kb
+#     per variant.  Each setting must also change the runs found, so it's
+#     known to have an effect.
+awk 'BEGIN { OFS = "\t" }
+    /^#/ { print; next }
+    {
+        v = NR;
+        $2 = (v <= 2500)? v * 1000 : 2500000 + (v - 2500) * 3000;
+        for (i = 10; i <= NF; i++) {
+            if (((NR * 31 + i * 17) % 37) == 0) { $i = "./." }
+        }
+        print
+    }' tmp_h.vcf > tmp_hm.vcf
+plink --vcf tmp_hm.vcf --double-id --make-bed --out tmp_hm > /dev/null
+$1/plink2 $2 $3 --bfile tmp_hm --homozyg --homozyg-min-af 0 --out plink2_hm
+for opt in "--homozyg-window-missing 2" "--homozyg-window-threshold 0.5" "--homozyg-density 2"; do
+    plink --bfile tmp_hm --homozyg $opt --out plink19_opt > /dev/null
+    $1/plink2 $2 $3 --bfile tmp_hm --homozyg --homozyg-min-af 0 $opt --out plink2_opt
+    compare_hom plink19_opt.hom plink2_opt.hom
+    compare_indiv plink19_opt.hom.indiv plink2_opt.hom.indiv
+    if diff -q plink2_opt.hom plink2_hm.hom > /dev/null; then
+        echo "$opt had no effect"
+        exit 1
+    fi
+done

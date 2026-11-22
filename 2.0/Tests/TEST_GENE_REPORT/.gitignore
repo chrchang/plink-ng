@@ -1,0 +1,8 @@
+extract.txt
+flat*.txt
+genes*.txt
+plink2_*.gene.report*
+plink_gr.range.report
+report*.txt
+report*.txt.bak
+subset.txt

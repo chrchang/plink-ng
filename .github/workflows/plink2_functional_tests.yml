@@ -2,7 +2,8 @@ name: PLINK2 functional tests
 
 # Builds PLINK 2.0 and PLINK 1.9 from this repository and runs the
 # self-contained suite in 2.0/Tests, which compares plink2 output against
-# plink 1.9 output and checks a number of round trips.
+# plink 1.9 output and checks a number of round trips.  PLINK 1.9 regression
+# tests are in 1.9/Tests, run by plink19_tests.yml.
 #
 # Everything this needs (including the test data) is in the repository, so
 # unlike the weekly GLM workflow this can run on every pull request.
@@ -14,26 +15,39 @@ on:
       - dev
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
+      - '.github/scripts/apt-install.sh'
   pull_request:
     branches:
       - master
       - dev
     paths:
       - '1.9/**'
+      - '!1.9/Tests/**'
       - '2.0/**'
       - '.github/workflows/plink2_functional_tests.yml'
+      - '.github/scripts/apt-install.sh'
   workflow_dispatch:
 
 jobs:
   run_tests:
-    name: 2.0/Tests on ${{ matrix.os }}
+    name: 2.0/Tests on ${{ matrix.os }} ${{ matrix.simd }}
     runs-on: ${{ matrix.os }}
+    # Normally about 10 minutes.  This bounds a hang (e.g. on unreachable
+    # package mirrors) well below GitHub's 6-hour default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        simd: ['']
+        # The Makefile default leaves out the AVX2 and SSE4.2 code paths.
+        include:
+          - os: ubuntu-latest
+            simd: avx2
+            make_flags: NO_AVX2= NO_SSE42=
 
     steps:
       - name: Checkout repository
@@ -41,9 +55,9 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        # apt-install.sh retries if the package mirrors are unreachable.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          .github/scripts/apt-install.sh \
             build-essential \
             libopenblas-dev \
             liblapack-dev \
@@ -56,7 +70,7 @@ jobs:
 
       - name: Build PLINK 2.0 and pgen_compress
         working-directory: 2.0/build_dynamic
-        run: make -j"$NPROC"
+        run: make -j"$NPROC" ${{ matrix.make_flags }}
 
       - name: Build PLINK 1.9
         working-directory: 1.9
@@ -83,6 +97,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: plink2-test-logs-${{ matrix.os }}
+          name: plink2-test-logs-${{ matrix.os }}-${{ matrix.simd }}
           path: 2.0/Tests/**/*.log
           if-no-files-found: ignore

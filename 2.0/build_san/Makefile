@@ -65,6 +65,12 @@ ifdef FORCE_32BIT
   CXXFLAGS = -std=c++17
 else
   ifdef NO_AVX2
+    # Omitting -mavx2 is not enough on its own: some toolchains (e.g. GCC on
+    # the ubuntu-26.04 GitHub runner image) target x86-64-v3 by default, which
+    # would still yield an AVX2 binary.  Reset to the x86-64 baseline first.
+    ifneq (,$(findstring x86_64,$(shell $(CC) -dumpmachine)))
+      BASEFLAGS += -march=x86-64
+    endif
     ifndef NO_SSE42
       BASEFLAGS += -msse4.2
       ifdef CPU_CHECK
@@ -135,12 +141,10 @@ else
   LINKFLAGS += -lz
 endif
 
-SKIP_STATIC_ZSTD =
 ifndef STATIC_ZSTD
   BASEFLAGS += -DIGNORE_BUNDLED_ZSTD
   ZCSRC2 =
   ZSSRC2 =
-  SKIP_STATIC_ZSTD = echo
   OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
   OBJL = $(notdir $(OBJ))
   LINKFLAGS += -lzstd
@@ -162,6 +166,13 @@ ifeq ($(UNAME), Darwin)
   BLASFLAGS=-framework Accelerate
   CFLAGS += -I/usr/local/include
   CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
+  # Search the SDK's library directory before /usr/local/lib, so -lz links
+  # Apple's system zlib (about twice as fast at inflate) rather than a stock
+  # zlib that may be installed in /usr/local/lib.
+  MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null)
+  ifneq ($(MACOS_SDK),)
+    LINKFLAGS += -L$(MACOS_SDK)/usr/lib
+  endif
   LINKFLAGS += -L/usr/local/lib
   LIBTOOL=libtool
   STATIC=-static
@@ -210,21 +221,87 @@ SFX ?= ""
 
 all: plink2$(SFX) pgen_compress$(SFX)
 
-plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
-	$(CC) $(CFLAGS) $(CSRC2) -c
-	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
-	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
-	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
+# Each source file gets its own compiler invocation, so "make -j" can run them
+# in parallel.
+vpath %.c $(sort $(dir $(CSRC2) $(ZCSRC2)))
+vpath %.S $(sort $(dir $(ZSSRC2)))
+vpath %.cc $(sort $(dir $(CCSRC2)))
+
+COBJL = $(notdir $(CSRC:.c=.o))
+ZCOBJL = $(notdir $(ZCSRC:.c=.o))
+ZSOBJL = $(notdir $(ZSSRC:.S=.o))
+CCOBJL = $(notdir $(CCSRC:.cc=.o))
+ALLOBJL = $(COBJL) $(ZCOBJL) $(ZSOBJL) $(CCOBJL) plink2_cpu.o pgen_compress.o
+
+# The compiler flags are recorded in .build_config, and every object depends on
+# it, so a change of configuration (e.g. NO_UNALIGNED=1 after a default build)
+# recompiles everything instead of relinking objects built for the other one.
+# Whether the recorded flags still match is decided while the Makefile is
+# read, but the file is only written by its rule: "make -n" and "make -q" then
+# report a rebuild without recording anything, and "make clean all" works,
+# since the rule recreates the file after clean has removed it.  The quoting
+# is git's (see GIT-CFLAGS in its Makefile), so that flags containing quotes
+# or backslashes are recorded as they are.
+BUILD_CONFIG = $(CC) $(CFLAGS) | $(ZCFLAGS) | $(CXX) $(CXXFLAGS) | $(CPUCHECK_FLAGS)
+
+BUILD_CONFIG_STALE :=
+ifneq ($(BUILD_CONFIG),$(shell cat .build_config 2>/dev/null))
+  BUILD_CONFIG_STALE = FORCE
+endif
+# In "make -j clean all", make may look at the objects before clean deletes
+# them, and then rebuilds them only because .build_config is remade after
+# clean (see the order-only prerequisite below), so remake it then too.
+ifeq ($(firstword $(MAKECMDGOALS)),clean)
+  BUILD_CONFIG_STALE = FORCE
+endif
+
+.build_config: $(BUILD_CONFIG_STALE)
+	@printf '%s\n' '$(subst ','\'',$(BUILD_CONFIG))' > $@
+
+.PHONY: FORCE
+FORCE:
+
+# Header dependencies are coarse: a change to any plink2, libdeflate or zstd
+# header rebuilds every object.
+HEADERS = $(wildcard ../*.h ../include/*.h ../libdeflate/*.h ../libdeflate/lib/*.h ../libdeflate/lib/*/*.h ../zstd/lib/*.h ../zstd/lib/*/*.h)
+
+$(ALLOBJL): .build_config $(HEADERS)
+
+# In "make -j clean all", build nothing until clean has finished.  Only when
+# clean is the first goal, so "make all clean" still ends with a clean tree.
+.build_config $(ALLOBJL): | $(filter clean,$(firstword $(MAKECMDGOALS)))
+
+$(COBJL): %.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ZCOBJL): %.o: %.c
+	$(CC) $(ZCFLAGS) -c $< -o $@
+
+$(ZSOBJL): %.o: %.S
+	$(CC) $(ZCFLAGS) -c $< -o $@
+
+$(CCOBJL) pgen_compress.o: %.o: %.cc
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+plink2_cpu.o: ../plink2_cpu.cc
+	$(CXX) $(CPUCHECK_FLAGS) -c $< -o $@
+
+plink2$(SFX): $(OBJL) plink2_cpu.o
 	$(CXX) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
 
-pgen_compress$(SFX): $(PGCSRC2)
-	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
+# pgen_compress shares the pgenlib objects with plink2, so a repeat make only
+# relinks it.
+pgen_compress$(SFX): $(PGENLIB_OBJL) pgen_compress.o
+	$(CXX) $(CXXFLAGS) $(PGENLIB_OBJL) pgen_compress.o -o $@
 
-pgenlib.a: $(PGENLIB_CCSRC2)
+# These compile into the same object files as plink2, so they record their
+# flags in .build_config too; otherwise "make pgenlib.a NO_UNALIGNED=1" and
+# then "make" would link plink2 from a mix of both configurations.
+pgenlib.a: $(PGENLIB_CCSRC2) .build_config
 	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
 	$(LIBTOOL) $(STATIC) -o $@ $(PGENLIB_OBJL)
 
-plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2)
+plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2) .build_config
 	$(CC) $(CFLAGS) $(CSRC2) -c
 	$(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(PLINK2LIB_CCSRC2) -c
@@ -238,7 +315,7 @@ static_plink2lib_test: plink2lib.a ../pgen_compress.cc
 
 .PHONY: clean
 clean:
-	rm -f *.o
+	rm -f *.o .build_config
 	rm -f plink2
 	rm -f pgen_compress
 	rm -f pgenlib.a

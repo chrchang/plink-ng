@@ -13,6 +13,8 @@
 #     LD_LIBRARY_PATH to include the appropriate directories)
 #   Link statically to AOCL with 64-bit indexes: STATIC_AOCL
 #     (this supports older OSes than dynamic linking)
+#   Link to generic -lcblas -llapacke -llapack -lblas, also on macOS instead
+#     of Accelerate (e.g. conda's switchable libblas): CBLAS_LAPACKE
 #   32-bit binary (also sets STATIC_ZLIB and ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
@@ -23,12 +25,13 @@ CPU_CHECK = 1
 NO_LAPACK =
 ZSTD_O2 = 1
 STATIC_ZLIB =
-STATIC_ZSTD = 1
+STATIC_ZSTD ?= 1
 DYNAMIC_MKL =
 MKLROOT = /opt/intel/oneapi/mkl/2025.1
 MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
 STATIC_AOCL =
 AOCLROOT = /home/admin/aocl/5.1.0/gcc
+CBLAS_LAPACKE =
 FORCE_32BIT =
 # Giving up on -flto default for now (Mar 2026) due to the high frequency of
 # gcc 10.2 crashes.  Will try again after next upgrade of my own build
@@ -45,7 +48,11 @@ BASEFLAGS += ${DEBUG}
 
 include ../Makefile.src
 
-LINKFLAGS=-lm -lpthread ${DEBUG}
+CFLAGS ?=
+CXXFLAGS ?=
+MAC_NEW_LAPACK ?= -DACCELERATE_NEW_LAPACK
+LDFLAGS ?=
+LDLIBS = -lm -lpthread ${DEBUG}
 ZLIB=
 ARCH32=
 CPUCHECK_FLAGS = ${DEBUG}
@@ -56,9 +63,15 @@ ifdef FORCE_32BIT
   ZSTD_O2 = 1
   BASEFLAGS += -msse -mfpmath=sse
   ARCH32 = -m32 -march=i686
-  CXXFLAGS = -std=c++17
+  CXXFLAGS += -std=c++17
 else
   ifdef NO_AVX2
+    # Omitting -mavx2 is not enough on its own: some toolchains (e.g. GCC on
+    # the ubuntu-26.04 GitHub runner image) target x86-64-v3 by default, which
+    # would still yield an AVX2 binary.  Reset to the x86-64 baseline first.
+    ifneq (,$(findstring x86_64,$(shell $(CC) -dumpmachine)))
+      BASEFLAGS += -march=x86-64
+    endif
     ifndef NO_SSE42
       BASEFLAGS += -msse4.2
       ifdef CPU_CHECK
@@ -75,18 +88,17 @@ else
   endif
   # plink2_base tries to use C++ <execution> header when compiled with C++20 or
   # newer; this typically requires something like -ltbb to be added to
-  # LINKFLAGS.
-  CXXFLAGS = -std=c++17
+  # LDLIBS.
+  CXXFLAGS += -std=c++17
 endif
 BASEFLAGS += ${ARCH32}
 
-CFLAGS=-O2 -std=gnu99
+CFLAGS += -O2 -std=gnu99
 # zstd appears to be seriously targeted at -O3; see 26 Jul 2016 entry at
 # cbloom.com/rants.html
-ifdef ZSTD_O2
-  ZCFLAGS=-O2 -std=gnu99
-else
-  ZCFLAGS=-O3 -std=gnu99
+ZCFLAGS = ${CFLAGS}
+ifndef ZSTD_O2
+  ZCFLAGS += -O3
 endif
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS += -O2
@@ -108,15 +120,17 @@ CXXFLAGS += -O2
 # BLASFLAGS=-llapack -lblas -lcblas -latlas
 
 ## Update:
-BLASFLAGS=-llapacke -llapack -lopenblas
+BLASFLAGS =
+BLASLIBS ?= -llapacke -llapack -lopenblas
 
 ###########################
 
 ifdef STATIC_ZLIB
   BASEFLAGS += -DSTATIC_ZLIB
-  LINKFLAGS += -L. ../../zlib-${ZLIB_VER}/libz.a
+  LDFLAGS += -L.
+  LDLIBS += ../../zlib-${ZLIB_VER}/libz.a
 else
-  LINKFLAGS += -lz
+  LDLIBS += -lz
 endif
 
 SKIP_STATIC_ZSTD =
@@ -127,7 +141,7 @@ ifndef STATIC_ZSTD
   SKIP_STATIC_ZSTD = echo
   OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
   OBJL = $(notdir $(OBJ))
-  LINKFLAGS += -lzstd
+  LDLIBS += -lzstd
 endif
 
 LIBTOOL=ar
@@ -143,10 +157,17 @@ ifeq ($(UNAME), Darwin)
   ifdef STATIC_AOCL
     $(error AOCL is not currently supported on OS X)
   endif
-  BLASFLAGS=-framework Accelerate
+  BLASLIBS = -framework Accelerate
   CFLAGS += -I/usr/local/include
-  CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
-  LINKFLAGS += -L/usr/local/lib
+  CXXFLAGS += -I/usr/local/include -stdlib=libc++ ${MAC_NEW_LAPACK}
+  # Search the SDK's library directory before /usr/local/lib, so -lz links
+  # Apple's system zlib (about twice as fast at inflate) rather than a stock
+  # zlib that may be installed in /usr/local/lib.
+  MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null)
+  ifneq ($(MACOS_SDK),)
+    LDFLAGS += -L$(MACOS_SDK)/usr/lib
+  endif
+  LDFLAGS += -L/usr/local/lib
   LIBTOOL=libtool
   STATIC=-static
 else
@@ -161,8 +182,8 @@ else
       $(error DYNAMIC_MKL + STATIC_AOCL does not make sense)
     endif
     BASEFLAGS += -DDYNAMIC_MKL -DLAPACK_ILP64 -I${MKLROOT}/include
-    BLASFLAGS = -L${MKLROOT}/lib/intel64 -L${MKL_IOMP5_DIR} -Wl,--no-as-needed -lmkl_intel_ilp64 -lmkl_intel_thread -lmkl_core -liomp5
-    LINKFLAGS += -ldl
+    BLASFLAGS = -L${MKLROOT}/lib/intel64 -L${MKL_IOMP5_DIR} -Wl,--no-as-needed
+    BLASLIBS = -lmkl_intel_ilp64 -lmkl_intel_thread -lmkl_core -liomp5 -ldl
   endif
   ifdef STATIC_AOCL
     ifdef NO_LAPACK
@@ -172,15 +193,40 @@ else
       $(error STATIC_AOCL + FORCE_32BIT not supported)
     endif
     BASEFLAGS += -DUSE_AOCL -DLAPACK_ILP64 -I${AOCLROOT}/include
-    BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a -L. ${AOCLROOT}/lib/libau_cpuid.a -lgomp
-    LINKFLAGS += -ldl
+    BLASFLAGS = -L.
+    BLASLIBS += ${AOCLROOT}/lib/libflame.a ${AOCLROOT}/lib/libblis.a ${AOCLROOT}/lib/libau_cpuid.a -lgomp -ldl
+  endif
+endif
+
+ifdef CBLAS_LAPACKE
+  ifdef NO_LAPACK
+    $(error CBLAS_LAPACKE and NO_LAPACK conflict)
+  endif
+  ifdef DYNAMIC_MKL
+    $(error CBLAS_LAPACKE and DYNAMIC_MKL conflict)
+  endif
+  ifdef STATIC_AOCL
+    $(error CBLAS_LAPACKE and STATIC_AOCL conflict)
+  endif
+  BASEFLAGS += -DUSE_CBLAS_LAPACKE
+  BLASLIBS = -lcblas -llapacke -llapack -lblas
+  # The BLAS thread-count setters are weak references resolved at load time.
+  ifeq ($(UNAME), Darwin)
+    BLASFLAGS = -Wl,-U,_openblas_set_num_threads -Wl,-U,_MKL_Set_Num_Threads -Wl,-U,_bli_thread_set_num_threads -Wl,-U,_BLASSetThreading
+  else
+    BASEFLAGS += -fPIE
+    CPUCHECK_FLAGS += -fPIE
+    BLASFLAGS = -pie
   endif
 endif
 
 ifdef NO_LAPACK
   BASEFLAGS += -DNOLAPACK
-  BLASFLAGS=
+  BLASFLAGS =
+  BLASLIBS =
 endif
+LDFLAGS += ${BLASFLAGS}
+LDLIBS += ${BLASLIBS}
 
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
 ZCFLAGS += ${BASEFLAGS} ${CWARN2} ${ZSTD_INCLUDE2}
@@ -199,7 +245,7 @@ plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
 	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	$(CXX) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
+	$(CXX) $(LDFLAGS) $(OBJL) plink2_cpu.o $(ARCH32) -o $@ $(LDLIBS)
 
 pgen_compress$(SFX): $(PGCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
@@ -223,6 +269,7 @@ static_plink2lib_test: plink2lib.a ../pgen_compress.cc
 .PHONY: clean
 clean:
 	rm -f *.o
+	rm -f plink2.s
 	rm -f plink2
 	rm -f pgen_compress
 	rm -f pgenlib.a

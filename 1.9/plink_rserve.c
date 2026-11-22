@@ -102,7 +102,7 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
   inbuf_start = (char*)g_bigstack_base;
   inbuf_end = inbuf_start;
   while (1) {
-    if (((uintptr_t)g_bigstack_end) - ((uintptr_t)inbuf_start) < MAXLINELEN) {
+    if (((uintptr_t)g_bigstack_end) - ((uintptr_t)inbuf_end) < MAXLINELEN + 1) {
       goto rserve_call_ret_NOMEM;
     }
     inbuf_end[MAXLINELEN - 1] = ' ';
@@ -140,7 +140,9 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
     goto rserve_call_ret_INVALID_FORMAT;
   }
   *inbuf_end = '\0';
-  bigstack_alloc(1 + ((uintptr_t)(inbuf_end - inbuf_start)));
+  if (!bigstack_alloc(1 + ((uintptr_t)(inbuf_end - inbuf_start)))) {
+    goto rserve_call_ret_NOMEM;
+  }
   if (pheno_c) {
     if (bigstack_alloc_d(pheno_nm_ct, &pheno_d2)) {
       goto rserve_call_ret_NOMEM;

@@ -8,13 +8,13 @@
 
 [![Homebrew plink1](https://img.shields.io/homebrew/v/plink1?label=brew%20plink1&logo=homebrew)](https://formulae.brew.sh/formula/plink1)
 [![Homebrew plink-ng](https://img.shields.io/homebrew/v/plink-ng?label=brew%20plink-ng&logo=homebrew)](https://formulae.brew.sh/formula/plink-ng)
-[![Bioconda plink](https://img.shields.io/conda/vn/bioconda/plink?label=bioconda%20plink&logo=anaconda)](https://anaconda.org/bioconda/plink)
-[![Bioconda plink2](https://img.shields.io/conda/vn/bioconda/plink2?label=bioconda%20plink2&logo=anaconda)](https://anaconda.org/bioconda/plink2)
+[![Bioconda plink](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fanaconda.org%2Fbioconda%2Fplink%2Fbadges%2Fversion.svg&query=%28%2F%2F*%5Blocal-name%28%29%3D%27text%27%5D%29%5Blast%28%29%5D&prefix=v&label=bioconda%20plink&logo=anaconda&color=blue)](https://anaconda.org/bioconda/plink)
+[![Bioconda plink2](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fanaconda.org%2Fbioconda%2Fplink2%2Fbadges%2Fversion.svg&query=%28%2F%2F*%5Blocal-name%28%29%3D%27text%27%5D%29%5Blast%28%29%5D&prefix=v&label=bioconda%20plink2&logo=anaconda&color=blue)](https://anaconda.org/bioconda/plink2)
 [![PyPI pgenlib](https://img.shields.io/pypi/v/pgenlib?label=pypi%20pgenlib&logo=python&logoColor=white)](https://pypi.org/project/pgenlib/)
 [![CRAN pgenlibr](https://img.shields.io/cran/v/pgenlibr?label=CRAN%20pgenlibr&logo=r)](https://CRAN.R-project.org/package=pgenlibr)
 
 Source code for PLINK 1.9 and PLINK 2.0, the successors to Shaun Purcell's
-PLINK 1.07 (https://zzz.bwh.harvard.edu/plink/), a whole-genome association
+PLINK 1.07 (https://zzz.nyspi.org/plink/), a whole-genome association
 analysis toolset.
 
 - User documentation and prebuilt binaries: [PLINK 1.9](https://www.cog-genomics.org/plink/1.9/), [PLINK 2.0](https://www.cog-genomics.org/plink/2.0/)
@@ -25,15 +25,15 @@ analysis toolset.
 
 **PLINK 1.9** (`1.9/`) can typically be used as a drop-in replacement for
 PLINK 1.07 that scales to much larger datasets. It works with the .bed/.bim/.fam
-fileset. It's technically still a beta version because there are a few
-rarely-used but possibly-worthwhile PLINK 1.07 commands that are still absent,
-but active feature development for it ended in 2016.
+fileset. It left beta with the 1.9.0 release in September 2026; a few
+rarely-used PLINK 1.07 commands are still absent. Active feature development
+for it ended in 2016, and it now receives only bugfixes.
 
 **PLINK 2.0** (`2.0/`) is designed to handle VCF files and dosage data, and is
 under active development. Its native format is the .pgen/.pvar/.psam fileset,
 which stores dosages, phase and multiallelic variants; it also reads and writes
-PLINK 1 filesets. Most basic features other than non-concatenating merge are
-now in place. See [2.0/README.md](2.0/README.md) for more details.
+PLINK 1 filesets. Most features other than multiallelic-dosage support are now
+in place. See [2.0/README.md](2.0/README.md) for more details.
 
 ## Installing
 
@@ -77,9 +77,9 @@ liblapack-dev liblapacke-dev zlib1g-dev libzstd-dev`.
 
 ## Libraries
 
-- **C/C++** (`2.0/include/`): two LGPL-licensed libraries, pgenlib (reads and
-  writes .pgen files) and plink2_text (fast line reader with gzip/Zstd
-  decompression). The .pgen format is specified in
+- **C/C++** (`2.0/include/`): primarily two LGPL-licensed libraries, pgenlib
+  (reads and writes .pgen files) and plink2_text (fast line reader with
+  gzip/Zstd decompression). The .pgen format is specified in
   [pgen_spec/pgen_spec.pdf](pgen_spec/pgen_spec.pdf).
 - **Python**: `pip install pgenlib` ([2.0/Python](2.0/Python)).
 - **R**: `install.packages("pgenlibr")` ([CRAN](https://CRAN.R-project.org/package=pgenlibr), source in [2.0/pgenlibr](2.0/pgenlibr)).
@@ -105,6 +105,15 @@ cd 2.0/Tests
 A checkout of `master` builds the same code as the newest prebuilt binary.
 New features and fixes land on `dev` first and reach `master` with the next
 release.
+
+`1.9/Tests` holds PLINK 1.9 regression tests. They take the PLINK 1.9 build
+directory (or use `plink` from the `PATH` if it is empty or omitted), and many
+use plink2 as a reference:
+
+```
+cd 1.9/Tests
+./run_tests.sh .. ../../2.0/build_dynamic
+```
 
 ## Repository layout
 

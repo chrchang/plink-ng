@@ -1,0 +1,93 @@
+name: Bioconda bump
+
+# Opens a PR on bioconda/bioconda-recipes updating the plink2 (v2.0.0-*) or
+# plink (v1.9.0-*) recipe for each published release.  BiocondaBot's own
+# autobump can't do this: it skips any upstream version containing a "-".
+#
+# Needs a BIOCONDA_BOT_TOKEN secret: a personal access token (public_repo
+# scope) for an account with a fork of bioconda/bioconda-recipes.  Without it
+# the job just reports that it skipped.
+#
+# A release that isn't newer than the recipe (e.g. an a.6 release published
+# after an a.7 one) leaves it alone.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v2.0.0-a.7.8'
+        required: true
+      dry_run:
+        description: 'Only show the recipe change'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      GH_TOKEN: ${{ secrets.BIOCONDA_BOT_TOKEN }}
+    steps:
+      - name: Check for the token
+        id: token
+        run: |
+          if [ -z "$GH_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "::notice::BIOCONDA_BOT_TOKEN is not set; skipping the Bioconda bump for $TAG."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.token.outputs.skip != 'true'
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Update the recipe
+        id: bump
+        if: steps.token.outputs.skip != 'true'
+        run: |
+          case "$TAG" in
+            v2.0.0*) recipe=plink2 ;;
+            v1.9.*) recipe=plink ;;
+            *) echo "::error::Unrecognized release tag '$TAG'"; exit 1 ;;
+          esac
+          git clone --quiet --depth 1 --filter=blob:none --sparse \
+            https://github.com/bioconda/bioconda-recipes.git recipes
+          git -C recipes sparse-checkout set "recipes/$recipe"
+          # The runner image ships Miniconda; its Python has conda's
+          # VersionOrder, which decides whether this release is newer.
+          "$CONDA/bin/python" .github/scripts/bioconda_bump.py "$TAG" \
+            "recipes/recipes/$recipe/meta.yaml" | tee -a "$GITHUB_OUTPUT"
+          git -C recipes diff
+
+      - name: Open the pull request
+        if: steps.bump.outputs.bump == 'true' && env.DRY_RUN != 'true'
+        env:
+          RECIPE: ${{ steps.bump.outputs.recipe }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          fork_owner=$(gh api user --jq .login)
+          gh repo fork bioconda/bioconda-recipes --clone=false > /dev/null 2>&1 || true
+          branch="bump-$RECIPE-$VERSION"
+          if gh pr list --repo bioconda/bioconda-recipes --head "$branch" --state all --json number --jq '.[].number' | grep -q .; then
+            echo "::notice::A bioconda-recipes PR for $branch already exists."
+            exit 0
+          fi
+          cd recipes
+          git config user.name "$fork_owner"
+          git config user.email "$fork_owner@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -qam "Update $RECIPE to $VERSION"
+          git push --quiet "https://x-access-token:$GH_TOKEN@github.com/$fork_owner/bioconda-recipes.git" "$branch"
+          gh pr create --repo bioconda/bioconda-recipes \
+            --head "$fork_owner:$branch" \
+            --title "Update $RECIPE to $VERSION" \
+            --body "Update \`$RECIPE\` to $VERSION, from the plink-ng release [$TAG](https://github.com/${{ github.repository }}/releases/tag/$TAG).
+
+          Opened automatically by the plink-ng [Bioconda bump workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})."

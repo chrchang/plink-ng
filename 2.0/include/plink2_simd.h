@@ -1032,6 +1032,15 @@ HEADER_INLINE VecW vecw_bytesum(VecW src, VecW m0) {
   return vecw_sad(src, m0);
 }
 
+#  ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+// Per-byte popcount.  NEON has an instruction for this, which is far cheaper
+// than the kMask5555-based reduction.  At most 31 results can be added before
+// a byte can overflow.
+HEADER_INLINE VecW vecw_popcount8(VecW src) {
+  return R_CAST(VecW, vcntq_u8(R_CAST(uint8x16_t, src)));
+}
+#  endif
+
 CONSTI32(kVec8thUintPerWord, sizeof(intptr_t) / sizeof(Vec8thUint));
 
 #  ifdef FVEC_32

@@ -1041,7 +1041,12 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double ibs_scale, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+  // The file holds allele-count distances (as written by "--distance triangle
+  // bin").  If ibs_scale is nonzero (0.5 / variant count), they are converted
+  // to the IBS similarities --cluster, --neighbour and --mds-plot work with.
+  // (Before 11 Nov 2026, those commands used the distances directly as
+  // similarities.)
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* dist_file = nullptr;
   FILE* id_file = nullptr;
@@ -1173,6 +1178,11 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     if (fread(dists, 1, fpos, dist_file) < fpos) {
       goto read_dists_ret_READ_FAIL;
     }
+    if (ibs_scale != 0.0) {
+      for (ulii = 0; ulii < (sample_ct * (sample_ct - 1)) / 2; ulii++) {
+        dists[ulii] = 1.0 - dists[ulii] * ibs_scale;
+      }
+    }
     if (neighbor_n2) {
       dptr = dists;
       for (memidx1 = 1; memidx1 < sample_ct; memidx1++) {
@@ -1203,6 +1213,9 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
 	  }
 	  if (fread(&cur_ibs, 1, sizeof(double), dist_file) < sizeof(double)) {
 	    goto read_dists_ret_READ_FAIL;
+	  }
+	  if (ibs_scale != 0.0) {
+	    cur_ibs = 1.0 - cur_ibs * ibs_scale;
 	  }
 	  if (memidx2 < memidx1) {
 	    dists[trimem + memidx2] += cur_ibs;
@@ -1237,6 +1250,9 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
 	  }
 	  if (fread(&cur_ibs, 1, sizeof(double), dist_file) < sizeof(double)) {
 	    goto read_dists_ret_READ_FAIL;
+	  }
+	  if (ibs_scale != 0.0) {
+	    cur_ibs = 1.0 - cur_ibs * ibs_scale;
 	  }
 	  if (!is_max_dist) {
 	    if (clidx2 < clidx1) {
@@ -1492,7 +1508,6 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   char* bufptr;
   char* bufptr2;
   char* wptr;
-  unsigned char* ucptr;
   double* dptr;
   double* dptr2;
   double* dptr3;
@@ -1704,13 +1719,12 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    continue;
 	  }
 	}
-	ucptr = cov_type_arr;
         bufptr2 = wptr;
 	for (cov_idx = 0; cov_idx < non_null_cov_ct; cov_idx++) {
 	  slen = strlen(bufptr);
 	  uii = strlen(bufptr2);
 	  if (slen && uii) {
-	    if (*ucptr++ == 1) {
+	    if (cov_type_arr[cov_idx] == 1) {
 	      // negative match
 	      if ((slen == uii) && (!memcmp(bufptr, bufptr2, uii))) {
 		break;
@@ -2966,7 +2980,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   }
   if (is_mds_cluster) {
     if (bigstack_calloc_d(final_cluster_ct * final_cluster_ct, &main_matrix) ||
-        bigstack_alloc_ui(final_cluster_ct, &final_cluster_sizes)) {
+        bigstack_calloc_ui(final_cluster_ct, &final_cluster_sizes)) {
       goto mds_plot_ret_NOMEM;
     }
     dptr = dists;
@@ -2979,7 +2993,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
 	clidx2 = final_cluster_remap[ujj];
 	if (clidx2 < clidx1) {
 	  dptr2[clidx2] += (*dptr);
-	} else if (clidx1 > clidx2) {
+	} else if (clidx2 > clidx1) {
           main_matrix[clidx2 * final_cluster_ct + clidx1] += (*dptr);
 	}
 	dptr++;
@@ -3288,7 +3302,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
 	clidx2 = final_cluster_remap[ujj];
 	if (clidx2 < clidx1) {
 	  dptr2[clidx2] += (*dptr);
-	} else if (clidx1 > clidx2) {
+	} else if (clidx2 > clidx1) {
           main_matrix[clidx2 * final_cluster_ct + clidx1] += (*dptr);
 	}
 	dptr++;
@@ -3347,7 +3361,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   }
   grand_mean *= dxx;
   // ...then double-center and multiply by -0.5
-  for (clidx1 = 1; clidx1 < ulii; clidx1++) {
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
     dxx = column_means[clidx1];
     dptr = &(main_matrix[clidx1 * ulii]);
     dptr2 = column_means;

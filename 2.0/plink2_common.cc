@@ -130,6 +130,8 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     pgvp->phasepresent = nullptr;
     pgvp->phaseinfo = nullptr;
   }
+  pgvp->dphase_present = nullptr;
+  pgvp->dphase_delta = nullptr;
   if (gflags & kfPgenGlobalDosagePresent) {
     if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->dosage_present)) ||
                  bigstack_allocv_dosage(sample_ct, &(pgvp->dosage_main)))) {
@@ -154,8 +156,6 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
   } else {
     pgvp->dosage_present = nullptr;
     pgvp->dosage_main = nullptr;
-    pgvp->dphase_present = nullptr;
-    pgvp->dphase_delta = nullptr;
     // todo: multiallelic-dosage buffers
   }
   return BigstackBaseSetChecked(g_bigstack_base);
@@ -530,7 +530,7 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
       if (GetNyparrEntry(genovec, sample_uidx) == 1) {
         ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx++;
-        for (; dosage_read_idx == orig_write_dosage_ct; ++dosage_read_idx) {
+        for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
           const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
           if (GetNyparrEntry(genovec, sample_uidx2) == 1) {
             ClearBit(sample_uidx2, dosagepresent);
@@ -718,7 +718,7 @@ void SetMissingRefDosage(const uintptr_t* __restrict dosagepresent, uintptr_t sa
 #ifdef USE_AVX2
     dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
 #else
-    if (!dosage_hw) {
+    if (dosage_hw) {
       dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
     }
 #endif
@@ -1406,7 +1406,13 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t
     char* linebuf_iter = &(line_iter[4]);
     if (line_iter[1] == 'I') {
       xid_mode = kfXidModeFlagNeverFid;
+      if (line_iter[2] == 'I') {
+        // #IID1
+        ++linebuf_iter;
+      }
     } else {
+      // #FID1
+      ++linebuf_iter;
       linebuf_iter = FirstNonTspace(linebuf_iter);
       if (tokequal_k(linebuf_iter, "ID1")) {
         linebuf_iter = &(linebuf_iter[3]);
@@ -1518,7 +1524,7 @@ void MarkParents(const ParentalIdInfo* parental_id_infop, const char* sorted_xid
           if ((!memequal(idbuf, cur_xid, xid_slen)) || (cur_xid[xid_slen] > ' ')) {
             break;
           }
-          SetBit(xid_map[uii], dst);
+          SetBit(fam_xid_map[uii], dst);
         }
       }
     }
@@ -1711,7 +1717,6 @@ PglErr CheckXidUniqueness(const uintptr_t* sample_include, const SampleIdInfo* s
 PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* flag_name, uint32_t raw_sample_ct, uint32_t sample_ct, LoadSampleIdsFlags flags, uintptr_t** loaded_bitarrp, uint32_t* duplicate_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
-  const char* fname_iter = fnames;
   const char* fname_txs = nullptr;
   TextStream txs;
   PreinitTextStream(&txs);
@@ -1878,7 +1883,7 @@ PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const 
     TextStreamErrPrint(fname_txs, &txs);
     break;
   LoadSampleIds_ret_MISSING_TOKENS:
-    logerrprintf("Error: --%s: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", flag_name, line_idx, fname_iter);
+    logerrprintf("Error: --%s: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", flag_name, line_idx, fname_txs);
     reterr = kPglRetMalformedInput;
     break;
   }
@@ -1971,6 +1976,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
   // while the latter doesn't match any major resource.  no "chr" to reduce
   // file sizes and reduce the impact of this change.
   cip->output_encoding = kfChrOutputMT;
+  cip->output_infer = kfChrInfer0;
 
   cip->zero_extra_chrs = 0;
   cip->is_include_stack = 0;
@@ -2181,7 +2187,7 @@ char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encodi
       // force two chars
       if (chr_idx <= cip->autosome_ct) {
         buf = memcpya_k(buf, &(kDigitPair[chr_idx]), 2);
-      } else if (chr_idx == cip->xymt_codes[kChrOffsetY]) {
+      } else if (chr_idx == cip->xymt_codes[kChrOffsetXY]) {
         buf = strcpya_k(buf, "XY");
       } else {
         *buf++ = '0';
@@ -2212,6 +2218,53 @@ char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encodi
     }
   }
   return buf;
+}
+
+void NoteChrCodeStyle(const char* chr_name, uint32_t name_slen, uint32_t chr_idx, ChrInfo* cip) {
+  // chr_idx == 0 is always rendered as '0', PAR1/PAR2 never get a 'chr'
+  // prefix, and contig names are never changed, so they tell us nothing.
+  if ((!chr_idx) || (chr_idx > cip->max_numeric_code)) {
+    return;
+  }
+  ChrInfer infer_flags = cip->output_infer;
+  // GetChrCodeRaw() only accepts a leading 'c'/'C' as part of a 'chr' prefix.
+  if ((ctou32(chr_name[0]) & 0xdf) == 'C') {
+    infer_flags |= kfChrInferPrefix;
+  } else {
+    infer_flags |= kfChrInferNoPrefix;
+  }
+  if (chr_idx > cip->autosome_ct) {
+    const uint32_t last_char_code = ctou32(chr_name[name_slen - 1]);
+    if (IsDigit(last_char_code)) {
+      infer_flags |= kfChrInferNumeric;
+    } else {
+      infer_flags |= kfChrInferLetter;
+      if (chr_idx == cip->xymt_codes[kChrOffsetMT]) {
+        infer_flags |= ((last_char_code & 0xdf) == 'T')? kfChrInferMT : kfChrInferM;
+      }
+    }
+  }
+  cip->output_infer = infer_flags;
+}
+
+void InferChrOutputEncoding(ChrInfo* cip) {
+  const ChrInfer infer_flags = cip->output_infer;
+  if (!infer_flags) {
+    return;
+  }
+  // Each part of the encoding is inferred separately; if the input is
+  // inconsistent or uninformative, we fall back on the default for that part.
+  ChrOutput output_encoding = kfChrOutputMT;
+  if ((infer_flags & (kfChrInferNumeric | kfChrInferLetter)) == kfChrInferNumeric) {
+    output_encoding = kfChrOutput0;
+  } else if ((infer_flags & (kfChrInferM | kfChrInferMT)) == kfChrInferM) {
+    output_encoding = kfChrOutputM;
+  }
+  if ((infer_flags & (kfChrInferPrefix | kfChrInferNoPrefix)) == kfChrInferPrefix) {
+    output_encoding |= kfChrOutputPrefix;
+  }
+  cip->output_encoding = output_encoding;
+  cip->output_infer = kfChrInferOn;
 }
 
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
@@ -2446,18 +2499,18 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
   if (!cip->name_ct) {
     return UINT32_MAX;
   }
-  // note that IdHtableFind returns UINT32_MAX if name not found
+  // note that IdHtableFindNoOverread returns UINT32_MAX if name not found
   // can't overread, nonstd_names not in main workspace
-  return IdHtableFind(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
+  return IdHtableFindNoOverread(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
 }
 
 uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name) {
   // When the chromosome name isn't null-terminated.
   // Yeah, probably want to revise this so that chr_name doesn't need to be
   // mutable here.  However, that currently requires new substitutes for both
-  // GetChrCodeRaw AND IdHtableFind (IdHtableFindNnt doesn't work due to
-  // overread); when either of those are needed for some other reason, that's a
-  // good time to revise this function.
+  // GetChrCodeRaw AND IdHtableFindNoOverread (IdHtableFindNnt doesn't work
+  // due to overread); when either of those are needed for some other reason,
+  // that's a good time to revise this function.
   char* s_end = &(chr_name[name_slen]);
   const char tmpc = *s_end;
   *s_end = '\0';
@@ -2836,7 +2889,7 @@ uint32_t InterleavedSubsetAllMissing(const uintptr_t* genovec, const uintptr_t* 
     const uintptr_t set_first = set_first_lo * 3;
     const uintptr_t set_second = set_second_hi | (set_second_hi >> 1);
     result_word |= set_first & (set_first ^ (*genovec_iter++));
-    result_word |= set_second & (set_first ^ (*genovec_iter++));
+    result_word |= set_second & (set_second ^ (*genovec_iter++));
   }
   if (sample_ctv2 & 1) {
     const uintptr_t set_word = *interleaved_set_iter;
@@ -2980,7 +3033,7 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
       if (orig_set[sample_widx] & lowbit) {
         dosagepresent[sample_widx] ^= lowbit;
         uint32_t dosage_write_idx = dosage_read_idx++;
-        for (; dosage_read_idx == orig_write_dosage_ct; ++dosage_read_idx) {
+        for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
           const uintptr_t lowbit2 = BitIter1y(dosagepresent, &sample_widx, &cur_bits);
           if (orig_set[sample_widx] & lowbit2) {
             dosagepresent[sample_widx] ^= lowbit2;
@@ -3104,7 +3157,7 @@ void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict
     if (sex_male[sample_widx] & lowbit) {
       dphasepresent[sample_widx] ^= lowbit;
       uint32_t dphase_write_idx = dphase_read_idx++;
-      for (; dphase_read_idx == orig_write_dphase_ct; ++dphase_read_idx) {
+      for (; dphase_read_idx != orig_write_dphase_ct; ++dphase_read_idx) {
         const uintptr_t lowbit2 = BitIter1y(dphasepresent, &sample_widx, &cur_bits);
         if (sex_male[sample_widx] & lowbit2) {
           dphasepresent[sample_widx] ^= lowbit2;
@@ -3191,7 +3244,7 @@ void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, cons
       const AlleleCode code1 = *patch_10_vals_iter++;
       const AlleleCode code2 = *patch_10_vals_iter++;
       if (code1 != code2) {
-        cur_hets |= ctzu32(patch_10_hw);
+        cur_hets |= patch_10_hw & (-patch_10_hw);
       }
       patch_10_hw &= patch_10_hw - 1;
     }
@@ -3696,6 +3749,40 @@ void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {
   }
 }
 
+const char g_cc_cat_names[2][8] = {"CONTROL", "CASE"};
+
+BoolErr CatFromBinaryPheno(uint32_t raw_sample_ct, const PhenoCol** pheno_col_pp) {
+  const PhenoCol* orig_pheno_col = *pheno_col_pp;
+  assert(orig_pheno_col->type_code == kPhenoDtypeCc);
+  PhenoCol* synthetic_pheno_col;
+  uint32_t* cat_tmp;
+  const char** category_names;
+  if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, 1, &synthetic_pheno_col) ||
+               bigstack_end_calloc_u32(raw_sample_ct, &cat_tmp) ||
+               bigstack_end_alloc_kcp(3, &category_names))) {
+    return 1;
+  }
+  const uintptr_t* raw_pheno_nm = orig_pheno_col->nonmiss;
+  const uintptr_t* pheno_cc = orig_pheno_col->data.cc;
+  for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+    if (!IsSet(raw_pheno_nm, sample_uidx)) {
+      continue;
+    }
+    // 'CASE' is lexicographically before 'CONTROL'
+    cat_tmp[sample_uidx] = 2 - IsSet(pheno_cc, sample_uidx);
+  }
+  category_names[0] = nullptr;
+  category_names[1] = g_cc_cat_names[1];
+  category_names[2] = g_cc_cat_names[0];
+  synthetic_pheno_col->category_names = category_names;
+  synthetic_pheno_col->nonmiss = orig_pheno_col->nonmiss;
+  synthetic_pheno_col->data.cat = cat_tmp;
+  synthetic_pheno_col->type_code = kPhenoDtypeCat;
+  synthetic_pheno_col->nonnull_category_ct = 2;
+  *pheno_col_pp = synthetic_pheno_col;
+  return 0;
+}
+
 PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t prohibit_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask) {
   PglErr reterr = kPglRetSuccess;
   {
@@ -3927,6 +4014,8 @@ uintptr_t GetMhcWordCt(uintptr_t sample_ct) {
   return RoundUpPow2(patch_01_max_word_ct, kWordsPerVec) + RoundUpPow2(patch_10_max_word_ct, kWordsPerVec);
 }
 
+CONSTI32(kPgenMtLoadTargetBlockByteCt, 64 * 1048576);
+
 PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
@@ -3956,6 +4045,23 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
     return kPglRetNomem;
   }
 #endif
+  // The 1/4-of-workspace rule above lets a large --memory turn the whole file
+  // into a single block, which serializes reading, computation and writing,
+  // and touches memory roughly equal to the file size.  Past a few dozen MiB
+  // per block, larger blocks don't help: across --freq, --hardy, --missing,
+  // --het, --geno-counts, --sample-counts, --glm, --score, --pca approx,
+  // --make-bed and --export, outputs were unchanged and times were the same
+  // or better (e.g. --make-bed 0.23s -> 0.13s with 100000 samples), while
+  // peak memory dropped from ~file size to ~100 MB.
+  // Keep at least 64 variants per requested thread, and a multiple of
+  // kBitsPerVec.
+  {
+    const uint32_t min_read_block_size = MAXV(2 * kBitsPerVec, 64 * (*calc_thread_ct_ptr));
+    while ((read_block_size >= 2 * min_read_block_size) && (multiread_cacheline_ct > kPgenMtLoadTargetBlockByteCt / kCacheline)) {
+      read_block_size /= 2;
+      multiread_cacheline_ct = PgfiMultireadGetCachelineReq(variant_include, pgfip, variant_ct, read_block_size);
+    }
+  }
   main_loadbufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(multiread_cacheline_ct * kCacheline));
   main_loadbufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(multiread_cacheline_ct * kCacheline));
   pgfip->block_base = main_loadbufs[0];
@@ -4371,6 +4477,15 @@ void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr
       logerrprintfww("Error: Failed to unpack (0-based) variant #%u in %s.\n", variant_uidx, file_descrip);
     }
     logerrputs("You can use --validate to check whether it is malformed.\n* If it is malformed, you probably need to either re-download the file, or\n  address an error in the command that generated the input .pgen.\n* If it appears to be valid, you have probably encountered a plink2 bug.  If\n  you report the error on GitHub or the plink2-users Google group (make sure to\n  include the full .log file in your report), we'll try to address it.\n");
+  } else if (reterr == kPglRetInconsistentInput) {
+    if (prepend_lf) {
+      logputs("\n");
+    }
+    if (variant_uidx == UINT32_MAX) {
+      logerrprintfww("Error: .pvar entry has too few alleles to be consistent with corresponding record in %s .\n", file_descrip);
+    } else {
+      logerrprintfww("Error: .pvar entry for (0-based) variant #%u has too few alleles to be consistent with corresponding record in %s .\n", variant_uidx, file_descrip);
+    }
   }
 }
 
@@ -4631,7 +4746,7 @@ BoolErr HkvlineNumTypeK(const char* dict_iter, const char** numstr_ptr, uint32_t
       }
       need_typestr = 0;
     }
-    ++dict_iter;
+    dict_iter = &(val_end[1]);
   }
 }
 
@@ -4865,74 +4980,31 @@ void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, 
 }
 
 PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags) {
-  PgenGlobalFlags read_gflags = kfPgenGlobal0;
   if (!vrtypes) {
     return input_gflags;
   }
-  const uintptr_t* vrtypes_alias = R_CAST(const uintptr_t*, vrtypes);
-  const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-  uint32_t mask_multiply = ((input_gflags & kfPgenGlobalHardcallPhasePresent)? 0x10 : 0) + ((input_gflags & kfPgenGlobalDosagePresent)? 0x60 : 0) + ((input_gflags & kfPgenGlobalDosagePhasePresent)? 0x80 : 0);
-  uintptr_t vrtypes_or = 0;
-  // todo: try changing loop to be vec-based, use movemask to extract
-  // information from vrtypes in 64-bit cases
-  for (uint32_t widx = 0; widx != raw_variant_ctl; ++widx) {
-    uintptr_t cur_variant_include_word = variant_include[widx];
-    if (cur_variant_include_word) {
-      // bugfix (20 Aug 2018): this needs to advance on every variant_include
-      // word, not just the nonzero ones
-      const uintptr_t* cur_vrtypes = &(vrtypes_alias[8 * widx]);
-#ifdef __LP64__
-      for (uint32_t vi_byte_idx = 0; vi_byte_idx != 8; ++vi_byte_idx) {
-#  ifdef USE_AVX2
-        // this doesn't seem to be much faster than non-AVX2 code on my Mac...
-        // inverse-movemask shouldn't be better than regular movemask here
-        const uintptr_t cur_mask = _pdep_u64(cur_variant_include_word, kMask0101);
-#  else
-        // this operation maps binary hgfedcba to h0000000g0000000f...
-        //                                        ^       ^       ^
-        //                                        |       |       |
-        //                                       56      48      40
-        // 1. (cur_variant_include_word & 0xfe) gives us hgfedcb0;
-        //    necessary to avoid carryover.
-        // 2. multiply by the number with bits 7, 14, 21, ..., 49 set, to
-        //    get hgfedcbhgfedcbhgf...
-        //        ^       ^       ^
-        //        |       |       |
-        //       56      48      40
-        // 3. mask out all but bits 8, 16, 24, ..., 56
-        // todo: test if this actually beats the per-character loop...
-        const uintptr_t cur_mask = (((cur_variant_include_word & 0xfe) * 0x2040810204080LLU) & kMask0101) | (cur_variant_include_word & 1);
-#  endif
-        vrtypes_or |= cur_vrtypes[vi_byte_idx] & (cur_mask * mask_multiply);
-        cur_variant_include_word >>= 8;
-      }
-#else
-      for (uint32_t vi_hexa_idx = 0; vi_hexa_idx != 8; ++vi_hexa_idx) {
-        // dcba -> d0000000c0000000b0000000a
-        const uintptr_t cur_mask = ((cur_variant_include_word & 0xf) * 0x204081) & kMask0101;
-        vrtypes_or |= cur_vrtypes[vi_hexa_idx] & (cur_mask * mask_multiply);
-        cur_variant_include_word >>= 4;
-      }
-#endif
-      if (vrtypes_or) {
-        // bugfix (8 Oct 2017): forgot to multiply by kMask0101
-        if (vrtypes_or & (0x10 * kMask0101)) {
-          read_gflags |= kfPgenGlobalHardcallPhasePresent;
-          mask_multiply -= 0x10;
-        }
-        if (vrtypes_or & (0x60 * kMask0101)) {
-          read_gflags |= kfPgenGlobalDosagePresent;
-          mask_multiply -= 0x60;
-        }
-        if (vrtypes_or & (0x80 * kMask0101)) {
-          read_gflags |= kfPgenGlobalDosagePhasePresent;
-          mask_multiply -= 0x80;
-        }
-        if (!mask_multiply) {
-          return read_gflags;
-        }
-      }
-    }
+  // One group per flag: 0x10 = hardcall phase, 0x60 = dosage, 0x80 = dosage
+  // phase.
+  uint64_t vrtype_groups = 0;
+  if (input_gflags & kfPgenGlobalHardcallPhasePresent) {
+    vrtype_groups = 0x10;
+  }
+  if (input_gflags & kfPgenGlobalDosagePresent) {
+    vrtype_groups = (vrtype_groups << 8) | 0x60;
+  }
+  if (input_gflags & kfPgenGlobalDosagePhasePresent) {
+    vrtype_groups = (vrtype_groups << 8) | 0x80;
+  }
+  const uint32_t found_bits = ScanVrtypeGroups(variant_include, vrtypes, 0, raw_variant_ct, vrtype_groups);
+  PgenGlobalFlags read_gflags = kfPgenGlobal0;
+  if (found_bits & 0x10) {
+    read_gflags |= kfPgenGlobalHardcallPhasePresent;
+  }
+  if (found_bits & 0x60) {
+    read_gflags |= kfPgenGlobalDosagePresent;
+  }
+  if (found_bits & 0x80) {
+    read_gflags |= kfPgenGlobalDosagePhasePresent;
   }
   return read_gflags;
 }

@@ -51,6 +51,7 @@ PGENLIB_CCSRC = include/plink2_base.cc \
                 include/plink2_bits.cc \
                 include/plink2_simd.cc \
                 include/pgenlib_misc.cc \
+                include/pgenlib_mtwrite.cc \
                 include/pgenlib_read.cc \
                 include/pgenlib_write.cc
 
@@ -101,6 +102,7 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_glm.cc \
         plink2_glm_linear.cc \
         plink2_glm_logistic.cc \
+        plink2_glm_multinomial.cc \
         plink2_glm_shared.cc \
         plink2_help.cc \
         plink2_import.cc \

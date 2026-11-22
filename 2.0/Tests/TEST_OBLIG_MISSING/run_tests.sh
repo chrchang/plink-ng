@@ -86,7 +86,9 @@ $1/plink2 $2 $3 --bfile tmp_data --oblig-missing variants.txt samples.txt --mind
 test $(grep -vc '^#' plink2_om.id) -eq 120
 
 fails() {
-    "$@" && false || true
+    if "$@"; then
+        return 1
+    fi
 }
 
 # Wrong parameter count, and unreadable files.
@@ -103,3 +105,11 @@ echo "ghost gh b1" >> samples_extra.txt
 plink --bfile tmp_data --oblig-missing variants_extra.txt samples_extra.txt --geno 0.1 --write-snplist --out plink_om
 $1/plink2 $2 $3 --bfile tmp_data --oblig-missing variants_extra.txt samples_extra.txt --geno 0.1 --write-snplist --out plink2_om
 diff -q plink_om.snplist plink2_om.snplist
+
+# A block member whose call is not actually missing is an error, as in PLINK
+# 1.x.  var80 lies outside both blocks, so b1's samples are genotyped there.
+cp variants.txt variants_bad.txt
+echo "var80 b1" >> variants_bad.txt
+fails plink --bfile tmp_data --oblig-missing variants_bad.txt samples.txt --geno 0.1 --write-snplist --out plink_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --oblig-missing variants_bad.txt samples.txt --geno 0.1 --write-snplist --out plink2_bad
+grep -q "Nonmissing --oblig-missing genotype at variant 'var80'" plink2_bad.log

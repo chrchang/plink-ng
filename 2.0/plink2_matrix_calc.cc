@@ -400,7 +400,7 @@ PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, d
   PreinitTextStream(&txs);
   {
     uint32_t sample_ct = *sample_ct_ptr;
-    const uint32_t orig_sample_ctl = BitCtToWordCt(sample_ct);
+    const uintptr_t orig_sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table;
     uint32_t* sample_uidx_to_king_uidx;
     if (unlikely(bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table) ||
@@ -651,7 +651,7 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
     king_cutoff *= 1.0 + kSmallEpsilon;
 
     const uint32_t orig_sample_ct = *sample_ct_ptr;
-    const uint32_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
+    const uintptr_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
     uintptr_t* kinship_table;
     if (unlikely(bigstack_calloc_w(orig_sample_ct * orig_sample_ctl, &kinship_table))) {
       goto KingCutoffBatchTable_ret_NOMEM;
@@ -734,12 +734,12 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
       }
       while (1) {
         linebuf_iter = FirstNonTspace(token_end);
-        token_end = CurTokenEnd(linebuf_iter);
-        token_slen = token_end - linebuf_iter;
+        token_slen = strlen_se(linebuf_iter);
         if (unlikely(!token_slen)) {
           logerrputs("Error: No kinship-coefficient column in --king-cutoff-table file.\n");
           goto KingCutoffBatchTable_ret_INCONSISTENT_INPUT;
         }
+        token_end = &(linebuf_iter[token_slen]);
         if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
           break;
         }
@@ -788,6 +788,9 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingCutoffBatchTable_ret_MISSING_TOKENS;
+      }
       uint32_t sample_idx2;
       if (SortedXidboxReadFind(sorted_xidbox, xid_cmap, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_idx2, idbuf)) {
         if (unlikely(!linebuf_iter)) {
@@ -1108,9 +1111,6 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
             __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
-            if (homhom_needed) {
-              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
-            }
           }
         }
         for (uint32_t uii = 0; uii != missing_ct; ++uii) {
@@ -1149,9 +1149,6 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
             __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
-            if (homhom_needed) {
-              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
-            }
           }
         }
       } else {
@@ -1344,9 +1341,11 @@ CONSTI32(kKingMultiplexVecs, kKingMultiplex / kBitsPerVec);
 // expensive PopcountWord().  Use Lauradoux/Walisch accumulators, since
 // Harley-Seal requires too many variables.
 void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+#ifndef SIMDE_ARM_NEON_A32V8_NATIVE
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
+#endif
   for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
@@ -1363,6 +1362,21 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
       acc_hethet.vw = vecw_setzero();
       acc_het2hom1.vw = vecw_setzero();
       acc_het1hom2.vw = vecw_setzero();
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+      for (uint32_t vec_idx = 0; vec_idx != kKingMultiplexVecs; ++vec_idx) {
+        const VecW hom1 = first_hom_iter[vec_idx];
+        const VecW hom2 = second_hom[vec_idx];
+        const VecW ref2het1 = first_ref2het_iter[vec_idx];
+        const VecW ref2het2 = second_ref2het[vec_idx];
+        const VecW homhom = hom1 & hom2;
+        const VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+        const VecW het2 = vecw_and_notfirst(hom2, ref2het2);
+        acc_ibs0.vw = acc_ibs0.vw + vecw_popcount8((ref2het1 ^ ref2het2) & homhom);
+        acc_hethet.vw = acc_hethet.vw + vecw_popcount8(het1 & het2);
+        acc_het2hom1.vw = acc_het2hom1.vw + vecw_popcount8(hom1 & het2);
+        acc_het1hom2.vw = acc_het1hom2.vw + vecw_popcount8(hom2 & het1);
+      }
+#else
       for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
         VecW hom1 = first_hom_iter[vec_idx];
         VecW hom2 = second_hom[vec_idx];
@@ -1408,6 +1422,7 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
         acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
         acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
       }
+#endif
       const VecW m8 = VCONST_W(kMask00FF);
       acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
       acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
@@ -1426,9 +1441,11 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
 }
 
 void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+#ifndef SIMDE_ARM_NEON_A32V8_NATIVE
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
+#endif
   for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
@@ -1447,6 +1464,22 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
       acc_hethet.vw = vecw_setzero();
       acc_het2hom1.vw = vecw_setzero();
       acc_het1hom2.vw = vecw_setzero();
+#ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+      for (uint32_t vec_idx = 0; vec_idx != kKingMultiplexVecs; ++vec_idx) {
+        const VecW hom1 = first_hom_iter[vec_idx];
+        const VecW hom2 = second_hom[vec_idx];
+        const VecW ref2het1 = first_ref2het_iter[vec_idx];
+        const VecW ref2het2 = second_ref2het[vec_idx];
+        const VecW homhom = hom1 & hom2;
+        const VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+        const VecW het2 = vecw_and_notfirst(hom2, ref2het2);
+        acc_homhom.vw = acc_homhom.vw + vecw_popcount8(homhom);
+        acc_ibs0.vw = acc_ibs0.vw + vecw_popcount8((ref2het1 ^ ref2het2) & homhom);
+        acc_hethet.vw = acc_hethet.vw + vecw_popcount8(het1 & het2);
+        acc_het2hom1.vw = acc_het2hom1.vw + vecw_popcount8(hom1 & het2);
+        acc_het1hom2.vw = acc_het1hom2.vw + vecw_popcount8(hom2 & het1);
+      }
+#else
       for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
         VecW hom1 = first_hom_iter[vec_idx];
         VecW hom2 = second_hom[vec_idx];
@@ -1499,6 +1532,7 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
         acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
         acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
       }
+#endif
       const VecW m8 = VCONST_W(kMask00FF);
       acc_homhom.vw = (acc_homhom.vw & m8) + (vecw_srli(acc_homhom.vw, 8) & m8);
       acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
@@ -3096,6 +3130,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(IsEolnKns(*linebuf_iter))) {
+        goto KingTableSubsetLoad_ret_MISSING_TOKENS;
+      }
       if (rel_or_concordance_check) {
         // linebuf_iter must point to the start of the second FID, while
         // line_iter points to the start of the first.
@@ -3193,7 +3230,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
     reterr = kPglRetMalformedInput;
     break;
   KingTableSubsetLoad_ret_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    logerrprintfww("Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
   KingTableSubsetLoad_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -3482,7 +3521,7 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
               if (!require_xor) {
                 pair_idx = ((orig_sample_ct64 * (orig_sample_ct - 1)) - (optional_ct * (optional_ct - 1))) / 2;
               } else {
-                pair_idx = orig_sample_ct64 * optional_ct;
+                pair_idx = S_CAST(uint64_t, orig_sample_ct - optional_ct) * optional_ct;
               }
             } else {
               pair_idx = CountRcCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, rel_or_concordance_check, max_xid_blen, orig_sample_ct, require_xor, idbuf);
@@ -3755,12 +3794,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
         king_table_subset_thresh *= 1.0 - kSmallEpsilon;
         while (1) {
           linebuf_iter = FirstNonTspace(token_end);
-          token_end = CurTokenEnd(linebuf_iter);
-          token_slen = token_end - linebuf_iter;
+          token_slen = strlen_se(linebuf_iter);
           if (unlikely(!token_slen)) {
             logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
             goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
           }
+          token_end = &(linebuf_iter[token_slen]);
           if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
             break;
           }
@@ -3886,7 +3925,6 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
           ctx.loaded_sample_idx_pairs[ulii] = RawToSubsettedPos(cur_sample_include, sample_include_cumulative_popcounts, ctx.loaded_sample_idx_pairs[ulii]);
         }
       }
-      ZeroU32Arr(cur_pair_ct * homhom_needed_p4, ctx.king_counts);
       CollapsedSampleFmtidInit(cur_sample_include, (&(piip->sii)), cur_sample_ct, king_col_fid, king_col_sid, max_sample_fmtid_blen, collapsed_sample_fmtids);
       if (king_pedigree_needed) {
         reterr = KingPedigreeFill(cur_sample_include, founder_info, piip, raw_sample_ct, cur_sample_ct, &king_pedigree);
@@ -3894,6 +3932,9 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
           goto CalcKingTableSubset_ret_1;
         }
       }
+      // king_counts is not a real allocation, so this must come after
+      // KingPedigreeFill() has used (and released) its end-of-bigstack scratch.
+      ZeroU32Arr(cur_pair_ct * homhom_needed_p4, ctx.king_counts);
       for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
         ctx.thread_start[tidx] = (tidx * S_CAST(uint64_t, cur_pair_ct)) / calc_thread_ct;
       }
@@ -4105,12 +4146,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
       putc_unlocked('\r', stdout);
       const uint64_t pair_complete_ct = pair_idx - pair_idx_global_start;
       logprintf("Subsetted --make-king-table: %" PRIu64 " pair%s complete.\n", pair_complete_ct, (pair_complete_ct == 1)? "" : "s");
-      if (TextEof(&txs) || (pair_idx == pair_idx_global_stop)) {
+      if ((subset_fname && TextEof(&txs)) || (pair_idx == pair_idx_global_stop)) {
         break;
       }
       pair_idx_cur_start = pair_idx;
       if (!subset_fname) {
-        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       } else {
         fputs("Scanning --king-table-subset file...", stdout);
         fflush(stdout);
@@ -4608,7 +4649,6 @@ typedef struct CalcGrmPartCtxStruct {
 
   uint32_t cur_batch_size;
   double* normed_dosage_vmaj_bufs[2];
-  double* normed_dosage_smaj_bufs[2];
 
   double* grm;
 } CalcGrmPartCtx;
@@ -4648,10 +4688,11 @@ THREAD_FUNC_DECL CalcGrmPartThread(void* raw_arg) {
   do {
     const uintptr_t cur_batch_size = ctx->cur_batch_size;
     if (cur_batch_size) {
-      double* normed_vmaj = ctx->normed_dosage_vmaj_bufs[parity];
-      double* normed_smaj = ctx->normed_dosage_smaj_bufs[parity];
+      const double* normed_vmaj = ctx->normed_dosage_vmaj_bufs[parity];
       // quasi-bugfix (18 Mar 2022): forgot to skip extra right-side columns
-      RowMajorMatrixMultiplyStridedIncr(&(normed_smaj[row_start_idx * cur_batch_size]), normed_vmaj, row_ct, cur_batch_size, sample_idx_end, sample_ct, cur_batch_size, sample_ct, grm_piece);
+      // grm_piece += normed_vmaj[, rows]^T * normed_vmaj[, :sample_idx_end],
+      // reading the first operand transposed in place.
+      ColMajorMatrixMultiplyTrans2StridedAddassign(normed_vmaj, &(normed_vmaj[row_start_idx]), sample_idx_end, sample_ct, row_ct, sample_ct, cur_batch_size, sample_ct, 1.0, grm_piece);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -5015,6 +5056,248 @@ THREAD_FUNC_DECL CalcDistanceThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
+// Rare-variant optimization, as in --make-king[-table]: a variant where all
+// but a few samples share one nonmissing genotype contributes the same thing
+// to nearly every pair, so instead of making it take a column in the dense
+// scan, we
+//   1. add that shared contribution once, globally,
+//   2. add the per-sample part (what each rare genotype changes about all of
+//      its pairs with common-genotype samples) to per-sample totals, and
+//   3. correct the cells for pairs where *both* samples have a rare genotype.
+// Write c for the common genotype, and H/O/M for a rare het / opposite hom /
+// missing call.  For a pair, relative to the (c, c) baseline of raw=0,
+// nonmissing=1, both-missing=0, the pair-specific correction
+//   f(a, b) - f(a, c) - f(c, b) + f(c, c)
+// works out to the following (raw is 2 * IBS0 + IBS1):
+//   HH: raw -2    HO: raw -2    OO: raw -4
+//   HM: raw -1    OM: raw -2    MM: raw 0, nonmissing +1, both-missing +weight
+// Variants where the common genotype is missing are left to the dense scan.
+CONSTI32(kDistRareH, 0);
+CONSTI32(kDistRareO, 1);
+CONSTI32(kDistRareM, 2);
+
+// Largest number of missing calls a sparse variant may have when the default
+// (weighted) missingness correction is in use.  The both-missing weights of
+// such variants are applied by the main thread in variant order, which keeps
+// the result independent of the thread count, and this bounds the buffer that
+// takes.
+CONSTI32(kDistMaxSparseMissingCt, 32);
+
+typedef struct CalcDistanceSparseCtxStruct {
+  const uintptr_t* variant_include_orig;
+  uintptr_t* sample_include;
+  uint32_t* sample_include_cumulative_popcounts;
+  uint32_t row_start_idx;
+  uint32_t row_end_idx;
+
+  uint32_t max_sparse_ct;
+
+  uint32_t read_block_size;  // guaranteed to be power of 2
+
+  PgenReader** pgr_ptrs;
+  uintptr_t** genovecs;
+  uint32_t* read_variant_uidx_starts;
+
+  // length >= 2 * max_sparse_ct
+  uint32_t** thread_idx_bufs;
+
+  uint32_t cur_block_size;
+  // Position of the current block's first variant in variant_include_orig,
+  // and the weights it indexes (nullptr iff 'flat-missing').
+  uint32_t block_vidx_start;
+  const double* variant_weights;
+
+  uint32_t** thread_raw_singles;
+  uint32_t** thread_miss_singles;
+  uint32_t* thread_sparse_cts;
+
+  // single global copy
+  uint32_t* counts;
+
+  // Weighted mode only: [vidx, missing_ct, sample_idxs...] records, one
+  // buffer per thread and block parity.
+  uint32_t** thread_event_bufs[2];
+  uint32_t* thread_event_cts[2];
+
+  uintptr_t** thread_sparse_excludes[2];
+
+  uint64_t err_info;
+} CalcDistanceSparseCtx;
+
+THREAD_FUNC_DECL CalcDistanceSparseThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcDistanceSparseCtx* ctx = S_CAST(CalcDistanceSparseCtx*, arg->sharedp->context);
+
+  const uintptr_t* variant_include_orig = ctx->variant_include_orig;
+  const uintptr_t* sample_include = ctx->sample_include;
+
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
+  uintptr_t* genovec = ctx->genovecs[tidx];
+  const uint32_t row_start_idx = ctx->row_start_idx;
+  const uint64_t tri_start = ((row_start_idx - 1) * S_CAST(uint64_t, row_start_idx)) / 2;
+  const uint32_t sample_ct = ctx->row_end_idx;
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  const uint32_t remainder = sample_ct % kBitsPerWordD2;
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+  const uint32_t max_sparse_ct = ctx->max_sparse_ct;
+  const uint32_t read_block_size_mask = ctx->read_block_size - 1;
+  const uint32_t read_block_sizel = ctx->read_block_size / kBitsPerWord;
+  const uint32_t min_common_ct = sample_ct - max_sparse_ct;
+  const double* variant_weights = ctx->variant_weights;
+  const uint32_t flat_missing = (variant_weights == nullptr);
+
+  uint32_t* rare_idxs = ctx->thread_idx_bufs[tidx];
+  uint32_t* rare_types = &(rare_idxs[max_sparse_ct]);
+
+  uint32_t* raw_singles = ctx->thread_raw_singles[tidx];
+  uint32_t* miss_singles = ctx->thread_miss_singles[tidx];
+  ZeroU32Arr(sample_ct, raw_singles);
+  ZeroU32Arr(sample_ct, miss_singles);
+  uint32_t sparse_ct = 0;
+
+  // rare genotype pair -> amount the pair's raw count must drop by
+  static const uint32_t kRawCorr[3][3] = {{2, 2, 1}, {2, 4, 2}, {1, 2, 0}};
+  // (genotype ^ mask_word) -> rare-genotype type, for common genotype 0 and 2
+  static const uint32_t kRareTypes[2][4] = {{0, kDistRareH, kDistRareO, kDistRareM}, {0, kDistRareM, kDistRareO, kDistRareH}};
+
+  uint32_t* counts = ctx->counts;
+  const uint32_t counts_stride = flat_missing? 2 : 1;
+  uint64_t new_err_info = 0;
+  uint32_t parity = 0;
+  while (!THREAD_BLOCK_FINISH(arg)) {
+    const uint32_t cur_block_size = ctx->cur_block_size;
+    const uint32_t idx_start = (tidx * cur_block_size) / calc_thread_ct;
+    const uint32_t idx_end = ((tidx + 1) * cur_block_size) / calc_thread_ct;
+    uintptr_t variant_uidx_base;
+    uintptr_t variant_include_bits;
+    BitIter1Start(variant_include_orig, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
+    uintptr_t* sparse_exclude = ctx->thread_sparse_excludes[parity][tidx];
+    ZeroWArr(read_block_sizel, sparse_exclude);
+    uint32_t* event_buf = nullptr;
+    uint32_t event_size = 0;
+    if (!flat_missing) {
+      event_buf = ctx->thread_event_bufs[parity][tidx];
+    }
+    for (uint32_t cur_idx = idx_start; cur_idx != idx_end; ++cur_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include_orig, &variant_uidx_base, &variant_include_bits);
+      const PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
+      if (unlikely(reterr)) {
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto CalcDistanceSparseThread_err;
+      }
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
+      ZeroTrailingNyps(sample_ct, genovec);
+      GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
+      uintptr_t mask_word;
+      uint32_t common_idx;
+      if (genocounts[0] >= min_common_ct) {
+        common_idx = 0;
+        mask_word = 0;
+      } else if (genocounts[2] >= min_common_ct) {
+        common_idx = 2;
+        mask_word = kMaskAAAA;
+      } else {
+        continue;
+      }
+      const uint32_t vidx = ctx->block_vidx_start + cur_idx;
+      double cur_weight = 0.0;
+      if (!flat_missing) {
+        cur_weight = variant_weights[vidx];
+        if ((cur_weight != 0.0) && (genocounts[3] > kDistMaxSparseMissingCt)) {
+          continue;
+        }
+      }
+      SetBit(variant_uidx & read_block_size_mask, sparse_exclude);
+      ++sparse_ct;
+      if (genocounts[common_idx] == sample_ct) {
+        continue;
+      }
+      if (remainder) {
+        genovec[sample_ctl2 - 1] |= mask_word << (2 * remainder);
+      }
+      const uint32_t* type_map = kRareTypes[common_idx / 2];
+      uint32_t rare_ct = 0;
+      for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+        uintptr_t xor_word = genovec[widx] ^ mask_word;
+        if (xor_word) {
+          const uint32_t offset_base = widx * kBitsPerWordD2;
+          do {
+            const uint32_t shift_ct = ctzw(xor_word) & (~1);
+            const uint32_t cur_xor = (xor_word >> shift_ct) & 3;
+            rare_idxs[rare_ct] = offset_base + (shift_ct / 2);
+            rare_types[rare_ct++] = type_map[cur_xor];
+            xor_word &= ~((3 * k1LU) << shift_ct);
+          } while (xor_word);
+        }
+      }
+      if (cur_weight != 0.0) {
+        const uint32_t missing_ct = genocounts[3];
+        if (missing_ct) {
+          uint32_t* event_iter = &(event_buf[event_size]);
+          *event_iter++ = vidx;
+          *event_iter++ = missing_ct;
+          for (uint32_t uii = 0; uii != rare_ct; ++uii) {
+            if (rare_types[uii] == kDistRareM) {
+              *event_iter++ = rare_idxs[uii];
+            }
+          }
+          event_size += 2 + missing_ct;
+        }
+      }
+      // 1. Per-sample part: this is enough for correct accounting for any
+      //    pair involving only one (or none) of the rare genotypes, and the
+      //    arrays are small enough that each thread can keep its own copy
+      //    (they're added up at the end).
+      // 2. For each pair of rare genotypes, atomically correct the main
+      //    counts[] array.  Entries are in increasing sample-index order, so
+      //    the outer loop is the larger index and each row of the triangle is
+      //    walked in order.
+      for (uint32_t uii = 0; uii != rare_ct; ++uii) {
+        const uintptr_t sample_idx_hi = rare_idxs[uii];
+        const uint32_t type_hi = rare_types[uii];
+        if (type_hi == kDistRareM) {
+          miss_singles[sample_idx_hi] += 1;
+        } else {
+          raw_singles[sample_idx_hi] += 1 + type_hi;
+        }
+        if (sample_idx_hi < row_start_idx) {
+          continue;
+        }
+        const uintptr_t tri_base = (S_CAST(uint64_t, sample_idx_hi) * (sample_idx_hi - 1)) / 2 - tri_start;
+        const uint32_t* corr_row = kRawCorr[type_hi];
+        for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+          const uint32_t type_lo = rare_types[ujj];
+          const uint32_t raw_corr = corr_row[type_lo];
+          uint32_t* counts_ptr = &(counts[(tri_base + rare_idxs[ujj]) * counts_stride]);
+          if (raw_corr) {
+            __atomic_fetch_sub(&(counts_ptr[kDistOffsetRaw]), raw_corr, __ATOMIC_RELAXED);
+          }
+          if (flat_missing && (type_hi == kDistRareM) && (type_lo == kDistRareM)) {
+            __atomic_fetch_add(&(counts_ptr[kDistOffsetNonmiss]), 1, __ATOMIC_RELAXED);
+          }
+        }
+      }
+    }
+    if (!flat_missing) {
+      ctx->thread_event_cts[parity][tidx] = event_size;
+    }
+    parity = 1 - parity;
+  }
+  {
+    ctx->thread_sparse_cts[tidx] = sparse_ct;
+  }
+  while (0) {
+  CalcDistanceSparseThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
+    break;
+  }
+  THREAD_RETURN;
+}
+
 // The three reports --distance can write are the same number in different
 // units: the allele-count distance, IBS = 1 - dist/(2m), and 1 - IBS.
 CONSTI32(kDistReportAlleleCt, 0);
@@ -5208,6 +5491,30 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
   return reterr;
 }
 
+// Applies one block's worth of both-missing events (see
+// CalcDistanceSparseThread) to wmiss[] and wboth[].  Records are in variant
+// order, so this adds the weights in the same order for any thread count.
+void ApplyDistanceSparseEvents(const uint32_t* events, uint32_t event_u32_ct, const double* variant_weights, uint32_t row_start_idx, double* wmiss, double* wboth) {
+  const uint64_t tri_start = ((row_start_idx - 1) * S_CAST(uint64_t, row_start_idx)) / 2;
+  for (uint32_t pos = 0; pos != event_u32_ct; ) {
+    const double cur_weight = variant_weights[events[pos]];
+    const uint32_t missing_ct = events[pos + 1];
+    const uint32_t* missing_idxs = &(events[pos + 2]);
+    pos += 2 + missing_ct;
+    for (uint32_t uii = 0; uii != missing_ct; ++uii) {
+      const uintptr_t sample_idx_hi = missing_idxs[uii];
+      wmiss[sample_idx_hi] += cur_weight;
+      if (sample_idx_hi < row_start_idx) {
+        continue;
+      }
+      double* wboth_row = &(wboth[(S_CAST(uint64_t, sample_idx_hi) * (sample_idx_hi - 1)) / 2 - tri_start]);
+      for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+        wboth_row[missing_idxs[ujj]] += cur_weight;
+      }
+    }
+  }
+}
+
 // --distance: PLINK 1.x's genomic distance matrices.
 //
 // The per-pair scan is the KING-robust dense path with a cheaper kernel: the
@@ -5220,15 +5527,26 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
 // Hardy-Weinberg (which is what makes a missing call at a common variant cost
 // more than one at a rare variant).  'flat-missing' replaces that with a
 // plain nonmissing count.
-PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+//
+// Variants where nearly every sample has the same genotype are handled
+// separately, as in --make-king[-table]: see CalcDistanceSparseThread().
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadGroup tg;
+  CalcDistanceSparseCtx sparse_ctx;
   PglErr reterr = kPglRetSuccess;
   PreinitThreads(&tg);
   {
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: --distance requires at least 2 samples.\n");
       goto CalcDistance_ret_DEGENERATE_DATA;
+    }
+    // Every genotype is scored as diploid, so haploid chromosomes would
+    // double-count their differences; exclude them as PLINK 1.9 and the GRM
+    // code do.
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--distance", raw_variant_ct, &variant_include, &variant_ct);
+    if (unlikely(reterr)) {
+      goto CalcDistance_ret_1;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -5252,9 +5570,10 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (!calc_thread_ct) {
       calc_thread_ct = 1;
     }
+    // Function scope for the same reason as CalcKing()'s contexts: the workers
+    // hold pointers to these, and CleanupThreads() is what joins them.
     CalcDistanceCtx ctx;
-    if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
-                 bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
+    if (unlikely(bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
       goto CalcDistance_ret_NOMEM;
     }
 
@@ -5350,7 +5669,191 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         goto CalcDistance_ret_NOMEM;
       }
     }
+
+    // Rare-variant scan setup.  This is allocated last, and skipped when
+    // there's no room for it, so it can't make a previously-feasible run fail.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uint32_t raw_sample_ctl2 = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* dense_variant_include = nullptr;
+    uint32_t sparse_ok = 0;
+    uint32_t sparse_read_block_size = 0;
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
+    uintptr_t* cur_sample_include = nullptr;
+    uint32_t* cur_sample_include_cumulative_popcounts = nullptr;
+    const uint32_t max_sparse_ct = KingMaxSparseCt(grand_row_end_idx);
+    if (max_sparse_ct) {
+      unsigned char* sparse_mark = g_bigstack_base;
+      uint32_t sparse_calc_thread_ct = calc_thread_ct;
+      do {
+        const uintptr_t thread_xalloc_cacheline_ct = DivUp((2 * k1LU) * (max_sparse_ct + grand_row_end_idx) + (flat_missing? 0 : (2 * k1LU) * (kPglVblockSize / sparse_calc_thread_ct + 1) * (2 + kDistMaxSparseMissingCt)), kInt32PerCacheline) + ((kPglVblockSize * 2) / kBitsPerCacheline);
+        if (unlikely(bigstack_alloc_w(raw_variant_ctl, &dense_variant_include) ||
+                     bigstack_alloc_w(raw_sample_ctl2, &cur_sample_include) ||
+                     bigstack_alloc_u32(raw_sample_ctl2, &cur_sample_include_cumulative_popcounts))) {
+          break;
+        }
+        if (unlikely(PgenMtLoadInit(variant_include, grand_row_end_idx, variant_ct, bigstack_left() / 8, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &sparse_calc_thread_ct, &sparse_ctx.genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &sparse_read_block_size, nullptr, main_loadbufs, &sparse_ctx.pgr_ptrs, &sparse_ctx.read_variant_uidx_starts))) {
+          break;
+        }
+        const uint32_t read_block_sizel = sparse_read_block_size / kBitsPerWord;
+        const uint32_t event_cap = flat_missing? 0 : ((sparse_read_block_size / sparse_calc_thread_ct + 1) * (2 + kDistMaxSparseMissingCt));
+        if (unlikely(bigstack_alloc_u32p(sparse_calc_thread_ct, &sparse_ctx.thread_idx_bufs) ||
+                     bigstack_alloc_u32p(sparse_calc_thread_ct, &sparse_ctx.thread_raw_singles) ||
+                     bigstack_alloc_u32p(sparse_calc_thread_ct, &sparse_ctx.thread_miss_singles) ||
+                     bigstack_alloc_u32(sparse_calc_thread_ct, &sparse_ctx.thread_sparse_cts) ||
+                     bigstack_alloc_wp(sparse_calc_thread_ct, &sparse_ctx.thread_sparse_excludes[0]) ||
+                     bigstack_alloc_wp(sparse_calc_thread_ct, &sparse_ctx.thread_sparse_excludes[1]) ||
+                     bigstack_alloc_u32p(sparse_calc_thread_ct, &sparse_ctx.thread_event_bufs[0]) ||
+                     bigstack_alloc_u32p(sparse_calc_thread_ct, &sparse_ctx.thread_event_bufs[1]) ||
+                     bigstack_alloc_u32(sparse_calc_thread_ct, &sparse_ctx.thread_event_cts[0]) ||
+                     bigstack_alloc_u32(sparse_calc_thread_ct, &sparse_ctx.thread_event_cts[1]))) {
+          break;
+        }
+        uint32_t alloc_fail = 0;
+        for (uint32_t tidx = 0; tidx != sparse_calc_thread_ct; ++tidx) {
+          if (unlikely(bigstack_alloc_u32(2 * max_sparse_ct, &(sparse_ctx.thread_idx_bufs[tidx])) ||
+                       bigstack_alloc_u32(grand_row_end_idx, &(sparse_ctx.thread_raw_singles[tidx])) ||
+                       bigstack_alloc_u32(grand_row_end_idx, &(sparse_ctx.thread_miss_singles[tidx])) ||
+                       bigstack_alloc_w(read_block_sizel, &(sparse_ctx.thread_sparse_excludes[0][tidx])) ||
+                       bigstack_alloc_w(read_block_sizel, &(sparse_ctx.thread_sparse_excludes[1][tidx])) ||
+                       bigstack_alloc_u32(event_cap, &(sparse_ctx.thread_event_bufs[0][tidx])) ||
+                       bigstack_alloc_u32(event_cap, &(sparse_ctx.thread_event_bufs[1][tidx])))) {
+            alloc_fail = 1;
+            break;
+          }
+        }
+        if (alloc_fail) {
+          break;
+        }
+        calc_thread_ct = sparse_calc_thread_ct;
+        sparse_ok = 1;
+      } while (0);
+      if (!sparse_ok) {
+        BigstackReset(sparse_mark);
+        dense_variant_include = nullptr;
+        pgfip->block_base = nullptr;
+      }
+    }
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto CalcDistance_ret_NOMEM;
+    }
     TriangleLoadBalance(calc_thread_ct, grand_row_start_idx, grand_row_end_idx, 1, ctx.thread_start);
+
+    uint32_t dense_variant_ct = variant_ct;
+    uint32_t sparse_variant_ct = 0;
+    if (sparse_ok) {
+      memcpy(dense_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
+      memcpy(cur_sample_include, sample_include, raw_sample_ctl2 * sizeof(intptr_t));
+      if (grand_row_end_idx != sample_ct) {
+        // The scan only needs the samples that appear in this run's rows.
+        const uint32_t sample_uidx_end = IdxToUidxBasic(sample_include, grand_row_end_idx);
+        ClearBitsNz(sample_uidx_end, raw_sample_ct, cur_sample_include);
+      }
+      FillCumulativePopcounts(cur_sample_include, raw_sample_ctl2, cur_sample_include_cumulative_popcounts);
+      sparse_ctx.variant_include_orig = variant_include;
+      sparse_ctx.sample_include = cur_sample_include;
+      sparse_ctx.sample_include_cumulative_popcounts = cur_sample_include_cumulative_popcounts;
+      sparse_ctx.row_start_idx = grand_row_start_idx;
+      sparse_ctx.row_end_idx = grand_row_end_idx;
+      sparse_ctx.max_sparse_ct = max_sparse_ct;
+      sparse_ctx.read_block_size = sparse_read_block_size;
+      sparse_ctx.variant_weights = variant_weights;
+      sparse_ctx.counts = ctx.counts;
+      sparse_ctx.err_info = (~0LLU) << 32;
+      logputs("--distance: Scanning for rare variants... ");
+      fputs("0%", stdout);
+      fflush(stdout);
+      SetThreadFuncAndData(CalcDistanceSparseThread, &sparse_ctx, &tg);
+      if (unlikely(SpawnThreads(&tg))) {
+        goto CalcDistance_ret_THREAD_CREATE_FAIL;
+      }
+      pgfip->block_base = main_loadbufs[0];
+      const uint32_t read_block_sizel = sparse_read_block_size / kBitsPerWord;
+      uint32_t prev_read_block_idx = 0;
+      uint32_t read_block_idx = 0;
+      uint32_t pct = 0;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
+      uint32_t parity = 0;
+      for (uint32_t variant_idx = 0; ; ) {
+        const uint32_t cur_block_size = MultireadNonempty(variant_include, &tg, raw_variant_ct, sparse_read_block_size, pgfip, &read_block_idx, &reterr);
+        if (unlikely(reterr)) {
+          goto CalcDistance_ret_PGR_FAIL;
+        }
+        JoinThreads(&tg);
+        reterr = S_CAST(PglErr, sparse_ctx.err_info);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, sparse_ctx.err_info >> 32);
+          goto CalcDistance_ret_1;
+        }
+        if (!IsLastBlock(&tg)) {
+          sparse_ctx.cur_block_size = cur_block_size;
+          sparse_ctx.block_vidx_start = variant_idx;
+          ComputeUidxStartPartition(variant_include, cur_block_size, calc_thread_ct, read_block_idx * sparse_read_block_size, sparse_ctx.read_variant_uidx_starts);
+          PgrCopyBaseAndOffset(pgfip, calc_thread_ct, sparse_ctx.pgr_ptrs);
+          if (variant_idx + cur_block_size == variant_ct) {
+            DeclareLastThreadBlock(&tg);
+          }
+          if (unlikely(SpawnThreads(&tg))) {
+            goto CalcDistance_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        parity = 1 - parity;
+        if (variant_idx) {
+          // The block the threads just finished is the one before this.
+          const uintptr_t update_word_offset = S_CAST(uintptr_t, prev_read_block_idx) * read_block_sizel;
+          uintptr_t* variant_include_update = &(dense_variant_include[update_word_offset]);
+          const uintptr_t update_word_ct = MINV(read_block_sizel, raw_variant_ctl - update_word_offset);
+          for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+            BitvecInvmask(sparse_ctx.thread_sparse_excludes[parity][tidx], update_word_ct, variant_include_update);
+            if (!flat_missing) {
+              ApplyDistanceSparseEvents(sparse_ctx.thread_event_bufs[parity][tidx], sparse_ctx.thread_event_cts[parity][tidx], variant_weights, grand_row_start_idx, wmiss, ctx.wboth);
+            }
+          }
+          if (variant_idx == variant_ct) {
+            break;
+          }
+          if (variant_idx >= next_print_variant_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (variant_idx * 100LLU) / variant_ct;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+          }
+        }
+        prev_read_block_idx = read_block_idx;
+        ++read_block_idx;
+        variant_idx += cur_block_size;
+        pgfip->block_base = main_loadbufs[parity];
+      }
+      if (pct > 10) {
+        putc_unlocked('\b', stdout);
+      }
+      fputs("\b\b", stdout);
+      logputs("done.\n");
+      dense_variant_ct = PopcountWords(dense_variant_include, raw_variant_ctl);
+      sparse_variant_ct = variant_ct - dense_variant_ct;
+      logprintf("%u variant%s handled by initial scan (%u remaining).\n", sparse_variant_ct, (sparse_variant_ct == 1)? "" : "s", dense_variant_ct);
+      // Fold the other threads' per-sample totals into thread 0's.
+      const uint32_t vec_ct = DivUp(grand_row_end_idx, kInt32PerVec);
+      for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
+        U32CastVecAdd(sparse_ctx.thread_raw_singles[tidx], vec_ct, sparse_ctx.thread_raw_singles[0]);
+        U32CastVecAdd(sparse_ctx.thread_miss_singles[tidx], vec_ct, sparse_ctx.thread_miss_singles[0]);
+      }
+      if (variant_weights && dense_variant_ct) {
+        // The dense scan indexes the weights by position among the variants
+        // it still has to process.
+        uintptr_t variant_uidx_base = 0;
+        uintptr_t cur_bits = variant_include[0];
+        uint32_t write_idx = 0;
+        for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          if (IsSet(dense_variant_include, variant_uidx)) {
+            variant_weights[write_idx++] = variant_weights[vidx];
+          }
+        }
+      }
+    }
 
     const uint32_t row_end_idxaw = BitCtToAlignedWordCt(grand_row_end_idx);
     const uint32_t row_end_idxaw2 = NypCtToAlignedWordCt(grand_row_end_idx);
@@ -5367,14 +5870,16 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         smaj_ref2het1_last[offset] = 0;
       }
     }
+    if (dense_variant_ct) {
     SetThreadFuncAndData(CalcDistanceThread, &ctx, &tg);
     const uint32_t sample_batch_ct_m1 = (grand_row_end_idx - 1) / kPglBitTransposeBatch;
+    const uintptr_t* cur_variant_include = dense_variant_include? dense_variant_include : variant_include;
     uintptr_t variant_uidx_base = 0;
-    uintptr_t cur_bits = variant_include[0];
+    uintptr_t cur_bits = cur_variant_include[0];
     uint32_t variants_completed = 0;
     uint32_t parity = 0;
     do {
-      const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
+      const uint32_t cur_block_size = MINV(dense_variant_ct - variants_completed, kKingMultiplex);
       uintptr_t* cur_smaj_hom = ctx.smaj_hom[parity];
       uintptr_t* cur_smaj_ref2het = ctx.smaj_ref2het[parity];
       if (!flat_missing) {
@@ -5407,7 +5912,7 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         uintptr_t* ref2het_iter = splitbuf_ref2het;
         for (uint32_t uii = 0; uii != variant_batch_size; ++uii) {
           const uint32_t vidx = variants_completed + write_batch_idx * kPglBitTransposeBatch + uii;
-          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          const uintptr_t variant_uidx = BitIter1(cur_variant_include, &variant_uidx_base, &cur_bits);
           // Multiallelic variants are collapsed to REF vs. non-REF, as in the
           // KING-robust scan.
           reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, loadbuf);
@@ -5467,7 +5972,7 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       if (variants_completed) {
         JoinThreads(&tg);
       }
-      if (variants_completed + cur_block_size == variant_ct) {
+      if (variants_completed + cur_block_size == dense_variant_ct) {
         DeclareLastThreadBlock(&tg);
       }
       if (unlikely(SpawnThreads(&tg))) {
@@ -5479,6 +5984,33 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       parity = 1 - parity;
     } while (!IsLastBlock(&tg));
     JoinThreads(&tg);
+    }
+
+    if (sparse_variant_ct) {
+      // Per-sample parts of the sparse variants' contributions, which every
+      // pair involving that sample is owed.  Counts wrap modulo 2^32 on the
+      // way here (the pair corrections subtract), and come out right.
+      const uint32_t* raw_singles = sparse_ctx.thread_raw_singles[0];
+      const uint32_t* miss_singles = sparse_ctx.thread_miss_singles[0];
+      const uint64_t tri_start = ((grand_row_start_idx - 1) * S_CAST(uint64_t, grand_row_start_idx)) / 2;
+      for (uint32_t row_idx = grand_row_start_idx; row_idx != grand_row_end_idx; ++row_idx) {
+        const uint64_t tri_base = (S_CAST(uint64_t, row_idx) * (row_idx - 1)) / 2 - tri_start;
+        const uint32_t raw_row = raw_singles[row_idx];
+        if (flat_missing) {
+          uint32_t* counts_row = &(ctx.counts[tri_base * 2]);
+          const uint32_t nonmiss_row = sparse_variant_ct - miss_singles[row_idx];
+          for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
+            counts_row[2 * col_idx + kDistOffsetRaw] += raw_row + raw_singles[col_idx];
+            counts_row[2 * col_idx + kDistOffsetNonmiss] += nonmiss_row - miss_singles[col_idx];
+          }
+        } else {
+          uint32_t* counts_row = &(ctx.counts[tri_base]);
+          for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
+            counts_row[col_idx] += raw_row + raw_singles[col_idx];
+          }
+        }
+      }
+    }
     fputs("\r--distance: Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
     fflush(stdout);
 
@@ -5503,6 +6035,9 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
   CalcDistance_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  CalcDistance_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
   CalcDistance_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
@@ -5513,7 +6048,21 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
  CalcDistance_ret_1:
   CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
+}
+
+// On Apple silicon, Accelerate doesn't parallelize the per-block matrix
+// products below by itself (enabling its internal threading changed nothing),
+// so plink2's own worker threads are needed: --pca approx went from 19.2s to
+// 10.9s and --make-rel from 3.3s to 2.4s (M4 Max, 16 threads).  The
+// one-compute-thread choice is kept on Intel Macs, which it was made for.
+static inline uint32_t AccelerateNeedsWorkerThreads() {
+#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+  return BlasIsAccelerate();
+#else
+  return 0;
+#endif
 }
 
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
@@ -5528,17 +6077,17 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   PreinitThreads(&tg);
   {
     assert(variant_ct);
-#if defined(__APPLE__) || defined(USE_MTBLAS)
     uint32_t calc_thread_ct = 1;
-#else
-    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    if (calc_thread_ct * parallel_tot > sample_ct / 32) {
-      calc_thread_ct = sample_ct / (32 * parallel_tot);
-      if (!calc_thread_ct) {
-        calc_thread_ct = 1;
+    const uint32_t accelerate_worker_threads = AccelerateNeedsWorkerThreads();
+    if (((!BlasIsMultithreaded()) && (!BlasIsAccelerate())) || accelerate_worker_threads) {
+      calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+      if (calc_thread_ct * parallel_tot > sample_ct / 32) {
+        calc_thread_ct = sample_ct / (32 * parallel_tot);
+        if (!calc_thread_ct) {
+          calc_thread_ct = 1;
+        }
       }
     }
-#endif
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: GRM construction requires at least two samples.\n");
       goto CalcGrm_ret_DEGENERATE_DATA;
@@ -5631,21 +6180,13 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
     if (thread_start) {
-      if (unlikely(bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_smaj_bufs[0]) ||
-                   bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_smaj_bufs[1]))) {
-        goto CalcGrm_ret_NOMEM;
-      }
       SetThreadFuncAndData(CalcGrmPartThread, &ctx, &tg);
     } else {
-      // defensive
-      ctx.normed_dosage_smaj_bufs[0] = nullptr;
-      ctx.normed_dosage_smaj_bufs[1] = nullptr;
       SetThreadFuncAndData(CalcGrmThread, &ctx, &tg);
     }
-#ifdef USE_MTBLAS
-    const uint32_t blas_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    BLAS_SET_NUM_THREADS(blas_thread_ct);
-#endif
+    if (BlasIsMultithreaded() && (!accelerate_worker_threads)) {
+      BLAS_SET_NUM_THREADS((max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct);
+    }
     // Main workflow:
     // 1. Set n=0, load batch 0
     //
@@ -5678,9 +6219,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         reterr = LoadCenteredVarmajBlock(sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, variance_standardize, is_haploid, row_end_idx, variant_ct, simple_pgrp, normed_vmaj, variant_include_has_missing, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
         if (unlikely(reterr)) {
           goto CalcGrm_ret_1;
-        }
-        if (thread_start) {
-          MatrixTransposeCopy(normed_vmaj, cur_batch_size, row_end_idx, ctx.normed_dosage_smaj_bufs[parity]);
         }
       }
       if (is_not_first_block) {
@@ -6167,7 +6705,6 @@ typedef struct CalcPcaCtxStruct {
 
   double* g1;
   double* qq;
-  double** y_transpose_bufs;
   double** g2_bb_part_bufs;
 } CalcPcaCtx;
 
@@ -6182,7 +6719,6 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* raw_arg) {
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
   const double* g1 = ctx->g1;
   double* qq_iter = ctx->qq;
-  double* y_transpose_buf = ctx->y_transpose_bufs[tidx];
   double* g2_part_buf = ctx->g2_bb_part_bufs[tidx];
   uint32_t parity = 0;
   do {
@@ -6195,8 +6731,8 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* raw_arg) {
       const double* yy_buf = &(ctx->yy_bufs[parity][S_CAST(uintptr_t, vidx_offset) * sample_ct]);
       double* cur_qq = &(qq_iter[vidx_offset * qq_col_ct]);
       RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, sample_ct, pc_ct_x2, pc_ct_x2, sample_ct, qq_col_ct, cur_qq);
-      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, sample_ct, y_transpose_buf);
-      RowMajorMatrixMultiplyStridedIncr(y_transpose_buf, cur_qq, sample_ct, cur_thread_batch_size, pc_ct_x2, qq_col_ct, cur_thread_batch_size, pc_ct_x2, g2_part_buf);
+      // g2_part += yy^T * cur_qq; dgemm reads yy_buf transposed in place.
+      ColMajorMatrixMultiplyTrans2StridedAddassign(cur_qq, yy_buf, pc_ct_x2, qq_col_ct, sample_ct, sample_ct, cur_thread_batch_size, pc_ct_x2, 1.0, g2_part_buf);
       qq_iter = &(qq_iter[cur_batch_size * qq_col_ct]);
     }
     parity = 1 - parity;
@@ -6243,7 +6779,6 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* raw_arg) {
   const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
   const double* qq_iter = &(ctx->qq[vidx_offset * qq_col_ct]);
-  double* y_transpose_buf = ctx->y_transpose_bufs[tidx];
   double* bb_part_buf = ctx->g2_bb_part_bufs[tidx];
   uint32_t parity = 0;
   do {
@@ -6254,8 +6789,8 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* raw_arg) {
         cur_thread_batch_size = kPcaVariantBlockSize;
       }
       const double* yy_buf = &(ctx->yy_bufs[parity][S_CAST(uintptr_t, vidx_offset) * sample_ct]);
-      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, sample_ct, y_transpose_buf);
-      RowMajorMatrixMultiplyIncr(y_transpose_buf, qq_iter, sample_ct, qq_col_ct, cur_thread_batch_size, bb_part_buf);
+      // bb_part += yy^T * qq_iter
+      ColMajorMatrixMultiplyTrans2StridedAddassign(qq_iter, yy_buf, qq_col_ct, qq_col_ct, sample_ct, sample_ct, cur_thread_batch_size, qq_col_ct, 1.0, bb_part_buf);
       qq_iter = &(qq_iter[cur_batch_size * qq_col_ct]);
     }
     parity = 1 - parity;
@@ -6364,6 +6899,11 @@ PglErr FlushBiallelicVarWts(const uintptr_t* variant_include, const ChrInfo* cip
       cswritep = strcpya(cswritep, cur_alleles[1]);
     }
     if (alt_col) {
+      // The overflow buffer has room for two alleles; REF and ALT1 may
+      // already be pending.
+      if (unlikely(Cswrite(cssp, &cswritep))) {
+        return kPglRetWriteFail;
+      }
       *cswritep++ = '\t';
       // guaranteed biallelic
       cswritep = strcpya(cswritep, cur_alleles[1]);
@@ -6866,6 +7406,14 @@ PglErr CalcNeighbour(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       logerrprintfww("Error: --neighbour's neighbor count (%u) must be smaller than the number of samples remaining after filtering (%u).\n", nn_ct, sample_ct);
       goto CalcNeighbour_ret_INCONSISTENT_INPUT;
     }
+    // Squared distances must stay finite, or some queries cannot fill all of
+    // their neighbor slots.
+    for (uintptr_t ulii = 0; ulii != S_CAST(uintptr_t, sample_ct) * pc_ct; ++ulii) {
+      if (!(fabs(eigvecs_smaj[ulii]) <= 1e150)) {
+        logerrputs("Error: --neighbour: PC values are too large.\n");
+        goto CalcNeighbour_ret_INCONSISTENT_INPUT;
+      }
+    }
     const uint32_t calc_thread_ct = MINV(max_thread_ct, sample_ct);
     double* dist_selves;
     double* dist_nns;
@@ -6932,7 +7480,7 @@ PglErr CalcNeighbour(const uintptr_t* sample_include, const SampleIdInfo* siip, 
 
     const NeighbourFlags flags = neighbour_ip->flags;
     const uint32_t output_zst = (flags / kfNeighbourZs) & 1;
-    OutnameZstSet(".nearest", output_zst, outname_end);
+    OutnameZstSet(".neighbour", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
     if (unlikely(reterr)) {
       goto CalcNeighbour_ret_1;
@@ -7184,21 +7732,22 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (unlikely(reterr)) {
       goto CalcPca_ret_1;
     }
-#ifdef __APPLE__
-    // min OS X version is 10.7, so we can take Grand Central Dispatch dgemm
-    // for granted
+    // "accelerate" here means "rely on Accelerate's own threading", which is
+    // only worthwhile on Intel Macs; see AccelerateNeedsWorkerThreads().
+    const uint32_t blas_is_accelerate = BlasIsAccelerate() && (!AccelerateNeedsWorkerThreads());
+    // With Accelerate, we can take Grand Central Dispatch dgemm for granted.
     // (tried this with Linux MKL + OpenMP as well, but results were inferior)
     uint32_t calc_thread_ct = 1;
-#else
-    // I/O thread generally has <1/8 of workload
-    // TODO: recheck this, now that I/O thread is also responsible for fully
-    // expanding dosages.  Still shouldn't be a big deal, but we probably want
-    // sample_ct to affect the decision boundary now.
-    uint32_t calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
-    if ((calc_thread_ct - 1) * kPcaVariantBlockSize >= variant_ct) {
-      calc_thread_ct = 1 + (variant_ct - 1) / kPcaVariantBlockSize;
+    if (!blas_is_accelerate) {
+      // I/O thread generally has <1/8 of workload
+      // TODO: recheck this, now that I/O thread is also responsible for fully
+      // expanding dosages.  Still shouldn't be a big deal, but we probably
+      // want sample_ct to affect the decision boundary now.
+      calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
+      if ((calc_thread_ct - 1) * kPcaVariantBlockSize >= variant_ct) {
+        calc_thread_ct = 1 + (variant_ct - 1) / kPcaVariantBlockSize;
+      }
     }
-#endif
     if (unlikely(pc_ct > pca_sample_ct)) {
       // minor update (alpha 3): just error out here instead of trying to
       // auto-adjust PC count, number of .eigenvec output columns should be
@@ -7286,7 +7835,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // Simplest solution is to force the user to request fewer PCs, since the
       // final PCs wouldn't be accurate anyway.
       if (qq_col_ct > variant_ct) {
-        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%u required).\n", pc_ct, qq_col_ct);
+        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%" PRIuPTR " required).\n", pc_ct, qq_col_ct);
         goto CalcPca_ret_DEGENERATE_DATA;
       }
 #ifndef LAPACK_ILP64
@@ -7318,7 +7867,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       double* g1;
       if (unlikely(bigstack_alloc_d(qq_col_ct, &ss) ||
                    bigstack_alloc_d(pca_row_ct * qq_col_ct, &qq) ||
-                   bigstack_alloc_dp(calc_thread_ct, &ctx.y_transpose_bufs) ||
                    bigstack_alloc_dp(calc_thread_ct, &ctx.g2_bb_part_bufs) ||
                    bigstack_alloc_uc(svd_rect_wkspace_size, &svd_rect_wkspace) ||
                    bigstack_alloc_d(gg_size, &g1))) {
@@ -7328,7 +7876,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const uintptr_t b_size = pca_sample_ct * qq_col_ct;
       const uintptr_t g2_bb_part_alloc = RoundUpPow2(b_size * sizeof(double), kCacheline);
       // bugfix (16 Jan 2020)
-      const uintptr_t per_thread_alloc = 3 * yy_alloc_incr + g2_bb_part_alloc;
+      const uintptr_t per_thread_alloc = 2 * yy_alloc_incr + g2_bb_part_alloc;
 
       const uintptr_t bigstack_avail = bigstack_left();
       if (per_thread_alloc * calc_thread_ct > bigstack_avail) {
@@ -7341,16 +7889,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       ctx.yy_bufs[0] = S_CAST(double*, bigstack_alloc_raw(yy_main_alloc));
       ctx.yy_bufs[1] = S_CAST(double*, bigstack_alloc_raw(yy_main_alloc));
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        ctx.y_transpose_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc_incr));
         ctx.g2_bb_part_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(g2_bb_part_alloc));
       }
       FillGaussianDArr(gg_size / 2, max_thread_ct, sfmtp, g1);
       ctx.g1 = g1;
-#ifdef __APPLE__
-      fputs("Projecting random vectors... ", stdout);
-#else
-      printf("Projecting random vectors (%u compute thread%s)... ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
-#endif
+      if (blas_is_accelerate) {
+        fputs("Projecting random vectors... ", stdout);
+      } else {
+        printf("Projecting random vectors (%u compute thread%s)... ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+      }
       fflush(stdout);
       for (uint32_t iter_idx = 0; iter_idx <= pc_ct; ++iter_idx) {
         // kjg_fpca_XTXA(), kjg_fpca_XA()
@@ -7418,11 +7965,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             g1[ulii] *= variant_ct_recip;
           }
         }
-#ifdef __APPLE__
-        printf("\rProjecting random vectors... %u/%u", iter_idx + 1, pc_ct + 1);
-#else
-        printf("\rProjecting random vectors (%u compute thread%s)... %u/%u", calc_thread_ct, (calc_thread_ct == 1)? "" : "s", iter_idx + 1, pc_ct + 1);
-#endif
+        if (blas_is_accelerate) {
+          printf("\rProjecting random vectors... %u/%u", iter_idx + 1, pc_ct + 1);
+        } else {
+          printf("\rProjecting random vectors (%u compute thread%s)... %u/%u", calc_thread_ct, (calc_thread_ct == 1)? "" : "s", iter_idx + 1, pc_ct + 1);
+        }
         fflush(stdout);
       }
       fputs(".\n", stdout);
@@ -7688,12 +8235,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // 7. Goto step 2 unless eof
       //
       // 8. Write results and update projection for last block
-#ifndef __APPLE__
       if (output_zst) {
         // compression is relatively expensive?
         calc_thread_ct = 1;
       }
-#endif
       uintptr_t var_wts_part_size;
       double* var_wts = qq;
       if (var_wts) {
@@ -8321,6 +8866,14 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
           cur_allele_freq = allele_freqs[vidx];
           geno_slope = geno_slopes[vidx];
           geno_intercept = geno_intercepts[vidx];
+          if (domrec) {
+            // bugfix (22 Sep 2026): a missing genotype is mean-imputed as
+            // cur_allele_freq * geno_slope here (ploidy 1), which is not the
+            // mean of the dominant/recessive-coded value.  Replace the
+            // frequency with the Hardy-Weinberg expectation of that value:
+            // 1 - (1-f)^2 for 'dominant', f^2 for 'recessive'.
+            cur_allele_freq *= model_dominant? (2.0 - cur_allele_freq) : cur_allele_freq;
+          }
         }
         if ((!shard_dosage_ct) && (!is_nonx_haploid) && (!is_relevant_x)) {
           // Fast path for common no-dosage case.
@@ -8363,6 +8916,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (is_y) {
               ZeroDArr(sample_shard_size, dosages_vmaj_iter);
               if ((!no_meanimpute) && shard_nonfemale_ct) {
+                const double adj_missing_effect = missing_effect + geno_intercept;
                 for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                   uintptr_t cur_missing_nonfemale_bits = missing_nonfemale_bitvec_iter[shard_widx];
                   if (!cur_missing_nonfemale_bits) {
@@ -8371,7 +8925,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                   double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                   do {
                     const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonfemale_bits);
-                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                     cur_missing_nonfemale_bits &= cur_missing_nonfemale_bits - 1;
                   } while (cur_missing_nonfemale_bits);
                 }
@@ -8380,6 +8934,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
               ZeroDArr(sample_shard_size, dosages_vmaj_iter);
               if (!no_meanimpute) {
                 if (shard_male_ct) {
+                  const double adj_missing_effect = missing_effect + geno_intercept;
                   for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                     uintptr_t cur_missing_male_bits = missing_male_bitvec_iter[shard_widx];
                     if (!cur_missing_male_bits) {
@@ -8388,13 +8943,14 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_male_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                       cur_missing_male_bits &= cur_missing_male_bits - 1;
                     } while (cur_missing_male_bits);
                   }
                 }
                 if (shard_nonmale_ct) {
                   missing_effect *= 2;
+                  const double adj_missing_effect = missing_effect + geno_intercept;
                   for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                     uintptr_t cur_missing_nonmale_bits = missing_bitvec_iter[shard_widx] & shard_sex_nonmale_collapsed[shard_widx];
                     if (!cur_missing_nonmale_bits) {
@@ -8403,7 +8959,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonmale_bits);
-                      cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect + geno_intercept;
+                      cur_dosages_vmaj_iter[sample_idx_lowbits] = adj_missing_effect;
                       cur_missing_nonmale_bits &= cur_missing_nonmale_bits - 1;
                     } while (cur_missing_nonmale_bits);
                   }
@@ -8504,6 +9060,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             goto ScoreReport_ret_NOMEM;
           }
           memcpy(variant_include_no_x, variant_include, raw_variant_ctl * sizeof(intptr_t));
+          variant_ct -= PopcountBitRange(variant_include, x_start, x_end);
+          if (!variant_ct) {
+            logerrputs("Error: No --score variants remaining after --xchr-model 0.\n");
+            goto ScoreReport_ret_INCONSISTENT_INPUT;
+          }
           ClearBitsNz(x_start, x_end, variant_include_no_x);
           variant_include = variant_include_no_x;
         }
@@ -9087,7 +9648,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       BitvecAnd(sample_include, raw_sample_ctl, sex_female_tmp);
       sex_nonfemale = sex_female_tmp;
     }
-    ctx.sex_female_collapsed = sex_nonmale_collapsed;
+    ctx.sex_female_collapsed = sex_female_collapsed;
 
     if (!variant_id_htable) {
       reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
@@ -9533,7 +10094,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
                 for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
                   if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_haploid_accx[acc4_vec_ct * 11 * qsr_idx]));
+                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_haploid_accx[acc4_vec_ct * 11 * qsr_idx]));
                   }
                 }
               }
@@ -9691,7 +10252,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (difflist_common_geno != 3) {
               common_dosage = prefer_fma(kDosageMax * geno_slope, difflist_common_geno, geno_intercept);
             } else if (!no_meanimpute) {
-              common_dosage = kDosageMax * 2LL * cur_allele_freqs[block_vidx] * geno_slope;
+              common_dosage = prefer_fma(kDosageMax * 2LL * cur_allele_freqs[block_vidx], geno_slope, geno_intercept);
             }
             if (!se_mode) {
               for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
@@ -9917,10 +10478,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       JoinThreads(&tg);
       // Sparse-optimization postprocessing.
       if (common_geno_sum_incrs) {
+        // ddosage_sums is qsr-major.
         uint64_t* ddosage_sums_iter = ctx.ddosage_sums;
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          for (uint32_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
-            *ddosage_sums_iter += common_geno_sum_incrs[qsr_idx] * S_CAST(uint64_t, kDosageMax);
+        for (uint32_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
+          const uint64_t cur_incr = common_geno_sum_incrs[qsr_idx] * S_CAST(uint64_t, kDosageMax);
+          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+            *ddosage_sums_iter += cur_incr;
             ++ddosage_sums_iter;
           }
         }
@@ -11028,7 +11591,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     char* idbuf;
     uint32_t* sample_uidx_order;
-    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen + siip->max_sid_blen, &idbuf) ||
                  bigstack_alloc_u32(sample_ct, &sample_uidx_order))) {
       goto Vscore_ret_NOMEM;
     }
@@ -11875,10 +12438,10 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       for (uint32_t sample_idx = 0; sample_idx != new_sample_ct; ++sample_idx) {
         const uintptr_t sample_uidx = BitIter1(sample_intersect, &sample_uidx_base, &cur_bits);
         write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
-        const double* svd_sample_result_row = &(svd_sample_result[sample_idx * svd_dim]);
+        // dgesvd returns U column-major with leading dimension new_sample_ct
         for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
           *write_iter++ = '\t';
-          write_iter = dtoa_g(svd_sample_result_row[new_pheno_idx], write_iter);
+          write_iter = dtoa_g(svd_sample_result[sample_idx + S_CAST(uintptr_t, new_pheno_idx) * new_sample_ct], write_iter);
         }
         AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
@@ -11928,7 +12491,7 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       for (uint32_t orig_pheno_idx = 0; orig_pheno_idx != orig_pheno_ct; ++orig_pheno_idx) {
         write_iter = dtoa_g(*matrix_col_iter, write_iter);
         *write_iter++ = '\t';
-        matrix_col_iter = &(matrix_col_iter[svd_dim]);
+        matrix_col_iter = &(matrix_col_iter[new_sample_ct]);
       }
       --write_iter;
       AppendBinaryEoln(&write_iter);
@@ -11945,6 +12508,7 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
 
     // ensure cleanup works if new phenotype initialization fails in the middle
     for (uint32_t pheno_idx = new_pheno_ct; pheno_idx != orig_pheno_ct; ++pheno_idx) {
+      vecaligned_free_cond(pheno_cols[pheno_idx].nonmiss);
       pheno_cols[pheno_idx].nonmiss = nullptr;
     }
 
@@ -11956,6 +12520,7 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       if (unlikely(pgl_malloc(new_pheno_names_size, &new_pheno_names))) {
         goto PhenoSvd_ret_NOMEM;
       }
+      free(orig_pheno_names);
       *pheno_names_ptr = new_pheno_names;
     }
     for (uint32_t pheno_idx = 0; pheno_idx != new_pheno_ct; ) {
@@ -11980,12 +12545,12 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       double* qt = R_CAST(double*, new_pheno_data_iter);
       pheno_cols[pheno_idx].data.qt = qt;
 
-      const double* svd_sample_result_col = &(svd_sample_result[pheno_idx]);
+      const double* svd_sample_result_col = &(svd_sample_result[S_CAST(uintptr_t, pheno_idx) * new_sample_ct]);
       uintptr_t sample_uidx_base = 0;
       uintptr_t cur_bits = sample_intersect[0];
       for (uint32_t sample_idx = 0; sample_idx != new_sample_ct; ++sample_idx) {
         const uintptr_t sample_uidx = BitIter1(sample_intersect, &sample_uidx_base, &cur_bits);
-        qt[sample_uidx] = svd_sample_result_col[sample_idx * svd_dim];
+        qt[sample_uidx] = svd_sample_result_col[sample_idx];
       }
     }
     *pheno_ct_ptr = new_pheno_ct;

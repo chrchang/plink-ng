@@ -64,7 +64,11 @@ FLAGSET_DEF_START()
   kfSetCPrefix = (1 << 7),
 
   // --gene-all; --gene names its sets in genekeep_flattened instead.
-  kfSetGeneAll = (1 << 8)
+  kfSetGeneAll = (1 << 8),
+
+  // --strict-extra-chr: a --make-set range on a nonstandard contig absent
+  // from the dataset is an error, rather than a range that matches nothing.
+  kfSetStrictExtraChr = (1 << 9)
 FLAGSET_DEF_END(SetFlags);
 
 typedef struct SetInfoStruct {
@@ -112,6 +116,42 @@ uint32_t SetdefSize(const uint32_t* setdef, uint32_t variant_ct);
 void UnpackSetdef(const uint32_t* setdef, uint32_t variant_ct, uintptr_t* include_bitvec);
 
 PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char* sorted_subset_ids, uint32_t zero_based, uint32_t border_extend, uintptr_t subset_ct, uintptr_t max_subset_id_blen, uint32_t max_thread_ct, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_blen_ptr, uintptr_t** chr_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chr_max_gene_ct_ptr);
+
+FLAGSET_DEF_START()
+  kfGeneReport0,
+  kfGeneReportZs = (1 << 0),
+  kfGeneReport0based = (1 << 1),
+
+  kfGeneReportColChrom = (1 << 2),
+  kfGeneReportColGenepos = (1 << 3),
+  kfGeneReportColGenekb = (1 << 4),
+  kfGeneReportColDist = (1 << 5),
+  kfGeneReportColPos = (1 << 6),
+  kfGeneReportColP = (1 << 7),
+  kfGeneReportColDefault = (kfGeneReportColChrom | kfGeneReportColGenepos | kfGeneReportColGenekb | kfGeneReportColDist | kfGeneReportColPos | kfGeneReportColP),
+  kfGeneReportColAll = ((kfGeneReportColP * 2) - kfGeneReportColChrom)
+FLAGSET_DEF_END(GeneReportFlags);
+
+typedef struct GeneReportInfoStruct {
+  NONCOPYABLE(GeneReportInfoStruct);
+  char* report_fname;
+  char* glist_fname;
+  char* subset_fname;
+  char* chr_field;
+  char* pos_field;
+  char* id_field;
+  char* p_field;
+  uint32_t border;
+  GeneReportFlags flags;
+} GeneReportInfo;
+
+void InitGeneReport(GeneReportInfo* grip);
+
+void CleanupGeneReport(GeneReportInfo* grip);
+
+PglErr ScrapeIntervalBedChrs(const char* fname, const char* file_descrip, uint32_t max_thread_ct, ChrInfo* cip);
+
+PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* extract_fnames, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }

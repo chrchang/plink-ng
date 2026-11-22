@@ -104,8 +104,10 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, const char* chr_code, uin
     }
 
     // three 5-decimal-place floating point values per sample
+    // (flex_pzputs_std() assumes at least 2 * PIGZ_BLOCK_SIZE, since variant
+    // header fields can be arbitrarily long)
     unsigned char* overflow_buf;
-    if (bigstack_alloc_uc(PIGZ_BLOCK_SIZE + sample_ct * 48LU, &overflow_buf)) {
+    if (bigstack_alloc_uc(2 * PIGZ_BLOCK_SIZE + sample_ct * 48LU, &overflow_buf)) {
       goto bgen_to_gen_ret_NOMEM;
     }
     if (flex_pzwrite_init(1, out_genname, overflow_buf, 0, &ps)) {
@@ -245,8 +247,14 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, const char* chr_code, uin
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
 	// chrom_name_start (chromosome code) is already zero-terminated
-	pzwritep = strcpyax(pzwritep, chrom_name_start, ' ');
-	pzwritep = memcpyax(pzwritep, rsid_start, rsid_slen, ' ');
+	if (flex_pzputs_std(&ps, &pzwritep, chrom_name_start, strlen(chrom_name_start))) {
+	  goto bgen_to_gen_ret_WRITE_FAIL;
+	}
+	*pzwritep++ = ' ';
+	if (flex_pzputs_std(&ps, &pzwritep, rsid_start, rsid_slen)) {
+	  goto bgen_to_gen_ret_WRITE_FAIL;
+	}
+	*pzwritep++ = ' ';
         pzwritep = uint32toa_x(bp_and_a1len[0], ' ', pzwritep);
 
 	// halve the limit since there are two alleles
@@ -279,7 +287,9 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, const char* chr_code, uin
 	}
 	alleles_are_identical = (a2len == bp_and_a1len[1]) && (!memcmp(loadbuf, a2_start, a2len));
 	if (!alleles_are_identical) {
-	  pzwritep = memcpya(pzwritep, loadbuf, bp_and_a1len[1] + a2len + 1);
+	  if (flex_pzputs_std(&ps, &pzwritep, loadbuf, bp_and_a1len[1] + a2len + 1)) {
+	    goto bgen_to_gen_ret_WRITE_FAIL;
+	  }
 	} else {
 	  logerrprint("Error: A variant in the .bgen file has identical alleles.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;

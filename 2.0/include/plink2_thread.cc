@@ -277,7 +277,7 @@ BoolErr SpawnThreads(ThreadGroup* tg_ptr) {
       if (unlikely(pthread_create_result)) {
         if (tidx) {
           if (!is_last_block) {
-            JoinThreadsInternal(tidx, tgp);
+            pthread_mutex_lock(&cbp->sync_mutex);
             const uint32_t unstarted_thread_ct = thread_ct - tidx;
             cbp->active_ct -= unstarted_thread_ct;
             while (cbp->active_ct) {

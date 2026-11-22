@@ -692,7 +692,7 @@ HEADER_INLINE PglErr PgrGetDMaybeSparse(const uintptr_t* __restrict sample_inclu
   return IMPLPgrGetDMaybeSparse(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, max_sparse_dosage_ct, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr, difflist_common_dosage_ptr, difflist_sample_ids);
 }
 
-PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
+PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
 PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 

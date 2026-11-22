@@ -22,8 +22,25 @@
 
 #include "include/plink2_float.h"
 
+#if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+#  ifdef __APPLE__
+#    include <dlfcn.h>  // dladdr()
+#  endif
+// Weak, so each is null unless the BLAS loaded at run time defines it.
+extern "C" {
+void openblas_set_num_threads(int num_threads) __attribute__((weak));
+void MKL_Set_Num_Threads(int nth) __attribute__((weak));
+void bli_thread_set_num_threads(int64_t n_threads) __attribute__((weak));
+#  ifdef __APPLE__
+// Accelerate, macOS 15+.  Argument is enum BLAS_THREADING (unsigned int):
+// 0 = multi-threaded, 1 = single-threaded.
+int BLASSetThreading(unsigned int threading) __attribute__((weak));
+#  endif
+}
+#endif
+
 #ifndef NOLAPACK
-#  if defined(__APPLE__) || defined(USE_MKL)
+#  if defined(USE_ACCELERATE) || defined(USE_MKL)
 #    define LAPACK_dgecon dgecon_
 #    define LAPACK_dgesvd dgesvd_
 #    define LAPACK_dgetrf dgetrf_
@@ -40,6 +57,48 @@
 
 #ifdef __cplusplus
 namespace plink2 {
+#endif
+
+#if !defined(NOLAPACK) && defined(USE_CBLAS_LAPACKE)
+void BlasSetNumThreads(int32_t num_threads) {
+  if (openblas_set_num_threads) {
+    openblas_set_num_threads(num_threads);
+  } else if (MKL_Set_Num_Threads) {
+    MKL_Set_Num_Threads(num_threads);
+  } else if (bli_thread_set_num_threads) {
+    bli_thread_set_num_threads(num_threads);
+  }
+#  ifdef __APPLE__
+  // Checked explicitly: this binds whenever Accelerate is mapped, even if
+  // cblas_*() calls go elsewhere.
+  else if (BLASSetThreading && BlasIsAccelerate()) {
+    BLASSetThreading((num_threads > 1)? 0 : 1);
+  }
+#  endif
+}
+
+#  ifdef __APPLE__
+uint32_t BlasIsAccelerate() {
+  static int32_t cached = -1;
+  if (cached == -1) {
+    static const char kAcceleratePrefix[] = "/System/Library/Frameworks/Accelerate.framework/";
+    Dl_info info;
+    cached = dladdr(R_CAST(const void*, &cblas_dgemm), &info) && info.dli_fname && (!strncmp(info.dli_fname, kAcceleratePrefix, sizeof(kAcceleratePrefix) - 1));
+  }
+  return cached;
+}
+#  endif
+
+uint32_t BlasIsMultithreaded() {
+  if (openblas_set_num_threads || MKL_Set_Num_Threads || bli_thread_set_num_threads) {
+    return 1;
+  }
+#  ifdef __APPLE__
+  return BLASSetThreading && BlasIsAccelerate();
+#  else
+  return 0;
+#  endif
+}
 #endif
 
 intptr_t FirstInfOrNan(const double* vec, uintptr_t size) {
@@ -743,7 +802,7 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
-  // not optimized, no beta == 0 special case
+  // not optimized
   for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
     double* outmatrix_row_iter = &(outmatrix[col_idx * stride3]);
     for (uintptr_t row_idx = 0; row_idx != row1_ct_l; ++row_idx) {
@@ -752,12 +811,33 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
       for (uintptr_t com_idx = 0; com_idx != common_ct_l; com_idx++) {
         cur_entry += (*col2_iter++) * inmatrix1[com_idx * stride1 + row_idx];
       }
-      *outmatrix_row_iter = (*outmatrix_row_iter) * beta + cur_entry;
+      *outmatrix_row_iter = (beta == 0.0)? cur_entry : ((*outmatrix_row_iter) * beta + cur_entry);
       ++outmatrix_row_iter;
     }
   }
 #else
   cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, beta, outmatrix, stride3);
+#endif  // !NOLAPACK
+}
+
+void ColMajorMatrixMultiplyTrans2StridedAddassign(const double* inmatrix1, const double* inmatrix2, lapack_int row1_ct, lapack_int stride1, lapack_int col2_ct, lapack_int stride2, lapack_int common_ct, lapack_int stride3, double beta, double* outmatrix) {
+#ifdef NOLAPACK
+  const uintptr_t row1_ct_l = row1_ct;
+  const uintptr_t col2_ct_l = col2_ct;
+  const uintptr_t common_ct_l = common_ct;
+  for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
+    double* outmatrix_row_iter = &(outmatrix[col_idx * stride3]);
+    for (uintptr_t row_idx = 0; row_idx != row1_ct_l; ++row_idx) {
+      double cur_entry = 0.0;
+      for (uintptr_t com_idx = 0; com_idx != common_ct_l; com_idx++) {
+        cur_entry += inmatrix2[com_idx * stride2 + col_idx] * inmatrix1[com_idx * stride1 + row_idx];
+      }
+      *outmatrix_row_iter = (*outmatrix_row_iter) * beta + cur_entry;
+      ++outmatrix_row_iter;
+    }
+  }
+#else
+  cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, beta, outmatrix, stride3);
 #endif  // !NOLAPACK
 }
 

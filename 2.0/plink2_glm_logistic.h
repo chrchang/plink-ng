@@ -107,6 +107,17 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
 // contract.
 BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t* is_unfinished_ptr, double* __restrict coef, double* __restrict ll, double* __restrict pp, double* __restrict vv, double* __restrict hh, double* __restrict grad, double* __restrict dcoef, MatrixInvertBuf1* __restrict mi_buf, double* __restrict dbl_2d_buf);
 
+// Also exposed for --epistasis-boost: Firth regression itself (see the
+// definition for the buffer contract), and the penalized log-likelihood of a
+// Firth fit, which a penalized likelihood ratio test needs.
+BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf);
+
+// Firth regression with only the first free_predictor_ct coefficients fitted
+// and the rest held at their starting values; see the definition.
+BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t free_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf);
+
+BoolErr FirthPenalizedLoglikD(const double* yy, const double* xx, const double* coef, uint32_t sample_ct, uint32_t predictor_ct, double* hh0, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* loglik_ptr);
+
 PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLogisticCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, double* orig_permstat, uintptr_t* valid_allele_ct_ptr);
 
 PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_logistic_permstats, const PhenoCol* permute_within_phenocol, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uintptr_t orig_allele_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLogisticCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end);

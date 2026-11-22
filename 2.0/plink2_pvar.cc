@@ -159,7 +159,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
               // PAR1, PAR2
               const uint32_t par_idx_m1 = ctou32(chrset_iter[3]) - '1';
               if ((par_idx_m1 < 2) && ((chrset_iter[4] == ',') || (chrset_iter[4] == '>'))) {
-                cip->xymt_codes[kChrOffsetPAR1] = explicit_autosome_ct + 1 + kChrOffsetPAR1 + par_idx_m1;
+                cip->xymt_codes[kChrOffsetPAR1 + par_idx_m1] = explicit_autosome_ct + 1 + kChrOffsetPAR1 + par_idx_m1;
               }
             }
           }
@@ -338,7 +338,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
     } else {
-      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
+      alt1_slen = AdvToDelimShort(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
       alt1_slen = new_id_max_allele_slen;
@@ -457,7 +457,7 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
     } else {
-      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
+      alt1_slen = AdvToDelimShort(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
       if (alt1_slen > cur_max_overflow_slen) {
@@ -900,6 +900,7 @@ PglErr InfoFilterSecondPass(const unsigned char* arena_end, const CmpExpr* cmp_e
         memcpy(*str_value_alloc_ptr, str_value, str_value_blen);
         *str_value_alloc_ptr += str_value_blen;
         exprp->args.s.str_value = str_value;
+        exprp->args.s.slen = str_value_blen - 1;
         if (etype == kCmpExprTypeStrNoteq) {
           exprp->etype = kCmpExprTypeStrEq;
           exprp->negate = 1 - exprp->negate;
@@ -1103,7 +1104,9 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   const uint32_t orig_x_start = cip->chr_fo_vidx_start[orig_xchr_fo_idx];
   const uint32_t orig_x_end = cip->chr_fo_vidx_start[orig_xchr_fo_idx + 1];
   const uint32_t par1_end = LowerBoundConstrainedNonemptyU32(variant_bps, orig_x_start, orig_x_end, splitpar_bound1 + 1);
-  const uint32_t par2_start = LowerBoundConstrainedNonemptyU32(variant_bps, par1_end, orig_x_end, splitpar_bound2);
+  // The search range is empty when every chrX variant is in PAR1, and the
+  // Nonempty variant would then read the next chromosome's first position.
+  const uint32_t par2_start = (par1_end == orig_x_end)? par1_end : LowerBoundConstrainedNonemptyU32(variant_bps, par1_end, orig_x_end, splitpar_bound2);
   uint32_t tot_codes_changed = (par1_end - orig_x_start) + (orig_x_end - par2_start);
   if (!tot_codes_changed) {
     logerrputs("Warning: --split-par had no effect (no X variants were in the PARs).\n");
@@ -1561,6 +1564,26 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     } else if ((!info_pr_exists) && (!info_reload_slen) && (!info_existp) && (!info_nonexistp) && (!info_filter.expr.etype)) {
       info_col_present = 0;
     }
+    // INFO is frequently long, so when it's the last column we lex, we split
+    // it off from the main TokenLex() call: if it's needed, its end is found
+    // by CurTokenEndFar()'s vector scan; otherwise we just verify that it's
+    // present.  This is handled inside the existing info_col_present branch
+    // (and no new loop variable is introduced), since the no-INFO path was
+    // measurably slowed by anything more.
+    // info_col_present values in the main loop:
+    //   0: no INFO column, or INFO not needed and not the last lexed column
+    //   1: INFO needed, lexed by the main TokenLex() call
+    //   2: INFO needed, last lexed column
+    //   3: INFO not needed, last lexed column
+    // AVX2 builds don't do this, since their full-SIMD TokenLexK0() already
+    // handles a long last token well, and the second lexing pass made
+    // INFO-containing .pvar loading 5-8% slower in Nov 2026 testing.
+#ifndef USE_AVX2
+    if (col_types[relevant_postchr_col_ct - 1] == 6) {
+      --relevant_postchr_col_ct;
+      info_col_present = info_col_present? 2 : 3;
+    }
+#endif
 
     uint32_t fexcept_ct = 0;
     uintptr_t max_fexcept_blen = 2;
@@ -1690,7 +1713,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                       (sizeof(int32_t) +
                        2 * sizeof(intptr_t) +
                        at_least_one_nzero_cm * sizeof(double)) +
-                      is_split_chr * sizeof(ChrIdx) +
+                      is_split_chr * kLoadPvarBlockSize * sizeof(ChrIdx) +
                       (1 + info_pr_exists) * (kLoadPvarBlockSize / CHAR_BIT) +
                       (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
                       (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
@@ -1734,13 +1757,22 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       char* linebuf_iter = CurTokenEnd(line_iter);
       // #CHROM
-      if (unlikely(*linebuf_iter == '\n')) {
-        goto LoadPvar_ret_MISSING_TOKENS;
+      if (unlikely((*linebuf_iter != '\t') && (*linebuf_iter != ' '))) {
+        if (*linebuf_iter == '\n') {
+          goto LoadPvar_ret_MISSING_TOKENS;
+        }
+        // e.g. a NUL byte; the INFO reload paths would not find the line's
+        // later columns
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid character after the chromosome code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+        goto LoadPvar_ret_MALFORMED_INPUT_WW;
       }
       uint32_t cur_chr_code;
       reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, prohibit_extra_chrs, line_iter, linebuf_iter, cip, &cur_chr_code);
       if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
+      }
+      if (cip->output_infer) {
+        NoteChrCodeStyle(line_iter, linebuf_iter - line_iter, cur_chr_code, cip);
       }
       if (merge_par) {
         if (cur_chr_code == par2_code) {
@@ -1831,10 +1863,26 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
 
         // It is possible for the info_token[info_slen] assignment below to
-        // clobber the line terminator, so we advance line_iter to eoln here
-        // and never reference it again before the next line.
-        line_iter = AdvToDelim(linebuf_iter, '\n');
+        // clobber the line terminator, so we advance line_iter to eoln before
+        // it and never reference it again before the next line.
         if (info_col_present) {
+          if (info_col_present != 1) {
+            if (info_col_present == 3) {
+              if (unlikely(!NextTokenMult(linebuf_iter, col_skips[relevant_postchr_col_ct]))) {
+                goto LoadPvar_ret_MISSING_TOKENS;
+              }
+              line_iter = AdvToDelim(linebuf_iter, '\n');
+              goto LoadPvar_info_done;
+            }
+            char* info_start = NextTokenMult(linebuf_iter, col_skips[relevant_postchr_col_ct]);
+            if (unlikely(!info_start)) {
+              goto LoadPvar_ret_MISSING_TOKENS;
+            }
+            token_ptrs[6] = info_start;
+            linebuf_iter = CurTokenEndFar(info_start);
+            token_slens[6] = linebuf_iter - info_start;
+          }
+          line_iter = AdvToDelimNear(linebuf_iter, '\n');
           const uint32_t info_slen = token_slens[6];
           if (info_slen > info_reload_slen) {
             info_reload_slen = info_slen;
@@ -1872,9 +1920,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               goto LoadPvar_skip_variant;
             }
           }
+        } else {
+          line_iter = AdvToDelimNear(linebuf_iter, '\n');
         }
+      LoadPvar_info_done:
         // POS
         // could error out on floating-point number?
+        ;
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
@@ -2069,7 +2121,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           char* alt_token_end = &(linebuf_iter[remaining_alt_char_ct]);
           for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-            char* cur_alt_end = AdvToDelim(linebuf_iter, ',');
+            char* cur_alt_end = AdvToDelimShort(linebuf_iter, ',');
             const uint32_t cur_allele_slen = cur_alt_end - linebuf_iter;
             if (cur_allele_slen == 1) {
               const char geno_char = linebuf_iter[0];
@@ -2164,7 +2216,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           char* alt_col_end = CurTokenEnd(alt_col_start);
           extra_alt_ct = CountByte(alt_col_start, ',', alt_col_end - alt_col_start);
-          line_iter = AdvToDelim(alt_col_end, '\n');
+          line_iter = AdvToDelimNear(alt_col_end, '\n');
         }
       LoadPvar_skip_variant:
         ++exclude_ct;
@@ -2189,6 +2241,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       goto LoadPvar_ret_TSTREAM_FAIL;
     }
     reterr = kPglRetSuccess;
+    InferChrOutputEncoding(cip);
     if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
       logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPvar_ret_MALFORMED_INPUT;
@@ -2499,7 +2552,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MALFORMED_HEADER_LINE:
-    logerrprintf("Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx);
+    logerrprintf("Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, pvarname);
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE:
@@ -2692,7 +2745,7 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
       if (alt_col_slen > 1) {
         extra_alt_ct = CountByte(alt_iter, ',', alt_col_slen);
         for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-          const char* cur_alt_end = AdvToDelim(alt_iter, ',');
+          const char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
           const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
           if (cur_allele_slen > max_allele_slen) {
             max_allele_slen = cur_allele_slen;
@@ -2710,7 +2763,7 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
       }
       allele_idx += cur_allele_ct;
       *allele_idx_offsets_iter++ = allele_idx;
-      const char* line_end = AdvPastDelim(alt_end, '\n');
+      const char* line_end = AdvPastDelimNear(alt_end, '\n');
       const uint32_t cur_line_blen = line_end - line_start;
       if (cur_line_blen > max_observed_line_blen) {
         max_observed_line_blen = cur_line_blen;

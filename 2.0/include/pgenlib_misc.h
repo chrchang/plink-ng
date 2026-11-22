@@ -88,7 +88,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 2102
+#define PGENLIB_INTERNAL_VERNUM 2203
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -934,6 +934,10 @@ uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nyb
 //         alpha-2-final and later binaries interpret this encoding correctly.
 //         If your workflow makes heavy use of single-sample .pgen files, you
 //         can add -DFUTURE_ENCODER during compilation to unlock this feature.
+//         Update (4 Nov 2026): the ifdef-guard was removed in b.1.0-b.1.3, but
+//         then I realized that I hadn't updated the .pgen specification to
+//         include this definition.  So b.1.4 goes back to not using this
+//         feature; I will hold off until at least 2028.
 //
 // bit 3: multiallelic hardcalls present with alt2/alt3/... present?  If yes,
 //        auxiliary data track #1 disambiguates the 0b01 (ref/altx) and 0b10
@@ -1096,6 +1100,21 @@ CONSTI32(kPglMaxSampleCt, 0x7ffffffe);
 
 uint64_t PglHeaderBaseEndOffset(uint32_t variant_ct, uintptr_t vrec_len_byte_ct, uint32_t phase_or_dosage_present, uint32_t explicit_nonref_flags);
 
+// vrtype_groups packs up to 8 disjoint nonzero vrtype bitmasks, one per byte
+// (zero bytes are ignored).  Returns the bitwise-OR of
+// (vrtypes[variant_uidx] & <union of groups>) across all variant_uidx in
+// [variant_uidx_start, variant_uidx_end) which are in variant_include (or
+// all of them, if variant_include is nullptr), except that once any bit in a
+// group is found, the rest of that group is no longer searched for, and the
+// scan stops early when every group has been found.  So, for each group, the
+// return value is nonzero in that group iff at least one included variant has
+// a vrtype bit in the group.
+// vrtypes[] must be readable from RoundDownPow2(variant_uidx_start,
+// kBitsPerWord) up to RoundUpPow2(variant_uidx_end, kBitsPerWord) (true of
+// PgenFileInfo.vrtypes); bytes outside the range may be arbitrary, and so may
+// variant_include bits.
+uint32_t ScanVrtypeGroups(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint64_t vrtype_groups);
+
 // Current pgen-extension API assumes .pgen extension bodies fit comfortably in
 // memory.
 // It's easy to imagine a useful extension that breaks this assumption, e.g.
@@ -1108,6 +1127,12 @@ typedef struct PgenExtensionLlStruct {
   unsigned char* contents;
   uint8_t type_idx;
 } PgenExtensionLl;
+
+// Returns 1 if a dosage returned by PgrGetD()/PgrGetDp() exceeds 32768,
+// or a dphase_delta would put a haplotype dosage outside [0, 1].  The read
+// functions don't check values, since PgrValidate() does; callers that turn
+// these values into table indexes (e.g. VCF text export) should check first.
+BoolErr PglDosagesAreInvalid(const uintptr_t* __restrict dosage_present, const uint16_t* __restrict dosage_main, uint32_t dosage_ct, const uintptr_t* __restrict dphase_present, const int16_t* __restrict dphase_delta, uint32_t dphase_ct);
 
 #ifdef __cplusplus
 }  // namespace plink2

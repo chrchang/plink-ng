@@ -1,7 +1,12 @@
 # Compares a PLINK 1.9 .epi.cc report against a plink2 one.
 #
-# The pair key is normalized, since the two programs emit a pair in whatever
-# order their scans reach it.  Both programs print STAT to six significant
+# A pair is looked up in the order the plink2 row gives it and then in the
+# reverse order, since the two programs emit a pair in whatever order their
+# scans reach it.  The key itself keeps the order: set-by-all lists a pair
+# inside the set once from each side, and the two rows are separate fits that
+# need not agree in the third digit (1.73046 against 1.72836 on one simulated
+# fileset), so folding them onto one key compared each plink2 row against
+# whichever 1.9 row came last.  Both programs print STAT to six significant
 # digits, and both printed values are rounded, so two statistics that agree to
 # far more digits than that can still print a whole unit of the last place
 # apart when they straddle a rounding boundary: 0.65577450000006 prints as
@@ -44,7 +49,7 @@ function same(txt1, txt2, a, b,   tol) {
     return (abs(a - b) <= tol)
 }
 function fail(msg) { print msg; failed = 1; exit 1 }
-function pairkey(x, y) { return (x < y)? (x "|" y) : (y "|" x) }
+function pairkey(x, y) { return (((x "|" y) in stat) || (!((y "|" x) in stat)))? (x "|" y) : (y "|" x) }
 BEGIN { zero_tol = 1e-6; stat_digits = 6; rel_slack = 1e-9 }
 # PLINK 1.9 emits a row with STAT=nan for a pair whose statistic is undefined
 # (a table the fit stage cannot handle), but only when --epi1 is permissive
@@ -55,7 +60,7 @@ FNR == NR {
     if (FNR == 1) { has_df = ($6 == "DF"); next }
     if ($5 == "nan" || $5 == "-nan" || $5 == "inf" || $5 == "-inf") { ++nan1; next }
     if (sigdigits($5) > stat_digits) { fail("PLINK 1.9 STAT has more than " stat_digits " significant digits: " $5) }
-    k = pairkey($2, $4); stat[k] = $5 + 0; txt[k] = $5; df1[k] = $6
+    k = $2 "|" $4; stat[k] = $5 + 0; txt[k] = $5; df1[k] = $6
     if (abs($5 + 0) < zero_tol) { near_zero[k] = 1 } else { ++n1 }
     next
 }

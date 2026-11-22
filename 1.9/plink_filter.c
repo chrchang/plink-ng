@@ -1398,6 +1398,21 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
 #else
   qsort(zc_entries, om_ip->entry_ct, sizeof(int64_t), llcmp);
 #endif
+  // collapse duplicate entries so they aren't counted twice
+  {
+    int64_t* read_iter = &(zc_entries[1]);
+    int64_t* write_iter = read_iter;
+    while (read_iter < zc_entries_end) {
+      int64_t cur_entry = *read_iter++;
+      if (cur_entry != write_iter[-1]) {
+	*write_iter++ = cur_entry;
+      } else {
+	cluster_ref_cts[(uint32_t)cur_entry] -= 1;
+      }
+    }
+    zc_entries_end = write_iter;
+    om_ip->entry_ct = (uintptr_t)(zc_entries_end - zc_entries);
+  }
   om_ip->entries = (uint64_t*)malloc((om_ip->entry_ct + 1) * sizeof(int64_t));
   if (!om_ip->entries) {
     goto load_oblig_missing_ret_NOMEM;
@@ -2747,10 +2762,12 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 		missing_cts[ukk] += 1;
 		umm = sample_to_cluster[ukk];
 		if (umm) {
-		  if (is_set(cur_omidxs, om_sample_lookup[ukk])) {
-		    oblig_missing_ct_by_cluster[umm - 1] += 1;
+		  umm--;
+		  ukk = om_sample_lookup[ukk];
+		  if ((ukk != 0xffffffffU) && is_set(cur_omidxs, ukk)) {
+		    oblig_missing_ct_by_cluster[umm] += 1;
 		  } else {
-		    missing_ct_by_cluster[umm - 1] += 1;
+		    missing_ct_by_cluster[umm] += 1;
 		  }
 		}
 		ulii &= ulii - 1;
@@ -3217,7 +3234,7 @@ void enforce_min_bp_space(int32_t min_bp_space, uint32_t unfiltered_marker_ct, u
       marker_uidx_stop = next_set(marker_exclude, marker_uidx, chrom_end);
       do {
         cur_pos = marker_pos[marker_uidx];
-        if (cur_pos < last_pos + min_bp_space) {
+        if (((int64_t)cur_pos) < ((int64_t)last_pos) + min_bp_space) {
           SET_BIT(marker_uidx, marker_exclude);
 	  removed_ct++;
 	} else {

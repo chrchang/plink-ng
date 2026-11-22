@@ -67,8 +67,15 @@ FLAGSET_DEF_START()
   kfGlmQtResidualize = (1 << 26),
   kfGlmResidualizeMask = (kfGlmFirthResidualize | kfGlmCcResidualize | kfGlmQtResidualize),
   kfGlmSinglePrecCc = (1 << 27),
-  kfGlmAllowNoCovars = (1 << 28)
+  kfGlmAllowNoCovars = (1 << 28),
+  kfGlmMultinomial = (1 << 29)
 FLAGSET_DEF_END(GlmFlags);
+
+ENUM_U31_DEF_START()
+  kGlmMultinomialTestLrt,
+  kGlmMultinomialTestScore,
+  kGlmMultinomialTestWald
+ENUM_U31_DEF_END(GlmMultinomialTest);
 
 FLAGSET_DEF_START()
   kfGlmCol0,
@@ -102,7 +109,6 @@ FLAGSET_DEF_START()
   kfGlmColP = (1 << 24),
   kfGlmColErr = (1 << 25),
 
-  kfGlmColAx = (1 << 26),
   kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColProvref | kfGlmColOmitted | kfGlmColA1freq | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP | kfGlmColErr),
   kfGlmColGwasSsfReq = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColOmitted | kfGlmColA1freq | kfGlmColTest | kfGlmColNobs | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP)
 FLAGSET_DEF_END(GlmColFlags);
@@ -119,6 +125,7 @@ typedef struct GlmInfoStruct {
   GlmFlags flags;
   GlmColFlags cols;
   GlmPermFlags perm_flags;
+  GlmMultinomialTest multinomial_test;
   uint32_t mperm_ct;
   uint32_t local_cat_ct;
   uint32_t local_header_line_ct;
@@ -128,6 +135,7 @@ typedef struct GlmInfoStruct {
   double max_corr;
   char* condition_varname;
   char* condition_list_fname;
+  char* multinomial_ref;
   RangeList parameters_range_list;
   RangeList tests_range_list;
 } GlmInfo;
@@ -306,6 +314,13 @@ extern const double kSmallInvDoubles[4];
 uint32_t GenoarrToDoublesRemoveMissing(const uintptr_t* genoarr, const double* __restrict table, uint32_t sample_ct, double* __restrict dst);
 
 BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, uintptr_t cov_stride, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, MatrixInvertBuf1* mi_buf, double* outer_buf);
+
+// Shared by linear and logistic --glm: when a variant has missing calls, the
+// intercept/covariate dot products over its nonmissing samples can be derived
+// from the full-sample xtx_image instead of recomputed.  See the definitions.
+BoolErr MissingLeavesConstantCovar(const uintptr_t* sample_nm, const double* covars_cmaj, const double* xtx_image, uintptr_t sample_ct, uint32_t nm_sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct);
+
+void SubtractMissingFromCovarDotprods(const uintptr_t* sample_nm, const double* covars_cmaj, const double* pheno_pmaj, uintptr_t sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct, uint32_t pheno_ct, double* __restrict covar_row_buf, double* __restrict xtx, double* __restrict xt_y);
 
 #ifdef __cplusplus
 }  // namespace plink2

@@ -1176,6 +1176,8 @@ typedef struct LdscRawScoresStruct {
   std::vector<int64_t> bp;
   std::vector<double> l2;
   std::vector<std::string> annot_names;
+  // nonnumeric CHR codes -> INT64_MAX / 2 + (order of first appearance)
+  std::unordered_map<std::string, int64_t> chrom_codes;
   uint32_t has_pos;
 } LdscRawScores;
 
@@ -1281,7 +1283,12 @@ BoolErr LdscReadLdscoreFile(const char* fname, LdscRawScores* dst) {
         double cur;
         // Nonnumeric chromosome codes sort after the numeric ones, in the
         // order they are seen, which is the order the file is in.
-        chrom = ScanadvDouble(iter, &cur)? S_CAST(int64_t, cur) : INT64_MAX;
+        if (ScanadvDouble(iter, &cur)) {
+          chrom = S_CAST(int64_t, cur);
+        } else {
+          const int64_t next_code = INT64_MAX / 2 + S_CAST(int64_t, dst->chrom_codes.size());
+          chrom = dst->chrom_codes.emplace(std::string(iter, token_end - iter), next_code).first->second;
+        }
       } else if (col_idx == col_pos) {
         double cur;
         if (!ScanadvDouble(iter, &cur)) {
@@ -1746,7 +1753,7 @@ BoolErr LdscReadAnnot(const char* ref_arg, uint32_t is_chr_split, const char* fr
   }
   overlap->assign(S_CAST(uintptr_t, total_annot) * total_annot, 0.0);
   double m_tot = 0.0;
-  const uint32_t chr_end = is_chr_split? (kLdscChrCt + 1) : 1;
+  const uint32_t chr_end = is_chr_split? kLdscChrCt : 1;
   for (uint32_t chr_idx = 0; chr_idx != chr_end; ++chr_idx) {
     std::unordered_map<std::string, double> frq_map;
     if (frq_arg) {
@@ -1836,7 +1843,10 @@ BoolErr LdscReadAnnot(const char* ref_arg, uint32_t is_chr_split, const char* fr
 // Reads the .l2.M_5_50 (or .l2.M) files holding the number of variants the LD
 // Scores were computed from, one value per annotation, summed over
 // chromosomes and concatenated over filesets.
-BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, std::vector<double>* m_vec) {
+// *partial_ptr is set when some chromosomes have LD Scores but no M file, which
+// the reference implementation treats as an error (the total would be too
+// small, and h2 is proportional to M).
+BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, std::vector<double>* m_vec, uint32_t* partial_ptr) {
   // ldsc writes <prefix>.l2.M[_5_50]; plink2's --ld-score writes
   // <prefix>.ldscore.M[_5_50], and --ref-ld is then usually pointed at the
   // .ldscore file itself, so both spellings are tried.
@@ -1846,10 +1856,12 @@ BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, s
   std::vector<std::string> bases;
   LdscSplitComma(arg, &bases);
   m_vec->clear();
+  *partial_ptr = 0;
   for (uintptr_t file_idx = 0; file_idx != bases.size(); ++file_idx) {
     std::vector<double> acc;
     uint32_t found_ct = 0;
-    const uint32_t chr_end = is_chr_split? (kLdscChrCt + 1) : 1;
+    uint32_t missing_chr = 0;
+    const uint32_t chr_end = is_chr_split? kLdscChrCt : 1;
     for (uint32_t chr_idx = 0; chr_idx != chr_end; ++chr_idx) {
       const std::string base = is_chr_split? LdscSubChr(bases[file_idx].c_str(), chr_idx + 1) : bases[file_idx];
       std::vector<double> cur;
@@ -1862,6 +1874,10 @@ BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, s
         }
       }
       if (!found) {
+        std::string ld_path;
+        if (is_chr_split && (!missing_chr) && (!LdscFindLdscorePath(base, 0, &ld_path))) {
+          missing_chr = chr_idx + 1;
+        }
         continue;
       }
       if (!found_ct) {
@@ -1878,6 +1894,11 @@ BoolErr LdscReadM(const char* arg, uint32_t is_chr_split, uint32_t not_m_5_50, s
       ++found_ct;
     }
     if (!found_ct) {
+      return 1;
+    }
+    if (missing_chr) {
+      fprintf(stderr, "Error: Found %s files for some chromosomes, but not for chromosome %u even\nthough it has LD Scores.\n", suffixes[0], missing_chr);
+      *partial_ptr = 1;
       return 1;
     }
     for (uintptr_t j = 0; j != acc.size(); ++j) {
@@ -2452,7 +2473,8 @@ BoolErr LdscMungeSumstats(const MungeOpts* mopts, const char* out_prefix) {
   {
     std::unordered_map<int, uint32_t> field_counts;
     for (uint32_t i = 0; i != col_ct; ++i) {
-      if (col_fields[i] == kMungeFieldNone) {
+      // --info-list maps several columns to INFO; they are averaged.
+      if ((col_fields[i] == kMungeFieldNone) || (col_fields[i] == kMungeFieldInfo)) {
         continue;
       }
       if (++field_counts[S_CAST(int, col_fields[i])] > 1) {
@@ -3122,6 +3144,11 @@ void LdscFilterChisq(double chisq_max, LdscData* data, uint32_t use_both_z) {
     data->w_ld[write_idx] = data->w_ld[i];
     data->z1[write_idx] = data->z1[i];
     data->n1[write_idx] = data->n1[i];
+    data->ids[write_idx].swap(data->ids[i]);
+    if (!data->a1.empty()) {
+      data->a1[write_idx] = data->a1[i];
+      data->a2[write_idx] = data->a2[i];
+    }
     if (use_both_z) {
       data->z2[write_idx] = data->z2[i];
       data->n2[write_idx] = data->n2[i];
@@ -3133,6 +3160,11 @@ void LdscFilterChisq(double chisq_max, LdscData* data, uint32_t use_both_z) {
   data->w_ld.resize(write_idx);
   data->z1.resize(write_idx);
   data->n1.resize(write_idx);
+  data->ids.resize(write_idx);
+  if (!data->a1.empty()) {
+    data->a1.resize(write_idx);
+    data->a2.resize(write_idx);
+  }
   if (use_both_z) {
     data->z2.resize(write_idx);
     data->n2.resize(write_idx);
@@ -3561,7 +3593,8 @@ BoolErr LdscEstimateH2Cts(const char* sumstats_fname, const LdscScores& ref, con
     }
     const uint32_t cts_annot_ct = cts.annot_names.size();
     std::vector<double> m_cts;
-    if (LdscReadM(cts_paths.c_str(), cts_chr_split, opts->not_m_5_50, &m_cts) || (m_cts.size() != cts_annot_ct)) {
+    uint32_t m_partial;
+    if (LdscReadM(cts_paths.c_str(), cts_chr_split, opts->not_m_5_50, &m_cts, &m_partial) || (m_cts.size() != cts_annot_ct)) {
       fprintf(stderr, "Error: Could not read %s for %s from its %s file%s.\n", (cts_annot_ct == 1)? "a variant count" : "one variant count per annotation", cts_paths.c_str(), opts->not_m_5_50? ".l2.M" : ".l2.M_5_50", cts_chr_split? "s" : "");
       return 1;
     }
@@ -4335,13 +4368,14 @@ int main(int argc, char** argv) {
   }
 
   std::vector<double> m_vec;
+  uint32_t m_partial = 0;
   if (opts.m_override > 0.0) {
     if (n_annot != 1) {
       fprintf(stderr, "Error: --M takes one value per annotation; use the .l2.M%s files for a\npartitioned regression.\n", opts.not_m_5_50? "" : "_5_50");
       return 1;
     }
     m_vec.assign(1, opts.m_override);
-  } else if (!LdscReadM(ref_ld_arg, ref_ld_chr_split, opts.not_m_5_50, &m_vec)) {
+  } else if (!LdscReadM(ref_ld_arg, ref_ld_chr_split, opts.not_m_5_50, &m_vec, &m_partial)) {
     if (m_vec.size() != n_annot) {
       fprintf(stderr, "Error: the %s files have %" PRIuPTR " entries, but there are %u LD Score\ncolumns.\n", opts.not_m_5_50? ".l2.M" : ".l2.M_5_50", S_CAST(uintptr_t, m_vec.size()), n_annot);
       return 1;
@@ -4351,6 +4385,8 @@ int main(int argc, char** argv) {
       m_sum += m_vec[j];
     }
     LdscLog("Read M = %g from the %s files next to --ref-ld.\n", m_sum, opts.not_m_5_50? ".M" : ".M_5_50");
+  } else if (m_partial) {
+    return 1;
   } else if (n_annot != 1) {
     fprintf(stderr, "Error: A partitioned regression needs the %s files, which name the\nvariant count per annotation; none were found next to --ref-ld.\n", opts.not_m_5_50? ".l2.M" : ".l2.M_5_50");
     return 1;

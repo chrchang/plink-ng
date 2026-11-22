@@ -854,7 +854,13 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
               for (uint32_t difflist_idx_lowbits = 0; difflist_idx_lowbits != loop_len; ++difflist_idx_lowbits) {
                 const uint32_t sample_idx = *difflist_sample_ids_iter++;
                 const uint32_t cur_geno = raregeno_word & 3;
-                SetBit(child_to_trio_idxs[sample_idx], trio_include_buf);
+                // child_to_trio_idxs[] is UINT32_MAX for samples that aren't
+                // children in any trio; SetBit() on that would write 512 MiB
+                // past trio_include_buf.
+                const uint32_t child_trio_idx = child_to_trio_idxs[sample_idx];
+                if (child_trio_idx != UINT32_MAX) {
+                  SetBit(child_trio_idx, trio_include_buf);
+                }
                 if (cur_geno != 1) {
                   const uint32_t offset_start = parent_to_trio_offsets[sample_idx];
                   const uint32_t offset_end = parent_to_trio_offsets[sample_idx + 1];
@@ -1195,14 +1201,15 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
             }
             error_ct_fill = 0;
             ZeroU32Arr(trio_ct, trio_error_ct_acc_buf);
-            ZeroU32Arr(trio_ct, trio_missing_ct_acc_buf);
           }
         }
-        if (variant_error_ct_denom != trio_ct) {
+        if (exclude_missing_from_denom) {
+          // One-parent-missing variants don't change variant_error_ct_denom,
+          // so we cannot test that here.
           if (var_first) {
             U32CastVecAdd(trio_missing_ct_cur_buf, trio_vec_ct, trio_missing_ct_acc_buf);
           }
-          missing_ct_fill += exclude_missing_from_denom;
+          ++missing_ct_fill;
           if (missing_ct_fill == 255) {
             unsigned char* read_iter = R_CAST(unsigned char*, trio_missing_ct_acc_buf);
             uint32_t* trio_missing_cts_write_iter = trio_missing_cts;
@@ -1213,6 +1220,8 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
               trio_missing_cts_write_iter = &(trio_missing_cts_write_iter[3]);
               read_iter = &(read_iter[4]);
             }
+            missing_ct_fill = 0;
+            ZeroU32Arr(trio_ct, trio_missing_ct_acc_buf);
           }
         }
       }
@@ -1355,8 +1364,10 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
       AppendBinaryEoln(&l_cswritep);
 
       if (big_report) {
+        // .mendel rows also start with the kid's FID/IID/SID.
+        const uintptr_t big_overflow_buf_size = overflow_buf_size + fid_col * family_info.max_fid_blen + family_info.max_iid_blen + sid_col * family_info.max_sid_blen;
         OutnameZstSet(".mendel", output_zst, outname_end);
-        reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &big_css, &big_cswritep);
+        reterr = InitCstreamAlloc(outname, 0, output_zst, 1, big_overflow_buf_size, &big_css, &big_cswritep);
         if (unlikely(reterr)) {
           goto MendelErrorScan_ret_1;
         }
@@ -1376,10 +1387,10 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
         }
         big_cswritep = strcpya_k(big_cswritep, "ID");
         if (ref_col) {
-          l_cswritep = strcpya_k(l_cswritep, "\tREF");
+          big_cswritep = strcpya_k(big_cswritep, "\tREF");
         }
         if (alt_col) {
-          l_cswritep = strcpya_k(l_cswritep, "\tALT");
+          big_cswritep = strcpya_k(big_cswritep, "\tALT");
         }
         if (ecode_col) {
           big_cswritep = strcpya_k(big_cswritep, "\tCODE");
@@ -1414,7 +1425,7 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
       CopyBitarrSubset(sex_male, trio_sample_include, sample_ct, sex_male_collapsed);
       FillInterleavedMaskVec(sex_male_collapsed, sample_ctv2, sex_male_collapsed_interleaved);
       CopyBitarrSubset(sex_nm, trio_sample_include, sample_ct, sex_female_collapsed);
-      BitvecInvmask(sex_male, sample_ctl, sex_female_collapsed);
+      BitvecInvmask(sex_male_collapsed, sample_ctl, sex_female_collapsed);
       FillInterleavedMaskVec(sex_female_collapsed, sample_ctv2, sex_female_collapsed_interleaved);
       ctx.sex_male_collapsed = sex_male_collapsed;
       ctx.sex_male_collapsed_interleaved = sex_male_collapsed_interleaved;

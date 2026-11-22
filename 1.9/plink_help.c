@@ -1434,6 +1434,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                   one chromosome, include a '@' in the first\n"
 "                                   parameter where the chrom. number belongs,\n"
 "                                   e.g. 'genetic_map_chr@_combined_b37.txt'.\n"
+"                                   Autosomes without a map file are skipped\n"
+"                                   with a warning, but it's an error if none of\n"
+"                                   the files exist.\n"
 "  --zero-cms         : Zero out centimorgan positions.\n"
 	       );
     help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,
@@ -1862,6 +1865,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"
+"                           (--indep[-pairwise] only)\n"
 	       );
     help_print("blocks\tblocks-max-kb\tblocks-min-maf\tblocks-strong-lowci\tblocks-strong-highci\tblocks-recomb-highci\tblocks-inform-frac\tld-window-kb", &help_ctrl, 0,
 "  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span (def. 200).\n"
@@ -1885,8 +1889,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-dists <dist file> [id file] : Load a triangular binary distance matrix\n"
-"                                       (allele-count units assumed) instead of\n"
-"                                       recalculating from scratch.\n"
+"                                       (allele-count units assumed, as written\n"
+"                                       by \"--distance triangle bin\") instead\n"
+"                                       of recalculating from scratch.  With\n"
+"                                       missing calls, --cluster, --neighbour\n"
+"                                       and --mds-plot match recalculation when\n"
+"                                       the matrix was written with\n"
+"                                       'flat-missing', and --ibs-test,\n"
+"                                       --groupdist and --regress-distance\n"
+"                                       when it was written without it.\n"
 	       );
     help_print("ppc-gap\tmin\tmax\tgenome\tZ-genome", &help_ctrl, 0,
 "  --ppc-gap <val>    : Minimum number of base pairs, in thousands, between\n"
@@ -2061,8 +2072,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("clump-index-first\tclump-replicate\tclump", &help_ctrl, 0,
 "  --clump-index-first       : Extract --clump index vars. from only first file.\n"
-"  --clump-replicate         : Exclude clumps which contain secondary results\n"
-"                              from only one file.\n"
+"  --clump-replicate         : Exclude clumps which don't contain\n"
+"                              p2-significant results (including the index\n"
+"                              variant's) from at least two files.\n"
 	       );
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index var.\n"

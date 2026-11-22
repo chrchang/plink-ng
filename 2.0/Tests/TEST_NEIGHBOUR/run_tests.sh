@@ -15,45 +15,45 @@ plink --file tmp_nb --make-bed --out tmp_nb > /dev/null
 # 1. The report agrees with a direct recomputation from the .eigenvec it was
 #    derived from, at the default K.
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour --out plink2_nb
-test -s plink2_nb.nearest
-python3 oracle.py plink2_nb.eigenvec plink2_nb.nearest 5
+test -s plink2_nb.neighbour
+python3 oracle.py plink2_nb.eigenvec plink2_nb.neighbour 5
 
 # 2. K is adjustable, and 5 is the default.
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour 5 --out plink2_k5
-diff -q plink2_nb.nearest plink2_k5.nearest
+diff -q plink2_nb.neighbour plink2_k5.neighbour
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour 12 --out plink2_k12
-python3 oracle.py plink2_k12.eigenvec plink2_k12.nearest 12
-fails diff -q plink2_nb.nearest plink2_k12.nearest
+python3 oracle.py plink2_k12.eigenvec plink2_k12.neighbour 12
+fails diff -q plink2_nb.neighbour plink2_k12.neighbour
 
 # 3. The PC count carries through: a different --pca gives a different report,
 #    and the oracle still matches it.
 $1/plink2 $2 $3 --bfile tmp_nb --pca 2 --neighbour --out plink2_pc2
-python3 oracle.py plink2_pc2.eigenvec plink2_pc2.nearest 5
-fails diff -q plink2_nb.nearest plink2_pc2.nearest
+python3 oracle.py plink2_pc2.eigenvec plink2_pc2.neighbour 5
+fails diff -q plink2_nb.neighbour plink2_pc2.neighbour
 
 # 4. The planted outliers come out on top.  Each is homozygous across its own
 #    block of variants, so each sits alone in PC space; a tight group of
 #    identical samples would read as a small cluster instead.
-grep -v '^#' plink2_nb.nearest | sort -g -r -k5,5 | head -4 | cut -f2 | sort > tmp_top4.txt
+grep -v '^#' plink2_nb.neighbour | sort -g -r -k5,5 | head -4 | cut -f2 | sort > tmp_top4.txt
 sort tmp_nb_outliers.txt > tmp_want.txt
 diff -q tmp_top4.txt tmp_want.txt
 
 # 5. cols= drops columns, and the remaining values are unchanged.
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour cols=stat --out plink2_cols
-head -1 plink2_cols.nearest | grep -qx '#IID	STAT'
-python3 oracle.py plink2_nb.eigenvec plink2_cols.nearest 5
+head -1 plink2_cols.neighbour | grep -qx '#IID	STAT'
+python3 oracle.py plink2_nb.eigenvec plink2_cols.neighbour 5
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour cols=fid,sid,distself --out plink2_cols2
-head -1 plink2_cols2.nearest | grep -qx '#FID	IID	SID	DIST_SELF'
+head -1 plink2_cols2.neighbour | grep -qx '#FID	IID	SID	DIST_SELF'
 
 # 6. 'zs' compresses the report, and the contents survive the round trip.
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour zs --out plink2_zs
-test -s plink2_zs.nearest.zst
-$1/plink2 $2 $3 --zst-decompress plink2_zs.nearest.zst > tmp_unzs.nearest
-diff -q tmp_unzs.nearest plink2_nb.nearest
+test -s plink2_zs.neighbour.zst
+$1/plink2 $2 $3 --zst-decompress plink2_zs.neighbour.zst > tmp_unzs.neighbour
+diff -q tmp_unzs.neighbour plink2_nb.neighbour
 
 # 7. --neighbor is the same flag.
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbor --out plink2_alias
-diff -q plink2_alias.nearest plink2_nb.nearest
+diff -q plink2_alias.neighbour plink2_nb.neighbour
 
 # 8. It needs PC coordinates, and says so.  (--neighbour is parsed before --pca
 #    and --read-eigvec, so this check cannot live in the parser.)
@@ -65,20 +65,20 @@ grep -q 'must be used with --pca or --read-eigvec' tmp_err.txt
 #     The coordinates are re-read from text, so they arrive rounded; compare
 #     against the same recomputation the oracle does rather than byte for byte.
 $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec plink2_nb.eigenvec --neighbour --out plink2_re
-python3 oracle.py plink2_nb.eigenvec plink2_re.nearest 5
+python3 oracle.py plink2_nb.eigenvec plink2_re.neighbour 5
 $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec plink2_nb.eigenvec --neighbour 12 --out plink2_re12
-python3 oracle.py plink2_nb.eigenvec plink2_re12.nearest 12
+python3 oracle.py plink2_nb.eigenvec plink2_re12.neighbour 12
 
 # 8c. PLINK 1.9's .eigenvec is headerless and space-delimited, and works too.
 grep -v '^#' plink2_nb.eigenvec | tr '\t' ' ' > tmp_19.eigenvec
 $1/plink2 $2 $3 --bfile tmp_nb --read-eigvec tmp_19.eigenvec --neighbour --out plink2_re19
-diff -q plink2_re19.nearest plink2_re.nearest
+diff -q plink2_re19.neighbour plink2_re.neighbour
 
 # 8d. Samples not in the current fileset are ignored, so one .eigenvec can be
 #     replayed against a subset.
 head -30 tmp_nb.fam | awk '{print $1 "\t" $2}' > tmp_keep.txt
 $1/plink2 $2 $3 --bfile tmp_nb --keep tmp_keep.txt --read-eigvec plink2_nb.eigenvec --neighbour --out plink2_re_keep
-test $(grep -vc '^#' plink2_re_keep.nearest) -eq 30
+test $(grep -vc '^#' plink2_re_keep.neighbour) -eq 30
 
 # 8e. A sample with no entry is an error, and so is a duplicate entry.
 head -1 plink2_nb.eigenvec > tmp_short.eigenvec
@@ -110,7 +110,7 @@ fails $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour 60 --out plink2_bad
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour 60 --out plink2_bad > tmp_err2.txt 2>&1 || true
 grep -q 'must be smaller than the number of' tmp_err2.txt
 $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour 59 --out plink2_k59
-test -s plink2_k59.nearest
+test -s plink2_k59.neighbour
 
 # 10. Bad arguments are rejected.
 fails $1/plink2 $2 $3 --bfile tmp_nb --pca 4 --neighbour 0 --out plink2_bad

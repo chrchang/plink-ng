@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 2.0/Python/**
+      - 2.0/include/**
       - .github/workflows/ci.yaml
   pull_request:
     branches:
@@ -11,6 +12,7 @@ on:
       - dev
     paths:
       - 2.0/Python/**
+      - 2.0/include/**
       - .github/workflows/ci.yaml
 
 jobs:

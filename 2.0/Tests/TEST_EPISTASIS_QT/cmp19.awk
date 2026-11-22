@@ -5,9 +5,13 @@
 # the tolerance is half of the last printed place.  BETA_INT is comparable
 # directly: flipping a variant's allele coding negates the interaction
 # coefficient, and both programs count the A1 allele of the .bim here.
+#
+# A pair whose regression is singular (e.g. no sample carries a minor allele
+# at both variants, so the interaction column is all zero) is a row of nans in
+# 1.9 and is left out of the plink2 report, so those rows are not counted.
 function abs(x) { return (x < 0)? -x : x }
 function key(a, b) { return (a < b)? (a "|" b) : (b "|" a) }
-FNR == NR { if (FNR > 1) { k = key($2, $4); beta[k] = $5 + 0; stat[k] = $6 + 0; ++n1 }; next }
+FNR == NR { if (FNR > 1 && tolower($6) !~ /nan/) { k = key($2, $4); beta[k] = $5 + 0; stat[k] = $6 + 0; ++n1 }; next }
 /^#/ { next }
 {
     ++n2

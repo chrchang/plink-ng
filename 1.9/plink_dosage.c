@@ -2234,7 +2234,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  bufptr = memcpya(bufptr, missing_pheno_str, missing_pheno_len);
 	}
         *bufptr++ = ' ';
-	ujj = uii - score_miss_cts[sample_idx];
+	ujj = uii - uiptr[sample_idx];
 	if (dosage_score_cnt) {
 	  bufptr = uint32toa_w6x(uii, ' ', bufptr);
 	}

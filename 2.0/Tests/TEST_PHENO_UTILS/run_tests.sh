@@ -23,7 +23,9 @@ diff <(pheno_col plink19_t1.fam 6) <(pheno_col plink2_t1.psam 4)
 plink --bfile tmp_data --pheno tmp_qt.txt --tail-pheno 0 --make-just-fam --out plink19_t2
 $1/plink2 $2 $3 --bfile tmp_data --no-psam-pheno --pheno tmp_qt.txt --tail-pheno 0 --make-just-psam --out plink2_t2
 diff <(pheno_col plink19_t2.fam 6) <(pheno_col plink2_t2.psam 4)
-! grep -q NA <(pheno_col plink2_t2.psam 4)
+if grep -q NA <(pheno_col plink2_t2.psam 4); then
+    exit 1
+fi
 
 # 3. --tail-pheno leaves an already-binary phenotype alone.
 $1/plink2 $2 $3 --bfile tmp_data --tail-pheno -1 1.5 --make-just-psam --out plink2_cc

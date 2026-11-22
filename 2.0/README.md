@@ -66,9 +66,9 @@ properties:
   compression and decompression.  It is even practical to perform several key
   computations (e.g. allele frequency) directly on the compressed
   representation, and this capability is exposed by the pgenlib library.
-* Python/pgenlib.pyx is the Python wrapper (see Python/python_api.txt for
-  details), and pgenlibr/ is the R wrapper.  These are somewhat incomplete as
-  of this writing, but it would not take much effort to fill in key components;
+* Python/src/pgenlib/pgenlib.pyx is the Python wrapper (see
+  Python/python_api.txt for details), and pgenlibr/ is the R wrapper.  These
+  are somewhat incomplete as of this writing, but it would not take much effort to fill in key components;
   that work is scheduled for roughly the time of the beta release, but if you
   could really use a specific feature earlier, you have good odds of getting it
   by asking at https://groups.google.com/forum/#!forum/plink2-dev .

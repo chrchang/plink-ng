@@ -1655,7 +1655,11 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   const unsigned char* starts_range = range_list_ptr->starts_range;
   const uint32_t name_ct = range_list_ptr->name_ct;
   const uint32_t name_max_blen = range_list_ptr->name_max_blen;
-  const uint32_t idx_max = bitarr_size + offset;
+  const uint32_t idx_end = bitarr_size + offset;
+  if (!idx_end) {
+    return (name_ct != 0);
+  }
+  const uint32_t idx_max = idx_end - 1;
   for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
     uint32_t idx1;
     if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
@@ -1674,7 +1678,7 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
         if (unlikely(!ignore_overflow)) {
           return 1;
         }
-        idx2 = idx_max - 1;
+        idx2 = idx_max;
       }
       FillBitsNz(idx1 - offset, (idx2 - offset) + 1, bitarr);
     } else {
@@ -2342,7 +2346,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
       memcpyx(cur_name_str, range_end, re_len, '\0');
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
-        if (unlikely(memequal(dup_check, cur_name_str, rs_len + 1))) {
+        if (unlikely(memequal(dup_check, cur_name_str, re_len + 1))) {
           logerrprintfww("Error: Duplicate %s argument '%s'.\n", argvk[0], cur_name_str);
           return kPglRetInvalidCmdline;
         }
@@ -2424,7 +2428,15 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
   }
   // 0 <= small_r2 < small_q3_x4; no risk of qq < 0 or sqrt_q * qq == 0.
   const double sqrt_q = sqrt(qq);
-  const double ratio = rr / (sqrt_q * qq);
+  double ratio = rr / (sqrt_q * qq);
+  // bugfix (10 Oct 2026): when small_r2 is only barely below small_q3_x4,
+  // rounding error can push |ratio| a ulp or so past 1, and acos() would then
+  // return NaN.
+  if (ratio > 1.0) {
+    ratio = 1.0;
+  } else if (ratio < -1.0) {
+    ratio = -1.0;
+  }
   const double theta_div3 = acos(ratio) * (1.0 / 3.0);
   const double norm = -2 * sqrt_q;
   double sol0 = prefer_fma(norm, cos(theta_div3), -coef_a_div3);
@@ -2741,11 +2753,16 @@ PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t ma
     logerrprintf("Error: %s argument too long.\n", flag_name);
     return kPglRetInvalidCmdline;
   }
-  const uint32_t blen = slen + 1;
-  if (unlikely(pgl_malloc(blen, sbuf_ptr))) {
+  // Pad with kBytesPerVec-1 extra zero bytes: consumers may scan the string
+  // with Strchrnul()/strnul(), whose vectorized implementations read a whole
+  // aligned vector at a time and so touch up to kBytesPerVec-1 bytes past the
+  // terminator.  Those loads cannot fault, since an aligned vector never
+  // straddles a page boundary, but AddressSanitizer flags them.
+  if (unlikely(pgl_malloc(slen + kBytesPerVec, sbuf_ptr))) {
     return kPglRetNomem;
   }
-  memcpy(*sbuf_ptr, source, blen);
+  memcpy(*sbuf_ptr, source, slen);
+  memset(&((*sbuf_ptr)[slen]), 0, kBytesPerVec);
   return kPglRetSuccess;
 }
 
@@ -2846,7 +2863,7 @@ PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uin
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
   }
-  memset(buf_iter, 0, alloc_blen - (tot_blen - 1));
+  memset(buf_iter, 0, kBytesPerVec);
   return kPglRetSuccess;
 }
 
@@ -3157,10 +3174,10 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           goto CmdlineParsePhase1_ret_NOMEM;
         }
         pcmp->subst_argv = subst_argv;
-        memcpy(subst_argv, &(argvk[1]), arg_idx * sizeof(intptr_t));
-        const uint32_t load_param_idx_end = arg_idx + num_script_params;
+        memcpy(subst_argv, &(argvk[1]), (arg_idx - 1) * sizeof(intptr_t));
+        const uint32_t load_param_idx_end = arg_idx - 1 + num_script_params;
         script_buf_iter = &(script_buf[-1]);
-        for (uint32_t param_idx = arg_idx; param_idx != load_param_idx_end; ++param_idx) {
+        for (uint32_t param_idx = arg_idx - 1; param_idx != load_param_idx_end; ++param_idx) {
           while (ctou32(*(++script_buf_iter)) <= 32);
           subst_argv[param_idx] = script_buf_iter;
           while (ctou32(*(++script_buf_iter)) > 32);
@@ -3851,7 +3868,12 @@ PglErr CmpExprNewStr(const char* cur_param, uint32_t* offset_ptr, char** new_str
     strcpy_k(g_textbuf, "Key or value too long (>16000 chars).");
     return kPglRetInvalidCmdline;
   }
-  if (unlikely(pgl_malloc(slen + 1, new_str_ptr))) {
+  // Consumers may scan this with vectorized functions like strchrnul2(),
+  // which read a whole aligned vector at a time and so touch up to
+  // kBytesPerVec-1 bytes past the terminator.  As in AllocAndFlattenEx(),
+  // those loads cannot fault, but AddressSanitizer flags them on an
+  // exact-size malloc() buffer, so allocate kBytesPerVec-1 bytes of slack.
+  if (unlikely(pgl_malloc(slen + kBytesPerVec, new_str_ptr))) {
     return kPglRetNomem;
   }
   char* new_str = *new_str_ptr;
@@ -3871,7 +3893,9 @@ PglErr CmpExprNewStr(const char* cur_param, uint32_t* offset_ptr, char** new_str
   return kPglRetSuccess;
 }
 
-PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_prec, uint32_t open_lparen_ct, uint32_t* param_idx_ptr, uint32_t* offset_ptr, CmpExpr* cmp_expr_ptr) {
+PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_prec, uint32_t open_lparen_ct, uint32_t depth, uint32_t* param_idx_ptr, uint32_t* offset_ptr, CmpExpr* cmp_expr_ptr) {
+  // depth is the current recursion depth (0 for the top-level call).
+  //
   // Preconditions:
   // - cmp_expr_ptr->etype == kCmpExprTypeNull.
   // - CmpExprNextToken(sources, param_ct, param_idx_ptr, offset_ptr) gets the
@@ -3919,6 +3943,10 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
   uint32_t offset = *offset_ptr;
   PglErr reterr = kPglRetSuccess;
   {
+    if (unlikely(depth >= 1000)) {
+      strcpy_k(g_textbuf, "Expression is nested too deeply.");
+      goto CmpExprParse_ret_INVALID_CMDLINE;
+    }
     uint32_t lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
     if (unlikely(!lookahead_ui)) {
       // Start of predicate expected, but we reached end-of-input; innermost
@@ -3931,7 +3959,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
       const uint32_t lparen_param_idx = param_idx;
       const uint32_t lparen_offset = offset;
       ++offset;
-      reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct + 1, &param_idx, &offset, cmp_expr_ptr);
+      reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct + 1, depth + 1, &param_idx, &offset, cmp_expr_ptr);
       if (unlikely(reterr || (param_idx == param_ct))) {
         if (reterr == kPglRetSuccess) {
           g_textbuf[0] = '\0';
@@ -3973,7 +4001,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
       const uint32_t not_param_idx = param_idx;
       const uint32_t not_offset = offset;
       ++offset;
-      reterr = CmpExprParse(sources, param_ct, 3, open_lparen_ct, &param_idx, &offset, cmp_expr_child);
+      reterr = CmpExprParse(sources, param_ct, 3, open_lparen_ct, depth + 1, &param_idx, &offset, cmp_expr_child);
       if (unlikely(reterr)) {
         if (!g_textbuf[0]) {
           param_idx = not_param_idx;
@@ -4003,7 +4031,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         }
         lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
         CmpExprType first_etype;
-        if (unlikely(!CmpExprNumCompare(sources[param_idx], 1, &offset, &first_etype))) {
+        if (unlikely((!lookahead_ui) || (!CmpExprNumCompare(sources[param_idx], 1, &offset, &first_etype)))) {
           strcpy_k(g_textbuf, "Numeric comparison operator ('!=', '<', '<=', '==', '>=', '>') expected after number.");
           goto CmpExprParse_ret_INVALID_CMDLINE;
         }
@@ -4035,7 +4063,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         // directions
         prev_offset = offset;
         CmpExprType second_etype;
-        if (CmpExprNumCompare(sources[param_idx], 0, &offset, &second_etype)) {
+        if (lookahead_ui && CmpExprNumCompare(sources[param_idx], 0, &offset, &second_etype)) {
           if (unlikely((first_etype == kCmpExprTypeNoteq) || (first_etype == kCmpExprTypeEq))) {
             offset = prev_offset;
             snprintf(g_textbuf, kTextbufSize, "\"[number] %c= [key]\" cannot be followed by another comparison operator.", (first_etype == kCmpExprTypeNoteq)? '!' : '=');
@@ -4048,7 +4076,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
           }
           lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
           prev_offset = offset;
-          if (unlikely(!CmpExprNumber(sources[param_idx], &offset, &second_num))) {
+          if (unlikely((!lookahead_ui) || (!CmpExprNumber(sources[param_idx], &offset, &second_num)))) {
             strcpy_k(g_textbuf, "[number] [operator] [key] [operator] must be followed by a number.");
             goto CmpExprParse_ret_INVALID_CMDLINE;
           }
@@ -4092,7 +4120,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
         prev_offset = offset;
         CmpExprType ineq_etype;
-        if (CmpExprNumCompare(sources[param_idx], 0, &offset, &ineq_etype)) {
+        if (lookahead_ui && CmpExprNumCompare(sources[param_idx], 0, &offset, &ineq_etype)) {
           if (unlikely(min_prec == 3)) {
             free(key);
             offset = prev_offset;
@@ -4100,12 +4128,22 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
             goto CmpExprParse_ret_INVALID_CMDLINE;
           }
           lookahead_ui = CmpExprNextToken(sources, param_ct, &param_idx, &offset);
+          if (unlikely(!lookahead_ui)) {
+            free(key);
+            strcpy_k(g_textbuf, "[key] [operator] must be followed by a number or string.");
+            goto CmpExprParse_ret_INVALID_CMDLINE;
+          }
           double num;
           if (CmpExprNumber(sources[param_idx], &offset, &num)) {
             cmp_expr_ptr->etype = ineq_etype;
             cmp_expr_ptr->args.kn.key = key;
             cmp_expr_ptr->args.kn.value = num;
           } else {
+            if (unlikely((ineq_etype != kCmpExprTypeNoteq) && (ineq_etype != kCmpExprTypeEq))) {
+              free(key);
+              strcpy_k(g_textbuf, "String values can only be compared with '==' or '!='.");
+              goto CmpExprParse_ret_INVALID_CMDLINE;
+            }
             char* str_value;
             reterr = CmpExprNewStr(sources[param_idx], &offset, &str_value);
             if (unlikely(reterr)) {
@@ -4138,7 +4176,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         if (unlikely(!cmp_expr_child)) {
           goto CmpExprParse_ret_NOMEM;
         }
-        reterr = CmpExprParse(sources, param_ct, 1, open_lparen_ct, &param_idx, &offset, cmp_expr_child);
+        reterr = CmpExprParse(sources, param_ct, 1, open_lparen_ct, depth + 1, &param_idx, &offset, cmp_expr_child);
         if (unlikely(reterr)) {
           if (!g_textbuf[0]) {
             param_idx = op_param_idx;
@@ -4160,7 +4198,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
         if (unlikely(!cmp_expr_child)) {
           goto CmpExprParse_ret_NOMEM;
         }
-        reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct, &param_idx, &offset, cmp_expr_child);
+        reterr = CmpExprParse(sources, param_ct, 0, open_lparen_ct, depth + 1, &param_idx, &offset, cmp_expr_child);
         if (unlikely(reterr)) {
           if (!g_textbuf[0]) {
             param_idx = op_param_idx;
@@ -4191,7 +4229,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
   assert(cmp_expr_ptr->etype == kCmpExprTypeNull);
   uint32_t err_param_idx = 0;
   uint32_t err_offset = 0;
-  PglErr reterr = CmpExprParse(sources, param_ct, 0, 0, &err_param_idx, &err_offset, cmp_expr_ptr);
+  PglErr reterr = CmpExprParse(sources, param_ct, 0, 0, 0, &err_param_idx, &err_offset, cmp_expr_ptr);
   if (unlikely(reterr == kPglRetInvalidCmdline)) {
     logerrprintf("Error: Invalid %s expression:\n\n", flag_name);
 
@@ -4440,7 +4478,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         int32_t alpha_idx = bsearch_strbox(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
-          write_iter = memcpya(write_iter, id_start, slen);
+          write_iter = memcpya(write_iter, id_start, MINV(slen, kMaxIdSlen));
           write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");
@@ -4480,7 +4518,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         const int32_t alpha_idx = bsearch_strbox(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
-          write_iter = memcpya(write_iter, col_descriptor_iter, slen);
+          write_iter = memcpya(write_iter, col_descriptor_iter, MINV(slen, kMaxIdSlen));
           write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");

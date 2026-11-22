@@ -497,7 +497,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
       cat_idx -= local_cats_1based;
       local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
       if (!local_haps) {
-        if (cat_idx != max_cat_idx) {
+        if (cat_idx != local_cat_ct - 1) {
           const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
           if (local_covars_vcmaj_f_iter) {
             local_covars_vcmaj_f_iter[offset] = 1.0;
@@ -506,7 +506,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
           }
         }
       } else {
-        if (cat_idx != max_cat_idx) {
+        if (cat_idx != local_cat_ct - 1) {
           const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
           if (local_covars_vcmaj_f_iter) {
             local_covars_vcmaj_f_iter[offset] = 0.5;
@@ -521,7 +521,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
         }
         cat_idx -= local_cats_1based;
         local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
-        if (cat_idx != max_cat_idx) {
+        if (cat_idx != local_cat_ct - 1) {
           const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
           if (local_covars_vcmaj_f_iter) {
             local_covars_vcmaj_f_iter[offset] += S_CAST(float, 0.5);
@@ -750,7 +750,7 @@ void DuplicateLocalCovarRow(uint32_t row_ct, uintptr_t row_width, uint32_t* vari
       }
       memcpy(&(local_covars_vcmaj_f_iter[row_idx * row_width]), local_covars_vcmaj_f_iter, row_copy_ct * row_width * sizeof(float));
     }
-    local_covars_vcmaj_f_iter = &(local_covars_vcmaj_f_iter[row_ct * row_width]);
+    *local_covars_vcmaj_f_iterp = &(local_covars_vcmaj_f_iter[row_ct * row_width]);
   } else {
     double* local_covars_vcmaj_d_iter = *local_covars_vcmaj_d_iterp;
     for (uint32_t row_idx = 1; row_idx < row_ct; row_idx *= 2) {
@@ -924,7 +924,7 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
           // variants; NA results will be reported for them.
           const uint32_t local_chr_start_vidx = cip->chr_fo_vidx_start[local_chr_fo_idx];
           uint32_t row_ct;
-          if (local_chr_start_vidx >= variant_uidx_chr_end) {
+          if (local_chr_start_vidx >= variant_uidx_end) {
             row_ct = cur_block_variant_ct - variant_bidx;
           } else {
             // Verify that we aren't going backwards.  (This condition works
@@ -949,6 +949,28 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
           }
         }
         variant_bp = variant_bps[variant_uidx];
+        if (local_bp > variant_bp) {
+          // Variants before the first local-covar position on this chromosome
+          // are zero-filled, as documented above.
+          const uint32_t next_variant_uidx = ExpsearchU32(variant_bps, variant_uidx, variant_uidx_chr_end, local_bp);
+          const uint32_t row_ct = PopcountBitRange(variant_include, variant_uidx, next_variant_uidx);
+          ZeroLocalCovarRows(row_ct, row_width, &variant_bidx, &local_covars_vcmaj_f_iter, &local_covars_vcmaj_d_iter);
+          if (variant_bidx == cur_block_variant_ct) {
+            break;
+          }
+          variant_uidx = AdvTo1Bit(variant_include, next_variant_uidx);
+          if (variant_uidx >= variant_uidx_chr_end) {
+            chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+            chr_idx = cip->chr_file_order[chr_fo_idx];
+            variant_uidx_chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+            if (variant_uidx_chr_end > variant_uidx_end) {
+              variant_uidx_chr_end = variant_uidx_end;
+            }
+            variant_bp = UINT32_MAX;
+          } else {
+            variant_bp = variant_bps[variant_uidx];
+          }
+        }
       }
       if (local_cat_ct) {
         if (local_covars_vcmaj_f_iter) {
@@ -962,6 +984,11 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
       if (unlikely(reterr)) {
         return reterr;
       }
+      // bugfix: local_prev_chr_code must track the previous relevant line, so
+      // that the new-chromosome logic above only runs on the first line of a
+      // chromosome, and the EOF logic below knows what the last line's
+      // chromosome was.
+      local_prev_chr_code = local_chr_code;
     }
     // Part 3.
 
@@ -1179,6 +1206,79 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
   }
   *chisq_ptr = result;
   return 0;
+}
+
+// Subtraction is only worth it while the result keeps most of its bits.  A
+// covariate that is constant over the variant's nonmissing samples has zero
+// variance there, and subtracting the missing samples leaves rounding noise
+// instead: its correlations with the other predictors then come out as large
+// values rather than as the undefined ones the generic path produces.  Such a
+// variant goes to the generic path, which computes the dot products directly.
+// Returns 1 when that is the case.
+BoolErr MissingLeavesConstantCovar(const uintptr_t* sample_nm, const double* covars_cmaj, const double* xtx_image, uintptr_t sample_ct, uint32_t nm_sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct) {
+  // 2^{-26} is about half the bits of a double's mantissa.
+  const double min_retained_frac = 0x1p-26;
+  const double nm_sample_ct_recip = 1.0 / u31tod(nm_sample_ct);
+  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+    const double* cur_covar = &(covars_cmaj[covar_idx * sample_ct]);
+    const double* xtx_image_row = &(xtx_image[(covar_idx + covar_pred_start) * predictor_ct]);
+    double missing_sum = 0.0;
+    double missing_ssq = 0.0;
+    uintptr_t sample_midx_base = 0;
+    uintptr_t sample_nm_inv_bits = ~sample_nm[0];
+    for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
+      const uintptr_t sample_midx = BitIter0(sample_nm, &sample_midx_base, &sample_nm_inv_bits);
+      const double cur_covar_val = cur_covar[sample_midx];
+      missing_sum += cur_covar_val;
+      missing_ssq = prefer_fma(cur_covar_val, cur_covar_val, missing_ssq);
+    }
+    const double full_ssq = xtx_image_row[covar_pred_start + covar_idx];
+    const double nm_ssq = full_ssq - missing_ssq;
+    if (nm_ssq <= min_retained_frac * full_ssq) {
+      return 1;
+    }
+    const double nm_sum = xtx_image_row[0] - missing_sum;
+    if (nm_ssq - nm_sum * nm_sum * nm_sample_ct_recip <= min_retained_frac * nm_ssq) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// A variant with missing genotype calls has its own intercept and covariate
+// dot products, over its nonmissing samples.  Rather than recompute them, the
+// sparse path subtracts the missing samples' contributions from copies of the
+// full-sample xtx_image (lower triangle) and xt_y_image in xtx and xt_y.
+// Covariates occupy predictor indices covar_pred_start onward, and xt_y has
+// pheno_ct rows.  xtx[0] is left to the caller.  covar_row_buf needs room for
+// covar_ct doubles.
+void SubtractMissingFromCovarDotprods(const uintptr_t* sample_nm, const double* covars_cmaj, const double* pheno_pmaj, uintptr_t sample_ct, uint32_t missing_ct, uint32_t covar_ct, uint32_t covar_pred_start, uint32_t predictor_ct, uint32_t pheno_ct, double* __restrict covar_row_buf, double* __restrict xtx, double* __restrict xt_y) {
+  uintptr_t sample_midx_base = 0;
+  uintptr_t sample_nm_inv_bits = ~sample_nm[0];
+  for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
+    const uintptr_t sample_midx = BitIter0(sample_nm, &sample_midx_base, &sample_nm_inv_bits);
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      covar_row_buf[covar_idx] = covars_cmaj[covar_idx * sample_ct + sample_midx];
+    }
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const double neg_covar_val = -covar_row_buf[covar_idx];
+      double* xtx_row = &(xtx[(covar_idx + covar_pred_start) * predictor_ct]);
+      xtx_row[0] += neg_covar_val;
+      double* xtx_covar_row = &(xtx_row[covar_pred_start]);
+      for (uint32_t covar_idx2 = 0; covar_idx2 <= covar_idx; ++covar_idx2) {
+        xtx_covar_row[covar_idx2] = prefer_fma(neg_covar_val, covar_row_buf[covar_idx2], xtx_covar_row[covar_idx2]);
+      }
+    }
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      const double neg_pheno_val = -pheno_pmaj[pheno_idx * sample_ct + sample_midx];
+      double* cur_xt_y = &(xt_y[pheno_idx * predictor_ct]);
+      cur_xt_y[0] += neg_pheno_val;
+      double* xt_y_covar_iter = &(cur_xt_y[covar_pred_start]);
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        xt_y_covar_iter[covar_idx] = prefer_fma(neg_pheno_val, covar_row_buf[covar_idx], xt_y_covar_iter[covar_idx]);
+      }
+    }
+  }
 }
 
 #ifdef __cplusplus
