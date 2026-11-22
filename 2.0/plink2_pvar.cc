@@ -1566,7 +1566,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     // INFO is frequently long, so when it's the last column we lex, we split
     // it off from the main TokenLex() call: if it's needed, its end is found
-    // by TokenLex0LastFar()'s vector scan; otherwise we just verify that it's
+    // by CurTokenEndFar()'s vector scan; otherwise we just verify that it's
     // present.  This is handled inside the existing info_col_present branch
     // (and no new loop variable is introduced), since the no-INFO path was
     // measurably slowed by anything more.
@@ -1874,10 +1874,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               line_iter = AdvToDelim(linebuf_iter, '\n');
               goto LoadPvar_info_done;
             }
-            linebuf_iter = TokenLex0LastFar(linebuf_iter, &(col_types[relevant_postchr_col_ct]), &(col_skips[relevant_postchr_col_ct]), 1, token_ptrs, token_slens);
-            if (unlikely(!linebuf_iter)) {
+            char* info_start = NextTokenMult(linebuf_iter, col_skips[relevant_postchr_col_ct]);
+            if (unlikely(!info_start)) {
               goto LoadPvar_ret_MISSING_TOKENS;
             }
+            token_ptrs[6] = info_start;
+            linebuf_iter = CurTokenEndFar(info_start);
+            token_slens[6] = linebuf_iter - info_start;
           }
           line_iter = AdvToDelimNear(linebuf_iter, '\n');
           const uint32_t info_slen = token_slens[6];

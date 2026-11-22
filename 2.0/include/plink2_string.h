@@ -1385,8 +1385,7 @@ HEADER_INLINE char* NextTokenMult0(char* str, uint32_t ct) {
 // line's last token ended, vector-to-scalar-register latency is on the
 // critical path.  (A NEON port of the full-SIMD TokenLexK0() was ~20% slower
 // than this on a 5-column .pvar in Nov 2026 testing on ARM.)  See
-// TokenLexK0LastFar() for the case where the last token is expected to be
-// long.
+// CurTokenEndFar() for the case where a token is expected to be long.
 // AVX2 movemask is cheap enough that the reverse holds there: in Nov 2026
 // x86 testing, the scalar lexers made .pvar loading up to ~11% slower when
 // INFO was present (no difference on a 5-column .pvar), so AVX2 builds keep
@@ -1479,33 +1478,11 @@ HEADER_INLINE CXXCONST_CP CurTokenEndFar(const char* str_iter) {
 }
 #endif
 
-// Same semantics as TokenLexK0(), but uses CurTokenEndFar() to find the end
-// of the last token.  Use this when the last token is often long (e.g. a .pvar
-// INFO column); stick to TokenLexK0() otherwise, since this is slightly slower
-// when the last token is short.
-HEADER_INLINE const char* TokenLexK0LastFar(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
-  const uint32_t relevant_col_ct_m1 = relevant_col_ct - 1;
-  for (uint32_t relevant_col_idx = 0; ; ++relevant_col_idx) {
-    // only col_skips[0] can be zero
-    const uint32_t cur_col_skip = col_skips[relevant_col_idx];
-    if (cur_col_skip) {
-      str_iter = NextTokenMult(str_iter, cur_col_skip);
-      if (!str_iter) {
-        return nullptr;
-      }
-    }
-    const uint32_t cur_col_type = col_types[relevant_col_idx];
-    token_ptrs[cur_col_type] = str_iter;
-    if (relevant_col_idx == relevant_col_ct_m1) {
-      const char* token_end = CurTokenEndFar(str_iter);
-      token_slens[cur_col_type] = token_end - str_iter;
-      return token_end;
-    }
-    const char* token_end = CurTokenEnd(str_iter);
-    token_slens[cur_col_type] = token_end - str_iter;
-    str_iter = token_end;
-  }
+#ifdef __cplusplus
+HEADER_INLINE char* CurTokenEndFar(char* str_iter) {
+  return const_cast<char*>(CurTokenEndFar(const_cast<const char*>(str_iter)));
 }
+#endif
 
 HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
   return K_CAST(char*, TokenLexK(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
@@ -1513,10 +1490,6 @@ HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const ui
 
 HEADER_INLINE char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
   return K_CAST(char*, TokenLexK0(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
-}
-
-HEADER_INLINE char* TokenLex0LastFar(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
-  return K_CAST(char*, TokenLexK0LastFar(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
 }
 
 // ct must be positive for these functions.
