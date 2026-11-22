@@ -58,6 +58,9 @@ jobs:
     # needs: check_commits  # COMMENTED OUT - no longer conditional on commit check
     # if: needs.check_commits.outputs.new_commits == 'true'  # COMMENTED OUT - runs unconditionally
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: read  # to look up this run's creation time (batch number)
     # Normally about 5-10 minutes.  This bounds a hang (e.g. on unreachable
     # package mirrors) well below GitHub's 6-hour default.
     timeout-minutes: 30
@@ -85,11 +88,28 @@ jobs:
             unzip \
             bc
 
-      # Derived from the date, so a failed run or an evicted cache cannot skip a batch
+      # Derived from the ISO week in which this run was created (not the current
+      # date), so that re-running a failed run in a later week still tests the
+      # batch it was scheduled for.  (Using the current date skipped Batch 10 in
+      # Nov 2026: the Nov 8 run lost its test-data cache, was re-run on Nov 9,
+      # and ran Batch 11.)
       - name: Determine batch number
         id: batch
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          BATCH=$(( 10#$(date -u +%V) % 12 + 1 ))
+          CREATED=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" --jq .created_at || true)
+          WEEK=""
+          if [ -n "$CREATED" ]; then
+            # GNU date (Linux), then BSD date (macOS)
+            WEEK=$(date -u -d "$CREATED" +%V 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED" +%V 2>/dev/null || true)
+          fi
+          if [ -z "$WEEK" ]; then
+            echo "::warning::Could not determine the run's creation week; using the current date."
+            WEEK=$(date -u +%V)
+          fi
+          echo "Run created: ${CREATED:-unknown} (ISO week $WEEK)"
+          BATCH=$(( 10#$WEEK % 12 + 1 ))
           echo "batch_number=$BATCH" >> "$GITHUB_OUTPUT"
           echo "GLM_BATCH_NUM=$BATCH" >> "$GITHUB_ENV"
           echo "Running Batch $BATCH of 12"

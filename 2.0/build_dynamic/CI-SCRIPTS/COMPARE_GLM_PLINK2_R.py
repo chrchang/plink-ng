@@ -65,8 +65,19 @@ def COMPARE_GLM_PLINK2_R(plink_file, R_file):
     diff_beta = (merged["beta_plink"] - merged["beta"]).abs().median() / merged["beta"].abs().median()
     diff_se = (merged[se_col] - merged["se"]).abs().median() / merged["se"].abs().median()
     diff_p = (merged["P"] - merged["p"]).abs().median()
+    # The current Firth R references don't contain Wald SEs: the PLINK2SYN
+    # script (code/RUNGWAS_R_keep.R) reads sqrt(diag(fit$var))["SNP"], but
+    # logistf's fit$var has no dimnames, so that is always NA and the script
+    # falls back to (ci.upper - ci.lower) / (2 * 1.96) with the profile
+    # penalized-likelihood CI (pl=TRUE).  That diverges from the Wald SE that
+    # plink2 reports for small samples and rare variants, so don't use SE in
+    # the Firth value check until the references are regenerated with
+    # sqrt(diag(vcov(fit))).  (Those references' p-values are also from the
+    # profile likelihood; they're still checked, since they agree closely.)
+    is_firth = str(plink_file).endswith(".glm.firth")
+    se_checked = not is_firth
     # shortcut: 5% was not calibrated against CI data, tighten it once the weekly job has reported values
-    differences_ok = bool(diff_beta <= 0.05 and diff_se <= 0.05 and diff_p <= 0.05)
+    differences_ok = bool(diff_beta <= 0.05 and ((not se_checked) or diff_se <= 0.05) and diff_p <= 0.05)
 
     # --- Print quick summary ---
     print(f"\n🔹 Correlation between PLINK and R betas/log(OR): {corr_beta:.4f}")
@@ -74,6 +85,8 @@ def COMPARE_GLM_PLINK2_R(plink_file, R_file):
 
     # No decimal point: the shell caller reads any decimal in this output as a correlation.
     print(f"\n🔹 Median differences: beta {diff_beta:.0%}, SE {diff_se:.0%}, P {diff_p:.0%} (limit 5%)")
+    if not se_checked:
+        print("🔹 SE not checked for Firth: the R reference SEs come from profile-likelihood CIs, not Wald SEs.")
     if not differences_ok:
         print("❌ PLINK and R values differ by more than the limit.")
 
