@@ -3568,7 +3568,7 @@ BoolErr FillSampleOffsetsD(const double* pheno_d, const double* covars_cmaj_d, u
   return 0;
 }
 
-BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_third_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_third_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, double** covar_beta_mults_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
   const uint32_t is_single_prec = (glm_flags / kfGlmSinglePrecCc) & 1;
   const uintptr_t sample_ctav = is_single_prec? RoundUpPow2(sample_ct, kFloatPerFVec) : RoundUpPow2(sample_ct, kDoublePerDVec);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
@@ -3665,7 +3665,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   }
   uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
   FillPhenoCc(sample_include, pheno_cc, sample_ct, pheno_cc_collapsed, is_single_prec? *pheno_f_ptr : nullptr, is_single_prec? nullptr : *pheno_d_ptr);
-  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, *cur_covar_names_ptr, glm_err_ptr);
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, !(glm_flags & (kfGlmIntercept | kfGlmInteraction)), covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, covar_beta_mults_ptr, *cur_covar_names_ptr, glm_err_ptr);
   if (unlikely(reterr)) {
     return (reterr == kPglRetNomem);
   }
@@ -5593,6 +5593,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     uint32_t cur_constraint_ct = 0;
 
     const char* const* cur_test_names = nullptr;
+    const double* cur_test_mults = nullptr;
     uint32_t prev_block_variant_ct = 0;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
@@ -5669,14 +5670,17 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               cur_biallelic_reported_test_ct = biallelic_reported_test_ct_x;
               cur_constraint_ct = constraint_ct_x;
               cur_test_names = test_names_x;
+              cur_test_mults = common->test_beta_mults_x;
             } else if ((chr_idx == y_code) && sample_ct_y) {
               cur_biallelic_reported_test_ct = biallelic_reported_test_ct_y;
               cur_constraint_ct = constraint_ct_y;
               cur_test_names = test_names_y;
+              cur_test_mults = common->test_beta_mults_y;
             } else {
               cur_biallelic_reported_test_ct = biallelic_reported_test_ct;
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
+              cur_test_mults = common->test_beta_mults;
             }
             suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
@@ -5946,6 +5950,12 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     zscore = beta / se;
                     permstat = fabs(zscore);
                     ln_pval = ZscoreToLnP(zscore);
+                  }
+                  if (cur_test_mults && test_is_valid && (test_idx < cur_biallelic_reported_test_ct)) {
+                    // translate back to original covariate units
+                    const double cur_mult = cur_test_mults[test_idx];
+                    beta *= cur_mult;
+                    se *= cur_mult;
                   }
                   if (orbeta_col) {
                     *cswritep++ = '\t';

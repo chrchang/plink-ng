@@ -478,6 +478,11 @@ cd TEST_GLM_PERM
 cd ..
 echo "TEST_GLM_PERM passed."
 
+cd TEST_GLM_AUTO_RESCALE
+./run_tests.sh $d $2 $3 > TEST_GLM_AUTO_RESCALE.log
+cd ..
+echo "TEST_GLM_AUTO_RESCALE passed."
+
 cd TEST_LD_CONSOLE_CHRX_FEMALES
 ./run_tests.sh $d $2 $3 > TEST_LD_CONSOLE_CHRX_FEMALES.log
 cd ..
