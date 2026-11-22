@@ -879,6 +879,10 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
   //   https://github.com/georgheinze/logistf
   // (Before 30 Dec 2022, this function was based on an earlier version of
   // logistf.)
+  // Re-verified against logistf 1.26.1 in Nov 2026; see
+  // FirthRegressionConstrainedD() for details.  The only intentional
+  // difference here is the looser convergence tolerances, since single
+  // precision can't reliably reach logistf's 1e-5.
   //
   // Preallocated buffers (initial contents irrelevant):
   // half_inverted_buf, inv_1d_buf, dbl_2d_buf = for matrix inversion
@@ -3101,6 +3105,20 @@ BoolErr FirthRegressionConstrainedD(const double* yy, const double* xx, const do
   // This is a port of Georg Heinze's logistf 1.24.1 R function (called with
   // pl=FALSE), adapted to use many of plink 1.9's optimizations; see
   //   https://github.com/georgheinze/logistf
+  //
+  // Re-verified in Nov 2026 against logistf 1.26.1 (whose fitting now happens
+  // in logistffit_revised() in src/logistf.c, the default fit="NR"; 1.26.0
+  // and 1.26.1 differ only in LINPACK vs. LAPACK determinant/inverse calls).
+  // Score, hat values, step matrix, penalty, default constants (maxit 25,
+  // maxstep 5, xconv/gconv/lconv 1e-5, no step-halving), convergence tests,
+  // zero starting point, and the maximum number of updates (26) all match.
+  // The returned variance-covariance matrix is, as in logistf, the inverse of
+  // X^T diag((1 + hdiag) * V) X from the last step, i.e. evaluated at the
+  // penultimate iterate.  Minor differences: logistf errors out when
+  // log(det(X^T V X)) < -200, rather than only when inversion fails; and
+  // logistf's R wrapper warns about the iteration limit whenever the 26th
+  // update happens, even if it converged, while we only set *is_unfinished_ptr
+  // when it didn't.
   //
   // If free_predictor_ct < predictor_ct, only the first free_predictor_ct
   // coefficients are updated; the rest stay at their starting values (so,
