@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: build.sh [plink2 build dir, default ../../build_dynamic]
+# Usage: build.sh [plink2 build dir, default ../../../build_dynamic]
 # Builds ./plink2_fullprec (next to this script): identical to the plink2 binary in that
 # directory except that --glm linear/logistic output and .psam phenotype output
 # (used by the harness to recover the exact values plink2 parsed) have 17
@@ -7,7 +7,7 @@
 # The build directory must already contain an up-to-date plink2 build.
 set -eo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-bdir=$(cd "${1:-$here/../../build_dynamic}" && pwd)
+bdir=$(cd "${1:-$here/../../../build_dynamic}" && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 cd "$bdir"

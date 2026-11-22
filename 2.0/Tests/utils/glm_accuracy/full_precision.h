@@ -5,7 +5,7 @@
 #define GLM_ACCURACY_FULL_PRECISION_H
 
 #include <stdio.h>
-#include "../../include/plink2_string.h"
+#include "../../../include/plink2_string.h"
 
 #ifdef __cplusplus
 namespace plink2 {
