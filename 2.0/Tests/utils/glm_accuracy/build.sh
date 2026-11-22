@@ -5,6 +5,7 @@
 # (used by the harness to recover the exact values plink2 parsed) have 17
 # significant digits.
 # The build directory must already contain an up-to-date plink2 build.
+# EXTRA_CXXFLAGS (environment) is appended when compiling the replaced files.
 set -eo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 bdir=$(cd "${1:-$here/../../../build_dynamic}" && pwd)
@@ -15,7 +16,7 @@ cd "$bdir"
 dryrun=$(make -n -B 2>/dev/null)
 flags=$(echo "$dryrun" | grep -- '-std=c++' | head -n 1 | sed -e 's/ \.\.\/[^ ]*\.cc//g' -e 's/ -c$//')
 for f in plink2_glm_linear plink2_glm_logistic plink2_data; do
-    eval "$flags -include $here/full_precision.h -Wno-unused-function ../$f.cc -c -o $tmp/$f.o"
+    eval "$flags ${EXTRA_CXXFLAGS:-} -include $here/full_precision.h -Wno-unused-function ../$f.cc -c -o $tmp/$f.o"
 done
 objs=$(ls *.o | grep -v -e '^plink2_glm_linear\.o$' -e '^plink2_glm_logistic\.o$' -e '^plink2_data\.o$' | sed "s|^|$bdir/|" | tr "\n" " ")
 linkcmd=$(echo "$dryrun" | grep -- '-o plink2' | head -n 1)

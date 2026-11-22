@@ -22,7 +22,9 @@ Reported per scenario, separately for ADD rows and covariate/intercept rows
   relSE   |SE - SE_ref| / SE_ref
 All are printed as log10 values; -16 is roughly perfect double precision.
 Logistic/Firth beta errors also include plink2's convergence tolerance, which
-is not a numerical-linear-algebra issue.
+is not a numerical-linear-algebra issue.  For single-precision scenarios, two
+extra rows split the error into "[input]" (unavoidable rounding of the
+standardized predictors to float) and "[algo]" (everything else).
 
 Pure Python (no numpy) so it runs anywhere.
 """
@@ -32,6 +34,7 @@ import math
 import os
 import random
 import shutil
+import struct
 import subprocess
 import sys
 from decimal import Decimal, getcontext
@@ -174,7 +177,7 @@ def logistic_reference(cols, y, firth):
 class Scenario:
     def __init__(self, name, kind, n, variant_ct=5, seed=1, y_offset=0.0,
                  covar_means=(0.0, 0.0, 0.0), covar_sds=(1.0, 1.0, 1.0),
-                 vif_link=False, missing_rate=0.0, glm_mods=(), y_scale=1.0):
+                 vif_link=False, missing_rate=0.0, glm_mods=(), y_scale=1.0, covar_corr=0.0):
         self.name = name
         self.kind = kind  # "linear", "logistic", "firth"
         self.n = n
@@ -187,6 +190,7 @@ class Scenario:
         self.vif_link = vif_link
         self.missing_rate = missing_rate
         self.glm_mods = list(glm_mods)
+        self.covar_corr = covar_corr
 
     def generate(self):
         rng = random.Random(self.seed)
@@ -209,6 +213,11 @@ class Scenario:
             if self.vif_link and c == 0:
                 # strongly correlated with the first variant's genotypes
                 col = [m + sd * (base[i] - 0.5 + rng.gauss(0, 0.25)) for i in range(n)]
+            elif self.covar_corr and c == 2:
+                # correlated with the second covariate
+                r = self.covar_corr
+                z2 = [(x - self.covar_means[1]) / self.covar_sds[1] for x in covars[1]]
+                col = [m + sd * (r * z + math.sqrt(1 - r * r) * rng.gauss(0, 1)) for z in z2]
             else:
                 col = [m + sd * rng.gauss(0, 1) for _ in range(n)]
             covars.append([float(repr(x)) for x in col])
@@ -249,6 +258,9 @@ def scenarios():
         Scenario("firth_uncentered_covars", "firth", 1000, variant_ct=3, covar_means=unc, glm_mods=["firth"]),
         Scenario("logsp_baseline", "logistic", 4000, variant_ct=3, glm_mods=["no-firth", "single-prec-cc"]),
         Scenario("logsp_uncentered_covars", "logistic", 4000, variant_ct=3, covar_means=unc, glm_mods=["no-firth", "single-prec-cc"]),
+        Scenario("logsp_corr_covars", "logistic", 4000, variant_ct=3, covar_corr=0.985, glm_mods=["no-firth", "single-prec-cc"]),
+        Scenario("logsp_high_vif", "logistic", 4000, variant_ct=3, vif_link=True, covar_corr=0.985, glm_mods=["no-firth", "single-prec-cc"]),
+        Scenario("log_corr_covars", "logistic", 4000, variant_ct=3, covar_corr=0.985, glm_mods=["no-firth"]),
     ]
     return out
 
@@ -323,10 +335,71 @@ def log10_or_floor(x):
     return -99.0 if x == 0 else math.log10(x)
 
 
-def evaluate(sc, rows):
-    covar_names = ["C%d" % (c + 1) for c in range(len(sc.covars))]
-    stats = {"ADD": [-99.0] * 3, "covar": [-99.0] * 3}
+def to_float32(x):
+    return struct.unpack("f", struct.pack("f", x))[0]
+
+
+def float_input_covars(sc):
+    """Replicates what plink2's single-precision logistic regression sees:
+    covariates centered and variance-standardized in double precision exactly
+    as RescaleCovars() does it (same operation order), then rounded to float.
+    Returns (rounded standardized covariate columns, coefficient multipliers
+    back to original units)."""
+    n = sc.n
+    out = []
+    mults = []
+    for col in sc.covars:
+        tot = 0.0
+        for x in col:
+            tot += x
+        mean = tot * (1.0 / n)
+        cssq = 0.0
+        for x in col:
+            d = x - mean
+            cssq += d * d
+        inv_scale = 1.0 / math.sqrt(cssq / (n - 1))
+        out.append([to_float32((x - mean) * inv_scale) for x in col])
+        mults.append(inv_scale)
+    return out, mults
+
+
+def compare(rows, v, tests, ref_b, ref_se, stats):
     na_ct = 0
+    for j, test in enumerate(tests):
+        key = ("v%d" % v, test)
+        if key not in rows:
+            continue
+        got = rows[key]
+        if got is None:
+            na_ct += 1
+            continue
+        b, se = got
+        d = abs(b - ref_b[j])
+        cur = [d / ref_se[j], d / abs(ref_b[j]) if ref_b[j] else 0.0, abs(se - ref_se[j]) / ref_se[j]]
+        slot = stats["ADD" if test == "ADD" else "covar"]
+        for m in range(3):
+            slot[m] = max(slot[m], log10_or_floor(cur[m]))
+    return na_ct
+
+
+def new_stats():
+    return {"ADD": [-99.0] * 3, "covar": [-99.0] * 3}
+
+
+def evaluate(sc, rows):
+    """Returns a list of (label suffix, stats, NA count).  For single-precision
+    logistic scenarios, the error is also split into input quantization (the
+    exact fit on float-rounded standardized predictors vs. the exact fit on the
+    original doubles) and everything else (plink2 vs. the former)."""
+    covar_names = ["C%d" % (c + 1) for c in range(len(sc.covars))]
+    tests = ["INTERCEPT", "ADD"] + covar_names
+    split = "single-prec-cc" in sc.glm_mods and not ({"intercept", "interaction"} & set(sc.glm_mods))
+    stats = new_stats()
+    stats_input = new_stats()
+    stats_algo = new_stats()
+    na_ct = 0
+    if split:
+        fcovars, mults = float_input_covars(sc)
     for v, g in enumerate(sc.genos):
         keep = [i for i in range(sc.n) if g[i] is not None]
         cols = [[1.0] * len(keep), [float(g[i]) for i in keep]] + [[c[i] for i in keep] for c in sc.covars]
@@ -335,22 +408,23 @@ def evaluate(sc, rows):
             ref_b, ref_se = linear_reference(cols, y)
         else:
             ref_b, ref_se = logistic_reference(cols, y, sc.kind == "firth")
-        tests = ["INTERCEPT", "ADD"] + covar_names
-        for j, test in enumerate(tests):
-            key = ("v%d" % v, test)
-            if key not in rows:
-                continue
-            got = rows[key]
-            if got is None:
-                na_ct += 1
-                continue
-            b, se = got
-            d = abs(b - ref_b[j])
-            cur = [d / ref_se[j], d / abs(ref_b[j]) if ref_b[j] else 0.0, abs(se - ref_se[j]) / ref_se[j]]
-            slot = stats["ADD" if test == "ADD" else "covar"]
-            for m in range(3):
-                slot[m] = max(slot[m], log10_or_floor(cur[m]))
-    return stats, na_ct
+        na_ct += compare(rows, v, tests, ref_b, ref_se, stats)
+        if split:
+            fcols = cols[:2] + [[c[i] for i in keep] for c in fcovars]
+            fb, fse = logistic_reference(fcols, y, False)
+            # translate covariate coefficients back to original units, as
+            # plink2 does (intercept differs due to centering; not reported)
+            for c, m in enumerate(mults):
+                fb[2 + c] *= m
+                fse[2 + c] *= m
+            frows = {("v%d" % v, t): (fb[j], fse[j]) for j, t in enumerate(tests) if ("v%d" % v, t) in rows}
+            compare(frows, v, tests, ref_b, ref_se, stats_input)
+            compare(rows, v, tests, fb, fse, stats_algo)
+    out = [("", stats, na_ct)]
+    if split:
+        out.append((" [input]", stats_input, 0))
+        out.append((" [algo]", stats_algo, 0))
+    return out
 
 
 def main():
@@ -373,9 +447,9 @@ def main():
         sc.generate()
         write_inputs(sc, wdir)
         rows = run_plink2(plink2, sc, wdir)
-        stats, na_ct = evaluate(sc, rows)
         fmt = lambda s: "%6.1f %6.1f %6.1f" % tuple(s)
-        print("%-26s | %-22s | %-22s | %d" % (sc.name, fmt(stats["ADD"]), fmt(stats["covar"]), na_ct), flush=True)
+        for suffix, stats, na_ct in evaluate(sc, rows):
+            print("%-26s | %-22s | %-22s | %d" % (sc.name + suffix, fmt(stats["ADD"]), fmt(stats["covar"]), na_ct), flush=True)
         if not args.keep:
             shutil.rmtree(wdir)
 
