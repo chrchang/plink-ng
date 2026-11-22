@@ -2809,7 +2809,306 @@ void SolveLinearSystemD(const double* ll, const double* yy, uint32_t predictor_c
   }
 }
 
-BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t* is_unfinished_ptr, double* __restrict coef, double* __restrict ll, double* __restrict pp, double* __restrict vv, double* __restrict hh, double* __restrict grad, double* __restrict dcoef, MatrixInvertBuf1* __restrict mi_buf, double* __restrict dbl_2d_buf) {
+// ---- categorical-covariate structure ----
+//
+// A categorical covariate with L dummy columns has, for each sample, at most
+// one dummy "on".  After rescaling, dummy d's column is
+//   x_d[i] = b_d + a_d * [level[i] == d + 1],
+// with b_d = val0 and a_d = val1 - val0.  So every Hessian/gradient entry
+// involving dummy columns can be computed from per-level sums gathered in one
+// pass over the samples, instead of one pass per dummy (or per dummy pair):
+//   sum_i w_i x_d[i] y[i] = b_d * sum_i w_i y[i] + a_d * sum_{i in level d+1} w_i y[i].
+
+typedef struct CatPredLayoutStruct {
+  uint32_t family_ct;
+  const uint32_t* pred_starts;  // predictor index of each family's first dummy
+  const uint32_t* dummy_cts;
+  const uint32_t* levels;  // family-major, row stride level_stride
+  uintptr_t level_stride;
+  const double* val0s;  // per dummy, family-major
+  const double* val1s;
+  double* scratch;  // CatScratchDoubleCt() elements
+} CatPredLayout;
+
+typedef struct CatWorkStruct {
+  uint32_t dense_ct;
+  uint32_t dense_ctav;
+  uint32_t* dense_idxs;
+  double* dense_xx;  // gathered dense predictor rows, stride sample_ctav
+  double* dense_hh;  // dense_ct x dense_ctav
+  double* dense_vec;  // dense_ctav
+  double* level_sums;  // per family: (dense_ct + 2) x (dummy_ct + 1)
+  double* joint_sums;  // per family pair (f < g): (L_f + 1) x (L_g + 1)
+} CatWork;
+
+uintptr_t CatScratchDoubleCt(const CatCovarLayout* cl, uint32_t max_predictor_ct, uint32_t sample_ct) {
+  if ((!cl) || (!cl->family_ct)) {
+    return 0;
+  }
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uintptr_t max_dense_ct = max_predictor_ct - cl->dummy_ct;
+  const uintptr_t max_dense_ctav = RoundUpPow2(max_dense_ct, kDoublePerDVec);
+  uintptr_t ct = (max_predictor_ct + 1) / 2;  // dense_idxs
+  ct += max_dense_ct * sample_ctav;
+  ct += max_dense_ct * max_dense_ctav;
+  ct += max_dense_ctav;
+  for (uint32_t family_idx = 0; family_idx != cl->family_ct; ++family_idx) {
+    const uintptr_t lp1 = cl->dummy_cts[family_idx] + 1;
+    ct += (max_dense_ct + 2) * lp1;
+    for (uint32_t family_idx2 = family_idx + 1; family_idx2 != cl->family_ct; ++family_idx2) {
+      ct += lp1 * (cl->dummy_cts[family_idx2] + 1);
+    }
+  }
+  return ct + 8;
+}
+
+// Extra per-thread workspace for GlmLogisticThreadD()'s categorical path.
+uintptr_t CatWorkspaceBytes(const CatCovarLayout* cl, uint32_t max_predictor_ct, uint32_t sample_ct) {
+  if ((!cl) || (!cl->family_ct)) {
+    return 0;
+  }
+  return RoundUpPow2(CatScratchDoubleCt(cl, max_predictor_ct, sample_ct) * sizeof(double), kCacheline) + RoundUpPow2(S_CAST(uintptr_t, cl->family_ct) * (sample_ct + 1) * sizeof(int32_t), kCacheline);
+}
+
+static void CatWorkInit(const CatPredLayout* cat, const double* xx, uint32_t sample_ct, uint32_t predictor_ct, CatWork* cw) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  double* scratch = cat->scratch;
+  cw->dense_idxs = R_CAST(uint32_t*, scratch);
+  scratch = &(scratch[(predictor_ct + 1) / 2]);
+  // mark dummy predictors
+  uint32_t dense_ct = 0;
+  {
+    uint32_t family_idx = 0;
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ) {
+      if ((family_idx != cat->family_ct) && (pred_idx == cat->pred_starts[family_idx])) {
+        pred_idx += cat->dummy_cts[family_idx];
+        ++family_idx;
+        continue;
+      }
+      cw->dense_idxs[dense_ct++] = pred_idx;
+      ++pred_idx;
+    }
+  }
+  const uint32_t dense_ctav = RoundUpPow2(dense_ct, kDoublePerDVec);
+  cw->dense_ct = dense_ct;
+  cw->dense_ctav = dense_ctav;
+  // keep the gathered rows vector-aligned
+  scratch = R_CAST(double*, RoundUpPow2(R_CAST(uintptr_t, scratch), kBytesPerDVec));
+  cw->dense_xx = scratch;
+  scratch = &(scratch[dense_ct * sample_ctav]);
+  cw->dense_hh = scratch;
+  scratch = &(scratch[dense_ct * dense_ctav]);
+  cw->dense_vec = scratch;
+  scratch = &(scratch[dense_ctav]);
+  cw->level_sums = scratch;
+  for (uint32_t family_idx = 0; family_idx != cat->family_ct; ++family_idx) {
+    scratch = &(scratch[(dense_ct + 2) * (cat->dummy_cts[family_idx] + 1)]);
+  }
+  cw->joint_sums = scratch;
+  for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+    memcpy(&(cw->dense_xx[dense_idx * sample_ctav]), &(xx[cw->dense_idxs[dense_idx] * sample_ctav]), sample_ctav * sizeof(double));
+  }
+}
+
+static inline void CatSetLower(uintptr_t stride, uint32_t pred_idx1, uint32_t pred_idx2, double val, double* hh) {
+  if (pred_idx1 < pred_idx2) {
+    const uint32_t tmp = pred_idx1;
+    pred_idx1 = pred_idx2;
+    pred_idx2 = tmp;
+  }
+  hh[pred_idx1 * stride + pred_idx2] = val;
+}
+
+// Fills the lower triangle of hh = X^T diag(ww) X (row stride
+// RoundUpPow2(predictor_ct, kDoublePerDVec)), like ComputeHessianD().
+static void CatHessian(const CatPredLayout* cat, CatWork* cw, const double* ww, uint32_t sample_ct, uint32_t predictor_ct, double* hh) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uintptr_t stride = RoundUpPow2(predictor_ct, kDoublePerDVec);
+  const uint32_t dense_ct = cw->dense_ct;
+  const uint32_t dense_ctav = cw->dense_ctav;
+  const uint32_t* dense_idxs = cw->dense_idxs;
+  const double* dense_xx = cw->dense_xx;
+  ComputeHessianD(dense_xx, ww, sample_ct, dense_ct, cw->dense_hh);
+  for (uint32_t dense_idx1 = 0; dense_idx1 != dense_ct; ++dense_idx1) {
+    const double* hh_row = &(cw->dense_hh[dense_idx1 * dense_ctav]);
+    for (uint32_t dense_idx2 = 0; dense_idx2 <= dense_idx1; ++dense_idx2) {
+      CatSetLower(stride, dense_idxs[dense_idx1], dense_idxs[dense_idx2], hh_row[dense_idx2], hh);
+    }
+  }
+  double wsum = 0.0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    wsum += ww[sample_idx];
+  }
+  // Per family: rows 0..dense_ct-1 of level_sums are sum_{level} w*x_dense,
+  // row dense_ct is sum_{level} w.
+  double* level_sums_iter = cw->level_sums;
+  const double* val0s = cat->val0s;
+  const double* val1s = cat->val1s;
+  for (uint32_t family_idx = 0; family_idx != cat->family_ct; ++family_idx) {
+    const uint32_t dummy_ct = cat->dummy_cts[family_idx];
+    const uint32_t lp1 = dummy_ct + 1;
+    const uint32_t pred_start = cat->pred_starts[family_idx];
+    const uint32_t* levels = &(cat->levels[family_idx * cat->level_stride]);
+    double* sums = level_sums_iter;
+    ZeroDArr((dense_ct + 1) * lp1, sums);
+    double* wsums = &(sums[dense_ct * lp1]);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uint32_t level = levels[sample_idx];
+      const double cur_w = ww[sample_idx];
+      wsums[level] += cur_w;
+      const double* xx_col = &(dense_xx[sample_idx]);
+      double* sums_col = &(sums[level]);
+      for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+        sums_col[dense_idx * lp1] += cur_w * xx_col[dense_idx * sample_ctav];
+      }
+    }
+    // dense x dummy
+    for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+      const double* cur_sums = &(sums[dense_idx * lp1]);
+      double tot = 0.0;
+      for (uint32_t level = 0; level != lp1; ++level) {
+        tot += cur_sums[level];
+      }
+      for (uint32_t dummy_idx = 0; dummy_idx != dummy_ct; ++dummy_idx) {
+        const double bb = val0s[dummy_idx];
+        const double aa = val1s[dummy_idx] - bb;
+        CatSetLower(stride, pred_start + dummy_idx, dense_idxs[dense_idx], bb * tot + aa * cur_sums[dummy_idx + 1], hh);
+      }
+    }
+    // dummy x dummy, same family
+    for (uint32_t dummy_idx1 = 0; dummy_idx1 != dummy_ct; ++dummy_idx1) {
+      const double bb1 = val0s[dummy_idx1];
+      const double aa1 = val1s[dummy_idx1] - bb1;
+      const double w1 = wsums[dummy_idx1 + 1];
+      double* hh_row = &(hh[(pred_start + dummy_idx1) * stride + pred_start]);
+      for (uint32_t dummy_idx2 = 0; dummy_idx2 < dummy_idx1; ++dummy_idx2) {
+        const double bb2 = val0s[dummy_idx2];
+        const double aa2 = val1s[dummy_idx2] - bb2;
+        hh_row[dummy_idx2] = bb1 * bb2 * wsum + bb1 * aa2 * wsums[dummy_idx2 + 1] + aa1 * bb2 * w1;
+      }
+      hh_row[dummy_idx1] = bb1 * bb1 * wsum + (2 * bb1 + aa1) * aa1 * w1;
+    }
+    level_sums_iter = &(level_sums_iter[(dense_ct + 2) * lp1]);
+    val0s = &(val0s[dummy_ct]);
+    val1s = &(val1s[dummy_ct]);
+  }
+  // dummy x dummy, different families
+  if (cat->family_ct > 1) {
+    double* joint_iter = cw->joint_sums;
+    const double* fam_val0s = cat->val0s;
+    const double* fam_val1s = cat->val1s;
+    const double* fam_sums = cw->level_sums;
+    for (uint32_t family_idx1 = 0; family_idx1 != cat->family_ct; ++family_idx1) {
+      const uint32_t l1 = cat->dummy_cts[family_idx1];
+      const uint32_t lp1_1 = l1 + 1;
+      const uint32_t* levels1 = &(cat->levels[family_idx1 * cat->level_stride]);
+      const double* wsums1 = &(fam_sums[dense_ct * lp1_1]);
+      const double* fam2_val0s = &(fam_val0s[l1]);
+      const double* fam2_val1s = &(fam_val1s[l1]);
+      const double* fam2_sums = &(fam_sums[(dense_ct + 2) * lp1_1]);
+      for (uint32_t family_idx2 = family_idx1 + 1; family_idx2 != cat->family_ct; ++family_idx2) {
+        const uint32_t l2 = cat->dummy_cts[family_idx2];
+        const uint32_t lp1_2 = l2 + 1;
+        const uint32_t* levels2 = &(cat->levels[family_idx2 * cat->level_stride]);
+        const double* wsums2 = &(fam2_sums[dense_ct * lp1_2]);
+        double* joint = joint_iter;
+        ZeroDArr(lp1_1 * lp1_2, joint);
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          joint[levels1[sample_idx] * lp1_2 + levels2[sample_idx]] += ww[sample_idx];
+        }
+        for (uint32_t dummy_idx1 = 0; dummy_idx1 != l1; ++dummy_idx1) {
+          const double bb1 = fam_val0s[dummy_idx1];
+          const double aa1 = fam_val1s[dummy_idx1] - bb1;
+          const double w1 = wsums1[dummy_idx1 + 1];
+          const double* joint_row = &(joint[(dummy_idx1 + 1) * lp1_2 + 1]);
+          for (uint32_t dummy_idx2 = 0; dummy_idx2 != l2; ++dummy_idx2) {
+            const double bb2 = fam2_val0s[dummy_idx2];
+            const double aa2 = fam2_val1s[dummy_idx2] - bb2;
+            CatSetLower(stride, cat->pred_starts[family_idx1] + dummy_idx1, cat->pred_starts[family_idx2] + dummy_idx2, bb1 * bb2 * wsum + bb1 * aa2 * wsums2[dummy_idx2 + 1] + aa1 * bb2 * w1 + aa1 * aa2 * joint_row[dummy_idx2], hh);
+          }
+        }
+        joint_iter = &(joint_iter[lp1_1 * lp1_2]);
+        fam2_val0s = &(fam2_val0s[l2]);
+        fam2_val1s = &(fam2_val1s[l2]);
+        fam2_sums = &(fam2_sums[(dense_ct + 2) * lp1_2]);
+      }
+      fam_val0s = &(fam_val0s[l1]);
+      fam_val1s = &(fam_val1s[l1]);
+      fam_sums = &(fam_sums[(dense_ct + 2) * lp1_1]);
+    }
+  }
+}
+
+// grad = X^T rr
+static void CatGrad(const CatPredLayout* cat, CatWork* cw, const double* rr, uint32_t sample_ct, double* grad) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uint32_t dense_ct = cw->dense_ct;
+  ColMajorVectorMatrixMultiplyStrided(rr, cw->dense_xx, sample_ct, sample_ctav, dense_ct, cw->dense_vec);
+  for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+    grad[cw->dense_idxs[dense_idx]] = cw->dense_vec[dense_idx];
+  }
+  double rsum = 0.0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    rsum += rr[sample_idx];
+  }
+  const double* val0s = cat->val0s;
+  const double* val1s = cat->val1s;
+  double* rsums = cw->level_sums;  // reuse; CatHessian() repopulates
+  for (uint32_t family_idx = 0; family_idx != cat->family_ct; ++family_idx) {
+    const uint32_t dummy_ct = cat->dummy_cts[family_idx];
+    const uint32_t* levels = &(cat->levels[family_idx * cat->level_stride]);
+    ZeroDArr(dummy_ct + 1, rsums);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      rsums[levels[sample_idx]] += rr[sample_idx];
+    }
+    const uint32_t pred_start = cat->pred_starts[family_idx];
+    for (uint32_t dummy_idx = 0; dummy_idx != dummy_ct; ++dummy_idx) {
+      const double bb = val0s[dummy_idx];
+      grad[pred_start + dummy_idx] = bb * rsum + (val1s[dummy_idx] - bb) * rsums[dummy_idx + 1];
+    }
+    val0s = &(val0s[dummy_ct]);
+    val1s = &(val1s[dummy_ct]);
+  }
+}
+
+// eta = X coef.  Trailing elements of eta are left untouched (the caller keeps
+// them zeroed).
+static void CatEta(const CatPredLayout* cat, CatWork* cw, const double* coef, uint32_t sample_ct, double* eta) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uint32_t dense_ct = cw->dense_ct;
+  for (uint32_t dense_idx = 0; dense_idx != dense_ct; ++dense_idx) {
+    cw->dense_vec[dense_idx] = coef[cw->dense_idxs[dense_idx]];
+  }
+  ColMajorMatrixVectorMultiplyStrided(cw->dense_xx, cw->dense_vec, sample_ct, sample_ctav, dense_ct, eta);
+  const double* val0s = cat->val0s;
+  const double* val1s = cat->val1s;
+  double* level_effects = cw->level_sums;
+  for (uint32_t family_idx = 0; family_idx != cat->family_ct; ++family_idx) {
+    const uint32_t dummy_ct = cat->dummy_cts[family_idx];
+    const uint32_t pred_start = cat->pred_starts[family_idx];
+    const uint32_t* levels = &(cat->levels[family_idx * cat->level_stride]);
+    double base = 0.0;
+    level_effects[0] = 0.0;
+    for (uint32_t dummy_idx = 0; dummy_idx != dummy_ct; ++dummy_idx) {
+      const double cur_coef = coef[pred_start + dummy_idx];
+      base += val0s[dummy_idx] * cur_coef;
+      level_effects[dummy_idx + 1] = (val1s[dummy_idx] - val0s[dummy_idx]) * cur_coef;
+    }
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      eta[sample_idx] += base + level_effects[levels[sample_idx]];
+    }
+    val0s = &(val0s[dummy_ct]);
+    val1s = &(val1s[dummy_ct]);
+  }
+}
+// ---- end categorical-covariate structure ----
+
+BoolErr LogisticRegressionCatD(const double* yy, const double* xx, const double* sample_offsets, const CatPredLayout* cat, uint32_t sample_ct, uint32_t predictor_ct, uint32_t* is_unfinished_ptr, double* __restrict coef, double* __restrict ll, double* __restrict pp, double* __restrict vv, double* __restrict hh, double* __restrict grad, double* __restrict dcoef, MatrixInvertBuf1* __restrict mi_buf, double* __restrict dbl_2d_buf) {
+  // cat: if non-null, categorical-covariate structure of xx; see CatPredLayout.
+  CatWork cw;
+  if (cat) {
+    CatWorkInit(cat, xx, sample_ct, predictor_ct, &cw);
+  }
   // This imitates R glm.fit().  Main differences from LogisticRegressionF(),
   // beyond precision:
   // - Initialization is somewhat different.
@@ -2871,13 +3170,30 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     // For the first iteration, we need to initialize coef in the same manner
     // as glm.fit() if we want to generate identical (up to Cholesky rounding)
     // results.
-    BoolErr reterr = LinearRegressionDVec(zz, xx, predictor_ct, sample_ct, coef, hh, grad, mi_buf, dbl_2d_buf);
-    if (unlikely(reterr)) {
-      return 1;
+    if (!cat) {
+      BoolErr reterr = LinearRegressionDVec(zz, xx, predictor_ct, sample_ct, coef, hh, grad, mi_buf, dbl_2d_buf);
+      if (unlikely(reterr)) {
+        return 1;
+      }
+    } else {
+      // X^T X via the weighted-Hessian routine with unit weights (pp is free
+      // here; zz occupies vv), then solve.
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        pp[sample_idx] = 1.0;
+      }
+      ZeroDArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+      CatHessian(cat, &cw, pp, sample_ct, predictor_ct, hh);
+      CatGrad(cat, &cw, zz, sample_ct, grad);
+      CholeskyDecompositionD(hh, predictor_ct, ll);
+      SolveLinearSystemD(ll, grad, predictor_ct, coef);
     }
 
     // P[i] = \sum_j X[i][j] * coef[j];
-    ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    if (!cat) {
+      ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    } else {
+      CatEta(cat, &cw, coef, sample_ct, pp);
+    }
     if (sample_offsets) {
       AddDVec(sample_offsets, sample_ctav, pp);
     }
@@ -2906,11 +3222,19 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     ComputeVAndPMinusYD(yy, sample_ctav, pp, vv);
     // V and P may both contain trailing garbage.
 
-    ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh);
+    if (!cat) {
+      ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh);
+    } else {
+      CatHessian(cat, &cw, vv, sample_ct, predictor_ct, hh);
+    }
 
     // grad = X^T P
     // Separate categorical loop also possible here
-    ColMajorVectorMatrixMultiplyStrided(pp, xx, sample_ct, sample_ctav, predictor_ct, grad);
+    if (!cat) {
+      ColMajorVectorMatrixMultiplyStrided(pp, xx, sample_ct, sample_ctav, predictor_ct, grad);
+    } else {
+      CatGrad(cat, &cw, pp, sample_ct, grad);
+    }
 
     // maybe this should use a QR decomposition instead?
     CholeskyDecompositionD(hh, predictor_ct, ll);
@@ -2921,7 +3245,11 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
       coef[pred_idx] -= dcoef[pred_idx];
     }
     // P[i] = \sum_j X[i][j] * coef[j];
-    ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    if (!cat) {
+      ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    } else {
+      CatEta(cat, &cw, coef, sample_ct, pp);
+    }
     if (sample_offsets) {
       AddDVec(sample_offsets, sample_ctav, pp);
     }
@@ -2945,9 +3273,17 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   // pp holds the probabilities at the final coef; evaluate the information
   // matrix there.
   ComputeVAndPMinusYD(yy, sample_ctav, pp, vv);
-  ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh);
+  if (!cat) {
+    ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh);
+  } else {
+    CatHessian(cat, &cw, vv, sample_ct, predictor_ct, hh);
+  }
   CholeskyDecompositionD(hh, predictor_ct, ll);
   return 0;
+}
+
+BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t* is_unfinished_ptr, double* __restrict coef, double* __restrict ll, double* __restrict pp, double* __restrict vv, double* __restrict hh, double* __restrict grad, double* __restrict dcoef, MatrixInvertBuf1* __restrict mi_buf, double* __restrict dbl_2d_buf) {
+  return LogisticRegressionCatD(yy, xx, sample_offsets, nullptr, sample_ct, predictor_ct, is_unfinished_ptr, coef, ll, pp, vv, hh, grad, dcoef, mi_buf, dbl_2d_buf);
 }
 
 #ifdef __LP64__
@@ -3586,7 +3922,7 @@ BoolErr FillSampleOffsetsD(const double* pheno_d, const double* covars_cmaj_d, u
   return 0;
 }
 
-BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_third_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, double** covar_beta_mults_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_third_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, double** covar_beta_mults_ptr, CatCovarLayout* cat_layout, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
   const uint32_t is_single_prec = (glm_flags / kfGlmSinglePrecCc) & 1;
   const uintptr_t sample_ctav = is_single_prec? RoundUpPow2(sample_ct, kFloatPerFVec) : RoundUpPow2(sample_ct, kDoublePerDVec);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
@@ -3683,7 +4019,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   }
   uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
   FillPhenoCc(sample_include, pheno_cc, sample_ct, pheno_cc_collapsed, is_single_prec? *pheno_f_ptr : nullptr, is_single_prec? nullptr : *pheno_d_ptr);
-  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, !(glm_flags & (kfGlmIntercept | kfGlmInteraction)), covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, covar_beta_mults_ptr, *cur_covar_names_ptr, glm_err_ptr);
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, !(glm_flags & (kfGlmIntercept | kfGlmInteraction)), covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, covar_beta_mults_ptr, cat_layout, *cur_covar_names_ptr, glm_err_ptr);
   if (unlikely(reterr)) {
     return (reterr == kPglRetNomem);
   }
@@ -4102,6 +4438,18 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         // changes at multiallelic variants.
       }
       assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeD(cur_sample_ct, cur_biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
+      // Categorical-covariate fast path: main sample set only, no local
+      // covariates or --parameters.  Its scratch space follows the
+      // regular workspace; see CatWorkspaceBytes().
+      const CatCovarLayout* cat_layout = &(ctx->cat_layout);
+      const uint32_t cat_ok = ctx->cat_enabled && cat_layout->family_ct && (cur_covars_cmaj == ctx->covars_cmaj_d) && (!local_covar_ct) && (!cur_parameter_subset);
+      double* cat_scratch = nullptr;
+      uint32_t* cat_buf_u32 = nullptr;
+      if (cat_ok) {
+        assert(cat_layout->sample_ct == cur_sample_ct);
+        cat_scratch = S_CAST(double*, arena_alloc_raw_rd(CatScratchDoubleCt(cat_layout, max_predictor_ct, cur_sample_ct) * sizeof(double), &workspace_iter));
+        cat_buf_u32 = S_CAST(uint32_t*, arena_alloc_raw_rd(S_CAST(uintptr_t, cat_layout->family_ct) * (cur_sample_ct + 1) * sizeof(int32_t), &workspace_iter));
+      }
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const double* corr_inv = nullptr;
@@ -4945,7 +5293,42 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 }
               }
               if (!cur_cc_residualize) {
-                if (LogisticRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, &is_unfinished, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, inv_1d_buf, dbl_2d_buf)) {
+                CatPredLayout cat_pl;
+                const CatPredLayout* cur_cat = nullptr;
+                if (cat_ok) {
+                  const uint32_t family_ct = cat_layout->family_ct;
+                  uint32_t* pred_starts = cat_buf_u32;
+                  const uint32_t pred_base = 2 + domdev_third;
+                  for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+                    pred_starts[family_idx] = pred_base + cat_layout->first_covar_idxs[family_idx];
+                  }
+                  if (missing_ct) {
+                    uint32_t* nm_levels = &(cat_buf_u32[family_ct]);
+                    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+                      const uint32_t* src = &(cat_layout->levels[family_idx * S_CAST(uintptr_t, cur_sample_ct)]);
+                      uint32_t* dst = &(nm_levels[family_idx * S_CAST(uintptr_t, nm_sample_ct)]);
+                      uintptr_t sample_midx_base = 0;
+                      uintptr_t sample_nm_bits = sample_nm[0];
+                      for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+                        const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
+                        dst[sample_idx] = src[sample_midx];
+                      }
+                    }
+                    cat_pl.levels = nm_levels;
+                    cat_pl.level_stride = nm_sample_ct;
+                  } else {
+                    cat_pl.levels = cat_layout->levels;
+                    cat_pl.level_stride = cur_sample_ct;
+                  }
+                  cat_pl.family_ct = family_ct;
+                  cat_pl.pred_starts = pred_starts;
+                  cat_pl.dummy_cts = cat_layout->dummy_cts;
+                  cat_pl.val0s = cat_layout->val0s;
+                  cat_pl.val1s = cat_layout->val1s;
+                  cat_pl.scratch = cat_scratch;
+                  cur_cat = &cat_pl;
+                }
+                if (LogisticRegressionCatD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, cur_cat, nm_sample_ct, cur_predictor_ct, &is_unfinished, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, inv_1d_buf, dbl_2d_buf)) {
                   if (is_sometimes_firth) {
                     ZeroDArr(cur_predictor_ctav, coef_return);
                     goto GlmLogisticThreadD_firth_fallback;
@@ -5397,6 +5780,13 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
           workspace_alloc = workspace_alloc_y;
         }
       }
+    }
+    if ((!is_single_prec) && ctx->cat_layout.family_ct) {
+      // see GlmLogisticThreadD()
+      workspace_alloc += CatWorkspaceBytes(&(ctx->cat_layout), biallelic_predictor_ct + max_extra_allele_ct, sample_ct);
+      ctx->cat_enabled = 1;
+    } else {
+      ctx->cat_enabled = 0;
     }
     // +1 is for top-level common->workspace_bufs
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
@@ -6427,6 +6817,8 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
         }
       }
     } else {
+      // no categorical-covariate scratch budgeted here
+      ctx->cat_enabled = 0;
       workspace_alloc = GetLogisticWorkspaceSizeD(sample_ct, biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, constraint_ct, xmain_ct, 0, 1, is_firth_residualize);
       if (sample_ct_x) {
         const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeD(sample_ct_x, biallelic_predictor_ct_x, domdev_third_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, 0, 1, is_firth_residualize);

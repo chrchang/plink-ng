@@ -317,9 +317,119 @@ static BoolErr RescaleCovars(uintptr_t sample_ct, uintptr_t covar_ct, uint32_t c
   return 0;
 }
 
-PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t center_ok, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, double** covar_beta_mults_ptr, const char** cur_covar_names, GlmErr* glm_err_ptr) {
+// See CatCovarLayout.  Must be called after covars_cmaj is filled (and
+// rescaled); re-derives each categorical covariate's dummy assignment the same
+// way GlmFillAndTestCovars() does.
+static BoolErr FillCatCovarLayout(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t covar_max_nonnull_cat_ct, const double* covars_cmaj, uintptr_t* cat_covar_wkspace, uint32_t* cat_obs_buf, CatCovarLayout* cat_layout) {
+  uint32_t family_ct = 0;
+  {
+    uintptr_t covar_uidx_base = 0;
+    uintptr_t covar_include_bits = covar_include[0];
+    for (uintptr_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &covar_include_bits);
+      family_ct += (covar_cols[covar_uidx].type_code == kPhenoDtypeCat);
+    }
+  }
+  cat_layout->family_ct = 0;
+  cat_layout->sample_ct = sample_ct;
+  if (!family_ct) {
+    return 0;
+  }
+  // upper bound on dummy count
+  const uintptr_t max_total_dummy_ct = S_CAST(uintptr_t, family_ct) * covar_max_nonnull_cat_ct;
+  uint32_t* cat_to_level;
+  if (unlikely(bigstack_end_alloc_u32(family_ct, &(cat_layout->first_covar_idxs)) ||
+               bigstack_end_alloc_u32(family_ct, &(cat_layout->dummy_cts)) ||
+               bigstack_end_alloc_u32(family_ct * sample_ct, &(cat_layout->levels)) ||
+               bigstack_end_alloc_d(max_total_dummy_ct, &(cat_layout->val0s)) ||
+               bigstack_end_alloc_d(max_total_dummy_ct, &(cat_layout->val1s)) ||
+               bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_to_level))) {
+    return 1;
+  }
+  const uint32_t first_sample_uidx = AdvTo1Bit(sample_include, 0);
+  uint32_t nonlocal_col_idx = 0;
+  uint32_t family_idx = 0;
+  uint32_t dummy_idx = 0;
+  uint32_t max_dummy_ct = 0;
+  uintptr_t covar_uidx_base = 0;
+  uintptr_t covar_include_bits = covar_include[0];
+  for (uintptr_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+    const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &covar_include_bits);
+    const PhenoCol* cur_covar_col = &(covar_cols[covar_uidx]);
+    if (cur_covar_col->type_code == kPhenoDtypeOther) {
+      continue;
+    }
+    if (cur_covar_col->type_code == kPhenoDtypeQt) {
+      ++nonlocal_col_idx;
+      continue;
+    }
+    const uint32_t cur_cat_ct = cur_covar_col->nonnull_category_ct + 1;
+    const uint32_t cur_cat_ctl = BitCtToWordCt(cur_cat_ct);
+    const uint32_t largest_cat_uidx = IdentifyRemainingCatsAndMostCommon(sample_include, cur_covar_col, sample_ct, cat_covar_wkspace, cat_obs_buf);
+    const uint32_t cur_dummy_ct = PopcountWords(cat_covar_wkspace, cur_cat_ctl) - 1;
+    ClearBit(largest_cat_uidx, cat_covar_wkspace);
+    ZeroU32Arr(cur_cat_ct, cat_to_level);
+    {
+      uintptr_t cat_uidx_base;
+      uintptr_t cat_bits;
+      BitIter1Start(cat_covar_wkspace, 1, &cat_uidx_base, &cat_bits);
+      for (uint32_t dummy_offset = 0; dummy_offset != cur_dummy_ct; ++dummy_offset) {
+        const uintptr_t cat_uidx = BitIter1(cat_covar_wkspace, &cat_uidx_base, &cat_bits);
+        cat_to_level[cat_uidx] = dummy_offset + 1;
+      }
+    }
+    uint32_t* cur_levels = &(cat_layout->levels[family_idx * sample_ct]);
+    const uint32_t* covar_vals = cur_covar_col->data.cat;
+    uintptr_t sample_uidx_base;
+    uintptr_t sample_include_bits;
+    BitIter1Start(sample_include, first_sample_uidx, &sample_uidx_base, &sample_include_bits);
+    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+      cur_levels[sample_idx] = cat_to_level[covar_vals[sample_uidx]];
+    }
+    // Read back the exact (rescaled) values each dummy column takes.
+    for (uint32_t dummy_offset = 0; dummy_offset != cur_dummy_ct; ++dummy_offset) {
+      const double* cur_col = &(covars_cmaj[(nonlocal_col_idx + dummy_offset) * sample_ct]);
+      uint32_t found0 = 0;
+      uint32_t found1 = 0;
+      for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        if (cur_levels[sample_idx] == dummy_offset + 1) {
+          if (!found1) {
+            cat_layout->val1s[dummy_idx + dummy_offset] = cur_col[sample_idx];
+            found1 = 1;
+          }
+        } else if (!found0) {
+          cat_layout->val0s[dummy_idx + dummy_offset] = cur_col[sample_idx];
+          found0 = 1;
+        }
+        if (found0 && found1) {
+          break;
+        }
+      }
+      assert(found0 && found1);
+    }
+    cat_layout->first_covar_idxs[family_idx] = nonlocal_col_idx;
+    cat_layout->dummy_cts[family_idx] = cur_dummy_ct;
+    if (cur_dummy_ct > max_dummy_ct) {
+      max_dummy_ct = cur_dummy_ct;
+    }
+    nonlocal_col_idx += cur_dummy_ct;
+    dummy_idx += cur_dummy_ct;
+    ++family_idx;
+  }
+  cat_layout->family_ct = family_ct;
+  cat_layout->dummy_ct = dummy_idx;
+  cat_layout->max_dummy_ct = max_dummy_ct;
+  BigstackReset(cat_to_level);
+  return 0;
+}
+
+PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t center_ok, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, double** covar_beta_mults_ptr, CatCovarLayout* cat_layout, const char** cur_covar_names, GlmErr* glm_err_ptr) {
   *glm_err_ptr = 0;
   *covar_beta_mults_ptr = nullptr;
+  if (cat_layout) {
+    cat_layout->family_ct = 0;
+  }
   if (covar_ct == local_covar_ct) {
     // bugfix (5 Mar 2018): need to copy local-covar names
     for (uintptr_t local_covar_read_idx = 0; local_covar_read_idx != covar_ct; ++local_covar_read_idx) {
@@ -466,6 +576,11 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
     } else {
       *glm_err_ptr = SetGlmErr0(kGlmErrcodeUnstableScale);
       return kPglRetSkipped;
+    }
+  }
+  if (cat_layout) {
+    if (unlikely(FillCatCovarLayout(sample_include, covar_include, covar_cols, sample_ct, covar_ct, covar_max_nonnull_cat_ct, covars_cmaj, cat_covar_wkspace, cat_obs_buf, cat_layout))) {
+      return kPglRetNomem;
     }
   }
   assert(covar_write_iter == &(covars_cmaj[new_nonlocal_covar_ct * sample_ct]));

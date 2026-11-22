@@ -300,13 +300,36 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
 
 GlmErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* corr_inv, uint32_t predictor_ct, uint32_t geno_pred_ct, double sample_ct_recip, double sample_ct_m1_recip, double max_corr, double vif_thresh, double* __restrict semicomputed_corr_matrix, double* __restrict semicomputed_inv_corr_sqrts, double* __restrict corr_row_buf, double* __restrict inverse_corr_diag, double* __restrict ainv_b_buf);
 
+// Describes the categorical covariates' expanded (dummy) columns, so that
+// regression code can exploit their structure.  Each categorical covariate
+// ("family") occupies dummy_cts[f] consecutive columns of covars_cmaj,
+// starting at nonlocal-covariate column first_covar_idxs[f].  For each sample,
+// levels[f * sample_ct + sample_idx] is 0 if the sample is in the omitted
+// (reference) category, or d + 1 if it's in dummy d's category.  Dummy column
+// values (after rescaling) are val0s[] for samples outside the dummy's
+// category and val1s[] for samples inside it, indexed by overall dummy
+// position (family-major).
+typedef struct CatCovarLayoutStruct {
+  uint32_t family_ct;
+  uint32_t sample_ct;
+  uint32_t dummy_ct;
+  uint32_t max_dummy_ct;  // largest dummy_cts[] value
+  uint32_t* first_covar_idxs;
+  uint32_t* dummy_cts;
+  uint32_t* levels;
+  double* val0s;
+  double* val1s;
+} CatCovarLayout;
+
 // The fixed covariates are rescaled in place (centered and
 // variance-standardized if center_ok is set, otherwise just divided by their
 // root mean square), and *covar_beta_mults_ptr is set to a bigstack_end
 // array with one coefficient multiplier per fixed covariate.  (In the rare
 // scale-only case where rescaling would make things worse, the covariates are
 // left alone and *covar_beta_mults_ptr is set to nullptr.)
-PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t center_ok, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, double** covar_beta_mults_ptr, const char** cur_covar_names, GlmErr* glm_err_ptr);
+// If cat_layout is non-null, it's filled (family_ct is set to zero if there
+// are no categorical covariates); arrays are allocated from bigstack_end.
+PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t center_ok, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, double** covar_beta_mults_ptr, CatCovarLayout* cat_layout, const char** cur_covar_names, GlmErr* glm_err_ptr);
 
 BoolErr InitNmPrecomp(const double* covars_cmaj, const double* covar_dotprod, const double* corr_buf, const double* corr_inv_tri, uint32_t sample_ct, uint32_t is_qt, uintptr_t new_covar_ct, uintptr_t xtx_state, RegressionNmPrecomp* nm_precomp);
 

@@ -1230,7 +1230,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsMultinomial(const uintptr_t* sample_includ
                  bigstack_alloc_d(new_covar_ct * new_covar_ct, &inverse_corr_buf))) {
       return 1;
     }
-    PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, 0, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, 1, covar_dotprod, nullptr, inverse_corr_buf, covars_cmaj, covar_beta_mults_ptr, *cur_covar_names_ptr, glm_err_ptr);
+    PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, 0, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, 1, covar_dotprod, nullptr, inverse_corr_buf, covars_cmaj, covar_beta_mults_ptr, nullptr, *cur_covar_names_ptr, glm_err_ptr);
     if (unlikely(reterr)) {
       return (reterr == kPglRetNomem);
     }

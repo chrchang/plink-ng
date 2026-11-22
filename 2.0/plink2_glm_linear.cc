@@ -85,7 +85,7 @@ BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintp
                bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
     return 1;
   }
-  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, center_ok, covar_dotprod, corr_buf, inverse_corr_buf, *covars_cmaj_d_ptr, covar_beta_mults_ptr, *cur_covar_names_ptr, glm_err_ptr);
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, center_ok, covar_dotprod, corr_buf, inverse_corr_buf, *covars_cmaj_d_ptr, covar_beta_mults_ptr, nullptr, *cur_covar_names_ptr, glm_err_ptr);
   if (unlikely(reterr)) {
     return (reterr == kPglRetNomem);
   }

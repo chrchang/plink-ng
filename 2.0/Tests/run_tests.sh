@@ -483,6 +483,11 @@ cd TEST_GLM_AUTO_RESCALE
 cd ..
 echo "TEST_GLM_AUTO_RESCALE passed."
 
+cd TEST_GLM_CAT_COVAR
+./run_tests.sh $d $2 $3 > TEST_GLM_CAT_COVAR.log
+cd ..
+echo "TEST_GLM_CAT_COVAR passed."
+
 cd TEST_LD_CONSOLE_CHRX_FEMALES
 ./run_tests.sh $d $2 $3 > TEST_LD_CONSOLE_CHRX_FEMALES.log
 cd ..
