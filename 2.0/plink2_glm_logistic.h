@@ -98,10 +98,13 @@ typedef struct GlmLogisticCtxStruct {
   float* local_covars_vcmaj_f[2];
   double* local_covars_vcmaj_d[2];
   LogisticAuxResult* block_aux;
-  // Categorical-covariate structure for the main sample set (family_ct == 0
-  // if absent); see CatCovarLayout.  cat_enabled is set by GlmLogistic() when
-  // the thread workspace includes room for the categorical scratch buffers.
+  // Categorical-covariate structure for the main, chrX, and chrY sample sets
+  // (family_ct == 0 if absent); see CatCovarLayout.  cat_enabled is set by
+  // GlmLogistic() when the thread workspace includes room for the
+  // categorical scratch buffers.
   CatCovarLayout cat_layout;
+  CatCovarLayout cat_layout_x;
+  CatCovarLayout cat_layout_y;
   uint32_t cat_enabled;
 } GlmLogisticCtx;
 

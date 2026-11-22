@@ -300,12 +300,16 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
 
 GlmErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* corr_inv, uint32_t predictor_ct, uint32_t geno_pred_ct, double sample_ct_recip, double sample_ct_m1_recip, double max_corr, double vif_thresh, double* __restrict semicomputed_corr_matrix, double* __restrict semicomputed_inv_corr_sqrts, double* __restrict corr_row_buf, double* __restrict inverse_corr_diag, double* __restrict ainv_b_buf);
 
-// Describes the categorical covariates' expanded (dummy) columns, so that
-// regression code can exploit their structure.  Each categorical covariate
-// ("family") occupies dummy_cts[f] consecutive columns of covars_cmaj,
+// Describes groups of mutually exclusive indicator columns, so that
+// regression code can exploit their structure.  A "family" is either a
+// categorical covariate's expanded (dummy) columns, or a run of consecutive
+// two-valued quantitative covariates where no sample has the larger ("on")
+// value in more than one of them (e.g. from --split-cat-pheno).  Family f occupies dummy_cts[f] consecutive
+// columns of covars_cmaj,
 // starting at nonlocal-covariate column first_covar_idxs[f].  For each sample,
-// levels[f * sample_ct + sample_idx] is 0 if the sample is in the omitted
-// (reference) category, or d + 1 if it's in dummy d's category.  Dummy column
+// levels[f * sample_ct + sample_idx] is 0 if none of the family's indicators
+// is on for the sample (e.g. it's in the omitted category), or d + 1 if
+// indicator d is.  Dummy column
 // values (after rescaling) are val0s[] for samples outside the dummy's
 // category and val1s[] for samples inside it, indexed by overall dummy
 // position (family-major).

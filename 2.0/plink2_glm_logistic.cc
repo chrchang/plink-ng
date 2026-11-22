@@ -2841,17 +2841,32 @@ typedef struct CatWorkStruct {
   double* joint_sums;  // per family pair (f < g): (L_f + 1) x (L_g + 1)
 } CatWork;
 
-uintptr_t CatScratchDoubleCt(const CatCovarLayout* cl, uint32_t max_predictor_ct, uint32_t sample_ct) {
-  if ((!cl) || (!cl->family_ct)) {
-    return 0;
+// Number of a sample set's dummy columns that survive --parameters (whose
+// covariate parameters start at index 2 + domdev_third).  Assumes no local
+// covariates.
+uint32_t CatKeptDummyCt(const CatCovarLayout* cl, const uintptr_t* parameter_subset, uint32_t domdev_third) {
+  if (!parameter_subset) {
+    return cl->dummy_ct;
   }
+  uint32_t kept_ct = 0;
+  for (uint32_t family_idx = 0; family_idx != cl->family_ct; ++family_idx) {
+    const uint32_t param_start = 2 + domdev_third + cl->first_covar_idxs[family_idx];
+    kept_ct += PopcountBitRange(parameter_subset, param_start, param_start + cl->dummy_cts[family_idx]);
+  }
+  return kept_ct;
+}
+
+// Doubles needed by CatWorkInit() etc., followed by CatSet's val0s/val1s
+// (see CatSetDoubles()).
+uintptr_t CatScratchDoubleCt(const CatCovarLayout* cl, uint32_t max_predictor_ct, uint32_t kept_dummy_ct, uint32_t sample_ct) {
   const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
-  const uintptr_t max_dense_ct = max_predictor_ct - cl->dummy_ct;
+  const uintptr_t max_dense_ct = max_predictor_ct - kept_dummy_ct;
   const uintptr_t max_dense_ctav = RoundUpPow2(max_dense_ct, kDoublePerDVec);
   uintptr_t ct = (max_predictor_ct + 1) / 2;  // dense_idxs
-  ct += max_dense_ct * sample_ctav;
+  ct += max_dense_ct * sample_ctav + kDoublePerDVec;  // + alignment slack
   ct += max_dense_ct * max_dense_ctav;
   ct += max_dense_ctav;
+  // (upper bounds; --parameters may shrink the families)
   for (uint32_t family_idx = 0; family_idx != cl->family_ct; ++family_idx) {
     const uintptr_t lp1 = cl->dummy_cts[family_idx] + 1;
     ct += (max_dense_ct + 2) * lp1;
@@ -2859,15 +2874,144 @@ uintptr_t CatScratchDoubleCt(const CatCovarLayout* cl, uint32_t max_predictor_ct
       ct += lp1 * (cl->dummy_cts[family_idx2] + 1);
     }
   }
-  return ct + 8;
+  return ct + 2 * S_CAST(uintptr_t, cl->dummy_ct);
 }
 
-// Extra per-thread workspace for GlmLogisticThreadD()'s categorical path.
-uintptr_t CatWorkspaceBytes(const CatCovarLayout* cl, uint32_t max_predictor_ct, uint32_t sample_ct) {
+// CatSet's val0s/val1s live at the end of the CatScratchDoubleCt() buffer.
+static inline double* CatSetDoubles(const CatCovarLayout* cl, double* cat_scratch, uintptr_t cat_scratch_dbl_ct) {
+  return &(cat_scratch[cat_scratch_dbl_ct - 2 * S_CAST(uintptr_t, cl->dummy_ct)]);
+}
+
+// CatSet uint32s: 5 * family_ct + dummy_ct, plus family_ct * sample_ct levels.
+uintptr_t CatU32Ct(const CatCovarLayout* cl, uint32_t sample_ct) {
+  return 5 * S_CAST(uintptr_t, cl->family_ct) + cl->dummy_ct + S_CAST(uintptr_t, cl->family_ct) * sample_ct;
+}
+
+// Extra per-thread workspace for GlmLogisticThreadD()'s categorical path, for
+// one sample set.
+uintptr_t CatWorkspaceBytes(const CatCovarLayout* cl, const uintptr_t* parameter_subset, uint32_t domdev_third, uint32_t max_predictor_ct, uint32_t sample_ct) {
   if ((!cl) || (!cl->family_ct)) {
     return 0;
   }
-  return RoundUpPow2(CatScratchDoubleCt(cl, max_predictor_ct, sample_ct) * sizeof(double), kCacheline) + RoundUpPow2(S_CAST(uintptr_t, cl->family_ct) * (sample_ct + 1) * sizeof(int32_t), kCacheline);
+  const uint32_t kept_dummy_ct = CatKeptDummyCt(cl, parameter_subset, domdev_third);
+  return RoundUpPow2(CatScratchDoubleCt(cl, max_predictor_ct, kept_dummy_ct, sample_ct) * sizeof(double), kCacheline) + RoundUpPow2(CatU32Ct(cl, sample_ct) * sizeof(int32_t), kCacheline);
+}
+
+// A sample set's categorical structure after --parameters.  Dummies excluded
+// by --parameters are treated like the omitted category (a family's
+// remaining dummies are still mutually exclusive), and families with no
+// remaining dummies are dropped.
+typedef struct CatSetStruct {
+  uint32_t family_ct;  // remaining families
+  // Set when the per-sample levels can't be used as-is (remapping, or
+  // dropped families).
+  uint32_t copy_needed;
+  uint32_t* orig_family_idxs;
+  uint32_t* pred_starts;
+  uint32_t* dummy_cts;
+  uint32_t* remap_offsets;
+  uint32_t* remaps;  // per remaining family: original level -> new level
+  uint32_t* level_buf;  // family_ct * sample_ct
+  double* val0s;
+  double* val1s;
+} CatSet;
+
+// covar_param_start: --parameters index of the first covariate (2 +
+// domdev_third).  pred_base: predictor row of the first covariate (2 +
+// domdev_third - main_omitted).  This mirrors how GlmLogisticThreadD() fills
+// the covariate rows.
+static void CatSetInit(const CatCovarLayout* cl, const uintptr_t* parameter_subset, uint32_t covar_param_start, uint32_t pred_base, double* dbl_buf, uint32_t* u32_buf, CatSet* cs) {
+  const uint32_t orig_family_ct = cl->family_ct;
+  cs->orig_family_idxs = u32_buf;
+  cs->pred_starts = &(u32_buf[orig_family_ct]);
+  cs->dummy_cts = &(u32_buf[2 * orig_family_ct]);
+  cs->remap_offsets = &(u32_buf[3 * orig_family_ct]);
+  cs->remaps = &(u32_buf[4 * orig_family_ct]);
+  cs->level_buf = &(u32_buf[5 * orig_family_ct + cl->dummy_ct]);
+  cs->val0s = dbl_buf;
+  cs->val1s = &(dbl_buf[cl->dummy_ct]);
+  uint32_t copy_needed = 0;
+  uint32_t row = pred_base;
+  uint32_t covar_idx = 0;
+  uint32_t family_ct = 0;
+  uint32_t orig_dummy_base = 0;
+  uint32_t kept_dummy_base = 0;
+  uint32_t remap_offset = 0;
+  for (uint32_t orig_family_idx = 0; orig_family_idx != orig_family_ct; ++orig_family_idx) {
+    const uint32_t first_covar_idx = cl->first_covar_idxs[orig_family_idx];
+    for (; covar_idx != first_covar_idx; ++covar_idx) {
+      row += (!parameter_subset) || IsSet(parameter_subset, covar_param_start + covar_idx);
+    }
+    const uint32_t orig_dummy_ct = cl->dummy_cts[orig_family_idx];
+    uint32_t* remap = &(cs->remaps[remap_offset]);
+    remap[0] = 0;
+    const uint32_t pred_start = row;
+    uint32_t kept_ct = 0;
+    for (uint32_t dummy_idx = 0; dummy_idx != orig_dummy_ct; ++dummy_idx) {
+      if ((!parameter_subset) || IsSet(parameter_subset, covar_param_start + first_covar_idx + dummy_idx)) {
+        cs->val0s[kept_dummy_base + kept_ct] = cl->val0s[orig_dummy_base + dummy_idx];
+        cs->val1s[kept_dummy_base + kept_ct] = cl->val1s[orig_dummy_base + dummy_idx];
+        ++kept_ct;
+        remap[dummy_idx + 1] = kept_ct;
+        ++row;
+      } else {
+        remap[dummy_idx + 1] = 0;
+      }
+    }
+    covar_idx = first_covar_idx + orig_dummy_ct;
+    orig_dummy_base += orig_dummy_ct;
+    if (kept_ct != orig_dummy_ct) {
+      copy_needed = 1;
+    }
+    if (!kept_ct) {
+      continue;
+    }
+    cs->orig_family_idxs[family_ct] = orig_family_idx;
+    cs->pred_starts[family_ct] = pred_start;
+    cs->dummy_cts[family_ct] = kept_ct;
+    cs->remap_offsets[family_ct] = remap_offset;
+    remap_offset += orig_dummy_ct + 1;
+    kept_dummy_base += kept_ct;
+    ++family_ct;
+  }
+  cs->family_ct = family_ct;
+  cs->copy_needed = copy_needed;
+}
+
+// Fills *cat_pl for one regression on the samples in sample_nm (the sample
+// set minus missing_ct samples).
+static void CatSetVariantLayout(const CatCovarLayout* cl, const CatSet* cs, const uintptr_t* sample_nm, uint32_t sample_ct, uint32_t missing_ct, double* scratch, CatPredLayout* cat_pl) {
+  const uint32_t nm_sample_ct = sample_ct - missing_ct;
+  if (missing_ct || cs->copy_needed) {
+    for (uint32_t family_idx = 0; family_idx != cs->family_ct; ++family_idx) {
+      const uint32_t* src = &(cl->levels[cs->orig_family_idxs[family_idx] * S_CAST(uintptr_t, sample_ct)]);
+      const uint32_t* remap = &(cs->remaps[cs->remap_offsets[family_idx]]);
+      uint32_t* dst = &(cs->level_buf[family_idx * S_CAST(uintptr_t, nm_sample_ct)]);
+      if (missing_ct) {
+        uintptr_t sample_midx_base = 0;
+        uintptr_t sample_nm_bits = sample_nm[0];
+        for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+          const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
+          dst[sample_idx] = remap[src[sample_midx]];
+        }
+      } else {
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          dst[sample_idx] = remap[src[sample_idx]];
+        }
+      }
+    }
+    cat_pl->levels = cs->level_buf;
+    cat_pl->level_stride = nm_sample_ct;
+  } else {
+    cat_pl->levels = cl->levels;
+    cat_pl->level_stride = sample_ct;
+  }
+  cat_pl->family_ct = cs->family_ct;
+  cat_pl->pred_starts = cs->pred_starts;
+  cat_pl->dummy_cts = cs->dummy_cts;
+  cat_pl->val0s = cs->val0s;
+  cat_pl->val1s = cs->val1s;
+  cat_pl->scratch = scratch;
 }
 
 static void CatWorkInit(const CatPredLayout* cat, const double* xx, uint32_t sample_ct, uint32_t predictor_ct, CatWork* cw) {
@@ -4438,17 +4582,28 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         // changes at multiallelic variants.
       }
       assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeD(cur_sample_ct, cur_biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
-      // Categorical-covariate fast path: main sample set only, no local
-      // covariates or --parameters.  Its scratch space follows the
+      // Fast path for categorical covariates and mutually exclusive 0/1
+      // covariate groups (no local covariates).  Its scratch space follows the
       // regular workspace; see CatWorkspaceBytes().
-      const CatCovarLayout* cat_layout = &(ctx->cat_layout);
-      const uint32_t cat_ok = ctx->cat_enabled && cat_layout->family_ct && (cur_covars_cmaj == ctx->covars_cmaj_d) && (!local_covar_ct) && (!cur_parameter_subset);
+      const CatCovarLayout* cat_layout;
+      if (is_y && common->sample_include_y) {
+        cat_layout = &(ctx->cat_layout_y);
+      } else if (is_regular_x && common->sample_include_x) {
+        cat_layout = &(ctx->cat_layout_x);
+      } else {
+        cat_layout = &(ctx->cat_layout);
+      }
+      uint32_t cat_ok = ctx->cat_enabled && cat_layout->family_ct && (!local_covar_ct);
       double* cat_scratch = nullptr;
-      uint32_t* cat_buf_u32 = nullptr;
+      CatSet cat_set;
       if (cat_ok) {
         assert(cat_layout->sample_ct == cur_sample_ct);
-        cat_scratch = S_CAST(double*, arena_alloc_raw_rd(CatScratchDoubleCt(cat_layout, max_predictor_ct, cur_sample_ct) * sizeof(double), &workspace_iter));
-        cat_buf_u32 = S_CAST(uint32_t*, arena_alloc_raw_rd(S_CAST(uintptr_t, cat_layout->family_ct) * (cur_sample_ct + 1) * sizeof(int32_t), &workspace_iter));
+        const uint32_t kept_dummy_ct = CatKeptDummyCt(cat_layout, cur_parameter_subset, domdev_third);
+        const uintptr_t cat_scratch_dbl_ct = CatScratchDoubleCt(cat_layout, max_predictor_ct, kept_dummy_ct, cur_sample_ct);
+        cat_scratch = S_CAST(double*, arena_alloc_raw_rd(cat_scratch_dbl_ct * sizeof(double), &workspace_iter));
+        uint32_t* cat_u32_buf = S_CAST(uint32_t*, arena_alloc_raw_rd(CatU32Ct(cat_layout, cur_sample_ct) * sizeof(int32_t), &workspace_iter));
+        CatSetInit(cat_layout, cur_parameter_subset, 2 + domdev_third, 2 + domdev_third - main_omitted, CatSetDoubles(cat_layout, cat_scratch, cat_scratch_dbl_ct), cat_u32_buf, &cat_set);
+        cat_ok = (cat_set.family_ct != 0);
       }
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
@@ -5296,36 +5451,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 CatPredLayout cat_pl;
                 const CatPredLayout* cur_cat = nullptr;
                 if (cat_ok) {
-                  const uint32_t family_ct = cat_layout->family_ct;
-                  uint32_t* pred_starts = cat_buf_u32;
-                  const uint32_t pred_base = 2 + domdev_third;
-                  for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
-                    pred_starts[family_idx] = pred_base + cat_layout->first_covar_idxs[family_idx];
-                  }
-                  if (missing_ct) {
-                    uint32_t* nm_levels = &(cat_buf_u32[family_ct]);
-                    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
-                      const uint32_t* src = &(cat_layout->levels[family_idx * S_CAST(uintptr_t, cur_sample_ct)]);
-                      uint32_t* dst = &(nm_levels[family_idx * S_CAST(uintptr_t, nm_sample_ct)]);
-                      uintptr_t sample_midx_base = 0;
-                      uintptr_t sample_nm_bits = sample_nm[0];
-                      for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
-                        const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
-                        dst[sample_idx] = src[sample_midx];
-                      }
-                    }
-                    cat_pl.levels = nm_levels;
-                    cat_pl.level_stride = nm_sample_ct;
-                  } else {
-                    cat_pl.levels = cat_layout->levels;
-                    cat_pl.level_stride = cur_sample_ct;
-                  }
-                  cat_pl.family_ct = family_ct;
-                  cat_pl.pred_starts = pred_starts;
-                  cat_pl.dummy_cts = cat_layout->dummy_cts;
-                  cat_pl.val0s = cat_layout->val0s;
-                  cat_pl.val1s = cat_layout->val1s;
-                  cat_pl.scratch = cat_scratch;
+                  CatSetVariantLayout(cat_layout, &cat_set, sample_nm, cur_sample_ct, missing_ct, cat_scratch, &cat_pl);
                   cur_cat = &cat_pl;
                 }
                 if (LogisticRegressionCatD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, cur_cat, nm_sample_ct, cur_predictor_ct, &is_unfinished, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, inv_1d_buf, dbl_2d_buf)) {
@@ -5781,12 +5907,26 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         }
       }
     }
-    if ((!is_single_prec) && ctx->cat_layout.family_ct) {
+    ctx->cat_enabled = 0;
+    if ((!is_single_prec) && (!local_covar_ct)) {
       // see GlmLogisticThreadD()
-      workspace_alloc += CatWorkspaceBytes(&(ctx->cat_layout), biallelic_predictor_ct + max_extra_allele_ct, sample_ct);
-      ctx->cat_enabled = 1;
-    } else {
-      ctx->cat_enabled = 0;
+      uintptr_t cat_bytes = CatWorkspaceBytes(&(ctx->cat_layout), parameter_subset, domdev_third, biallelic_predictor_ct + max_extra_allele_ct, sample_ct);
+      if (sample_ct_x) {
+        const uintptr_t cat_bytes_x = CatWorkspaceBytes(&(ctx->cat_layout_x), parameter_subset_x, domdev_third, biallelic_predictor_ct_x + max_extra_allele_ct, sample_ct_x);
+        if (cat_bytes_x > cat_bytes) {
+          cat_bytes = cat_bytes_x;
+        }
+      }
+      if (sample_ct_y) {
+        const uintptr_t cat_bytes_y = CatWorkspaceBytes(&(ctx->cat_layout_y), parameter_subset_y, domdev_third, biallelic_predictor_ct_y + max_extra_allele_ct, sample_ct_y);
+        if (cat_bytes_y > cat_bytes) {
+          cat_bytes = cat_bytes_y;
+        }
+      }
+      if (cat_bytes) {
+        workspace_alloc += cat_bytes;
+        ctx->cat_enabled = 1;
+      }
     }
     // +1 is for top-level common->workspace_bufs
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
