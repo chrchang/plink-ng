@@ -98,9 +98,17 @@ typedef struct GlmLogisticCtxStruct {
   float* local_covars_vcmaj_f[2];
   double* local_covars_vcmaj_d[2];
   LogisticAuxResult* block_aux;
+  // Categorical-covariate structure for the main, chrX, and chrY sample sets
+  // (family_ct == 0 if absent); see CatCovarLayout.  cat_enabled is set by
+  // GlmLogistic() when the thread workspace includes room for the
+  // categorical scratch buffers.
+  CatCovarLayout cat_layout;
+  CatCovarLayout cat_layout_x;
+  CatCovarLayout cat_layout_y;
+  uint32_t cat_enabled;
 } GlmLogisticCtx;
 
-BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_third_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, double** covar_beta_mults_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr);
+BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_third_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, double** covar_beta_mults_ptr, CatCovarLayout* cat_layout, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr);
 
 // Exposed for --epistasis-boost's covariate-adjusted refit, which needs a
 // single fit rather than a whole scan.  See the definition for the buffer
