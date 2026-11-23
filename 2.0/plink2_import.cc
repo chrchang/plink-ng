@@ -786,6 +786,85 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
   return reterr;
 }
 
+// VCFv4.4+ permits an optional leading phasing indicator on each GT value
+// (e.g. "|0/1", "/0|1", "|1"); each indicator applies to the allele after
+// it, and a missing first indicator is '/' if any other indicator is '/', '|'
+// otherwise.  We only treat a diploid call as phased if both alleles are
+// phased: "0|1" and "|0|1" are phased, "/0|1", "|0/1", and "/0/1" are not.
+// (See BcfApplyFirstAllelePhase() for the BCF side.)
+// gtext must point to the start of a sample field; these are always preceded
+// by a tab, so the gtext[-1] check guarantees that at most one leading
+// indicator is skipped.
+static inline uint32_t VcfGtHasPrefix(const char* gtext) {
+  return ((gtext[0] == '|') || (gtext[0] == '/')) && (gtext[-1] == '\t');
+}
+
+// Given a pointer anywhere inside a sample field (which must be preceded by a
+// tab), returns 1 iff the field starts with a GT prefix.  Only for rare
+// paths: this scans backward instead of requiring the caller to keep the
+// field start live.
+uint32_t VcfSampleHasGtPrefix(const char* field_iter) {
+  while (field_iter[-1] != '\t') {
+    --field_iter;
+  }
+  return (field_iter[0] == '|') || (field_iter[0] == '/');
+}
+
+// The VcfConvert...Line() functions don't know about GT prefixes; a prefix
+// makes them fail with kVcfParseInvalidGt (or kVcfParseInvalidDosage).
+// (Handling prefixes inside their loops cost 1-3% on multiallelic,
+// quality-filtered, and dosage imports.)  On that error, the caller strips the
+// prefixes from its private copy of the line with this function and retries.
+// A '/' prefix means the first allele is unphased, so the call's remaining
+// '|' indicators are changed to '/' ("/0|1" -> "0/1").
+// gtext must point to the first sample field (so gtext[-1] is a tab), and the
+// text must be '\n'-terminated.  Returns 1 iff anything was removed.
+uint32_t VcfStripGtPrefixes(char* gtext) {
+  char* write_iter = gtext;
+  const char* read_iter = gtext;
+  uint32_t removed = 0;
+  char prev = '\t';
+  for (; ; ++read_iter) {
+    char cc = *read_iter;
+    if ((prev == '\t') && ((cc == '|') || (cc == '/'))) {
+      // only skip one leading indicator; "||0/1" is still invalid
+      removed = 1;
+      prev = cc;
+      if (cc == '/') {
+        // unphase the rest of this GT value
+        for (++read_iter; ; ++read_iter) {
+          cc = *read_iter;
+          if ((cc == ':') || (ctou32(cc) <= ' ')) {
+            break;
+          }
+          *write_iter++ = (cc == '|')? '/' : cc;
+        }
+        // cc is now the character after GT; fall through to copy it
+        prev = '\0';
+      } else {
+        continue;
+      }
+    }
+    *write_iter++ = cc;
+    if (cc == '\n') {
+      return removed;
+    }
+    prev = cc;
+  }
+}
+
+// The phased-het pre-scans start by searching for '|' characters, and fall
+// back to iterating over tabs when they find one that doesn't follow a
+// "\t<allele>" GT start.  That happens when another FORMAT field contains
+// '|', or when a GT has a VCFv4.4+ prefix; in the latter case the current
+// sample must not be skipped.  This returns the position that tab-iteration
+// should resume from: one character before the tab that starts the sample
+// field containing vbar.
+static inline const char* VcfPhasescanRewind(const char* vbar) {
+  while (*(--vbar) != '\t');
+  return &(vbar[-1]);
+}
+
 uint32_t VcfIsHetShort(const char* first_gchar_ptr, VcfHalfCall vcf_half_call) {
   // '.' == ascii 46, '0' == ascii 48
   // if kVcfHalfCallReference, .|0 is not phased, but .|1 is
@@ -1012,6 +1091,17 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
   double alt_dosage;
   if (dosage_is_gp) {
     if (ParseVcfBiallelicGp(gtext_iter, is_haploid, import_dosage_certainty, dpr_ptr, &alt_dosage)) {
+      if (is_haploid && (*dpr_ptr == kDosageParseForceMissing) && VcfSampleHasGtPrefix(gtext_iter)) {
+        // A VCFv4.4+ GT prefix phasing indicator made a diploid call look
+        // haploid, so only two of the three GP values were checked against
+        // --import-dosage-certainty.  Report an error so the caller strips
+        // the prefixes and retries (see VcfStripGtPrefixes()).
+        // (A DS value's certainty check can't be fooled this way: for DS in
+        // [0, 1] the haploid and diploid conditions coincide, and a larger
+        // value becomes an out-of-range haploid dosage.  Every other
+        // misparse leads to a GT parse failure.)
+        *dpr_ptr = kDosageParseOk;
+      }
       return 1;
     }
   } else {
@@ -1192,6 +1282,14 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
     if (gt_exists) {
       cur_gt_phased = (cur_gtext_start[1] == '|');
       is_haploid = (cur_gtext_start[1] != '/') && (!cur_gt_phased);
+      // VCFv4.4+ GT prefix?  (No need to check cur_gtext_start[-1], it's
+      // always a tab here.)
+      if (is_haploid && ((cur_gtext_start[0] == '|') || (cur_gtext_start[0] == '/'))) {
+        const char prefix = *cur_gtext_start++;
+        is_haploid = (cur_gtext_start[1] != '/') && (cur_gtext_start[1] != '|');
+        // both alleles must be phased; see VcfGtHasPrefix()
+        cur_gt_phased = (cur_gtext_start[1] == '|') && (prefix == '|');
+      }
     }
     DosageParseResult dpr = kDosageParseOk;
     int32_t cur_dphase_delta = 0;
@@ -1475,8 +1573,10 @@ uintptr_t VcfScanShortallelicLine(const VcfImportBaseContext* vibcp, const char*
       goto VcfScanShortallelicLine_no_phased_het;
     }
     if (phasescan_iter[-2] != '\t') {
-      // at least one other FORMAT field uses the '|' character.
-      // switch to iterating over tabs.
+      // at least one other FORMAT field uses the '|' character, or there's a
+      // VCFv4.4+ GT prefix.
+      // switch to iterating over tabs, starting with the current sample.
+      phasescan_iter = VcfPhasescanRewind(phasescan_iter);
       break;
     }
     if (VcfIsHetShort(&(phasescan_iter[-1]), halfcall_mode)) {
@@ -1489,10 +1589,18 @@ uintptr_t VcfScanShortallelicLine(const VcfImportBaseContext* vibcp, const char*
     }
   }
   while (!incr_strchrnul_n_mov('\t', &phasescan_iter)) {
-    if ((phasescan_iter[2] != '|') || (!VcfIsHetShort(&(phasescan_iter[1]), halfcall_mode))) {
+    const char* gtext = &(phasescan_iter[1]);
+    if (gtext[1] != '|') {
+      // "|0|1" is a phased het, "/0|1" isn't; see VcfGtHasPrefix().
+      if ((gtext[0] != '|') || (gtext[2] != '|')) {
+        continue;
+      }
+      ++gtext;
+    }
+    if (!VcfIsHetShort(gtext, halfcall_mode)) {
       continue;
     }
-    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, phasescan_iter, FirstPrespace(&(phasescan_iter[4])), qual_field_ct))) {
+    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, gtext, FirstPrespace(&(gtext[3])), qual_field_ct))) {
       goto VcfScanShortallelicLine_phased_het_found;
     }
   }
@@ -2691,14 +2799,21 @@ uintptr_t VcfScanLongallelicLine(const VcfImportBaseContext* vibcp, const char* 
     unsigned char ucc = *phasescan_iter;
     if (ucc == '.') {
       --phasescan_iter;
-    } else {
-      while (IsDigit(ucc)) {
+    } else if (IsDigit(ucc)) {
+      do {
         ucc = *(--phasescan_iter);
-      }
+      } while (IsDigit(ucc));
+    } else {
+      // VCFv4.4+ GT prefix phasing indicator (or another FORMAT field
+      // containing '|').
+      phasescan_iter = VcfPhasescanRewind(next_vbar);
+      break;
     }
     if (*phasescan_iter != '\t') {
-      // at least one other FORMAT field uses the '|' character.
-      // switch to iterating over tabs.
+      // at least one other FORMAT field uses the '|' character, or there's a
+      // VCFv4.4+ GT prefix.
+      // switch to iterating over tabs, starting with the current sample.
+      phasescan_iter = VcfPhasescanRewind(next_vbar);
       break;
     }
     if (VcfIsHetLong(&(phasescan_iter[1]), &(next_vbar[1]), halfcall_mode)) {
@@ -2711,14 +2826,21 @@ uintptr_t VcfScanLongallelicLine(const VcfImportBaseContext* vibcp, const char* 
     }
   }
   while (!incr_strchrnul_n_mov('\t', &phasescan_iter)) {
-    const char* next_vbar = &(phasescan_iter[1]);
+    const char* gtext = &(phasescan_iter[1]);
+    if (gtext[0] == '|') {
+      ++gtext;
+    } else if (gtext[0] == '/') {
+      // first allele explicitly unphased; see VcfGtHasPrefix()
+      continue;
+    }
+    const char* next_vbar = gtext;
     while (IsDigit(*next_vbar)) {
       ++next_vbar;
     }
-    if ((*next_vbar != '|') || (!VcfIsHetLong(&(phasescan_iter[1]), &(next_vbar[1]), halfcall_mode))) {
+    if ((*next_vbar != '|') || (!VcfIsHetLong(gtext, &(next_vbar[1]), halfcall_mode))) {
       continue;
     }
-    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, phasescan_iter, FirstPrespace(&(next_vbar[2])), qual_field_ct))) {
+    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, gtext, FirstPrespace(&(next_vbar[2])), qual_field_ct))) {
       goto VcfScanLongallelicLine_phased_het_found;
     }
   }
@@ -2833,6 +2955,8 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* raw_arg) {
         vic.dosage_field_idx = grp->metadata.read_vcf.dosage_field_idx;
         vic.hds_field_idx = grp->metadata.read_vcf.hds_field_idx;
         if ((vic.hds_field_idx == UINT32_MAX) && (vic.dosage_field_idx == UINT32_MAX)) {
+          uint32_t gt_prefixes_stripped = 0;
+        VcfGenoToPgenThread_convert_gt:
           if (!(gparse_flags & kfGparseHphase)) {
             if (cur_allele_ct == 2) {
               vcf_parse_err = VcfConvertUnphasedBiallelicLine(&(vic.vibc), genotext_start, genovec);
@@ -2848,12 +2972,22 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* raw_arg) {
             cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
           }
           if (unlikely(vcf_parse_err)) {
+            // VCFv4.4+ GT prefix phasing?  Retry at most once, so that
+            // "||0/1" etc. are still rejected.
+            if ((vcf_parse_err == kVcfParseInvalidGt) && (!gt_prefixes_stripped) && VcfStripGtPrefixes(genotext_start)) {
+              gt_prefixes_stripped = 1;
+              goto VcfGenoToPgenThread_convert_gt;
+            }
             line_idx = grp->metadata.read_vcf.line_idx;
             goto VcfGenoToPgenThread_malformed;
           }
         } else {
-          Dosage* dosage_main_iter = dosage_main;
-          SDosage* dphase_delta_iter = dphase_delta;
+          uint32_t gt_prefixes_stripped = 0;
+          Dosage* dosage_main_iter;
+          SDosage* dphase_delta_iter;
+        VcfGenoToPgenThread_convert_dosage:
+          dosage_main_iter = dosage_main;
+          dphase_delta_iter = dphase_delta;
           if (cur_allele_ct == 2) {
             vcf_parse_err = VcfConvertPhasedBiallelicDosageLine(&vic, genotext_start, genovec, phasepresent, phaseinfo, dosage_present, dphase_present, &dosage_main_iter, &dphase_delta_iter);
           } else {
@@ -2861,6 +2995,13 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* raw_arg) {
             exit(S_CAST(int32_t, kPglRetInternalError));
           }
           if (unlikely(vcf_parse_err)) {
+            // VCFv4.4+ GT prefix phasing?  See above.  Here, a prefix can
+            // also make a diploid DS value look like an out-of-range haploid
+            // one.
+            if (((vcf_parse_err == kVcfParseInvalidGt) || (vcf_parse_err == kVcfParseInvalidDosage)) && (!gt_prefixes_stripped) && VcfStripGtPrefixes(genotext_start)) {
+              gt_prefixes_stripped = 1;
+              goto VcfGenoToPgenThread_convert_dosage;
+            }
             line_idx = grp->metadata.read_vcf.line_idx;
             goto VcfGenoToPgenThread_malformed;
           }
@@ -3507,13 +3648,17 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             goto VcfToPgen_linescan_done;
           }
           if (!not_single_sample_no_nonvar) {
-            if (format_end[1] == '0') {
-              const char cc = format_end[2];
-              not_single_sample_no_nonvar = (((cc == '/') || (cc == '|')) && (format_end[3] == '0')) || (cc == ':') || (cc == '\t');
+            const char* gtext = &(format_end[1]);
+            if (VcfGtHasPrefix(gtext)) {
+              ++gtext;
+            }
+            if (gtext[0] == '0') {
+              const char cc = gtext[1];
+              not_single_sample_no_nonvar = (((cc == '/') || (cc == '|')) && (gtext[2] == '0')) || (cc == ':') || (cc == '\t');
             }
             // This can miss ./0 and the like, but that should practically
             // never matter.
-            nonvar_nonmissing_ct += (format_end[1] != '.');
+            nonvar_nonmissing_ct += (gtext[0] != '.');
           }
           if (!phase_or_dosage_found) {
             if (alt_ct < 10) {
@@ -5036,6 +5181,136 @@ BcfParseErr BcfParseGqDpAligned(const unsigned char* qual_type_start, uint32_t s
   return BcfParseGqDpMain(qual_iter, sample_ct, qual_min, qual_max, qual_value_type, genovec);
 }
 
+// Each sample's GT vector is padded to the record's maximum width with
+// END_OF_VECTOR, and the width can exceed the true maximum ploidy (e.g.
+// htslib 1.22 writes width-3 vectors for all-diploid records when any sample
+// uses VCFv4.4+ GT prefix phasing like "|0/1").  So a width > 2 GT vector
+// doesn't by itself imply that any sample is polyploid.
+// Returns 1 iff some sample has a non-END_OF_VECTOR third value.  Only called
+// when value_ct > 2 and --polyploid-mode is 'error', so it doesn't need to be
+// fast.
+uint32_t BcfGtHasPolyploid(const unsigned char* gt_main, uint32_t value_type, uint32_t value_ct, uint32_t sample_ct) {
+  if (value_type == 1) {
+    const unsigned char* third_iter = &(gt_main[2]);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, third_iter = &(third_iter[value_ct])) {
+      if (*third_iter != 0x81) {
+        return 1;
+      }
+    }
+    return 0;
+  }
+  // int16
+  const unsigned char* third_iter = &(gt_main[4]);
+  const uintptr_t stride = value_ct * 2;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, third_iter = &(third_iter[stride])) {
+    uint16_t third_val;
+    memcpy(&third_val, third_iter, 2);
+    if (third_val != 0x8001) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// VCFv4.4+ makes the first allele's phasing indicator explicit ("/0|1" means
+// only the second allele is phased), and we only treat a diploid call as
+// phased if both alleles are.  In BCF, that information is the first GT
+// value's phase bit.  But HTSlib before 1.22 always wrote that bit as 0, so
+// "0|1" was 0x02 0x05; 1.22 writes it (0x03 0x05) iff the header declares
+// VCFv4.4+, and 1.23+ always writes it.  The header version therefore can't
+// tell us whether the bit is meaningful.  Instead, we decide per record: old
+// writers never set it on a non-END_OF_VECTOR first value, while new writers
+// set it on every implicitly-phased call ("0|1", "1|1", haploid "1", ...).  If
+// any first value in the record has it set, we clear the second value's phase
+// bit wherever the first value's is clear; otherwise the record is treated as
+// legacy-encoded and left alone.  (So a new-encoding record where no call has
+// a phased first allele, e.g. all "0/0" plus one "/0|1", still imports
+// "/0|1" as phased.)
+// Called on the thread's private copy of the record, before the phased
+// converters, which don't need to know about any of this.
+void BcfApplyFirstAllelePhase(const GparseReadBcfMetadata* metap, uint32_t sample_ct, unsigned char* record_start) {
+  if (metap->gt_vec_offset == UINT32_MAX) {
+    return;
+  }
+  const unsigned char* gt_type_start = &(record_start[metap->gt_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+  const unsigned char* gt_main_c = gt_type_start;
+  uint32_t value_type;
+  uint32_t value_ct;
+  ScanBcfTypeAligned(&gt_main_c, &value_type, &value_ct);
+  if ((value_ct < 2) || (value_type > 2)) {
+    // no diploid calls, or invalid (caller reports the error)
+    return;
+  }
+  unsigned char* gt_main = &(record_start[gt_main_c - record_start]);
+  if ((value_type == 1) && (value_ct == 2)) {
+    // Common case; 4 samples per 64-bit word.  Within each 16-bit lane, bit 0
+    // is the first value's phase bit, bit 7 is set iff the first value is
+    // END_OF_VECTOR (no valid int8 GT value has it), bit 8 is the second
+    // value's phase bit, and bit 15 is set iff the second value is
+    // END_OF_VECTOR.
+    const uint64_t kLaneBit0 = 0x0001000100010001LLU;
+    const uint64_t kLaneBit8 = 0x0100010001000100LLU;
+    const uint32_t word_ct = sample_ct / 4;
+    const uint32_t remainder = sample_ct % 4;
+    uint64_t new_encoding = 0;
+    for (uint32_t widx = 0; widx != word_ct; ++widx) {
+      uint64_t ww;
+      memcpy(&ww, &(gt_main[widx * 8]), 8);
+      new_encoding |= ww & (~(ww >> 7));
+    }
+    for (uint32_t uii = 0; uii != remainder; ++uii) {
+      const uint32_t first_val = gt_main[word_ct * 8 + uii * 2];
+      new_encoding |= first_val & (~(first_val >> 7));
+    }
+    if (!(new_encoding & kLaneBit0)) {
+      return;
+    }
+    for (uint32_t widx = 0; widx != word_ct; ++widx) {
+      uint64_t ww;
+      memcpy(&ww, &(gt_main[widx * 8]), 8);
+      const uint64_t to_clear = ((~ww) & kLaneBit0) << 8;
+      ww &= ~(to_clear & (~(ww >> 7)) & kLaneBit8);
+      memcpy(&(gt_main[widx * 8]), &ww, 8);
+    }
+    for (uint32_t uii = 0; uii != remainder; ++uii) {
+      unsigned char* first_ptr = &(gt_main[word_ct * 8 + uii * 2]);
+      if ((!(first_ptr[0] & 1)) && (!(first_ptr[1] & 0x80))) {
+        first_ptr[1] &= 0xfe;
+      }
+    }
+    return;
+  }
+  // General case: int8 with width > 2, or int16.  Only the first two values
+  // matter; we treat higher ploidies as missing.
+  const uint32_t high_bit = (value_type == 1)? 0x80 : 0x8000;
+  const uintptr_t stride = value_ct * value_type;
+  uint32_t new_encoding = 0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const unsigned char* cur = &(gt_main[sample_idx * stride]);
+    uint32_t first_val = cur[0];
+    if (value_type == 2) {
+      first_val |= S_CAST(uint32_t, cur[1]) << 8;
+    }
+    if ((first_val & 1) && (!(first_val & high_bit))) {
+      new_encoding = 1;
+      break;
+    }
+  }
+  if (!new_encoding) {
+    return;
+  }
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    unsigned char* cur = &(gt_main[sample_idx * stride]);
+    // second value: byte value_type (int8) or bytes 2-3 (int16, little-endian;
+    // the high bit is in byte 3)
+    unsigned char* second_lo = &(cur[value_type]);
+    const uint32_t second_is_eov = second_lo[value_type - 1] & 0x80;
+    if ((!(cur[0] & 1)) && (!second_is_eov)) {
+      second_lo[0] &= 0xfe;
+    }
+  }
+}
+
 static_assert(kPglMaxAlleleCt == 255, "BcfScanGt() needs to be updated.");
 BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_start, const unsigned char** qual_starts, uint32_t* phase_or_dosage_found_ptr, uintptr_t* invfound_nypbuf) {
   // Just check for a phased het.
@@ -5052,10 +5327,10 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
     // ploidy 0 or 1, phased genotypes are impossible
     return kBcfParseOk;
   }
-  if (unlikely((gt_value_ct > 2) && bicp->bibc.error_on_polyploid)) {
+  const uint32_t sample_ct = bicp->bibc.sample_ct;
+  if (unlikely((gt_value_ct > 2) && bicp->bibc.error_on_polyploid && BcfGtHasPolyploid(gt_main, gt_value_type, gt_value_ct, sample_ct))) {
     return kBcfParsePolyploidError;
   }
-  const uint32_t sample_ct = bicp->bibc.sample_ct;
 #ifdef __LP64__
   // Our search is over once we see a phased heterozygous call.  Usually, if
   // one exists at all, a filter-passing call will be present within the first
@@ -5623,7 +5898,7 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
     if (unlikely(gt_value_type > 1)) {
       return kBcfParseWideGt;
     }
-    if (unlikely((gt_value_ct > 2) && bicp->bibc.error_on_polyploid)) {
+    if (unlikely((gt_value_ct > 2) && bicp->bibc.error_on_polyploid && BcfGtHasPolyploid(gt_main, gt_value_type, gt_value_ct, sample_ct))) {
       return kBcfParsePolyploidError;
     }
   }
@@ -5688,10 +5963,14 @@ void BcfConvertBiallelicHaploidGt(const unsigned char* gt_main, uint32_t sample_
   //   2    -> 0
   //   4    -> 2
   //   0x81 -> 3
+  // The bottom (phase) bit must be ignored: the VCFv4.4+ spec treats a
+  // haploid call as implicitly phased, and htslib 1.22 encodes '0'/'1' as
+  // 3/5 when the header declares VCFv4.4 or later.
   // Other values invalid, but we don't promise exhaustive error-checking, we
   // just need to (i) not blow up and (ii) try to have consistent behavior
   // between build types.
-  // single-byte values, subtract 2 with wraparound, MIN(result, 3) works.
+  // single-byte values: clear bottom bit, subtract 2 with wraparound,
+  // MIN(result, 3) works.
 #ifdef __LP64__
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   genovec[sample_ctl2 - 1] = 0;
@@ -5703,7 +5982,8 @@ void BcfConvertBiallelicHaploidGt(const unsigned char* gt_main, uint32_t sample_
   const VecUc three = vecuc_set1(3);
   const VecW zero = vecw_setzero();
   for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
-    const VecUc bcf_bytes = vecuc_loadu(&(gt_alias[vidx]));
+    // 0xfe also happens to be the mask that clears the phase bit
+    const VecUc bcf_bytes = vecuc_loadu(&(gt_alias[vidx])) & neg2;
     const VecUc bcf_bytes_m2 = bcf_bytes + neg2;
     VecUc converted_bytes = vecuc_min(bcf_bytes_m2, three);
     // Now gather bits 0,1,8,9,... via movemask.
@@ -5736,7 +6016,7 @@ void BcfConvertBiallelicHaploidGt(const unsigned char* gt_main, uint32_t sample_
     // sparse-optimization
     for (uint32_t sample_idx_lowbits = loop_len; sample_idx_lowbits; ) {
       --sample_idx_lowbits;
-      unsigned char raw_val_m2 = gt_iter[sample_idx_lowbits] - 2;
+      unsigned char raw_val_m2 = (gt_iter[sample_idx_lowbits] & 0xfe) - 2;
       if (raw_val_m2 > 3) {
         raw_val_m2 = 3;
       }
@@ -5877,7 +6157,7 @@ BcfParseErr BcfConvertUnphasedBiallelic(const BcfImportBaseContext* bibcp, const
 #endif
     } else {
       // triploid, etc.
-      if (unlikely(bibcp->error_on_polyploid)) {
+      if (unlikely(bibcp->error_on_polyploid && BcfGtHasPolyploid(gt_main, value_type, value_ct, sample_ct))) {
         return kBcfParsePolyploidError;
       }
 #ifdef USE_SHUFFLE8
@@ -5950,7 +6230,8 @@ void BcfConvertMultiallelicHaploidInt8Gt(const unsigned char* gt_main, uint32_t 
     uintptr_t geno_word = 0;
     uint32_t patch_10_set_hw = 0;
     for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-      const unsigned char raw_val_m2 = gt_iter[sample_idx_lowbits] - 2;
+      // ignore phase bit (see BcfConvertBiallelicHaploidGt())
+      const unsigned char raw_val_m2 = (gt_iter[sample_idx_lowbits] & 0xfe) - 2;
       if ((!raw_val_m2) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
         continue;
       }
@@ -5961,8 +6242,6 @@ void BcfConvertMultiallelicHaploidInt8Gt(const unsigned char* gt_main, uint32_t 
         result = 3;
       } else {
         result = 2;
-        // note that allele_idx == 0 is possible with malformed raw_val == 3,
-        // we don't handle it "correctly" but we do need to avoid blowing up
         if (allele_idx >= 2) {
           patch_10_set_hw |= 1U << sample_idx_lowbits;
           *patch_10_iter++ = allele_idx * 0x101;
@@ -5997,7 +6276,7 @@ void BcfConvertMultiallelicHaploidInt16Gt(const unsigned char* gt_main, uint32_t
     uint32_t patch_10_set_hw = 0;
     for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
       // intentional underflow
-      const uint32_t raw_val_m2 = S_CAST(uint32_t, gt_iter[sample_idx_lowbits]) - 2;
+      const uint32_t raw_val_m2 = S_CAST(uint32_t, gt_iter[sample_idx_lowbits] & 0xfffe) - 2;
       if ((!raw_val_m2) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
         continue;
       }
@@ -6605,7 +6884,7 @@ BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const G
 #endif
     } else {
       // triploid, etc.
-      if (unlikely(bibcp->error_on_polyploid)) {
+      if (unlikely(bibcp->error_on_polyploid && BcfGtHasPolyploid(gt_main, value_type, value_ct, sample_ct))) {
         return kBcfParsePolyploidError;
       }
       Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
@@ -6702,7 +6981,7 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
   uint32_t value_type;
   uint32_t value_ct;
   ScanBcfTypeAligned(&gt_main, &value_type, &value_ct);
-  if (unlikely((value_ct > 2) && bibcp->error_on_polyploid)) {
+  if (unlikely((value_ct > 2) && bibcp->error_on_polyploid && BcfGtHasPolyploid(gt_main, value_type, value_ct, bibcp->sample_ct))) {
     return kBcfParsePolyploidError;
   }
   if (value_type == 1) {
@@ -7227,7 +7506,7 @@ BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const 
     if (unlikely(gt_value_type > 1)) {
       return kBcfParseWideGt;
     }
-    if (unlikely((gt_value_ct > 2) && bicp->bibc.error_on_polyploid)) {
+    if (unlikely((gt_value_ct > 2) && bicp->bibc.error_on_polyploid && BcfGtHasPolyploid(gt_main, gt_value_type, gt_value_ct, sample_ct))) {
       return kBcfParsePolyploidError;
     }
   }
@@ -7331,7 +7610,8 @@ BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const 
           // gt_first == 0 -> missing (cur_geno == 3)
           // gt_first == 2 -> hom-ref (cur_geno == 0)
           // gt_first == 4 -> hom-alt (cur_geno == 2)
-          cur_geno = (gt_raw & 0xff) - 2;
+          // phase bit ignored (see BcfConvertBiallelicHaploidGt())
+          cur_geno = (gt_raw & 0xfe) - 2;
           // deliberate underflow
           if (cur_geno > 3) {
             cur_geno = 3;
@@ -7491,6 +7771,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
               bcf_parse_err = BcfConvertUnphasedMultiallelic(bibcp, metap, record_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals);
             }
           } else {
+            BcfApplyFirstAllelePhase(metap, sample_ct, record_start);
             if (cur_allele_ct == 2) {
               bcf_parse_err = BcfConvertPhasedBiallelic(bibcp, metap, record_start, genovec, phasepresent, phaseinfo);
             } else {
@@ -7505,6 +7786,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
         } else {
           Dosage* dosage_main_iter = dosage_main;
           SDosage* dphase_delta_iter = dphase_delta;
+          BcfApplyFirstAllelePhase(metap, sample_ct, record_start);
           if (cur_allele_ct == 2) {
             bcf_parse_err = BcfConvertPhasedBiallelicDosage(bicp, metap, record_start, genovec, phasepresent, phaseinfo, dosage_present, dphase_present, &dosage_main_iter, &dphase_delta_iter);
           } else {

@@ -383,6 +383,11 @@ cd TEST_VCF_BCF_PARITY
 cd ..
 echo "TEST_VCF_BCF_PARITY passed."
 
+cd TEST_VCF_GT_PREFIX_PHASING
+./run_tests.sh $d $2 $3 > TEST_VCF_GT_PREFIX_PHASING.log
+cd ..
+echo "TEST_VCF_GT_PREFIX_PHASING passed."
+
 cd TEST_BGEN_REF_FIRST_PHASE
 ./run_tests.sh $d $2 $3 > TEST_BGEN_REF_FIRST_PHASE.log
 cd ..
