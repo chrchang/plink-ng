@@ -24,15 +24,8 @@
 # * each special genotype alone at the first/last sample and around
 #   SIMD-vector / genovec-word boundaries, for sample counts straddling them.
 #
-# Known differences that the fixtures avoid:
-# * Layout-1 import rounds exact dosage ties to even, while VCF GP import
-#   rounds them up (deliberate).
-# * --dosage-erase-threshold on phased dosages with equal haplotypes near 0.5
-#   (e.g. 0.498|0.498): .bgen import applies the unphased rule (dosage 0.996
-#   is within the threshold of 1, so it's erased to a het hardcall), while
-#   VCF/BCF HDS conversion applies the phased rule (each haplotype must be
-#   within threshold/2 of an integer, so the dosage is kept).  The phased
-#   family is therefore not run with --dosage-erase-threshold here.
+# Known, deliberate difference that the fixtures avoid: layout-1 import
+# rounds exact dosage ties to even, while VCF GP import rounds them up.
 
 set -eo pipefail
 
@@ -83,9 +76,6 @@ run_set() {
     [ $fam = hds ] && dfield=HDS
     python3 make_data.py $fam $n $bits $pre $encs
     for flags in "${FLAGS[@]}"; do
-        if [ $fam = hds ] && [[ $flags == --dosage-erase-threshold* ]]; then
-            continue
-        fi
         if ! $PLINK2 --vcf $pre.vcf dosage=$dfield $flags --make-pgen --out tmp_v > /dev/null 2>&1; then
             echo "--vcf failed: $pre [$flags]"
             exit 1

@@ -75,6 +75,7 @@ HDS_SPECIALS = [
     (2, True, None),
     (1, False, (F(8, 10),)),
     (1, False, (F(4, 10),)),
+    (1, False, (F(1, 2),)),       # haploid near 0.5 (--dosage-erase-threshold)
     (1, False, (F(1),)),
     (1, True, None),
     (0, False, None),
