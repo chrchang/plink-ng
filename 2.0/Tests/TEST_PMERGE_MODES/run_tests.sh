@@ -155,6 +155,33 @@ test "$(grep -v '^#' tmp_cmma2.pvar | cut -f 3 | tr '\n' ' ')" = "v1 v2 v3 w2 "
 # Genotypes stay aligned after the drop.
 $plink2 --pfile tmp_cmma2 --export vcf --out tmp_cmma2 > /dev/null
 test "$(grep -v '^#' tmp_cmma2.vcf | cut -f 3,10- | tail -n 1)" = "$(printf 'w2\t0/1\t0/0\t./.\t1/1')"
+# A and C above must be detected as a concatenation job.
+grep -q 'Concatenation job detected' tmp_cat.log
+# Concatenation detection compares (chromosome, position) keys, and 32-bit
+# builds used to truncate them to the position.  Besides the A + C case above
+# (chr2:100 "overlapping" chr1:300), that hid a real overlap: S spans
+# chr1:150-chr2:50, which overlaps T at chr1:200-250 but not if only
+# positions are compared.  This must not be treated as a concatenation, and
+# the output must be sorted.
+{
+    vcf_header
+    printf '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tC\tD\n'
+    printf '1\t150\ts1\tA\tG\t.\t.\t.\tGT\t0/1\t0/0\n'
+    printf '2\t50\ts2\tC\tT\t.\t.\t.\tGT\t1/1\t0/1\n'
+} > tmp_ovs.vcf
+{
+    vcf_header
+    printf '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tC\tD\n'
+    printf '1\t200\tt1\tG\tA\t.\t.\t.\tGT\t0/0\t1/1\n'
+    printf '1\t250\tt2\tT\tC\t.\t.\t.\tGT\t0/1\t0/1\n'
+} > tmp_ovt.vcf
+$plink2 --vcf tmp_ovs.vcf --make-pgen --out tmp_ovs > /dev/null
+$plink2 --vcf tmp_ovt.vcf --make-pgen --out tmp_ovt > /dev/null
+$plink2 --pfile tmp_ovs --pmerge tmp_ovt --out tmp_ov > /dev/null
+if grep -q 'Concatenation job detected' tmp_ov.log; then
+    exit 1
+fi
+test "$(grep -v '^#' tmp_ov.pvar | cut -f 1-3 | tr '\t\n' ': ')" = "1:150:s1 1:200:t1 1:250:t2 2:50:s2 "
 
 # --delete-pmerge-result: later commands still run on the merged data, then
 # the merged fileset is removed.
