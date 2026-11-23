@@ -9,8 +9,13 @@ Each spec is <column>=<op>[+<op>...], with ops applied left to right:
 Every column not named in a spec must be unchanged.  NA stays NA.
 """
 
+import math
+import os
 import statistics
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "utils"))
+import normdist  # noqa: E402
 
 
 def load(fname):
@@ -22,7 +27,7 @@ def load(fname):
 
 def vs(vals):
     present = [v for v in vals if v is not None]
-    mean = statistics.fmean(present)
+    mean = math.fsum(present) / len(present)
     sd = statistics.stdev(present)
     return [None if v is None else (v - mean) / sd for v in vals]
 
@@ -30,7 +35,6 @@ def vs(vals):
 def qn(vals):
     present = sorted(v for v in vals if v is not None)
     n = len(present)
-    nd = statistics.NormalDist()
     rank = {}
     i = 0
     while i < n:
@@ -39,7 +43,7 @@ def qn(vals):
             j += 1
         rank[present[i]] = (i + 1 + j) / 2.0
         i = j
-    return [None if v is None else nd.inv_cdf((rank[v] - 0.5) / n) for v in vals]
+    return [None if v is None else normdist.inv_cdf((rank[v] - 0.5) / n) for v in vals]
 
 
 def main():

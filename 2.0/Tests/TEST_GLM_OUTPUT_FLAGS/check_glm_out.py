@@ -17,8 +17,11 @@
 #     original statistics.)
 
 import math
-import statistics
+import os
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "utils"))
+import normdist  # noqa: E402
 
 
 def read_table(fname):
@@ -36,7 +39,7 @@ def check_ci(fname, ci_size):
     pct = round(100 * ci_size)
     lcol = header.index(f"L{pct}")
     ucol = header.index(f"U{pct}")
-    z = statistics.NormalDist().inv_cdf((1 + ci_size) / 2)
+    z = normdist.inv_cdf((1 + ci_size) / 2)
     is_linear = "BETA" in header
     for row in rows:
         if is_linear:
@@ -59,7 +62,13 @@ def corr(psam, vcf, vid, covar):
             fields = line.rstrip("\n").split("\t")
             if len(fields) > 2 and fields[2] == vid:
                 gvals = [{"0/0": 0, "0/1": 1, "1/1": 2}[x] for x in fields[9:]]
-    r = statistics.correlation(gvals, cvals)
+    # (statistics.correlation needs Python 3.10+)
+    gmean = sum(gvals) / len(gvals)
+    cmean = sum(cvals) / len(cvals)
+    sgc = sum((g - gmean) * (c - cmean) for g, c in zip(gvals, cvals))
+    sgg = sum((g - gmean) ** 2 for g in gvals)
+    scc = sum((c - cmean) ** 2 for c in cvals)
+    r = sgc / math.sqrt(sgg * scc)
     print(f"{r:.6f} {1 / (1 - r * r):.6f}")
 
 
