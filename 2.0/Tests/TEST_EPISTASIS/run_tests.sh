@@ -122,8 +122,15 @@ plink --simulate simulate_covar.txt --simulate-ncases 75 --simulate-ncontrols 75
 awk 'BEGIN{OFS=" "} {print $1, $2, ((NR*7)%11)*0.25, (NR%3)*1.0}' tmp_oc.fam > tmp_oc_cov_body.txt
 (echo "#FID IID Q1 B1"; cat tmp_oc_cov_body.txt) > tmp_oc_cov.txt
 $1/plink2 $2 $3 --bfile tmp_oc --epistasis-boost no-firth --epi1 1 --covar tmp_oc_cov.txt --out plink2_oc
-python3 oracle_covar.py tmp_oc tmp_oc_cov.txt > tmp_oc_oracle.txt
-awk -f cmp_covar.awk tmp_oc_oracle.txt plink2_oc.PHENO1.epi.cc
+# The oracle is slow in pure Python.  The weekly workflow
+# (auto_checkcommits_tests_linuxmac.yml) sets PLINK2_FULL_TESTS=1 to check all
+# 190 pairs; otherwise only the 28 pairs among the first 8 variants are.
+oc_variant_ct=8
+[ -n "$PLINK2_FULL_TESTS" ] && oc_variant_ct=$(awk "END {print NR}" tmp_oc.bim)
+python3 oracle_covar.py tmp_oc tmp_oc_cov.txt $oc_variant_ct > tmp_oc_oracle.txt
+awk -v "n=$oc_variant_ct" 'NR == FNR { if (FNR <= n) keep[$2] = 1; next }
+     /^#/ || (($2 in keep) && ($4 in keep))' tmp_oc.bim plink2_oc.PHENO1.epi.cc > tmp_oc_checked.epi.cc
+awk -f cmp_covar.awk tmp_oc_oracle.txt tmp_oc_checked.epi.cc
 
 # 14. A sampling zero costs the full model a parameter but does not cost the
 #     table a degree of freedom, so the adjusted DF is the unadjusted one on

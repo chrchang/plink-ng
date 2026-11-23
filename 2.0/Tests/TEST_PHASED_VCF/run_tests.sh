@@ -80,19 +80,25 @@ python3 pca_compare.py -1 plink1_pca -2 plink2_pca -t 0.000002
 # while we're at it, test all --read-freq input formats.
 # (todo: add multiallelic --read-freq test when --score gets better
 # multiallelic-variant support.)
-plink --bfile plink1_data --freq
-$1/plink2 $2 $3 --bfile plink1_data --read-freq plink.frq --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
+# This only needs --read-freq to feed the same frequencies as the internal
+# computation, so it runs on the first 500 samples: the eigendecomposition of
+# the full 2504-sample GRM costs ~0.7s per run.
+awk 'NR <= 500' plink1_data.fam > tmp_rf_keep.txt
+$1/plink2 $2 $3 --bfile plink1_data --keep tmp_rf_keep.txt --make-bed --out tmp_rf
+$1/plink2 $2 $3 --bfile tmp_rf --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rf
+plink --bfile tmp_rf --freq --out tmp_rf
+$1/plink2 $2 $3 --bfile tmp_rf --read-freq tmp_rf.frq --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
 # .frq only has 4-digit precision
-python3 pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.0002
-plink --bfile plink1_data --freqx
-$1/plink2 $2 $3 --bfile plink1_data --read-freq plink.frqx --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
-diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
-$1/plink2 --bfile plink1_data --freq
-$1/plink2 $2 $3 --bfile plink1_data --read-freq plink2.afreq --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
-python3 pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.000002
-$1/plink2 --bfile plink1_data --geno-counts
-$1/plink2 $2 $3 --bfile plink1_data --read-freq plink2.gcount --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
-diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
+python3 pca_compare.py -1 plink2_pca_rf -2 plink2_pca_rfreq -t 0.0002
+plink --bfile tmp_rf --freqx --out tmp_rf
+$1/plink2 $2 $3 --bfile tmp_rf --read-freq tmp_rf.frqx --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
+diff -q plink2_pca_rf.eigenvec plink2_pca_rfreq.eigenvec
+$1/plink2 --bfile tmp_rf --freq --out tmp_rf
+$1/plink2 $2 $3 --bfile tmp_rf --read-freq tmp_rf.afreq --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
+python3 pca_compare.py -1 plink2_pca_rf -2 plink2_pca_rfreq -t 0.000002
+$1/plink2 --bfile tmp_rf --geno-counts --out tmp_rf
+$1/plink2 $2 $3 --bfile tmp_rf --read-freq tmp_rf.gcount --maf 0.02 --pca 3 biallelic-var-wts --out plink2_pca_rfreq
+diff -q plink2_pca_rf.eigenvec plink2_pca_rfreq.eigenvec
 
 # note that this run depends on the random seed.
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 approx biallelic-var-wts --out plink2_pca_approx

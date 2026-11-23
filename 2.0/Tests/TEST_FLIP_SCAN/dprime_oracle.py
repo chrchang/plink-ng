@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Independent check of --flip-scan dprime's D' values.
 
-Usage: dprime_oracle.py <.raw from --export A> <.flipscan.verbose>
+Usage: dprime_oracle.py <.raw from --export A> <.flipscan.verbose> [stride]
 
-For every line of the verbose report, recomputes case-only and control-only
+For every line of the verbose report (or every stride-th one; the search
+below is slow in pure Python), recomputes case-only and control-only
 signed D' from the ALT-allele counts in the .raw file and compares them with
 D_PRIME_A and D_PRIME_U.  The haplotype frequencies are fitted by a direct
 search over how the double heterozygotes split between the two phasings (grid,
@@ -108,6 +109,7 @@ def em_dprime(g0, g1):
 
 def main():
     raw_fname, verbose_fname = sys.argv[1], sys.argv[2]
+    stride = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     with open(raw_fname) as f:
         header = f.readline().split()
         rows = [line.split() for line in f]
@@ -129,7 +131,9 @@ def main():
         cu = vheader.index("D_PRIME_CTRL")
         checked = 0
         worst = 0.0
-        for line in f:
+        for line_idx, line in enumerate(f):
+            if line_idx % stride:
+                continue
             fields = line.rstrip("\n").split("\t")
             for group, col in ((cases, ca), (ctrls, cu)):
                 expected = em_dprime(geno(group, fields[ci]), geno(group, fields[cp]))

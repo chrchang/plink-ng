@@ -61,9 +61,12 @@ check() {
         exit 1
     fi
     case_ct=$((case_ct + 1))
+    # (.pvar and .psam contents don't depend on the flags, so they're only
+    # compared once per encoding.)
     if ! cmp -s tmp_v.pgen tmp_b.pgen || \
-       ! diff -q <(grep -v '^#' tmp_v.pvar | cut -f 1-5) <(grep -v '^#' tmp_b.pvar | cut -f 1-5) > /dev/null || \
-       ! diff -q <(iids tmp_v.psam) <(iids tmp_b.psam) > /dev/null; then
+       { [ -z "$flags" ] && \
+         { ! diff -q <(grep -v '^#' tmp_v.pvar | cut -f 1-5) <(grep -v '^#' tmp_b.pvar | cut -f 1-5) > /dev/null || \
+           ! diff -q <(iids tmp_v.psam) <(iids tmp_b.psam) > /dev/null; }; }; then
         echo "mismatch: $pre $enc [$flags]"
         $PLINK2 --pfile tmp_v --export vcf vcf-dosage=HDS-force --out tmp_ve > /dev/null 2>&1
         $PLINK2 --pfile tmp_b --export vcf vcf-dosage=HDS-force --out tmp_be > /dev/null 2>&1
@@ -81,7 +84,7 @@ run_set() {
     local pre=tmp_${fam}_${n}_$bits
     local dfield=GP
     [ $fam = hds ] && dfield=HDS
-    python3 make_data.py $fam $n $bits $pre $encs
+    [ -n "$PREGENERATED" ] || python3 make_data.py $fam $n $bits $pre $encs
     for flags in "${FLAGS[@]}"; do
         if [ $fam = hds ] && [[ $flags == --dosage-erase-threshold* ]]; then
             continue
@@ -105,6 +108,32 @@ run_set() {
     done
     rm -f $pre.*
 }
+
+# The weekly workflow (auto_checkcommits_tests_linuxmac.yml) sets
+# PLINK2_FULL_TESTS=1 for the full sweep below.  Otherwise, only 33 samples
+# (straddling the 32-sample genovec word) are run, with one bit depth per
+# importer regime: the 1-bit case, the 8- and 16-bit fast paths, layout 1,
+# and 25 bits for both the generic unpacker and the >24-bit rearrangement
+# of the magic-number division.  Each family gets one of the two fast paths.
+# (These fixtures are generated in parallel first; "wait $pid" propagates
+# failures.)
+if [ -z "$PLINK2_FULL_TESTS" ]; then
+    QUICK_SETS=("gp 33 1 zlib" "gp 33 16 zlib,none,zstd,noids,reflast" "hds 33 8 zlib,none,zstd,noids,reflast" "hds 33 25 zlib" "gp 33 L1 l1zlib,l1none")
+    pids=""
+    for set_args in "${QUICK_SETS[@]}"; do
+        read -r fam n bits encs <<< "$set_args"
+        python3 make_data.py $fam $n $bits tmp_${fam}_${n}_$bits $encs &
+        pids="$pids $!"
+    done
+    for pid in $pids; do
+        wait $pid
+    done
+    PREGENERATED=1
+    for set_args in "${QUICK_SETS[@]}"; do
+        run_set $set_args
+    done
+    SAMPLE_CTS=""
+fi
 
 for n in $SAMPLE_CTS; do
     if [ $n = 33 ]; then

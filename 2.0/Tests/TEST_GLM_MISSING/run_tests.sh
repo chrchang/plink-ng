@@ -81,12 +81,22 @@ test "$(awk '$1 == 0' tmp_miss_counts.txt | wc -l)" -eq 8
 test "$(awk '$1 > 0 && $1 < 300' tmp_miss_counts.txt | wc -l)" -eq 24
 test "$(awk '$1 >= 300' tmp_miss_counts.txt | wc -l)" -eq 8
 
+# Each check_model() call runs one oracle regression per variant.  The weekly
+# workflow (auto_checkcommits_tests_linuxmac.yml) sets PLINK2_FULL_TESTS=1 to
+# check all 40 variants; otherwise only the first 10 are checked (in both
+# runs), which still covers each of the five missingness classes twice.
+if [ -n "$PLINK2_FULL_TESTS" ]; then
+    cp tmp_variants.txt tmp_check_variants.txt
+else
+    head -n 10 tmp_variants.txt > tmp_check_variants.txt
+fi
+
 # $1: --glm modifiers.  $2: the covariate arguments, defaulting to --covar; pass
 # an empty string to run without covariates.
 check_model() {
-    $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q1-Q4 ${2---covar tmp_covar.txt} --glm $1 --out tmp_main > /dev/null
+    $plink2 --pfile tmp_data --extract tmp_check_variants.txt --pheno tmp_pheno.txt --pheno-name Q1-Q4 ${2---covar tmp_covar.txt} --glm $1 --out tmp_main > /dev/null
     rm -f tmp_oracle.Q?.glm.linear
-    for v in $(cat tmp_variants.txt); do
+    for v in $(cat tmp_check_variants.txt); do
         echo $v > tmp_one.txt
         if [ -f tmp_miss_$v.txt ]; then
             (echo "#IID"; cat tmp_miss_$v.txt) > tmp_remove.txt
