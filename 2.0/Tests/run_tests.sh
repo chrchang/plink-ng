@@ -393,6 +393,11 @@ cd TEST_BGEN_PARITY
 cd ..
 echo "TEST_BGEN_PARITY passed."
 
+cd TEST_HDS_EQUAL_HAP_ERASE
+./run_tests.sh $d $2 $3 > TEST_HDS_EQUAL_HAP_ERASE.log
+cd ..
+echo "TEST_HDS_EQUAL_HAP_ERASE passed."
+
 cd TEST_SPLIT_PHASED
 ./run_tests.sh $d $2 $3 > TEST_SPLIT_PHASED.log
 cd ..

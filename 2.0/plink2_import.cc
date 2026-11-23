@@ -948,6 +948,36 @@ ENUM_U31_DEF_START()
   kDosageParseForceMissing
 ENUM_U31_DEF_END(DosageParseResult);
 
+// --dosage-erase-threshold for a phased dosage whose haplotype dosages are
+// all equal (h|h, or a phased haploid call h).  Phased dosages use a
+// per-haplotype rule: the dosage is erased only when every haplotype is
+// within [threshold/2] of an integer.  Applying the unphased rule (diploid
+// dosage within [threshold] of an integer) here instead would erase
+// 0.498|0.498 while keeping 0.498|0.499.
+// dosage_int is the haplotype dosage times 32768 (equivalently, the diploid
+// dosage on the usual 0..32768 scale).  Dosage exactly 1 with no phase delta
+// is saved as an ordinary unphased het.
+// Returns 1 iff the dosage should be saved; *geno_ptr is set to the hardcall
+// (subject to --hard-call-threshold when the dosage is saved).
+HEADER_INLINE uint32_t PhasedEqualDosageGeno(uint32_t dosage_int, uint32_t hard_call_halfdist, uint32_t dosage_erase_halfdist, uintptr_t* geno_ptr) {
+  if (dosage_int == kDosageMid) {
+    *geno_ptr = 1;
+    return 0;
+  }
+  if (DphaseHalfdist(dosage_int) >= dosage_erase_halfdist + kDosage4th) {
+    *geno_ptr = (dosage_int + kDosage4th) / kDosageMid;
+    return 0;
+  }
+  *geno_ptr = (BiallelicDosageHalfdist(dosage_int) < hard_call_halfdist)? 3 : ((dosage_int + kDosage4th) / kDosageMid);
+  return 1;
+}
+
+// Scan-pass counterpart: nonzero iff PhasedEqualDosageGeno() would save the
+// dosage.
+HEADER_INLINE uint32_t PhasedEqualDosageFound(uint32_t dosage_int, uint32_t dosage_erase_halfdist) {
+  return (dosage_int != kDosageMid) && (DphaseHalfdist(dosage_int) < dosage_erase_halfdist + kDosage4th);
+}
+
 BoolErr ParseVcfBiallelicGp(const char* gp_iter, uint32_t is_haploid, double import_dosage_certainty, DosageParseResult* dpr_ptr, double* alt_dosage_ptr) {
   // P(0/0), P(0/1), P(1/1), etc.
   // assumes dpr initialized to kDosageParseOk
@@ -1220,10 +1250,15 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
           (((dphase_side1 + kDosageMid) ^ (dphase_side2 + kDosageMid)) & kDosageMax)) {
         goto VcfScanBiallelicHdsLine_found;
       }
+    } else if (hds_valid) {
+      // Must agree with VcfConvertPhasedBiallelicDosageLine().
+      if (PhasedEqualDosageFound(dosage_int, dosage_erase_halfdist)) {
+        goto VcfScanBiallelicHdsLine_found;
+      }
     } else {
       const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
       if ((cur_halfdist < dosage_erase_halfdist) ||
-          ((!hds_valid) && cur_gt_phased && VcfIsHetShort(cur_gtext_start, halfcall_mode))) {
+          (cur_gt_phased && VcfIsHetShort(cur_gtext_start, halfcall_mode))) {
         goto VcfScanBiallelicHdsLine_found;
       }
     }
@@ -5670,10 +5705,16 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
         *phase_or_dosage_found_ptr = 1;
         return kBcfParseOk;
       }
+    } else if (hds_valid) {
+      // Must agree with BcfConvertPhasedBiallelicDosage().
+      if (PhasedEqualDosageFound(dosage_int, dosage_erase_halfdist)) {
+        *phase_or_dosage_found_ptr = 1;
+        return kBcfParseOk;
+      }
     } else {
       const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
       if ((cur_halfdist < dosage_erase_halfdist) ||
-          ((!hds_valid) && BcfGtIsPhasedHet(gt_first, gt_second, 0x80, halfcall_mode))) {
+          BcfGtIsPhasedHet(gt_first, gt_second, 0x80, halfcall_mode)) {
         *phase_or_dosage_found_ptr = 1;
         return kBcfParseOk;
       }
@@ -11881,8 +11922,7 @@ uint32_t Bgen13ScanBiallelicPhased(uintptr_t numer_a1, uintptr_t numer_a2, uintp
       return 1;
     }
   }
-  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-  return (halfdist < dosage_erase_halfdist);
+  return PhasedEqualDosageFound(write_dosage_int, dosage_erase_halfdist);
 }
 
 /*
@@ -12291,6 +12331,12 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
                 continue;
               }
               const uint32_t write_dosage_int = (magic_preadd + magic_mult * 2 * numer_a) >> magic_postshift;
+              if (is_phased) {
+                if (PhasedEqualDosageFound(write_dosage_int, dosage_erase_halfdist)) {
+                  goto Bgen13DosageOrPhaseScanThread_found;
+                }
+                continue;
+              }
               const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
               if (halfdist < dosage_erase_halfdist) {
                 goto Bgen13DosageOrPhaseScanThread_found;
@@ -12474,8 +12520,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
                 continue;
               }
               const uint32_t write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
-              const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-              if (halfdist < dosage_erase_halfdist) {
+              if (PhasedEqualDosageFound(write_dosage_int, dosage_erase_halfdist)) {
                 goto Bgen13DosageOrPhaseScanThread_found;
               }
             } else {
@@ -12532,14 +12577,11 @@ uint32_t Bgen13ConvertBiallelicPhased(uint32_t sample_idx_lowbits, uintptr_t num
   }
   const uint32_t write_dosage_int = (magic_preadd + magic_mult * (numer_a1 + numer_a2)) >> magic_postshift;
   if (numer_a1 == numer_a2) {
-    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-    if (halfdist < hard_call_halfdist) {
-      *genovec_word_ptr |= (3 * k1LU) << sample_idx_lowbits_x2;
-    } else {
-      *genovec_word_ptr |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << sample_idx_lowbits_x2;
-      if (halfdist >= dosage_erase_halfdist) {
-        return 1;
-      }
+    uintptr_t cur_geno;
+    const uint32_t save_dosage = PhasedEqualDosageGeno(write_dosage_int, hard_call_halfdist, dosage_erase_halfdist, &cur_geno);
+    *genovec_word_ptr |= cur_geno << sample_idx_lowbits_x2;
+    if (!save_dosage) {
+      return 1;
     }
     *write_dosage_int_ptr = write_dosage_int;
     return 0;
@@ -12926,13 +12968,22 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                   goto Bgen13GenoToPgenThread_haploid_missing;
                 }
                 const uint32_t write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
-                const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                if (halfdist < hard_call_halfdist) {
-                  genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                } else {
-                  genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
-                  if (halfdist >= dosage_erase_halfdist) {
+                if (is_phased) {
+                  uintptr_t cur_geno;
+                  const uint32_t save_dosage = PhasedEqualDosageGeno(write_dosage_int, hard_call_halfdist, dosage_erase_halfdist, &cur_geno);
+                  genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                  if (!save_dosage) {
                     continue;
+                  }
+                } else {
+                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                  if (halfdist < hard_call_halfdist) {
+                    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                  } else {
+                    genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+                    if (halfdist >= dosage_erase_halfdist) {
+                      continue;
+                    }
                   }
                 }
                 dosage_present_hw |= 1U << sample_idx_lowbits;
@@ -13078,15 +13129,11 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                     goto Bgen13GenoToPgenThread_generic_phased_missing;
                   }
                   write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
-                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                  if (halfdist < hard_call_halfdist) {
-                    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  } else {
-                    genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
-                    // bugfix (22 Apr 2018): forgot this check
-                    if (halfdist >= dosage_erase_halfdist) {
-                      continue;
-                    }
+                  uintptr_t cur_geno;
+                  const uint32_t save_dosage = PhasedEqualDosageGeno(write_dosage_int, hard_call_halfdist, dosage_erase_halfdist, &cur_geno);
+                  genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                  if (!save_dosage) {
+                    continue;
                   }
                 }
                 dosage_present_hw |= 1U << sample_idx_lowbits;
