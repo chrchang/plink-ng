@@ -373,6 +373,16 @@ cd TEST_BCF_MULTIALLELIC_HDS
 cd ..
 echo "TEST_BCF_MULTIALLELIC_HDS passed."
 
+cd TEST_BCF_PHASED_QUAL_FILTER
+./run_tests.sh $d $2 $3 > TEST_BCF_PHASED_QUAL_FILTER.log
+cd ..
+echo "TEST_BCF_PHASED_QUAL_FILTER passed."
+
+cd TEST_VCF_BCF_PARITY
+./run_tests.sh $d $2 $3 > TEST_VCF_BCF_PARITY.log
+cd ..
+echo "TEST_VCF_BCF_PARITY passed."
+
 cd TEST_BGEN_REF_FIRST_PHASE
 ./run_tests.sh $d $2 $3 > TEST_BGEN_REF_FIRST_PHASE.log
 cd ..
