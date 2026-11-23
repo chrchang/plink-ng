@@ -2220,7 +2220,7 @@ void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const ch
   const GlmErrcode errcode = GetGlmErrCode(glm_err);
   const char* msg_start = skip_invalid_pheno? "Note: Skipping " : "Error: Cannot proceed with ";
   if (errcode == kGlmErrcodeUnstableScale) {
-    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since genotype/covariate scales vary too widely for numerical stability of the current implementation. Try rescaling your covariates with e.g. --covar-variance-standardize.\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "");
+    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since genotype/covariate scales vary too widely for numerical stability, even after automatic covariate rescaling. (Automatic rescaling cannot center covariates when 'intercept' or 'interaction' is specified; you may want to center them yourself, e.g. with --covar-variance-standardize. Otherwise, a covariate's variation may be too small relative to its magnitude.)\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "");
   } else if (errcode == kGlmErrcodeVifInfinite) {
     snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since covariate correlation matrix could not be inverted (VIF_INFINITE).%s\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
   } else if (errcode == kGlmErrcodeLogisticConvergeFail) {
@@ -2244,7 +2244,12 @@ void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const ch
   }
 }
 
-BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const char* const* covar_names, GlmFlags glm_flags, uint32_t covar_ct, uint32_t user_constraint_ct, const char*** cur_test_names_ptr) {
+// If covar_beta_mults is non-null (see GlmFillAndTestCovars()), also fills
+// *cur_test_mults_ptr with one coefficient multiplier per reported biallelic
+// test (1.0 for tests that aren't affected by covariate rescaling); otherwise
+// *cur_test_mults_ptr is set to nullptr.
+BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const char* const* covar_names, const double* covar_beta_mults, GlmFlags glm_flags, uint32_t covar_ct, uint32_t local_covar_ct, uint32_t user_constraint_ct, const char*** cur_test_names_ptr, const double** cur_test_mults_ptr) {
+  *cur_test_mults_ptr = nullptr;
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
   const uint32_t model_hetonly = (glm_flags / kfGlmHetonly) & 1;
@@ -2342,6 +2347,16 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
                bigstack_alloc_c(test_name_buf_alloc, &test_name_buf_iter))) {
     return 1;
   }
+  double* cur_test_mults = nullptr;
+  if (covar_beta_mults) {
+    if (unlikely(bigstack_alloc_d(biallelic_reported_test_ct, &cur_test_mults))) {
+      return 1;
+    }
+    for (uint32_t test_idx = 0; test_idx != biallelic_reported_test_ct; ++test_idx) {
+      cur_test_mults[test_idx] = 1.0;
+    }
+    *cur_test_mults_ptr = cur_test_mults;
+  }
   const char** cur_test_names = *cur_test_names_ptr;
   uint32_t write_idx = 0;
   if (include_intercept) {
@@ -2365,15 +2380,22 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
     if (parameter_subset && (!IsSet(parameter_subset, pred_uidx))) {
       continue;
     }
+    if (cur_test_mults && (covar_idx >= local_covar_ct)) {
+      cur_test_mults[write_idx] = covar_beta_mults[covar_idx - local_covar_ct];
+    }
     // just point to the existing string, its lifetime is sufficient
     cur_test_names[write_idx++] = covar_names[covar_idx];
   }
   if (add_interactions) {
     for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
       const char* cur_covar_name = covar_names[covar_idx];
+      const double cur_mult = (cur_test_mults && (covar_idx >= local_covar_ct))? covar_beta_mults[covar_idx - local_covar_ct] : 1.0;
       if ((!parameter_subset) || IsSet(parameter_subset, pred_uidx)) {
         char* iter_next = memcpya(test_name_buf_iter, main_effect, 4);
         iter_next = strcpyax(iter_next, cur_covar_name, '\0');
+        if (cur_test_mults) {
+          cur_test_mults[write_idx] = cur_mult;
+        }
         cur_test_names[write_idx++] = test_name_buf_iter;
         test_name_buf_iter = iter_next;
       }
@@ -2382,6 +2404,9 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
         if ((!parameter_subset) || IsSet(parameter_subset, pred_uidx)) {
           char* iter_next = memcpya(test_name_buf_iter, domdev_str, domdev_slen);
           iter_next = strcpyax(iter_next, cur_covar_name, '\0');
+          if (cur_test_mults) {
+            cur_test_mults[write_idx] = cur_mult;
+          }
           cur_test_names[write_idx++] = test_name_buf_iter;
           test_name_buf_iter = iter_next;
         }
@@ -2457,6 +2482,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     assert(orig_variant_ct);
     // common linear/logistic initialization
     const GlmFlags glm_flags = glm_info_ptr->flags;
+    // GlmFillAndTestCovars() rescales covariates internally, for numerical
+    // stability.  Centering would change the intercept and the meaning of
+    // interaction-model main effects, so we only permit it when neither is in
+    // play.
+    const uint32_t covar_center_ok = !(glm_flags & (kfGlmIntercept | kfGlmInteraction));
     const uintptr_t* early_variant_include = orig_variant_include;
     uint32_t* local_sample_uidx_order = nullptr;
     uintptr_t* local_variant_include = nullptr;
@@ -2900,6 +2930,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     common.parameter_subset = nullptr;
     common.parameter_subset_x = nullptr;
     common.parameter_subset_y = nullptr;
+    common.test_beta_mults = nullptr;
+    common.test_beta_mults_x = nullptr;
+    common.test_beta_mults_y = nullptr;
     common.vif_thresh = vif_thresh;
     common.max_corr = glm_info_ptr->max_corr;
     // bugfix (20 Feb 2018): common.is_xchr_model_1 initialization was either
@@ -3444,10 +3477,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // Expand categorical covariates and perform VIF and correlation checks
         // here.
         const char** cur_covar_names = nullptr;
+        double* covar_beta_mults = nullptr;
         GlmErr glm_err = 0;
         {
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &common.nm_precomp, &covars_cmaj_d, &cur_covar_names, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, covar_center_ok, xtx_state, &common.nm_precomp, &covars_cmaj_d, &covar_beta_mults, &cur_covar_names, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           linear_ctx.covars_cmaj_d = covars_cmaj_d;
@@ -3461,11 +3495,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         const char** cur_covar_names_x = nullptr;
+        double* covar_beta_mults_x = nullptr;
         common.nm_precomp_x = nullptr;
         linear_ctx.covars_cmaj_x_d = nullptr;
         if (sample_ct_x) {
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include_x, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &common.nm_precomp_x, &covars_cmaj_d, &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include_x, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, covar_center_ok, xtx_state, &common.nm_precomp_x, &covars_cmaj_d, &covar_beta_mults_x, &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           linear_ctx.covars_cmaj_x_d = covars_cmaj_d;
@@ -3478,11 +3513,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         const char** cur_covar_names_y = nullptr;
+        double* covar_beta_mults_y = nullptr;
         common.nm_precomp_y = nullptr;
         linear_ctx.covars_cmaj_y_d = nullptr;
         if (sample_ct_y) {
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include_y, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &common.nm_precomp_y, &covars_cmaj_d, &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include_y, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, covar_center_ok, xtx_state, &common.nm_precomp_y, &covars_cmaj_d, &covar_beta_mults_y, &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           linear_ctx.covars_cmaj_y_d = covars_cmaj_d;
@@ -3498,16 +3534,18 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         const char** cur_test_names = nullptr;
         const char** cur_test_names_x = nullptr;
         const char** cur_test_names_y = nullptr;
-        if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset, cur_covar_names, glm_flags, covar_ct + extra_cat_ct, common.tests_flag? common.constraint_ct : 0, &cur_test_names))) {
+        common.test_beta_mults_x = nullptr;
+        common.test_beta_mults_y = nullptr;
+        if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset, cur_covar_names, covar_beta_mults, glm_flags, covar_ct + extra_cat_ct, local_covar_ct, common.tests_flag? common.constraint_ct : 0, &cur_test_names, &common.test_beta_mults))) {
           goto GlmMain_ret_NOMEM;
         }
         if (sample_ct_x) {
-          if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_x, cur_covar_names_x, glm_flags, covar_ct_x + extra_cat_ct_x, common.tests_flag? common.constraint_ct_x : 0, &cur_test_names_x))) {
+          if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_x, cur_covar_names_x, covar_beta_mults_x, glm_flags, covar_ct_x + extra_cat_ct_x, local_covar_ct, common.tests_flag? common.constraint_ct_x : 0, &cur_test_names_x, &common.test_beta_mults_x))) {
             goto GlmMain_ret_NOMEM;
           }
         }
         if (sample_ct_y) {
-          if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_y, cur_covar_names_y, glm_flags, covar_ct_y + extra_cat_ct_y, common.tests_flag? common.constraint_ct_y : 0, &cur_test_names_y))) {
+          if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_y, cur_covar_names_y, covar_beta_mults_y, glm_flags, covar_ct_y + extra_cat_ct_y, local_covar_ct, common.tests_flag? common.constraint_ct_y : 0, &cur_test_names_y, &common.test_beta_mults_y))) {
             goto GlmMain_ret_NOMEM;
           }
         }
@@ -4076,6 +4114,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // Expand categorical covariates and perform VIF and correlation checks
       // here.
       const char** cur_covar_names = nullptr;
+      double* covar_beta_mults = nullptr;
       GlmErr glm_err = 0;
       logistic_ctx.pheno_cc = nullptr;
       logistic_ctx.gcount_case_interleaved_vec = nullptr;
@@ -4137,7 +4176,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         logistic_ctx.pheno_d = nullptr;
         logistic_ctx.covars_cmaj_d = nullptr;
         common.nm_precomp = nullptr;
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include, cur_pheno_col, cat_to_level, covar_include, covar_cols, covar_names, sample_ct, level_ct, covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[0]), &cur_covar_names, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include, cur_pheno_col, cat_to_level, covar_include, covar_cols, covar_names, sample_ct, level_ct, covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[0]), &covar_beta_mults, &cur_covar_names, &glm_err))) {
           goto GlmMain_ret_NOMEM;
         }
       } else if (is_logistic) {
@@ -4147,7 +4186,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         double* pheno_d = nullptr;
         float* covars_cmaj_f = nullptr;
         double* covars_cmaj_d = nullptr;
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, domdev_third_p1, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp, &covars_cmaj_f, &covars_cmaj_d, &logistic_ctx.cc_residualize, &cur_covar_names, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, domdev_third_p1, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults, &logistic_ctx.cc_residualize, &cur_covar_names, &glm_err))) {
           goto GlmMain_ret_NOMEM;
         }
         logistic_ctx.pheno_f = pheno_f;
@@ -4161,10 +4200,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         logistic_ctx.covars_cmaj_d = nullptr;
         double* pheno_d = nullptr;
         double* covars_cmaj_d = nullptr;
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, is_qt_residualize, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &pheno_d, &common.nm_precomp, &covars_cmaj_d, &cur_covar_names, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, is_qt_residualize, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, covar_center_ok, xtx_state, &pheno_d, &(linear_ctx.single_pheno_means[0]), &common.nm_precomp, &covars_cmaj_d, &covar_beta_mults, &cur_covar_names, &glm_err))) {
           goto GlmMain_ret_NOMEM;
         }
         linear_ctx.pheno_d = pheno_d;
+        linear_ctx.pheno_means = &(linear_ctx.single_pheno_means[0]);
         linear_ctx.covars_cmaj_d = covars_cmaj_d;
       }
       if (glm_err) {
@@ -4182,6 +4222,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         PrintMultinomialFirthNullWarning("", cur_pheno_name);
       }
       const char** cur_covar_names_x = nullptr;
+      double* covar_beta_mults_x = nullptr;
       common.nm_precomp_x = nullptr;
       logistic_ctx.pheno_x_cc = nullptr;
       logistic_ctx.gcount_case_interleaved_vec_x = nullptr;
@@ -4195,7 +4236,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (sample_ct_x) {
         if (is_multinomial) {
           common.nm_precomp_x = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_x, cur_pheno_col, cat_to_level, covar_include_x, covar_cols, covar_names, sample_ct_x, level_ct, covar_ct_x, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[1]), &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_x, cur_pheno_col, cat_to_level, covar_include_x, covar_cols, covar_names, sample_ct_x, level_ct, covar_ct_x, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[1]), &covar_beta_mults_x, &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
         } else if (is_logistic) {
@@ -4203,7 +4244,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           double* pheno_d = nullptr;
           float* covars_cmaj_f = nullptr;
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, domdev_third_p1, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_x_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_x) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_x, &covars_cmaj_f, &covars_cmaj_d, &logistic_ctx.cc_residualize_x, &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, domdev_third_p1, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_x_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_x) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_x, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults_x, &logistic_ctx.cc_residualize_x, &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           logistic_ctx.pheno_x_f = pheno_f;
@@ -4213,10 +4254,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         } else {
           double* pheno_d = nullptr;
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, is_qt_residualize, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &pheno_d, &common.nm_precomp_x, &covars_cmaj_d, &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, is_qt_residualize, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, covar_center_ok, xtx_state, &pheno_d, &(linear_ctx.single_pheno_means[1]), &common.nm_precomp_x, &covars_cmaj_d, &covar_beta_mults_x, &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           linear_ctx.pheno_x_d = pheno_d;
+          linear_ctx.pheno_x_means = &(linear_ctx.single_pheno_means[1]);
           linear_ctx.covars_cmaj_x_d = covars_cmaj_d;
         }
         if (glm_err) {
@@ -4234,6 +4276,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
       const char** cur_covar_names_y = nullptr;
+      double* covar_beta_mults_y = nullptr;
       common.nm_precomp_y = nullptr;
       logistic_ctx.pheno_y_cc = nullptr;
       logistic_ctx.gcount_case_interleaved_vec_y = nullptr;
@@ -4247,7 +4290,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (sample_ct_y) {
         if (is_multinomial) {
           common.nm_precomp_y = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_y, cur_pheno_col, cat_to_level, covar_include_y, covar_cols, covar_names, sample_ct_y, level_ct, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[2]), &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsMultinomial(cur_sample_include_y, cur_pheno_col, cat_to_level, covar_include_y, covar_cols, covar_names, sample_ct_y, level_ct, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, multinomial_ctx.firth_mode, &(multinomial_ctx.sets[2]), &covar_beta_mults_y, &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
         } else if (is_logistic) {
@@ -4255,7 +4298,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           double* pheno_d = nullptr;
           float* covars_cmaj_f = nullptr;
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, domdev_third_p1, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_y_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_y) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_y, &covars_cmaj_f, &covars_cmaj_d, &logistic_ctx.cc_residualize_y, &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, domdev_third_p1, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_y_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_y) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_y, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults_y, &logistic_ctx.cc_residualize_y, &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           logistic_ctx.pheno_y_f = pheno_f;
@@ -4265,10 +4308,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         } else {
           double* pheno_d = nullptr;
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, is_qt_residualize, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &pheno_d, &common.nm_precomp_y, &covars_cmaj_d, &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, is_qt_residualize, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, covar_center_ok, xtx_state, &pheno_d, &(linear_ctx.single_pheno_means[2]), &common.nm_precomp_y, &covars_cmaj_d, &covar_beta_mults_y, &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           linear_ctx.pheno_y_d = pheno_d;
+          linear_ctx.pheno_y_means = &(linear_ctx.single_pheno_means[2]);
           linear_ctx.covars_cmaj_y_d = covars_cmaj_d;
         }
         if (glm_err) {
@@ -4288,16 +4332,18 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       const char** cur_test_names = nullptr;
       const char** cur_test_names_x = nullptr;
       const char** cur_test_names_y = nullptr;
-      if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset, cur_covar_names, glm_flags, covar_ct + extra_cat_ct, common.tests_flag? common.constraint_ct : 0, &cur_test_names))) {
+      common.test_beta_mults_x = nullptr;
+      common.test_beta_mults_y = nullptr;
+      if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset, cur_covar_names, covar_beta_mults, glm_flags, covar_ct + extra_cat_ct, local_covar_ct, common.tests_flag? common.constraint_ct : 0, &cur_test_names, &common.test_beta_mults))) {
         goto GlmMain_ret_NOMEM;
       }
       if (sample_ct_x) {
-        if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_x, cur_covar_names_x, glm_flags, covar_ct_x + extra_cat_ct_x, common.tests_flag? common.constraint_ct_x : 0, &cur_test_names_x))) {
+        if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_x, cur_covar_names_x, covar_beta_mults_x, glm_flags, covar_ct_x + extra_cat_ct_x, local_covar_ct, common.tests_flag? common.constraint_ct_x : 0, &cur_test_names_x, &common.test_beta_mults_x))) {
           goto GlmMain_ret_NOMEM;
         }
       }
       if (sample_ct_y) {
-        if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_y, cur_covar_names_y, glm_flags, covar_ct_y + extra_cat_ct_y, common.tests_flag? common.constraint_ct_y : 0, &cur_test_names_y))) {
+        if (unlikely(AllocAndInitReportedTestNames(common.parameter_subset_y, cur_covar_names_y, covar_beta_mults_y, glm_flags, covar_ct_y + extra_cat_ct_y, local_covar_ct, common.tests_flag? common.constraint_ct_y : 0, &cur_test_names_y, &common.test_beta_mults_y))) {
           goto GlmMain_ret_NOMEM;
         }
       }

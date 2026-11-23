@@ -5270,12 +5270,11 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
   SetAllBits(sample_ct * 2, invfound_nypbuf);
   if (gt_value_type == 1) {
     if (gt_value_ct == 2) {
-      const unsigned char* second_byte_start = &(gt_main[1]);
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const uint32_t second_byte = second_byte_start[sample_idx * 2];
+        const uint32_t second_byte = gt_main[sample_idx * 2 + 1];
         if ((second_byte & 0x81) == 1) {
           // phased
-          const uint32_t first_allele_idx_p1 = second_byte_start[sample_idx * 2 - 1] >> 1;
+          const uint32_t first_allele_idx_p1 = gt_main[sample_idx * 2] >> 1;
           const uint32_t second_allele_idx_p1 = second_byte >> 1;
           if (first_allele_idx_p1 != second_allele_idx_p1) {
             // phased het or halfcall
@@ -5319,12 +5318,12 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
   } else {
     // int16
     if (gt_value_ct == 2) {
-      const uint16_t* second_u16_start = R_CAST(const uint16_t*, &(gt_main[2]));
+      const uint16_t* gt_u16 = R_CAST(const uint16_t*, gt_main);
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const uint32_t second_u16 = second_u16_start[sample_idx * 2];
+        const uint32_t second_u16 = gt_u16[sample_idx * 2 + 1];
         if ((second_u16 & 0x8001) == 1) {
           // phased
-          const uint32_t first_allele_idx_p1 = second_u16_start[sample_idx * 2 - 1] >> 1;
+          const uint32_t first_allele_idx_p1 = gt_u16[sample_idx * 2] >> 1;
           const uint32_t second_allele_idx_p1 = second_u16 >> 1;
           if (first_allele_idx_p1 != second_allele_idx_p1) {
             // phased het or halfcall
@@ -9828,6 +9827,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       putc_unlocked('\n', stdout);
       logerrprintfww("Error: Variant record #%" PRIuPTR " of --bcf file has a polyploid genotype.%s\n", vrec_idx, (import_flags & kfImportPolyploidExplicitError)? "" : " (Use '--polyploid-mode missing' to treat these as missing values.)");
       reterr = kPglRetInconsistentInput;
+      break;
     } else if (bcf_parse_err == kBcfParseWideGt) {
       putc_unlocked('\n', stdout);
       logerrprintfww("Error: Variant record #%" PRIuPTR " of --bcf file uses unexpectedly-wide integers for the GT field; only int8s are currently supported for n_allele < 64, and int16s for n_allele in [64, 16383].\n", vrec_idx);
