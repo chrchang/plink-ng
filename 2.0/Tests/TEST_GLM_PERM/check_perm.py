@@ -23,8 +23,11 @@ digits, so values within a relative 1e-6 of the original statistic are "near
 ties" that may count as more extreme, tied, or less extreme; the reported
 count must fall in the resulting range.
 """
+import os
 import sys
-from statistics import NormalDist
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "utils"))
+import normdist  # noqa: E402
 
 
 def read_dump(fname):
@@ -88,7 +91,7 @@ def check_adaptive(dump_fname, report_fname, allele_test_ct, max_perms):
     # plink2 defaults: --aperm 5 (i.e. min 6), alpha 0, beta 1e-4, initial
     # interval 1, slope 0.001.
     amin, alpha, beta, intercept, slope = 6, 0.0, 1e-4, 1.0, 0.001 * (1 + 2.0 ** -44)
-    zt = NormalDist().inv_cdf(1 - beta / (2.0 * allele_test_ct))
+    zt = normdist.inv_cdf(1 - beta / (2.0 * allele_test_ct))
     orig, perms = read_dump(dump_fname)
     perms = perms[:max_perms]
     checks = set()
