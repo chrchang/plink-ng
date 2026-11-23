@@ -52,14 +52,23 @@ def inverse_diag(a, idx):
     return None if col is None else col[idx]
 
 
-prefix = sys.argv[1]
-covar_fname = sys.argv[2] if len(sys.argv) > 2 else None
+# usage: oracle.py [--max-variants <n>] <PLINK 1 prefix> [covariate file]
+# (--max-variants restricts the table to pairs among the first n variants.)
+args = sys.argv[1:]
+max_variants = None
+if args[:1] == ['--max-variants']:
+    max_variants = int(args[1])
+    args = args[2:]
+prefix = args[0]
+covar_fname = args[1] if len(args) > 1 else None
 
 fam = [l.split() for l in open(prefix + '.fam') if l.strip()]
 sample_ids = [(f[0], f[1]) for f in fam]
 pheno = [float(f[5]) for f in fam]
 n = len(fam)
 bim = [l.split() for l in open(prefix + '.bim') if l.strip()]
+if max_variants is not None:
+    bim = bim[:max_variants]
 ids = [b[1] for b in bim]
 m = len(bim)
 

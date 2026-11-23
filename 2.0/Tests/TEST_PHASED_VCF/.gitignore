@@ -10,3 +10,4 @@ sparse.*
 pheno_cc*
 pheno_qt*
 sample_ids.txt
+tmp_rf*
