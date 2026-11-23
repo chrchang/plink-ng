@@ -11,6 +11,7 @@ Type=String (GT only), Type=Integer or Type=Float, with htslib's encoding:
     fits and int16 otherwise (so a site with >63 ALT alleles exercises the
     int16 path); samples with lower ploidy than the widest one in the record
     are padded with END_OF_VECTOR, which is how mixed ploidy is represented.
+    VCFv4.4+ prefix phasing ("|0/1") is supported; see encode_gt().
   * Integer: smallest of int8/int16/int32 that holds the record's values,
     '.' -> MISSING, short vectors padded with END_OF_VECTOR.
   * Float: '.' -> 0x7F800001, padding 0x7F800002.
@@ -64,20 +65,38 @@ def bgzf(raw):
 
 
 def encode_gt(gt):
-    parts = re.split(r"([/|])", gt)
+    """Returns (values, slot count), matching htslib 1.22.
+
+    The first allele's phase bit is the VCFv4.4+ leading phasing indicator if
+    present (e.g. "|0/1"); otherwise it's implicitly '|' iff no other
+    indicator is '/' (for a haploid call: iff the allele isn't '.').  htslib
+    reserves an extra vector slot for an explicit leading indicator, so e.g. a
+    record where every call is diploid but one is "|0/1" gets width-3 GT
+    vectors, padded with END_OF_VECTOR.
+    """
+    prefix = gt[0] if gt[0] in "/|" else ""
+    parts = re.split(r"([/|])", gt[len(prefix):])
+    seps = parts[1::2]
+    if prefix:
+        first_phased = prefix == "|"
+    elif seps:
+        first_phased = "/" not in seps
+    else:
+        first_phased = parts[0] != "."
     vals = []
     for i in range(0, len(parts), 2):
         a = parts[i]
         v = 0 if a == "." else (int(a) + 1) << 1
-        if i and parts[i - 1] == "|":
+        if (parts[i - 1] == "|") if i else first_phased:
             v |= 1
         vals.append(v)
-    return vals
+    return vals, len(vals) + (prefix != "")
 
 
 def gt_vec(strs):
-    vecs = [encode_gt(s) for s in strs]
-    width = max(len(v) for v in vecs)
+    encoded = [encode_gt(s) for s in strs]
+    vecs = [v for v, _ in encoded]
+    width = max(slot_ct for _, slot_ct in encoded)
     mx = max(max(v) for v in vecs)
     typ, fmt, _, eov = INT_TYPES[0][:4] if mx <= 127 else INT_TYPES[1][:4]
     out = typed_header(width, typ)
