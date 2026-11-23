@@ -2,19 +2,26 @@
 
 # VCFv4.4+ GT prefix phasing ("|0/1", "/0|1", "|1").
 #
-# plink2 skips the optional leading phasing indicator; for a diploid call,
-# phase comes from the indicator between the two alleles.  This matches the
-# BCF importer, which only looks at the second allele's phase bit.
+# Each phasing indicator applies to the allele after it, and plink2 treats a
+# diploid call as phased only if both alleles are phased: "0|1" and "|0|1"
+# are phased; "/0|1", "|0/1", and "/0/1" aren't.
 #
-# For each family and sample count, make_vcf.py writes a prefixed VCF and a
-# canonical copy with the leading indicators removed, and
-# Tests/utils/vcf_to_bcf.py converts the prefixed VCF to BCF the way htslib
-# 1.22 does: the first allele's phase bit is set, and every GT vector in a
-# record gets an extra END_OF_VECTOR slot when any of its samples has a
-# prefix (so all-diploid records have width-3 GT vectors, which used to be
-# rejected as polyploid).  Prefixed VCF and BCF must both import exactly like
-# the canonical VCF.  Sample counts straddle the 32-sample genovec-word
-# boundary, so the GT-only family also runs into the SWAR fast path.
+# For each family and sample count, make_vcf.py writes a prefixed VCF, a
+# canonical copy with that rule applied (and no prefixes), and a
+# "BCF-expected" copy.  Tests/utils/vcf_to_bcf.py converts the prefixed VCF to
+# BCF the way HTSlib 1.22+ does: the first allele's phase bit is set, and
+# every GT vector in a record gets an extra END_OF_VECTOR slot when any of its
+# samples has a prefix (so all-diploid records have width-3 GT vectors, which
+# used to be rejected as polyploid).  Since BCF writers before HTSlib 1.22
+# never set the first-allele bit, plink2 only uses it in records where some
+# first value has it set; the BCF-expected file encodes that.  Checks:
+#   * prefixed VCF imports like the canonical VCF;
+#   * the BCF imports like the BCF-expected VCF;
+#   * the canonical VCF, converted to BCF with legacy (pre-1.22) phase
+#     encoding, imports like the canonical VCF, i.e. legacy phased calls stay
+#     phased.
+# Sample counts straddle the 32-sample genovec-word boundary, so the GT-only
+# family also runs into the SWAR fast path.
 
 set -eo pipefail
 
@@ -27,14 +34,16 @@ case_ct=0
 # $5: expected outcome ("ok" or "fail")
 check() {
     local fam=$1 n=$2 mods=$3 flags=$4 want=$5
-    local rc_c=0 rc_v=0 rc_b=0
+    local rc_c=0 rc_v=0 rc_e=0 rc_b=0 rc_l=0
     $PLINK2 --vcf tmp_${fam}_${n}_canon.vcf $mods $flags --export vcf vcf-dosage=HDS-force --out tmp_c > /dev/null 2>&1 || rc_c=$?
     $PLINK2 --vcf tmp_${fam}_$n.vcf $mods $flags --export vcf vcf-dosage=HDS-force --out tmp_v > /dev/null 2>&1 || rc_v=$?
+    $PLINK2 --vcf tmp_${fam}_${n}_bcfexp.vcf $mods $flags --export vcf vcf-dosage=HDS-force --out tmp_e > /dev/null 2>&1 || rc_e=$?
     $PLINK2 --bcf tmp_${fam}_$n.bcf $mods $flags --export vcf vcf-dosage=HDS-force --out tmp_b > /dev/null 2>&1 || rc_b=$?
+    $PLINK2 --bcf tmp_${fam}_${n}_legacy.bcf $mods $flags --export vcf vcf-dosage=HDS-force --out tmp_l > /dev/null 2>&1 || rc_l=$?
     case_ct=$((case_ct + 1))
     local desc="family=$fam samples=$n mods=[$mods] flags=[$flags]"
-    if [ $rc_c -ne $rc_v ] || [ $rc_c -ne $rc_b ]; then
-        echo "exit code mismatch (canonical $rc_c, prefixed vcf $rc_v, bcf $rc_b): $desc"
+    if [ $rc_c -ne $rc_v ] || [ $rc_c -ne $rc_e ] || [ $rc_c -ne $rc_b ] || [ $rc_c -ne $rc_l ]; then
+        echo "exit code mismatch (canonical $rc_c, prefixed vcf $rc_v, bcf-expected $rc_e, bcf $rc_b, legacy bcf $rc_l): $desc"
         exit 1
     fi
     if [ $want = ok ] && [ $rc_c -ne 0 ]; then
@@ -46,10 +55,11 @@ check() {
         exit 1
     fi
     if [ $rc_c -eq 0 ]; then
-        for out in tmp_v tmp_b; do
-            if ! diff -q <(grep -v '^##' tmp_c.vcf) <(grep -v '^##' $out.vcf) > /dev/null; then
-                echo "output mismatch ($out vs canonical): $desc"
-                diff <(grep -v '^##' tmp_c.vcf) <(grep -v '^##' $out.vcf) | cut -c 1-300 | head -n 20
+        for pair in tmp_c:tmp_v tmp_e:tmp_b tmp_c:tmp_l; do
+            local want_f=${pair%%:*} got_f=${pair##*:}
+            if ! diff -q <(grep -v '^##' $want_f.vcf) <(grep -v '^##' $got_f.vcf) > /dev/null; then
+                echo "output mismatch ($got_f vs $want_f): $desc"
+                diff <(grep -v '^##' $want_f.vcf) <(grep -v '^##' $got_f.vcf) | cut -c 1-300 | head -n 20
                 exit 1
             fi
         done
@@ -61,8 +71,9 @@ check() {
 # double parsing could legitimately round to opposite sides.)
 for n in $SAMPLE_CTS; do
     for fam in geno gt ds hds gp poly; do
-        python3 make_vcf.py $fam $n tmp_${fam}_$n.vcf tmp_${fam}_${n}_canon.vcf
+        python3 make_vcf.py $fam $n tmp_${fam}_$n.vcf tmp_${fam}_${n}_canon.vcf tmp_${fam}_${n}_bcfexp.vcf
         python3 ../utils/vcf_to_bcf.py tmp_${fam}_$n.vcf tmp_${fam}_$n.bcf
+        python3 ../utils/vcf_to_bcf.py --legacy-phase tmp_${fam}_${n}_canon.vcf tmp_${fam}_${n}_legacy.bcf
     done
     for flags in "--vcf-half-call h" "--vcf-half-call r" "--vcf-half-call m" "--vcf-half-call m --polyploid-mode missing"; do
         check geno $n "" "$flags" ok
@@ -82,8 +93,9 @@ for n in $SAMPLE_CTS; do
 done
 
 # Spot-check the rule itself, so the canonical comparison isn't the only
-# thing pinning it down.  Record v9 is all 0/0 except a final "|0|1"; v10
-# ends in "|1/0"; v7 (haploid only) starts with "|.", "1", "0", "|1", "/0".
+# thing pinning it down.  Records v8/v9/v10 are all 0/0 except a final
+# "/0|1"/"|0|1"/"|1/0"; v7 (haploid only) starts with "|.", "1", "0", "|1",
+# "/0".
 $PLINK2 --vcf tmp_gt_33.vcf --vcf-half-call m --export vcf --out tmp_spot > /dev/null
 python3 - << 'PYEOF'
 rows = {}
@@ -91,8 +103,9 @@ for line in open("tmp_spot.vcf"):
     if not line.startswith("#"):
         f = line.rstrip("\n").split("\t")
         rows[f[2]] = f[9:]
-# hets: "/0|1", "|0|1" and "/1|0" are phased; "|1/0" and "|0/1" aren't
-assert rows["v1"][1:6] == ["0|1", "0|1", "0/1", "1|0", "0/1"], rows["v1"][1:6]
+# hets: only "|0|1" is phased; "/0|1", "|1/0", "/1|0", and "|0/1" aren't
+assert rows["v1"][1:6] == ["0/1", "0|1", "0/1", "0/1", "0/1"], rows["v1"][1:6]
+assert rows["v8"][-1] == "0/1", rows["v8"][-1]
 assert rows["v9"][-1] == "0|1", rows["v9"][-1]
 assert rows["v10"][-1] == "0/1", rows["v10"][-1]
 # haploid calls: compare alleles only (export separator display varies)

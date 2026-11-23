@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """Writes VCFv4.4 GT-prefix-phasing fixtures for run_tests.sh.
 
-usage: make_vcf.py <family> <sample count> <prefixed out.vcf> <canonical out.vcf>
+usage: make_vcf.py <family> <sample count> <prefixed out.vcf>
+                   <canonical out.vcf> <bcf-expected out.vcf>
 
 VCFv4.4+ lets each GT value start with an optional phasing indicator, e.g.
-"|0/1" or "/0|1"; plink2 skips it, so for a diploid call phase comes from
-the indicator between the two alleles.  The canonical file is the prefixed
-one with every leading indicator removed, so the two must import
-identically.
+"|0/1" or "/0|1".  plink2 treats a diploid call as phased only if both alleles
+are phased.  The canonical file rewrites every prefixed GT that way ("|0|1" ->
+"0|1", "/0|1" -> "0/1", "|0/1" -> "0/1"), so it must import identically to the
+prefixed VCF.
+
+The BCF-expected file describes how the BCF (written by
+Tests/utils/vcf_to_bcf.py, i.e. HTSlib 1.22+ encoding) must import.  BCF
+writers before HTSlib 1.22 never set the first allele's phase bit, so plink2
+only trusts that bit in records where at least one first value has it set
+(see BcfApplyFirstAllelePhase()); in a record with none, "/0|1" still imports
+as phased, i.e. only the prefix is dropped.
 
 Each record cycles through a list of genotypes with a per-record offset, so
 every genotype lands at the first and last sample and at a variety of
@@ -42,12 +50,30 @@ def strip(gt):
     return gt[1:] if gt[0] in "/|" else gt
 
 
+def canon(gt):
+    # both alleles must be phased
+    if gt[0] == "/":
+        return gt[1:].replace("|", "/")
+    return strip(gt)
+
+
+def first_phase_bit(gt):
+    # HTSlib 1.22+ / vcf_to_bcf.py encoding of the first allele's phase bit
+    if gt[0] in "/|":
+        return gt[0] == "|"
+    seps = [c for c in gt if c in "/|"]
+    if seps:
+        return "/" not in seps
+    return gt != "."
+
+
 def cyc(vals, n, offset):
     return [vals[(i + offset) % len(vals)] for i in range(n)]
 
 
 def main():
-    fam, n, out_pref, out_canon = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+    fam, n = sys.argv[1], int(sys.argv[2])
+    out_pref, out_canon, out_bcf = sys.argv[3:6]
     # (alts, genotype list or explicit per-sample list)
     recs = []
     for off in range(3):
@@ -59,8 +85,10 @@ def main():
         recs.append((["C"], ["|./1"] + cyc(DIPLOID, n - 1, 4)))
     recs.append((["C"], cyc(DIPLOID + HAPLOID, n, 1)))
     recs.append((["C"], cyc(HAPLOID, n, 2)))
-    # only phased het is prefixed: "/0|1" in one, "|0|1" in another, at the
-    # last sample.  And one where "|0/1" is the only '|' (must stay unphased).
+    # only possible phased het is prefixed, at the last sample: "/0|1"
+    # (unphased in VCF; in BCF, the record has no first-allele phase bit, so
+    # it's treated as legacy-encoded and stays phased), "|0|1" (phased), and
+    # "|1/0" (unphased).
     for special in ("/0|1", "|0|1", "|1/0"):
         recs.append((["C"], ["0/0"] * (n - 1) + [special]))
     if fam not in ("ds", "hds", "gp"):
@@ -103,18 +131,21 @@ def main():
         "\t".join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
                   + ["s%d" % (j + 1) for j in range(n)]),
     ]
-    with open(out_pref, "w") as fp, open(out_canon, "w") as fc:
-        fp.write("\n".join(header) + "\n")
-        fc.write("\n".join(header) + "\n")
+    with open(out_pref, "w") as fp, open(out_canon, "w") as fc, open(out_bcf, "w") as fb:
+        for f in (fp, fc, fb):
+            f.write("\n".join(header) + "\n")
         for i, (alts, gts) in enumerate(recs):
             gts = gts[:n]
-            def field(gt, j, canon):
+            new_encoding = any(first_phase_bit(g) for g in gts)
+
+            def field(gt, j, xform):
                 haploid = ("/" not in strip(gt)) and ("|" not in strip(gt))
-                return (strip(gt) if canon else gt) + extra(i, j, haploid)
+                return xform(gt) + extra(i, j, haploid)
 
             cols = ["1", str(100 * (i + 1)), "v%d" % (i + 1), "A", ",".join(alts), ".", ".", ".", fmt]
-            fp.write("\t".join(cols + [field(g, j, False) for j, g in enumerate(gts)]) + "\n")
-            fc.write("\t".join(cols + [field(g, j, True) for j, g in enumerate(gts)]) + "\n")
+            fp.write("\t".join(cols + [field(g, j, lambda x: x) for j, g in enumerate(gts)]) + "\n")
+            fc.write("\t".join(cols + [field(g, j, canon) for j, g in enumerate(gts)]) + "\n")
+            fb.write("\t".join(cols + [field(g, j, canon if new_encoding else strip) for j, g in enumerate(gts)]) + "\n")
 
 
 main()
