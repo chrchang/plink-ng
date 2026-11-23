@@ -26,7 +26,17 @@
 set -eo pipefail
 
 PLINK2="$1/plink2 $2 $3"
-SAMPLE_CTS="1 2 31 32 33 34 65 66"
+# The weekly workflow (auto_checkcommits_tests_linuxmac.yml) sets
+# PLINK2_FULL_TESTS=1 to sweep every sample count and --vcf-half-call mode.
+# Otherwise only 33 samples (just past a 32-sample genovec word; the spot
+# checks below also use it) and two half-call modes are run.
+if [ -n "$PLINK2_FULL_TESTS" ]; then
+    SAMPLE_CTS="1 2 31 32 33 34 65 66"
+    HALF_CALL_FLAGS=("--vcf-half-call h" "--vcf-half-call r" "--vcf-half-call m" "--vcf-half-call m --polyploid-mode missing")
+else
+    SAMPLE_CTS="33"
+    HALF_CALL_FLAGS=("--vcf-half-call h" "--vcf-half-call m --polyploid-mode missing")
+fi
 
 case_ct=0
 
@@ -70,12 +80,18 @@ check() {
 # of 0.05, so none sit exactly on a threshold, where BCF's float32 and VCF's
 # double parsing could legitimately round to opposite sides.)
 for n in $SAMPLE_CTS; do
+    # (fixtures are generated in parallel; "wait $pid" propagates failures)
+    pids=""
     for fam in geno gt ds hds gp poly; do
-        python3 make_vcf.py $fam $n tmp_${fam}_$n.vcf tmp_${fam}_${n}_canon.vcf tmp_${fam}_${n}_bcfexp.vcf
-        python3 ../utils/vcf_to_bcf.py tmp_${fam}_$n.vcf tmp_${fam}_$n.bcf
-        python3 ../utils/vcf_to_bcf.py --legacy-phase tmp_${fam}_${n}_canon.vcf tmp_${fam}_${n}_legacy.bcf
+        (python3 make_vcf.py $fam $n tmp_${fam}_$n.vcf tmp_${fam}_${n}_canon.vcf tmp_${fam}_${n}_bcfexp.vcf
+         python3 ../utils/vcf_to_bcf.py tmp_${fam}_$n.vcf tmp_${fam}_$n.bcf
+         python3 ../utils/vcf_to_bcf.py --legacy-phase tmp_${fam}_${n}_canon.vcf tmp_${fam}_${n}_legacy.bcf) &
+        pids="$pids $!"
     done
-    for flags in "--vcf-half-call h" "--vcf-half-call r" "--vcf-half-call m" "--vcf-half-call m --polyploid-mode missing"; do
+    for pid in $pids; do
+        wait $pid
+    done
+    for flags in "${HALF_CALL_FLAGS[@]}"; do
         check geno $n "" "$flags" ok
         check gt $n "" "$flags" ok
     done

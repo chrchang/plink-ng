@@ -37,23 +37,36 @@ awk -f summary19.awk plink19_m.epi.qt.summary plink2_m.PHENO1.epi.qt.summary
 # 3. Against the oracle, which solves each pair's least squares from scratch
 #    from scratch.  A smaller fileset, since the oracle is quadratic and slow.
 plink --simulate-qt simulate_small.txt --simulate-n 300 --simulate-missing 0.05 --out tmp_small > /dev/null
+# The weekly workflow (auto_checkcommits_tests_linuxmac.yml) sets
+# PLINK2_FULL_TESTS=1 to check all 780 pairs against the oracle; otherwise
+# only the 105 pairs among the first 15 variants are checked.
+if [ -n "$PLINK2_FULL_TESTS" ]; then
+    oracle_variant_ct=$(awk 'END {print NR}' tmp_small.bim)
+else
+    oracle_variant_ct=15
+fi
+# $1: plink2 .epi.qt report; writes the rows the oracle covers to stdout.
+oracle_rows() {
+    awk -v "n=$oracle_variant_ct" 'NR == FNR { if (FNR <= n) keep[$2] = 1; next }
+         /^#/ || (($2 in keep) && ($4 in keep))' tmp_small.bim "$1"
+}
 $1/plink2 $2 $3 --bfile tmp_small --epistasis --epi1 1 --out plink2_s
-python3 oracle.py tmp_small > oracle_nocovar.txt
-awk -f cmp_oracle.awk oracle_nocovar.txt plink2_s.PHENO1.epi.qt
+python3 oracle.py --max-variants $oracle_variant_ct tmp_small > oracle_nocovar.txt
+awk -f cmp_oracle.awk oracle_nocovar.txt <(oracle_rows plink2_s.PHENO1.epi.qt)
 
 # 4. Covariates: two quantitative and one binary.  PLINK 1.9 cannot run this,
 #    so the oracle is the only check.
 awk 'BEGIN {srand(7); print "#FID\tIID\tage\tpc1\tgrp"}
      {printf "%s\t%s\t%.4f\t%.5f\t%d\n", $1, $2, 20 + 60 * rand(), rand() * 2 - 1, (rand() < 0.5)? 0 : 1}' tmp_small.fam > tmp_small.cov
 $1/plink2 $2 $3 --bfile tmp_small --covar tmp_small.cov --epistasis --epi1 1 --out plink2_c
-python3 oracle.py tmp_small tmp_small.cov > oracle_covar.txt
-awk -f cmp_oracle.awk oracle_covar.txt plink2_c.PHENO1.epi.qt
+python3 oracle.py --max-variants $oracle_variant_ct tmp_small tmp_small.cov > oracle_covar.txt
+awk -f cmp_oracle.awk oracle_covar.txt <(oracle_rows plink2_c.PHENO1.epi.qt)
 
 # 5. Missing covariate values drop those samples from every pair.
 awk 'BEGIN {srand(9)} NR == 1 {print; next} {if (rand() < 0.1) { $4 = "NA" }; print}' OFS='\t' tmp_small.cov > tmp_small_na.cov
 $1/plink2 $2 $3 --bfile tmp_small --covar tmp_small_na.cov --epistasis --epi1 1 --out plink2_na
-python3 oracle.py tmp_small tmp_small_na.cov > oracle_na.txt
-awk -f cmp_oracle.awk oracle_na.txt plink2_na.PHENO1.epi.qt
+python3 oracle.py --max-variants $oracle_variant_ct tmp_small tmp_small_na.cov > oracle_na.txt
+awk -f cmp_oracle.awk oracle_na.txt <(oracle_rows plink2_na.PHENO1.epi.qt)
 
 # 6. A constant covariate is dropped with a warning rather than failing every
 #    pair, so the run reproduces the one without it.

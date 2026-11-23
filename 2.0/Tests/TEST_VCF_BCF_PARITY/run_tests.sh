@@ -21,7 +21,16 @@
 set -eo pipefail
 
 PLINK2="$1/plink2 $2 $3"
-SAMPLE_CTS="1 2 3 7 8 9 15 16 17 31 32 33 63 64 65 127 128 129"
+# The weekly workflow (auto_checkcommits_tests_linuxmac.yml) sets
+# PLINK2_FULL_TESTS=1 to sweep every sample count.  Otherwise only 65 is run:
+# make_vcf.py places special genotypes on both sides of every boundary below
+# the sample count, so this still covers the 4/8/16/32/64 boundaries, plus a
+# one-sample tail.
+if [ -n "$PLINK2_FULL_TESTS" ]; then
+    SAMPLE_CTS="1 2 3 7 8 9 15 16 17 31 32 33 63 64 65 127 128 129"
+else
+    SAMPLE_CTS="65"
+fi
 
 case_ct=0
 
@@ -56,9 +65,15 @@ check() {
 QUAL_FILTERS=("" "--vcf-min-gq 20" "--vcf-min-dp 10" "--vcf-max-dp 40" "--vcf-min-gq 20 --vcf-min-dp 10 --vcf-max-dp 40")
 
 for n in $SAMPLE_CTS; do
+    # (fixtures are generated in parallel; "wait $pid" propagates failures)
+    pids=""
     for fam in geno ds dsbad gp; do
-        python3 make_vcf.py $fam $n tmp_${fam}_$n.vcf
-        python3 ../utils/vcf_to_bcf.py tmp_${fam}_$n.vcf tmp_${fam}_$n.bcf
+        (python3 make_vcf.py $fam $n tmp_${fam}_$n.vcf
+         python3 ../utils/vcf_to_bcf.py tmp_${fam}_$n.vcf tmp_${fam}_$n.bcf) &
+        pids="$pids $!"
+    done
+    for pid in $pids; do
+        wait $pid
     done
 
     for hc in h m r; do

@@ -243,7 +243,9 @@ awk '
 
 # 11. With no runs at all, every .hom.summary count must be zero, even when the
 #     workspace was not clean (--randmem), which small inputs otherwise hide.
-randmem=--randmem
+# (--memory 640, the minimum, keeps --randmem from spending ~1.5s filling the
+# default multi-GB workspace; the workspace is still dirty.)
+randmem="--randmem --memory 640"
 [[ "$2 $3" == *--randmem* ]] && randmem=
 $1/plink2 $2 $3 --dummy 100 200 0.01 acgt --seed 1 --make-pgen --out tmp_noroh
 $1/plink2 $2 $3 $randmem --pfile tmp_noroh --homozyg --homozyg-min-af 0 --out plink2_noroh

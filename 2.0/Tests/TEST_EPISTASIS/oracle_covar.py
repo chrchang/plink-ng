@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Independent logistic oracle for --epistasis-boost's covariate adjustment.
 
+Usage: oracle_covar.py <PLINK 1 prefix> <covariate file> [variant limit]
+
 Reads a PLINK 1 fileset and a covariate file, and for every pair of variants
-fits
+(or every pair among the first <variant limit>) fits
 
   logit P(case) ~ 1 + covariates + genotype-of-A + genotype-of-B      (main)
   logit P(case) ~ 1 + covariates + one term per occupied (A, B) cell  (full)
@@ -108,6 +110,9 @@ def main():
     # plink1 .fam case/control: 1 = control, 2 = case, anything else missing.
     pheno = [1.0 if f[5] == '2' else (0.0 if f[5] == '1' else None) for f in fam]
     bim = [l.split() for l in open(prefix + '.bim') if l.strip()]
+    if len(sys.argv) > 3:
+        # optional: only pairs among the first <variant limit> variants
+        bim = bim[:int(sys.argv[3])]
     ids = [b[1] for b in bim]
     m = len(bim)
 

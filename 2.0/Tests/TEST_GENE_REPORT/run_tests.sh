@@ -116,11 +116,24 @@ $1/plink2 $2 $3 --gene-report report20.txt genes.txt zs --out plink2_zs
 $1/plink2 $2 $3 --zst-decompress plink2_zs.gene.report.zst > plink2_zs.gene.report
 diff -q plink2_zs.gene.report plink2_gr.gene.report
 
+# With two 15000-character contig names, the reports below run to ~30 MB, so
+# the comparisons dominate this test's run time.  The weekly workflow
+# (auto_checkcommits_tests_linuxmac.yml) sets PLINK2_FULL_TESTS=1 for the
+# full 2000 extra report rows; otherwise 250 are written, with NA p-values
+# made more frequent to keep the NA check meaningful.
+if [ -n "$PLINK2_FULL_TESTS" ]; then
+    extra_row_ct=2000
+    na_period=97
+else
+    extra_row_ct=250
+    na_period=23
+fi
+
 # Nonstandard contigs, including two 15000-character names that differ only in
 # their last character.  No main dataset is loaded, so the contig names must be
 # taken from the gene range file.  One contig appears only in the gene list and
 # another only in the report, and some p-values are NA.
-awk 'BEGIN {
+awk -v extra_row_ct=$extra_row_ct -v na_period=$na_period 'BEGIN {
   long = "q"
   for (i = 1; i < 15000; ++i) long = long substr("ACGTxyz_", 1 + (i * 7) % 8, 1)
   longb = substr(long, 1, 14999) "Q"
@@ -137,14 +150,14 @@ awk 'BEGIN {
     printf "%s %d %d XGENE%d\n", c[k], start, end, int(s / 512) % 30 > "genes_extra.txt"
   }
   c[4] = "ctgReportOnly"
-  for (i = 0; i < 2000; ++i) {
+  for (i = 0; i < extra_row_ct; ++i) {
     s = (1103515245 * s + 12345) % 2147483648
     k = 1 + (int(s / 512) % n)
     s = (1103515245 * s + 12345) % 2147483648
     bp = 1 + (int(s / 512) % 1100000)
     s = (1103515245 * s + 12345) % 2147483648
     p = (int(s / 512) % 1000000) / 1000000.0
-    if (i % 97 == 0) p = "NA"
+    if (i % na_period == 0) p = "NA"
     printf "%s %d xs%d %s\n", c[k], bp, i, p > "report_rows_extra19.txt"
     printf "%s\t%d\txs%d\t%s\n", c[k], bp, i, p > "report_rows_extra20.txt"
   }

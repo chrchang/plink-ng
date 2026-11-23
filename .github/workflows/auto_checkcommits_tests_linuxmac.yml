@@ -106,6 +106,7 @@ jobs:
         run: ls -l test_data
 
       - name: Run DYNAMICBUILD
+        id: build
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
           2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
@@ -114,6 +115,38 @@ jobs:
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
           2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
+
+      # The per-PR functional tests (plink2_functional_tests.yml) run reduced
+      # versions of the slowest tests in 2.0/Tests (fewer sample counts,
+      # oracle checks on a subset, etc.).  PLINK2_FULL_TESTS=1 makes the whole
+      # suite run at full size here.  This also runs if the GLM tests fail.
+      # Many of the tests compare against PLINK 1.9, so build that first.
+      - name: Build PLINK 1.9
+        id: build19
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: 1.9
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            make -j"$(getconf _NPROCESSORS_ONLN)" ZLIB=-lz BLASFLAGS="-llapack -lopenblas"
+          else
+            make -j"$(getconf _NPROCESSORS_ONLN)" ZLIB=-lz
+          fi
+          echo "$GITHUB_WORKSPACE/1.9" >> "$GITHUB_PATH"
+
+      - name: Run 2.0/Tests at full size
+        if: ${{ !cancelled() && steps.build19.outcome == 'success' }}
+        working-directory: 2.0/Tests
+        env:
+          PLINK2_FULL_TESTS: 1
+        run: ./run_tests.sh "$GITHUB_WORKSPACE/2.0/build_dynamic"
+
+      - name: Upload 2.0/Tests logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plink2-full-test-logs-${{ matrix.os }}
+          path: 2.0/Tests/**/*.log
+          if-no-files-found: ignore
 
       - name: Cleanup
         run: |

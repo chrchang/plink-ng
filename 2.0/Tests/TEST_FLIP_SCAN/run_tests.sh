@@ -220,7 +220,11 @@ head -n 1 plink2_dp.flipscan.verbose | grep -qx '#CHROM	POS_INDEX	ID_INDEX	A1_IN
 # against the same allele, as the --export A counts are.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --flip-scan dprime verbose ref-allele-based $COMPAT --flip-scan-threshold 0 --out plink2_dp0
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_dp --maf 0.05 --export A --out tmp_dp_raw
-python3 dprime_oracle.py tmp_dp_raw.raw plink2_dp0.flipscan.verbose
+# The weekly workflow (auto_checkcommits_tests_linuxmac.yml) sets
+# PLINK2_FULL_TESTS=1 to check all ~2900 lines; otherwise every 10th is.
+oracle_stride=10
+[ -n "$PLINK2_FULL_TESTS" ] && oracle_stride=1
+python3 dprime_oracle.py tmp_dp_raw.raw plink2_dp0.flipscan.verbose $oracle_stride
 
 # |D'| agrees with --r2-phased's DPRIME on the cases alone.  (The sign is not
 # compared, since --r2-phased picks major alleles within the subset.)
