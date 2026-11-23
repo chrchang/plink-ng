@@ -3320,10 +3320,10 @@ PglErr DetectConcatJob(const uint32_t* chr_idx_to_foidx, uintptr_t fileset_ct, S
     } else {
       STD_SORT(fileset_ct, FilesetNaturalCmp, R_CAST(PmergeFilesetNsorter*, sorted_filesets));
     }
-    uintptr_t prev_last_coord = sorted_filesets[0].last_coord;
+    uint64_t prev_last_coord = sorted_filesets[0].last_coord;
     uintptr_t fileset_idx = 1;
     for (; fileset_idx != fileset_ct; ++fileset_idx) {
-      const uintptr_t cur_first_coord = sorted_filesets[fileset_idx].first_coord;
+      const uint64_t cur_first_coord = sorted_filesets[fileset_idx].first_coord;
       if (cur_first_coord <= prev_last_coord) {
         if (cur_first_coord < prev_last_coord) {
           break;
