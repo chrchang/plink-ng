@@ -1305,14 +1305,20 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
             const uint32_t dphase_halfdist1 = DphaseHalfdist(dosage_int + cur_dphase_delta);
             const uint32_t dphase_halfdist2 = DphaseHalfdist(dosage_int - cur_dphase_delta);
             if ((dphase_halfdist1 < dphase_erase_halfdist) || (dphase_halfdist2 < dphase_erase_halfdist)) {
-              // No need to fill cur_geno here, since it'll get corrected by
-              // --hard-call-threshold.
-              dosage_present_hw |= shifted_bit;
-              *dosage_main_iter++ = dosage_int;
+              // Usually no need to fill cur_geno here, since it'll get
+              // corrected by --hard-call-threshold.
               if (cur_dphase_delta) {
                 dphase_present_hw |= shifted_bit;
                 *dphase_delta_iter++ = cur_dphase_delta;
+              } else if (dosage_int == kDosageMid) {
+                // As in BcfConvertPhasedBiallelicDosage() and .bgen import:
+                // dosage 1 with no phased-dosage delta is just an ordinary
+                // unphased het, not an explicit dosage.
+                cur_geno = 1;
+                goto VcfConvertPhasedBiallelicDosageLine_geno_done;
               }
+              dosage_present_hw |= shifted_bit;
+              *dosage_main_iter++ = dosage_int;
             } else {
               // Not saving dosage, since it's too close to an integer
               // (--dosage-erase-threshold).  Just directly synthesize the
@@ -11925,10 +11931,16 @@ static const BgenMagicNum kBgenMagicNums[25] = {
 // identical except b is always zero):
 //   round((32768a + 16384b)/(2^{bit precision} - 1))
 //   floor((32768a + 16384b)/(2^{bit_precision} - 1) + 0.5)
-// = floor((32768a + 16384b + 2^{bit_precision - 1})
+// = floor((32768a + 16384b + 2^{bit_precision - 1} - 0.5)
 //     / (2^{bit_precision} - 1))
-// = (totq_magic * (32768a + 16384b + 2^{bits-1} + totq_incr))
+// = floor((32768a + 16384b + 2^{bit_precision - 1} - 1)
+//     / (2^{bit_precision} - 1))
+//   (since the numerator is an integer and the denominator is odd)
+// = (totq_magic * (32768a + 16384b + 2^{bits-1} - 1 + totq_incr))
 //     >> totq_postshift
+// (Until Nov 2026, the "- 1" was missing, so a value whose remainder was
+// exactly (2^{bits-1} - 1) was rounded up instead of down; 2 of every
+// 2^{bits+1} - 1 possible values of 2a+b were affected.)
 //
 // This works fine for bit_precision <= 16, anyway.  There are two issues which
 // come up with higher precision:
@@ -11943,7 +11955,7 @@ static const BgenMagicNum kBgenMagicNums[25] = {
 //
 // However, the following rearrangement works for bits in [2, 31]:
 //   (preadd + (totq_magic * (2a + b))) >> (totq_postshift - 14)
-//   where preadd := (totq_magic * (2^{bits-1} + totq_incr)) >> 14
+//   where preadd := (totq_magic * (2^{bits-1} - 1 + totq_incr)) >> 14
 // and setting {preadd = 0, mult = 2^14, postshift = 0} works well enough for
 // bits=1.
 // It fails for bits=32, 2a+b=2147614719.
@@ -11957,13 +11969,13 @@ static const BgenMagicNum kBgenMagicNums[25] = {
 //   uint32_t postshift;
 //   uint32_t incr;
 //   DivisionMagicNums(divisor, &mult, &preshift, &postshift, &incr);
-//   const uint64_t half = 1U << (uii - 1);
-//   const uint64_t preadd = (mult * (half + incr)) >> 14;
+//   const uint64_t half_m1 = (1LLU << (uii - 1)) - 1;
+//   const uint64_t preadd = (mult * (half_m1 + incr)) >> 14;
 //   const uint32_t postshift_m14 = postshift - 14;
 //   printf("{%llu%s, %llu%s, %u},\n", preadd, (preadd > 0x7fffffff)? "LLU" : "", mult, (mult > 0x7fffffff)? "U" : "", postshift_m14);
 //   for (uint64_t ullii = 0; ullii <= 2 * divisor; ++ullii) {
 //     uint64_t numer = ullii * 16384;
-//     uint64_t true_result = (numer + half) / divisor;
+//     uint64_t true_result = (numer + half_m1) / divisor;
 //     uint64_t my_result = (preadd + mult * ullii) >> postshift_m14;
 //     if (true_result != my_result) {
 //       printf("failure: bits=%u, 2a+b=%llu\n", uii, ullii);
@@ -11985,33 +11997,33 @@ CONSTI32(kMaxBgenImportBits, 28);
 static const BgenMagicNum kBgenMagicNums[kMaxBgenImportBits + 1] = {
   {0, 0, 0},
   {0, 16384, 0},
-  {349525, 2863311531U, 19},
-  {374491, 1227133513, 19},
-  {1118481, 2290649225U, 21},
-  {1150051, 1108378657, 21},
-  {2197016, 1090785345, 22},
-  {1073345, 270549121, 21},
-  {16843009, 2155905153U, 25},
-  {2109464, 134480385, 22},
-  {33652832, 1074791425, 26},
-  {262528, 4196353, 19},
-  {2098688, 16781313, 22},
-  {16783360, 67117057, 25},
-  {134242305, 268451841, 28},
-  {1073840131, 1073774593, 31},
-  {4295032834LLU, 2147516417U, 33},
-  {524300, 131073, 20},
-  {2097176, 262145, 22},
-  {8388656, 524289, 24},
-  {33554528, 1048577, 26},
-  {134217920, 2097153, 28},
-  {536871296, 4194305, 30},
-  {2147484416LLU, 8388609, 32},
-  {8589936128LLU, 16777217, 34},
-  {34359741440LLU, 33554433, 36},
-  {137438959616LLU, 67108865, 38},
-  {549755826176LLU, 134217729, 40},
-  {2199023280128LLU, 268435457, 42}
+  {174762, 2863311531U, 19},
+  {299593, 1227133513, 19},
+  {978670, 2290649225U, 21},
+  {1082401, 1108378657, 21},
+  {2130440, 1090785345, 22},
+  {1056832, 270549121, 21},
+  {16711422, 2155905153U, 25},
+  {2101256, 134480385, 22},
+  {33587232, 1074791425, 26},
+  {262272, 4196353, 19},
+  {2097664, 16781313, 22},
+  {16779264, 67117057, 25},
+  {134225920, 268451841, 28},
+  {1073774593, 1073774593, 31},
+  {4294901759LLU, 2147516417U, 33},
+  {524292, 131073, 20},
+  {2097160, 262145, 22},
+  {8388624, 524289, 24},
+  {33554464, 1048577, 26},
+  {134217792, 2097153, 28},
+  {536871040, 4194305, 30},
+  {2147483904LLU, 8388609, 32},
+  {8589935104LLU, 16777217, 34},
+  {34359739392LLU, 33554433, 36},
+  {137438955520LLU, 67108865, 38},
+  {549755817984LLU, 134217729, 40},
+  {2199023263744LLU, 268435457, 42}
   // ,{8796093071360LLU, 536870913, 44}
   // ,{35184372187136LLU, 1073741825, 46}
   // ,{140737488551936LLU, 2147483649U, 48}
