@@ -6061,8 +6061,7 @@ void BcfConvertBiallelicHaploidGt(const unsigned char* gt_main, uint32_t sample_
       if (raw_val_m2 > 3) {
         raw_val_m2 = 3;
       }
-      geno_word |= raw_val_m2;
-      geno_word = geno_word << 2;
+      geno_word = (geno_word << 2) | raw_val_m2;
     }
     genovec[widx] = geno_word;
     gt_iter = &(gt_iter[kBitsPerWordD2]);
