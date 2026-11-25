@@ -7,7 +7,8 @@ used in bioinformatics scripts (`cut`, `paste`, `awk` one-liners, `sort`,
 - Input can be uncompressed, gzip, BGZF or zstd. BGZF is decompressed on
   several threads.
 - Lines must end in LF.
-- Use `/dev/stdin` as FILE to read from a pipe.
+- A FILE of `-` means stdin (`/dev/stdin` also works). Subcommands that read
+  two files accept stdin for only one of them.
 - Each subcommand aims to be at least 2× faster than every common macOS
   implementation (BSD tools, GNU coreutils, gawk, mawk) on typical inputs:
   summary statistics, VCFs and PLINK reports. See [Performance](#performance).

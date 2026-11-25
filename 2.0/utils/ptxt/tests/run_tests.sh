@@ -86,6 +86,22 @@ check "paste" "paste ss.tsv ws.assoc" "$P paste ss.tsv ws.assoc"
 fails "paste short FILE2" "$P paste ss.tsv ids.txt" "fewer lines"
 fails "paste long FILE2" "$P paste ids.txt ss.tsv" "more lines"
 
+# ---- stdin as - ----
+check "cut -" "cut -f2-3 ss.tsv" "cat ss.tsv | $P cut 2-3 -"
+check "paste - FILE2" "paste ss.tsv ws.assoc" "cat ss.tsv | $P paste - ws.assoc"
+check "paste FILE1 -" "paste ss.tsv ws.assoc" "cat ws.assoc | $P paste ss.tsv -"
+check "filter -" "awk -F'\t' 'NR == 1 || \$11 < 0.5' ss.tsv" "cat ss.tsv | $P filter '\$P < 0.5' -"
+check "filter - after --" "awk -F'\t' 'NR == 1 || \$11 < 0.5' ss.tsv" "cat ss.tsv | $P filter -H -- '\$P < 0.5' -"
+check "count -" "$P count CHR ss.tsv" "cat ss.tsv | $P count CHR -"
+check "tsv -" "awk -v OFS='\t' '{\$1 = \$1} 1' ws.assoc" "cat ws.assoc | $P tsv -"
+check "uniq whole-line -" "awk '!s[\$0]++' ss.tsv" "cat ss.tsv | $P uniq -"
+check "uniq -c -" "$P uniq -c 1 ss.tsv" "cat ss.tsv | $P uniq -c 1 -"
+check "remove -" "awk -F'\t' 'NR == FNR {k[\$1]; next} !(\$3 in k)' ids.txt ss.tsv" "cat ss.tsv | $P remove 3 ids.txt -"
+check "./- is a file" "cut -f1 ss.tsv" "cp ss.tsv ./- && $P cut 1 ./- </dev/null; rm -f ./-"
+fails "paste - -" "$P paste - - </dev/null" "only one input file can be stdin"
+fails "keep - /dev/stdin" "$P keep 1 - /dev/stdin </dev/null" "only one input file can be stdin"
+fails "join - -" "$P join 1 - 1 - </dev/null" "only one input file can be stdin"
+
 # ---- select ----
 check "select reorder" "awk -F'\t' -v OFS='\t' '{print \$3, \$1, \$2, \$11}' ss.tsv" "$P select 3,1,2,11 ss.tsv"
 check "select names" "awk -F'\t' -v OFS='\t' '{print \$3, \$1, \$11}' ss.tsv" "$P select SNP,CHR,P ss.tsv"
@@ -95,7 +111,7 @@ check "select -w -O" "awk '{print \$2, \$11}' ws.assoc" "$P select -w -O ' ' 2,1
 check "select -w names" "awk -v OFS='\t' '{print \$2, \$11}' ws.assoc" "$P select -w SNP,P ws.assoc"
 check "select missing fields" "awk -F'\t' -v OFS='\t' '{print \$4, \$1, \$3}' edge.tsv" "$P select 4,1,3 edge.tsv"
 check "select -w missing fields" "awk -v OFS='\t' '{print \$3, \$1}' edge.tsv" "$P select -w 3,1 edge.tsv"
-check "select -d ," "awk -F'\t' -v OFS=',' '{print \$1, \$2, \$3}' ss.tsv | awk -F, -v OFS='\t' '{print \$3, \$1}'" "awk -F'\t' -v OFS=',' '{print \$1, \$2, \$3}' ss.tsv | $P select -d , 3,1 /dev/stdin"
+check "select -d ," "awk -F'\t' -v OFS=',' '{print \$1, \$2, \$3}' ss.tsv | awk -F, -v OFS='\t' '{print \$3, \$1}'" "awk -F'\t' -v OFS=',' '{print \$1, \$2, \$3}' ss.tsv | $P select -d , 3,1 -"
 fails "select unknown name" "$P select NOPE ss.tsv" "column 'NOPE' not found"
 
 # ---- filter: agreement with awk ----
@@ -170,7 +186,7 @@ fails "option missing arg" "$P filter -d" "missing its argument"
 check "keep" "awk -F'\t' 'NR == FNR {k[\$1]; next} FNR == 1 || (\$3 in k)' ids.txt ss.tsv" "$P keep SNP ids.txt ss.tsv"
 check "remove" "awk -F'\t' 'NR == FNR {k[\$1]; next} FNR == 1 || !(\$3 in k)' ids.txt ss.tsv" "$P remove -H 3 ids.txt ss.tsv"
 check "keep -w" "awk 'NR == FNR {k[\$1]; next} FNR == 1 || (\$2 in k)' ids.txt ws.assoc" "$P keep -w SNP ids.txt ws.assoc"
-check "keep ID file with extra columns" "awk -F'\t' 'NR == FNR {k[\$1]; next} (\$3 in k)' ids.txt ss.tsv" "awk '{print \$1, \"extra\", \"cols\"}' ids.txt | $P keep 3 /dev/stdin ss.tsv"
+check "keep ID file with extra columns" "awk -F'\t' 'NR == FNR {k[\$1]; next} (\$3 in k)' ids.txt ss.tsv" "awk '{print \$1, \"extra\", \"cols\"}' ids.txt | $P keep 3 - ss.tsv"
 # Blank ID lines are ignored (awk would add the empty string as a key).
 printf 'b\nzz\n\ny\n' > eids.txt
 expect "keep blank IDs" "$P keep -w 2 eids.txt edge.tsv" 'a\tb\t\tdd\n  x  y   z \n'
@@ -195,7 +211,7 @@ check "tsv edge" "awk -v OFS='\t' '{\$1 = \$1} 1' edge.tsv" "$P tsv edge.tsv"
 
 # ---- sum ----
 check "sum" "awk -F'\t' 'NR > 1 {s += \$8} END {printf \"%.10g\n\", s}' ss.tsv" "$P sum -H 8 ss.tsv"
-check "sum skips non-numeric" "echo 15" "printf '5\nNA\n10\n\n' | $P sum 1 /dev/stdin"
+check "sum skips non-numeric" "echo 15" "printf '5\nNA\n10\n\n' | $P sum 1 -"
 
 # ---- sort ----
 # Oracle: the system sort with -s (stable), which BSD and GNU sort both
@@ -218,7 +234,7 @@ s "g alias" "-k6,6g" "6:g"
 (head -1 ss.tsv; cat shuf.tsv) > shufh.tsv
 check "sort header names" "head -1 ss.tsv; sort -s -t'$T' -k1,1n -k2,2n shuf.tsv" "$P sort CHR:c,POS:n shufh.tsv"
 check "sort -H" "head -1 ss.tsv; sort -s -t'$T' -k11,11g shuf.tsv" "$P sort -H 11:n shufh.tsv"
-check "sort stdin" "head -1 ss.tsv; sort -s -t'$T' -k11,11g shuf.tsv" "cat shufh.tsv | $P sort P:n /dev/stdin"
+check "sort stdin" "head -1 ss.tsv; sort -s -t'$T' -k11,11g shuf.tsv" "cat shufh.tsv | $P sort P:n -"
 gzip -c shufh.tsv > shufh.tsv.gz
 check "sort gzip" "head -1 ss.tsv; sort -s -t'$T' -k3,3 shuf.tsv" "$P sort SNP shufh.tsv.gz"
 check "sort -w" "head -1 ws.assoc; tail -n +2 ws.assoc | sort -s -k11,11g" "$P sort -w P:n ws.assoc"
@@ -249,7 +265,7 @@ fails "sort unknown name" "$P sort NOPE chr.tsv" "column 'NOPE' not found"
 awk -F'\t' -v OFS='\t' 'NR > 1 && NR % 3 == 0 {print $3, "GENE" (NR % 97), NR / 1000}' ss.tsv > annot.tsv
 (printf 'ID\tGENE\tSCORE\n'; cat annot.tsv) > annoth.tsv
 J_INNER='NR == FNR {a[$1] = $2 OFS $3; next}'
-check "join inner" "awk -F'\t' -v OFS='\t' '$J_INNER FNR > 1 && (\$3 in a) {print \$0, a[\$3]}' annot.tsv ss.tsv" "tail -n +2 ss.tsv | $P join 3 /dev/stdin 1 annot.tsv"
+check "join inner" "awk -F'\t' -v OFS='\t' '$J_INNER FNR > 1 && (\$3 in a) {print \$0, a[\$3]}' annot.tsv ss.tsv" "tail -n +2 ss.tsv | $P join 3 - 1 annot.tsv"
 check "join header names" "awk -F'\t' -v OFS='\t' '$J_INNER FNR == 1 {print \$0, \"GENE\", \"SCORE\"; next} (\$3 in a) {print \$0, a[\$3]}' annot.tsv ss.tsv" "$P join SNP ss.tsv ID annoth.tsv"
 check "join -a" "awk -F'\t' -v OFS='\t' '$J_INNER FNR == 1 {print \$0, \"GENE\", \"SCORE\"; next} {print \$0, ((\$3 in a) ? a[\$3] : \"NA\" OFS \"NA\")}' annot.tsv ss.tsv" "$P join -a SNP ss.tsv ID annoth.tsv"
 check "join -a -e" "awk -F'\t' -v OFS='\t' '$J_INNER FNR == 1 {print \$0, \"GENE\", \"SCORE\"; next} {print \$0, ((\$3 in a) ? a[\$3] : \".\" OFS \".\")}' annot.tsv ss.tsv" "$P join -a -e . SNP ss.tsv ID annoth.tsv"
@@ -299,7 +315,7 @@ check "uniq column name" "awk -F'\t' 'NR == 1 || !s[\$4]++' ss.tsv" "$P uniq A1 
 check "uniq composite" "awk -F'\t' '!s[\$5, \$4]++' ss.tsv" "$P uniq 5,4 ss.tsv"
 check "uniq composite mixed order" "awk -F'\t' '!s[\$1, \$3]++' dupl_mixed.tsv" "$P uniq 1,3 dupl_mixed.tsv"
 check "uniq -w" "awk '!s[\$4]++' ws.assoc" "$P uniq -w 4 ws.assoc"
-check "uniq -d" "tr '\t' , < ss.tsv | awk -F, '!s[\$5]++'" "tr '\t' , < ss.tsv | $P uniq -d , 5 /dev/stdin"
+check "uniq -d" "tr '\t' , < ss.tsv | awk -F, '!s[\$5]++'" "tr '\t' , < ss.tsv | $P uniq -d , 5 -"
 check "uniq column -c" "awk -F'\t' -v MIN=1 -v MAX=1e18 -v CT=1 'NR == 1 {print \"count\t\" \$0; next} {k = \$1 SUBSEP \$4} $U_FIRST $U_END' ss.tsv" "$P uniq -c CHR,A1 ss.tsv"
 check "uniq column -r" "awk -F'\t' -v MIN=2 -v MAX=1e18 -v CT=0 '{k = \$1 SUBSEP \$2} $U_FIRST $U_END' dupl_mixed.tsv" "$P uniq -r 1,2 dupl_mixed.tsv"
 check "uniq column -c -u" "awk -F'\t' -v MIN=1 -v MAX=1 -v CT=1 '{k = \$7} $U_FIRST $U_END' ss.tsv" "$P uniq -c -u 7 ss.tsv"
@@ -357,10 +373,14 @@ for sub in $SUBS; do
   PASS=$((PASS + 1))
 done
 awk 'length > 80 {bad = 1} END {exit !bad}' <<< "$("$P" --help)" && { echo "FAIL: summary has lines over 80 columns"; exit 1; }
-for v in -v -V --version; do
-  expect "$v" "$P $v" 'ptxt v0.1.0 (21 Nov 2026)\n'
+# The version string isn't hardcoded here, so bumping it doesn't break tests.
+VERSION=$("$P" -v)
+[[ "$VERSION" =~ ^ptxt\ v[0-9]+\.[0-9]+\.[0-9]+\ \([0-9]{1,2}\ [A-Z][a-z]{2}\ [0-9]{4}\)$ ]] || { echo "FAIL: -v output malformed: $VERSION"; exit 1; }
+PASS=$((PASS + 1))
+for v in -V --version; do
+  expect "$v" "$P $v" "$VERSION\\n"
 done
-[[ $("$P" --help | head -1) == "ptxt v0.1.0 (21 Nov 2026) "* ]] || { echo "FAIL: banner lacks version"; exit 1; }
+[[ $("$P" --help | head -1) == "$VERSION"* ]] || { echo "FAIL: banner lacks version"; exit 1; }
 PASS=$((PASS + 1))
 fails "-v with arguments" "$P -v sort" "takes no arguments"
 check "-h after options" "$P sort -h" "$P sort -H -w -h"

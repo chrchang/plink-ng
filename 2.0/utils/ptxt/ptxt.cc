@@ -225,9 +225,9 @@ static const char kSummaryHelp[] = "\n"
 "  ptxt -v\n"
 "\n"
 "Fast replacements for common text-processing one-liners.  Input may be\n"
-"uncompressed, gzip, BGZF (decompressed on several threads) or zstd; use\n"
-"/dev/stdin as FILE to read from a pipe.  Output goes to stdout.  Columns are\n"
-"1-based numbers or header names.\n"
+"uncompressed, gzip, BGZF (decompressed on several threads) or zstd; a FILE\n"
+"of - means stdin.  Output goes to stdout.  Columns are 1-based numbers or\n"
+"header names.\n"
 "\n"
 "Subcommands:\n"
 "  -- Columns\n"
@@ -259,8 +259,8 @@ static const char kColumnsHelp[] = "\n"
 "implies -H.\n";
 
 static const char kInputHelp[] = "\n"
-"Input may be uncompressed, gzip, BGZF or zstd; use /dev/stdin to read from a\n"
-"pipe.  Lines must end in LF.\n";
+"Input may be uncompressed, gzip, BGZF or zstd; a FILE of - means stdin.  Lines\n"
+"must end in LF.\n";
 
 typedef struct ModeHelpStruct {
   const char* name;
@@ -374,7 +374,7 @@ static const ModeHelp kModeHelp[] = {
 "awk '{c[$1]++} END {for (k in c) print k, c[k]}'; the input doesn't need to\n"
 "be sorted.  Lines that are missing COL aren't counted.\n"
 "\n"
-"Pipe the output to 'ptxt sort 2:nr /dev/stdin' to order it by count.\n"
+"Pipe the output to 'ptxt sort 2:nr -' to order it by count.\n"
 "\n", "\n"
 "Example:\n"
 "  ptxt count CHR ss.tsv\n", "It is skipped.", 0, 0},
@@ -484,7 +484,7 @@ static const ModeHelp kModeHelp[] = {
 "Examples:\n"
 "  ptxt uniq SNP ss.tsv                  # drop repeated SNP IDs\n"
 "  ptxt uniq -c -r CHR,POS ss.tsv.gz     # list duplicated positions\n"
-"  sort ids.txt | ptxt uniq /dev/stdin\n", "It is copied through, with\n"
+"  sort ids.txt | ptxt uniq -\n", "It is copied through, with\n"
         "            \"count<TAB>\" in front under -c.", 0, 0},
 };
 
@@ -537,7 +537,19 @@ PTXT_NORETURN static void DieUsage(const char* synopsis) {
   exit(1);
 }
 
+static inline uint32_t IsStdinName(const char* fname) {
+  return !strcmp(fname, "-") || !strcmp(fname, "/dev/stdin");
+}
+
+// For subcommands that read two files: stdin can only be read once.
+static void CheckOneStdin(const char* fname1, const char* fname2) {
+  if (IsStdinName(fname1) && IsStdinName(fname2)) Die("only one input file can be stdin (-)");
+}
+
+// A FILE of "-" means stdin.  (A file actually named "-" can be given as
+// "./-".)
 static void OpenTs(const char* fname, TextStream* txsp) {
+  if (!strcmp(fname, "-")) fname = "/dev/stdin";
   PreinitTextStream(txsp);
   if (TextStreamOpen(fname, txsp)) Die("failed to open input file");
 }
@@ -913,6 +925,7 @@ static void ModeCut(int argc, char** argv) {
 
 static void ModePaste(int argc, char** argv) {
   if (argc != 4) DieUsage("ptxt paste FILE1 FILE2");
+  CheckOneStdin(argv[2], argv[3]);
   TextStream t1, t2; OpenTs(argv[2], &t1); OpenTs(argv[3], &t2);
   char *l1, *l2;
   while (!TextNextLine(&t1, &l1)) {
@@ -1628,6 +1641,7 @@ static void ModeKeep(int argc, char** argv, uint32_t invert) {
   Opts o; InitOpts(&o);
   int i = ParseOpts(argc, argv, 2, &o, 0);
   if (argc - i != 3) DieUsage("ptxt keep|remove [options] COL IDFILE FILE");
+  CheckOneStdin(argv[i + 1], argv[i + 2]);
   StrSet ids; InitStrSet(&ids);
   {
     TextStream its; OpenTs(argv[i + 1], &its);
@@ -1823,6 +1837,7 @@ static void ModeJoin(int argc, char** argv) {
   Opts o; InitOpts(&o);
   int i = ParseOpts(argc, argv, 2, &o, 1);
   if (argc - i != 4) DieUsage("ptxt join [options] [-a] [-e STR] KEYS1 FILE1 KEYS2 FILE2");
+  CheckOneStdin(argv[i + 1], argv[i + 3]);
   ColTokVec toks1 = {nullptr, 0, 0};
   ColTokVec toks2 = {nullptr, 0, 0};
   if (ParseCols(argv[i], &toks1)) o.header = 1;
