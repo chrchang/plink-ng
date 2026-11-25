@@ -69,6 +69,7 @@ extern const dd_real _ddr_e;
 extern const dd_real _ddr_log2;
 extern const dd_real _ddr_log05;
 extern const dd_real _ddr_64log2;
+extern const dd_real _ddr_128log2;
 extern const dd_real _ddr_ln10;
 extern const dd_real _ddr_recip_ln10;
 extern const dd_real _ddr_half_log_2pi;
@@ -214,6 +215,19 @@ HEADER_INLINE dd_real ddr_sloppy_add(const dd_real a, const dd_real b) {
   return ddr_make(s, e);
 }
 
+// Like ddr_sloppy_add(), but without the final renormalization: the high word
+// is fl(a.x[0] + b.x[0]), and the low word collects that sum's rounding error
+// along with both low words.  The low word can then exceed half an ulp of the
+// high word (it grows with each chained addition), so the result is only
+// meaningful as the unevaluated sum x[0] + x[1]; don't pass it to functions
+// that assume a normalized dd_real (comparisons, ddr_exp(), etc.) without
+// renormalizing first.
+HEADER_INLINE dd_real ddr_sloppier_add(const dd_real a, const dd_real b) {
+  double e;
+  const double s = qd_two_sum(a.x[0], b.x[0], &e);
+  return ddr_make(s, e + a.x[1] + b.x[1]);
+}
+
 /*
 HEADER_INLINE dd_real ddr_ieee_add(const dd_real a, const dd_real b) {
   double s2;
@@ -248,6 +262,13 @@ HEADER_INLINE dd_real ddr_sloppy_sub(const dd_real a, const dd_real b) {
   e -= b.x[1];
   s = qd_quick_two_sum(s, e, &e);
   return ddr_make(s, e);
+}
+
+// Non-renormalizing subtraction; see ddr_sloppier_add().
+HEADER_INLINE dd_real ddr_sloppier_sub(const dd_real a, const dd_real b) {
+  double e;
+  const double s = qd_two_diff(a.x[0], b.x[0], &e);
+  return ddr_make(s, e + a.x[1] - b.x[1]);
 }
 
 HEADER_INLINE dd_real ddr_ieee_sub(const dd_real a, const dd_real b) {
@@ -421,6 +442,29 @@ HEADER_INLINE dd_real ddr_sub(const dd_real a, const dd_real b) {
   return ddr_sloppy_sub(a, b);
 }
 
+// Returns exp(a) rounded to double precision, cheaply: exp(a.x[0]) *
+// (1 + a.x[1]).  The relative error is a few ulps (exp()'s error, two
+// roundings, and O(a.x[1]^2)), so a needn't be normalized, as long as |a.x[1]| is tiny (e.g. a was produced by
+// a short chain of ddr_sloppier_add() calls).  Use ddr_exp() when a full
+// dd_real result is needed.
+HEADER_INLINE double ddr_exp_to_double(const dd_real a) {
+  return exp(a.x[0]) * (1.0 + a.x[1]);
+}
+
+// Neumaier (improved Kahan-Babuska) compensated summation step: adds addend
+// to *sump, accumulating the rounding error in *errp.  The compensated total
+// is *sump + *errp.
+HEADER_INLINE void neumaier_add(double addend, double* sump, double* errp) {
+  const double sum = *sump;
+  const double new_sum = sum + addend;
+  if (fabs(sum) >= fabs(addend)) {
+    *errp += (sum - new_sum) + addend;
+  } else {
+    *errp += (addend - new_sum) + sum;
+  }
+  *sump = new_sum;
+}
+
 
 dd_real ddr_sqrt(const dd_real a);
 
@@ -558,6 +602,71 @@ HEADER_INLINE double join_log_and_nonlog(dd_real lnprob_ddr, double mult, uint32
     return lnprob_ddr.x[0] + log(mult);
   }
   return mult * k2m64 * ddr_exp(ddr_add(lnprob_ddr, _ddr_64log2)).x[0];
+}
+
+// When |x| < 2^{-969}, a dd_real's low word is subnormal, so it carries fewer
+// than 106 bits; near 2^{-1021}, rounding the low word can even manufacture
+// a spurious exact tie that a later renormalization resolves in the wrong
+// direction.  The functions below let a tiny final result be computed
+// scaled by 2^128 and rounded to double exactly once.
+
+static const double k2p128 = k2p64 * k2p64;
+static const double k2m128 = k2m64 * k2m64;
+
+// Returns x * 2^{-128}, correctly rounded (ties-to-even) to double, including
+// when the result is subnormal.  x must be a normalized dd_real with
+// |x| <= 2^1023.
+HEADER_INLINE double ddr_to_double_unscale128(dd_real x) {
+  const double hi = x.x[0];
+  double result = hi * k2m128;
+  if (fabs(hi) >= DBL_MIN * k2p128) {
+    // Exact, and hi is already the correctly rounded value of x.
+    return result;
+  }
+  // result is subnormal (or zero, or rounded up to DBL_MIN), so hi * 2^{-128}
+  // may have been rounded, ignoring x.x[1].  In units of 2^{-128}, the
+  // result grid spacing is 2^{-946}, while ulp(hi) <= 2^{-947} and
+  // |x.x[1]| <= ulp(hi) / 2.  diff is a multiple of ulp(hi) with
+  // |diff| <= 2^{-947}, so x.x[1] can only matter when hi was itself a
+  // rounding tie.
+  const double diff = hi - result * k2p128;  // exact
+  const double half_spacing = DBL_MIN * k2p128 * k2m53;  // 2^{-947}
+  if (diff == half_spacing) {
+    // hi was rounded down to even.
+    if (x.x[1] > 0.0) {
+      result = nextafter(result, INFINITY_D);
+    }
+  } else if (diff == -half_spacing) {
+    // hi was rounded up to even.
+    if (x.x[1] < 0.0) {
+      result = nextafter(result, -INFINITY_D);
+    }
+  }
+  return result;
+}
+
+// Below this, log1p(-q) == -q to far beyond dd_real precision, and q's low
+// word may be subnormal.
+static const double kDdrTinyQ = k2m512;
+
+// Returns log1p(-exp(ln_q_ddr)), for ln_q_ddr <= 0.  Preserves the last bit
+// when the result is tiny.
+HEADER_INLINE double ddr_log1p_negexp(dd_real ln_q_ddr) {
+  if (ln_q_ddr.x[0] >= -512 * kLn2) {
+    return ddr_log1p(ddr_negate(ddr_exp(ln_q_ddr))).x[0];
+  }
+  return -ddr_to_double_unscale128(ddr_exp(ddr_add(ln_q_ddr, _ddr_128log2)));
+}
+
+// Returns log1p(-q) where q = numer_ddr / denom_ddr has already been computed
+// (0 <= q <= 1, numer_ddr and denom_ddr positive and finite).  Preserves the
+// last bit when the result is tiny.
+HEADER_INLINE double ddr_log1p_neg_quotient(dd_real q_ddr, dd_real numer_ddr, dd_real denom_ddr) {
+  if (q_ddr.x[0] >= kDdrTinyQ) {
+    return ddr_log1p(ddr_negate(q_ddr)).x[0];
+  }
+  // numer < 2^{-512} * denom < 2^{512}, so this can't overflow.
+  return -ddr_to_double_unscale128(ddr_accurate_div(ddr_mul_pwr2(numer_ddr, k2p128), denom_ddr));
 }
 
 
