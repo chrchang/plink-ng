@@ -7,6 +7,9 @@ ZSTD_O2 = 1
 STATIC_ZLIB =
 STATIC_ZSTD ?= 1
 FORCE_32BIT =
+# Set to compile ptxt and the plink2 library as C99 instead of C++.  ('ptxt
+# sort' is slower then, since it falls back on qsort().)
+C99 =
 DEBUG =
 CC ?= gcc
 CXX ?= g++
@@ -111,11 +114,21 @@ all: ptxt$(SFX) gen$(SFX)
 gen$(SFX): gen.c
 	$(CC) -O2 -o $@ gen.c
 
+ifdef C99
+  # The .cc files are written to compile as either language.
+  CCSRC_COMPILE = $(CC) -x c $(CFLAGS) $(CXXINCLUDE2)
+  CCSRC_LINK = $(CC)
+  LDLIBS += -lm
+else
+  CCSRC_COMPILE = $(CXX) $(CXXFLAGS)
+  CCSRC_LINK = $(CXX)
+endif
+
 ptxt$(SFX): $(CSRC3) $(ZCSRC3) $(ZSSRC3) $(TEXTLIB_CCSRC3) ptxt.cc
 	$(CC) $(CFLAGS) $(CSRC3) -c
 	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC3) $(ZSSRC3) -c
-	$(CXX) $(CXXFLAGS) $(TEXTLIB_CCSRC3) ptxt.cc -c
-	$(CXX) $(LDFLAGS) $(TEXTLIB_OBJL) ptxt.o $(ARCH32) -o $@ $(LDLIBS)
+	$(CCSRC_COMPILE) $(TEXTLIB_CCSRC3) ptxt.cc -c
+	$(CCSRC_LINK) $(LDFLAGS) $(TEXTLIB_OBJL) ptxt.o $(ARCH32) -o $@ $(LDLIBS)
 
 .PHONY: test
 test: ptxt$(SFX) gen$(SFX)
