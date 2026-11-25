@@ -217,7 +217,7 @@ static void ParallelFor(uint32_t thread_ct, uintptr_t n, RangeFn fn, void* share
 // SUB') prints everything about one subcommand; 'ptxt -v' prints kVersion.
 // Keep lines <= 80 columns.
 
-static const char kVersion[] = "ptxt v0.1.0 (21 Nov 2026)";
+static const char kVersion[] = "ptxt v0.1.1 (25 Nov 2026)";
 
 static const char kSummaryHelp[] = "\n"
 "  ptxt <subcommand> [options...] <arguments...>\n"
@@ -498,9 +498,7 @@ static const ModeHelp* FindModeHelp(const char* mode) {
 }
 
 static void PrintBanner() {
-  // Right-align the tagline at column 80, as plink2 does.
-  static const char kTagline[] = "text tools built on the plink2 library";
-  printf("%s%*s\n", kVersion, S_CAST(int, 80 - strlen(kVersion)), kTagline);
+  printf("%s\n", kVersion);
 }
 
 PTXT_NORETURN static void PrintSummaryHelp(int exit_code) {
