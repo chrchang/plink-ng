@@ -49,7 +49,12 @@ or a composite key for `join` and `uniq`.
 ```
 make          # builds ptxt and gen (the benchmark/test data generator)
 make test     # runs tests/run_tests.sh
+make C99=1    # builds ptxt as C99 instead of C++
 ```
+
+Like plink2, ptxt compiles as either C++ or C99. The two builds are equally
+fast, except that `ptxt sort` uses `qsort()` instead of `std::sort` in the C
+build. That makes its sorting phase about twice as slow.
 
 The tests check output byte for byte against `cut`, `paste`, POSIX `awk`,
 `sed`, `sort -s` and `uniq`. Where ptxt deliberately differs from those tools,
