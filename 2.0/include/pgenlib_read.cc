@@ -1113,6 +1113,34 @@ PglErr PgfiInitPhase2FillExtSizes(uint32_t is_pgi, FILE* ff, PgenExtensionLl* ex
   return kPglRetMalformedInput;
 }
 
+// log2 of the bit width of each header vrtype entry (the first array in each
+// vblock's part of the header body).  For the fused vrtype/length encodings
+// (vrtype_and_fpos_storage >= 8), there is no separate length array: 1 bit
+// per entry for 8, 4 bits for 11 and 14, 2 bits otherwise.
+static uint32_t HeaderVrtypeLog2BitWidth(uint32_t vrtype_and_fpos_storage) {
+  if (vrtype_and_fpos_storage < 8) {
+    return (vrtype_and_fpos_storage < 4)? 2 : 3;
+  }
+  if (vrtype_and_fpos_storage == 8) {
+    return 0;
+  }
+  return ((vrtype_and_fpos_storage == 11) || (vrtype_and_fpos_storage == 14))? 2 : 1;
+}
+
+// Byte size of the header body for one full (2^16-variant) vblock.
+static uint64_t HeaderVblockByteCt(PgenHeaderCtrl header_ctrl) {
+  const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
+  uint64_t byte_ct = (kPglVblockSize << HeaderVrtypeLog2BitWidth(vrtype_and_fpos_storage)) / CHAR_BIT;
+  if (vrtype_and_fpos_storage < 8) {
+    byte_ct += kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3));
+  }
+  byte_ct += kPglVblockSize * ((header_ctrl >> 4) & 3);
+  if ((header_ctrl >> 6) == 3) {
+    byte_ct += kPglVblockSize / CHAR_BIT;
+  }
+  return byte_ct;
+}
+
 // PglHeaderBaseEndOffset() plus the allele-count array and the fused
 // vrtype/length encodings.
 static uint64_t PgfiHeaderBaseEndOffset(PgenHeaderCtrl header_ctrl, uint32_t variant_ct) {
@@ -1122,14 +1150,7 @@ static uint64_t PgfiHeaderBaseEndOffset(PgenHeaderCtrl header_ctrl, uint32_t var
   if (vrtype_and_fpos_storage < 8) {
     offset = PglHeaderBaseEndOffset(variant_ct, 1 + (vrtype_and_fpos_storage & 3), vrtype_and_fpos_storage >= 4, nonref_flags_stored);
   } else {
-    // 1 bit per entry for 8, 4 bits for 11 and 14, 2 bits otherwise
-    uint32_t log2_entry_bit_width = 1;
-    if (vrtype_and_fpos_storage == 8) {
-      log2_entry_bit_width = 0;
-    } else if ((vrtype_and_fpos_storage == 11) || (vrtype_and_fpos_storage == 14)) {
-      log2_entry_bit_width = 2;
-    }
-    offset = PglHeaderBaseEndOffset(variant_ct, 0, 1, nonref_flags_stored) - variant_ct + DivUpU64(S_CAST(uint64_t, variant_ct) << log2_entry_bit_width, 8);
+    offset = PglHeaderBaseEndOffset(variant_ct, 0, 1, nonref_flags_stored) - variant_ct + DivUpU64(S_CAST(uint64_t, variant_ct) << HeaderVrtypeLog2BitWidth(vrtype_and_fpos_storage), 8);
   }
   return offset + S_CAST(uint64_t, variant_ct) * ((header_ctrl >> 4) & 3);
 }
@@ -1263,21 +1284,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
   uint32_t vblock_idx = vblock_idx_start;
   vblock_ct_m1 = (vidx_end - 1) / kPglVblockSize;
   if (vblock_idx) {
-    uintptr_t header_vblock_byte_ct = kPglVblockSize * alt_allele_ct_byte_ct;
-    if (nonref_flags_stored) {
-      header_vblock_byte_ct += kPglVblockSize / CHAR_BIT;
-    }
-    if (vrtype_and_fpos_storage & 8) {
-      header_vblock_byte_ct += kPglVblockSize >> (10 - vrtype_and_fpos_storage);
-    } else {
-      if (!(vrtype_and_fpos_storage & 4)) {
-        header_vblock_byte_ct += kPglVblockSize / 2;
-      } else {
-        header_vblock_byte_ct += kPglVblockSize;
-      }
-      header_vblock_byte_ct += kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3));
-    }
-    if (unlikely(fseeko(header_ff, header_vblock_byte_ct * S_CAST(uint64_t, vblock_idx), SEEK_CUR))) {
+    if (unlikely(fseeko(header_ff, HeaderVblockByteCt(header_ctrl) * vblock_idx, SEEK_CUR))) {
       FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
       return kPglRetReadFail;
     }
@@ -2989,11 +2996,13 @@ PglErr LdLoadAndCopyRawGenovec(uint32_t subsetting_required, uint32_t vidx, Pgen
       return kPglRetReadFail;
     }
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
-    assert((vrtype & 7) != 5); // all-hom-ref can't be ldbase
     uintptr_t* raw_genovec = pgrp->ldbase_raw_genovec;
-    PglErr reterr;
+    PglErr reterr = kPglRetSuccess;
     if (!(vrtype & 4)) {
       reterr = Parse1or2bitGenoarrUnsafe(fread_end, vrtype, &fread_ptr, pgrp, raw_genovec);
+    } else if ((vrtype & 3) == 1) {
+      // all-hom-ref base
+      ZeroWArr(NypCtToWordCt(pgrp->fi.raw_sample_ct), raw_genovec);
     } else {
       const uint32_t vrtype_low2 = vrtype & 3;
       vecset(raw_genovec, vrtype_low2 * kMask5555, DivUp(genovec_byte_ct, kBytesPerVec));
@@ -3051,13 +3060,14 @@ PglErr ReadRawGenovec(uint32_t subsetting_required, uint32_t vidx, PgenReaderMai
   } else {
     const uint32_t vrtype_low2 = vrtype & 3;
     if (vrtype_low2 == 1) {
+      // all-hom-ref; may still be an LD base
       ZeroWArr(NypCtToWordCt(raw_sample_ct), raw_genovec);
-      // all-hom-ref can't be ldbase
-      return kPglRetSuccess;
+      reterr = kPglRetSuccess;
+    } else {
+      const uint32_t vec_ct = NypCtToVecCt(raw_sample_ct);
+      vecset(raw_genovec, vrtype_low2 * kMask5555, vec_ct);
+      reterr = ParseAndApplyDifflist(fread_end, fread_pp, pgrp, raw_genovec);
     }
-    const uint32_t vec_ct = NypCtToVecCt(raw_sample_ct);
-    vecset(raw_genovec, vrtype_low2 * kMask5555, vec_ct);
-    reterr = ParseAndApplyDifflist(fread_end, fread_pp, pgrp, raw_genovec);
   }
   if (vrtype == kPglVrtypePlink1) {
     PgrPlink1ToPlink2InplaceUnsafe(raw_sample_ct, raw_genovec);
@@ -3130,6 +3140,13 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
   const uint32_t ldbase_vidx = pgrp->ldbase_vidx;
   const uint64_t cur_vidx_fpos = pgrp->fi.var_fpos[ldbase_vidx];
   const uint32_t ldbase_vrtype = pgrp->fi.vrtypes[ldbase_vidx];
+  if ((ldbase_vrtype & 7) == 5) {
+    // All-hom-ref base: empty record, so the difflist code below doesn't
+    // apply.
+    ZeroWArr(NypCtToWordCt(sample_ct), pgrp->ldbase_genovec);
+    pgrp->ldbase_stypes = kfPgrLdcacheNyp;
+    return kPglRetSuccess;
+  }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   uintptr_t* raw_genovec = subsetting_required? pgrp->ldbase_raw_genovec : pgrp->ldbase_genovec;
@@ -10654,10 +10671,6 @@ BoolErr ValidateGeno(const unsigned char* fread_end, uint32_t vidx, PgenReaderMa
         return 1;
       }
     } else {
-      if (is_ldbase) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid LD back-reference from variant #%u to all-hom-ref variant #%u.\n", vidx + 1, vidx);
-        return 1;
-      }
       ZeroWArr(NypCtToWordCt(sample_ct), genovec);
     }
   }
@@ -10731,19 +10744,15 @@ BoolErr ValidateMultiallelicHc(const unsigned char* fread_end, const uintptr_t* 
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t aux1_first_byte = **fread_pp;
   *fread_pp += 1;
-  if (unlikely(aux1_first_byte &&
-               (aux1_first_byte != 1) &&
-               (aux1_first_byte != 15) &&
-               (aux1_first_byte != 16) &&
-               (aux1_first_byte != 17) &&
-               (aux1_first_byte != 31) &&
-               (aux1_first_byte != 240) &&
-               (aux1_first_byte != 241))) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic hardcall track mode byte (%u; must be in {0, 1, 15, 16, 17, 31, 240, 241}) in (0-based) variant #%u.\n", aux1_first_byte, vidx);
-    return 1;
-  }
   const uint32_t aux1a_mode = aux1_first_byte & 15;
   const uint32_t aux1b_mode = aux1_first_byte >> 4;
+  // Each nybble must be 0, 1, or 15.  (Both 15 is a pointless but valid
+  // encoding.)
+  if (unlikely(((aux1a_mode > 1) && (aux1a_mode != 15)) ||
+               ((aux1b_mode > 1) && (aux1b_mode != 15)))) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic hardcall track mode byte (%u; each nybble must be 0, 1, or 15) in (0-based) variant #%u.\n", aux1_first_byte, vidx);
+    return 1;
+  }
   uint32_t raw_01_ct;
   uint32_t raw_10_ct;
   GenovecCount12Unsafe(raw_genovec, sample_ct, &raw_01_ct, &raw_10_ct);
@@ -11209,10 +11218,6 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
         }
       }
     }
-    if (unlikely(dphase_delta_read_biter == *fread_pp)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
-      return kPglRetMalformedInput;
-    }
     *fread_pp = dphase_delta_read_biter;
     if (PtrCheck(fread_end, *fread_pp, 0)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
@@ -11249,41 +11254,16 @@ static PglErr ValidateHeaderIndex(FILE* header_ff, uint32_t is_pgi, const PgenRe
       return kPglRetMalformedInput;
     }
   }
-  const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
-  const uint32_t alt_allele_ct_byte_ct = (header_ctrl >> 4) & 3;
-  const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
-
-  // does not include vrtypes yet
-  uint64_t vblock_index_byte_ct = kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3) + alt_allele_ct_byte_ct);
-  if (nonref_flags_stored) {
-    vblock_index_byte_ct += kPglVblockSize / CHAR_BIT;
-  }
+  // Each vblock's vrtype array ends at a byte boundary, and since vblocks are
+  // a multiple of 8 variants long, only the last one can have trailing bits.
+  const uint32_t log2_entry_bit_width = HeaderVrtypeLog2BitWidth(header_ctrl & 15);
+  const uint32_t log2_entries_per_byte = 3 - log2_entry_bit_width;
+  const uint32_t trailing_entry_ct = variant_ct & ((1U << log2_entries_per_byte) - 1);
   uint64_t last_vrtype_byte_offset = 0;
-  uint32_t trailing_shift = 4;
-  if (vrtype_and_fpos_storage & 8) {
-    vblock_index_byte_ct += kPglVblockSize >> (10 - vrtype_and_fpos_storage);
-    if (vrtype_and_fpos_storage == 8) {
-      const uint32_t variant_ct_mod4 = variant_ct % 4;
-      if (variant_ct_mod4) {
-        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 4);
-        trailing_shift = variant_ct_mod4 * 2;
-      }
-    } else {
-      assert(vrtype_and_fpos_storage == 9);
-      if (variant_ct % 2) {
-        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
-      }
-    }
-  } else if (!(vrtype_and_fpos_storage & 4)) {
-    vblock_index_byte_ct += kPglVblockSize / 2;
-    if (variant_ct % 2) {
-      // bugfix (22 Nov 2017): forgot to add offset in last block
-      last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
-    }
-    /*
-  } else {
-    vblock_index_byte_ct += kPglVblockSize;
-    */
+  const uint32_t trailing_shift = trailing_entry_ct << log2_entry_bit_width;
+  if (trailing_entry_ct) {
+    // vblock offsets end at 12 + 8 * vblock_ct
+    last_vrtype_byte_offset = 12 + vblock_ct * sizeof(int64_t) + (vblock_ct - 1) * HeaderVblockByteCt(header_ctrl) + ((variant_ct % kPglVblockSize) >> log2_entries_per_byte);
   }
   if (last_vrtype_byte_offset) {
     uint32_t last_vrtype_byte = 0;
@@ -11314,10 +11294,9 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t const_vrtype = pgrp->fi.const_vrtype;
   if (const_vrtype != UINT32_MAX) {
-    if (unlikely(allele_idx_offsets && (allele_idx_offsets[variant_ct] != 2 * variant_ct))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pvar file contains multiallelic variant(s), but .%s file does not.\n", (const_vrtype == kPglVrtypePlink1)? "bed" : "pgen");
-      return kPglRetInconsistentInput;
-    }
+    // Fixed-width records can't store calls involving ALT2+, but a .pvar
+    // multiallelic variant with no such calls is fine (as it is with a
+    // variable-width record lacking a multiallelic hardcall track).
     // const uintptr_t const_vrec_width = pgrp->fi.const_vrec_width;
     if ((!const_vrtype) || (const_vrtype == kPglVrtypePlink1)) {
       // only thing that can go wrong is nonzero trailing bits

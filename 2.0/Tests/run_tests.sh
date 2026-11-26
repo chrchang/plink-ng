@@ -728,4 +728,9 @@ cd TEST_VALIDATE_PGI
 cd ..
 echo "TEST_VALIDATE_PGI passed."
 
+cd TEST_VALIDATE_ACCEPT
+./run_tests.sh $d $2 $3 > TEST_VALIDATE_ACCEPT.log
+cd ..
+echo "TEST_VALIDATE_ACCEPT passed."
+
 echo "All tests passed."
