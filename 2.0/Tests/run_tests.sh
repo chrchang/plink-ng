@@ -753,6 +753,16 @@ cd TEST_VALIDATE_GAPS
 cd ..
 echo "TEST_VALIDATE_GAPS passed."
 
+cd TEST_EXPORT_INVALID_DPHASE
+./run_tests.sh $d $2 $3 > TEST_EXPORT_INVALID_DPHASE.log
+cd ..
+echo "TEST_EXPORT_INVALID_DPHASE passed."
+
+cd TEST_DIFFLIST_ID_WIDTH
+./run_tests.sh $d $2 $3 > TEST_DIFFLIST_ID_WIDTH.log
+cd ..
+echo "TEST_DIFFLIST_ID_WIDTH passed."
+
 cd TEST_DELTALIST64
 ./run_tests.sh $d $2 $3 > TEST_DELTALIST64.log
 cd ..

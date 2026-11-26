@@ -3843,12 +3843,14 @@ BoolErr PglDosagesAreInvalid(const uintptr_t* __restrict dosage_present, const u
     while (dosage_word) {
       const uintptr_t lowbit = dosage_word & (-dosage_word);
       if (dphase_word & lowbit) {
-        // same test as ValidateDosage16()
+        // same test as ValidateDosage16().  -32768 must be special-cased:
+        // with cur_dosage 0 or 32768, both dpieces wrap around to values
+        // <= 32768.
         const int16_t cur_delta = dphase_delta[dphase_idx++];
         const uint16_t cur_dosage = dosage_main[dosage_idx];
         const uint16_t dpiece0_x2 = cur_dosage + cur_delta;
         const uint16_t dpiece1_x2 = cur_dosage - cur_delta;
-        if ((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+        if ((cur_delta == -32768) || (dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
           return 1;
         }
       }
