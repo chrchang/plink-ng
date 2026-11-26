@@ -184,7 +184,32 @@ like a PGEN header (except with third byte \texttt{0x30} or \texttt{0x31}).
   \item \texttt{6}: 8 bits per record type, 3 bytes per record length.
   \item \texttt{7}: 8 bits per record type, 4 bytes per record length.
   \end{itemize}
-  Values 8-15 are reserved for future use.
+  Values 8-12 and 14 select ``fused'' encodings, designed for single-sample
+  (or very small) datasets.  Each variant has a single 1-, 2-, or 4-bit
+  header entry which determines both its record type and its record length;
+  there is no separate array of record lengths.  Let $W:=\lceil N/4\rceil $,
+  the byte size of an uncompressed main data track.  In every fused encoding,
+  entry value 0 means record type \texttt{5} with length 0, and entry value 1
+  means record type \texttt{0} with length $W$.  The other entry values are:
+  \begin{itemize}
+  \item \texttt{8}: 1 bit per entry; there are no other values.
+  \item \texttt{9}: 2 bits per entry.  2 and 3: record type \texttt{0x08},
+    with length $W+2$ and $W+3$ respectively.
+  \item \texttt{10}: 2 bits per entry.  2 and 3: record type \texttt{0x10},
+    with length $W+1$ and $W+2$ respectively.
+  \item \texttt{11}: 4 bits per entry.  $v\in [2, 7]$: record type
+    \texttt{0x08}, length $W+v$.  9: record type \texttt{0x10}, length $W+1$.
+    $v\in [10, 15]$: record type \texttt{0x18}, length $W+v-7$.  8 is
+    invalid.
+  \item \texttt{12}: 2 bits per entry, and $N$ must be 1.  2: record type
+    \texttt{0x45}, length 2.  3: record type \texttt{0x40}, length 3.
+  \item \texttt{14}: 4 bits per entry, and $N$ must be 1.  3: record type
+    \texttt{0x10}, length 2.  4: record type \texttt{0x45}, length 2.  5:
+    record type \texttt{0x40}, length 3.  12: record type \texttt{0xc5},
+    length 4.  13: record type \texttt{0xc0}, length 5.  15: record type
+    \texttt{0xe0}, length 7.  2, 6-11, and 14 are invalid.
+  \end{itemize}
+  Values 13 and 15 are reserved for future use.
 
   With storage modes \texttt{0x02..0x04}, these bits are always zeroed out,
   since it is unnecessary to store any additional variant-record type or length
@@ -225,7 +250,9 @@ blocks corresponding to $2^{16}$ variants each.  Each block contains a packed
 array of $2^{16}$ variant record types (except the last block may be shorter),
 followed by a packed array of variant record lengths, possibly followed by an
 array of allele counts, and then possibly followed by a provisional-REF-allele
-flag bitarray.  All of these arrays end at byte boundaries; when there are
+flag bitarray.  (With the fused encodings, the record-type array is replaced
+by the array of fused entries, and the record-length array is omitted.)  All
+of these arrays end at byte boundaries; when there are
 unused bits at the end of any of these arrays, they must be set to zero.  Both
 properties are also true for all packed arrays of 1/2/4-bit elements mentioned
 later in this specification, except when explicitly stated otherwise.
@@ -372,7 +399,9 @@ manner that is compact, and supports fast checking of whether a specific sample
 ID is in the list.
 
 All difflists start with a base-128 varint, indicating how many elements are in
-the list; call this value $L$.  If $L=0$, that's the end of the list.
+the list; call this value $L$.  $L$ cannot be larger than $\lfloor N/8\rfloor
+$ (so when $N<8$, every difflist is empty).  If $L=0$, that's the end of the
+list.
 
 Otherwise, the elements are divided into groups of 64 (the last group may be
 smaller); call the number of groups $G:=\lceil L/64\rceil $.  The remaining
@@ -449,7 +478,8 @@ used on the resulting packed array.
   1 and 3; \texttt{9}: 2 and 3); followed by a bitarray describing which
   samples are in the higher-numbered category; followed by a difflist with all
   (sample ID, genotype category value) pairs for the two less common
-  categories.
+  categories.  If this difflist is nonempty, its length must be less than
+  $\lfloor N/16\rfloor $.
 \item \texttt{2}: LD-compressed.  A difflist with all (sample ID, genotype
   category value) pairs for samples in different categories than they were in
   in the previous non-LD-compressed variant.  The first variant of a variant
@@ -562,9 +592,11 @@ are present.
 
 In this case, the first \textit{bit} of auxiliary data track \#2 indicates
 whether an explicit ``phasepresent'' bitarray is stored.  Let $H$ be the number
-of heterozygous hard-calls; when this initial bit is set, the next $H$ bits
+of heterozygous hard-calls, which must be positive; when this initial bit is
+set, the next $H$ bits
 (including the high 7 bits of the first byte) are 1-bit values where 0 = no
-hardcall-phase for that heterozygous call, and 1 = the call is phased.  When
+hardcall-phase for that heterozygous call, and 1 = the call is phased; at
+least one of these $H$ bits must be set.  When
 the initial bit is clear, all heterozygous hard-calls are phased.
 
 This is followed by a ``phaseinfo'' bitarray, which begins at the usual byte
