@@ -1,0 +1,3 @@
+fmtcheck
+fmt_extracted.h
+*.o
