@@ -959,7 +959,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     //       3 = vrtype 16 with 1 phaseinfo byte, 4 = vrtype 0x45 with 2 bytes,
     //       5 = vrtype 0x40 with 3 total bytes, 12 = vrtype 0xc5 with 4 total
     //       bytes, 13 = vrtype 0xc0 with 5 total bytes, 15 = vrtype 0xe0 with
-    //       6 total bytes
+    //       7 total bytes
     //   15: reserved for single-sample multiallelic + phased dosage.
     const uint32_t header_ctrl_low3 = header_ctrl & 7;
     // this can be a table lookup once 13/15 are implemented
@@ -1367,7 +1367,9 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
         vrec_len_table[5] = 3;
         vrec_len_table[12] = 4;
         vrec_len_table[13] = 5;
-        vrec_len_table[15] = 6;
+        // genotype byte, dosage-present byte, dosage, dphase-present byte,
+        // dphase delta
+        vrec_len_table[15] = 7;
       }
       const uint32_t entry_bit_width = 1 << log2_entry_bit_width;
       const uint32_t entry_mask = (1 << entry_bit_width) - 1;
