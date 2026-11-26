@@ -20,6 +20,7 @@ ptxt cut LIST FILE                                    # cut -f LIST (LIST ascend
 ptxt paste FILE1 FILE2                                # paste
 ptxt select [opts] COLS FILE                          # awk '{print $3, $1}'
 ptxt filter [opts] EXPR FILE                          # awk 'EXPR'
+ptxt print [opts] [-f COND] [-p N] [-e STR] EXPRS FILE  # awk '{print EXPR, ...}'
 ptxt keep [opts] COL IDFILE FILE                      # lines whose COL is in IDFILE
 ptxt remove [opts] COL IDFILE FILE                    # lines whose COL isn't in IDFILE
 ptxt count [opts] COL FILE                            # value<TAB>count per distinct value
@@ -144,6 +145,9 @@ ptxt filter 'len($A1) == 1 && len($A2) == 1 && $P < 5e-8' ss.tsv
   - `||` (also `|`, `or`)
   - `&&` (also `&`, `and`)
   - comparisons: `<`, `<=`, `>`, `>=`, `==` (also `=`), `!=`
+  - string concatenation, written as juxtaposition as in awk:
+    `$CHR ":" $POS`. An operand can't start with `-`, `+` or `!`, so
+    `$1 -1` is a subtraction.
   - `+`, `-`
   - `*`, `/`, `%`
   - unary `!` (also `not`), `-`, `+`
@@ -177,6 +181,50 @@ How values compare follows awk, except for missing values:
 - A bare value used as a condition is true when it is nonzero or a nonempty
   string.
 - A field past the end of the line is an empty string.
+
+### print
+
+```
+ptxt print [opts] [-f COND] [-p N] [-e STR] EXPRS FILE
+```
+
+Prints computed columns, like `awk '{print EXPR, EXPR, ...}'` with a tab
+between values. EXPRS is a comma-separated list of expressions in the
+`filter` language. For example:
+
+```
+ptxt print '$CHR ":" $POS ":" $A2 ":" $A1 as ID, $P' ss.tsv
+ptxt print -f '$P < 5e-8' '$SNP, -log10($P), $BETA / $SE as Z' ss.tsv.gz
+ptxt print '"chr" $1, $2 - 1, $2' ss.tsv         # BED-like
+```
+
+- A bare field (`$N`, `$NAME`, `$0`) is printed exactly as written. Strings,
+  `substr()` results and concatenations are printed as is.
+- A computed number is printed as an integer if it is one, and otherwise
+  with 6 significant digits, like awk's default `%.6g`. Numbers inside a
+  concatenation are converted the same way. Comparisons print 1 or 0.
+- A missing value (arithmetic on a non-number, division by 0, log of a
+  negative number, NaN) prints as the `-e` string (default `NA`), where awk
+  would print a number.
+- `-f COND` prints only for lines satisfying COND.
+- `-p N` sets the significant digits for computed non-integers (1–17).
+  `-p 0` prints the shortest digits that read back as the same double, e.g.
+  `0.30000000000000004` for `0.1 + 0.2`.
+- `EXPR as NAME` (or `as "NAME"`) names an output column. With `-H` (or any
+  column name), the output starts with a header line holding each column's
+  name: the `as` name, the header text of a bare field, or else the
+  expression's own text.
+
+Numbers are correctly rounded. Most go through a fast path that scales the
+value into an integer with one multiply or divide; values within 8 ulps of a
+rounding tie, and `-p 0`, `-p 16` and `-p 17`, go to
+[Ryu](https://github.com/ulfjack/ryu) (`2.0/ryu/`). That is about 14 ns per
+number, against 40 ns for Ryu alone and 107 ns for printf. The output agrees
+with glibc's printf; macOS's printf (and so awk on macOS) leaves a
+trailing zero in some exact ties, e.g. `%.3g` of 80050 gives `8.00e+04`
+instead of `8e+04`. That can't happen for a non-integral value, and awk
+prints integral values as integers, so it doesn't affect `print`'s agreement
+with awk.
 
 ### keep / remove
 
@@ -328,6 +376,8 @@ speedup is against the fastest alternative tried.
 | Task | Fastest alternative | Speedup |
 |---|---|---|
 | filter, compound expression | mawk | 4–7.5× |
+| print, string/integer columns (variant ID, BED-like, len) | mawk | 3.8–9× |
+| print, floating-point columns (-log10 P, Z) | mawk | 3.5× |
 | keep 10k / 1M IDs | ripgrep -F -w / awk | >5× |
 | sort chr,pos / P-value / rsID | GNU sort (best of default and --parallel) | 4.7× / 52× / 3.0× |
 | join, 1M-row lookup table | gawk; GNU join on pre-sorted input | 7.9×; 4.4× |
