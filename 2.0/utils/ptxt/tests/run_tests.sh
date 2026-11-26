@@ -144,6 +144,7 @@ check "filter -w" "awk 'NR == 1 || (\$11 < 1e-3 && \$1 == 22)' ws.assoc" "$P fil
 check "filter no -H" "awk -F'\t' '\$1 > \$12' ss.tsv" "$P filter '\$1 > \$12' ss.tsv"
 check "filter --" "awk -F'\t' 'NR == 1 || \$11 < 0.01' ss.tsv" "$P filter -- '\$P < 0.01' ss.tsv"
 
+
 # ---- filter: correctly-rounded parsing ----
 # Each value sits exactly on its threshold in decimal; an inexact parser
 # (plink2's ScanadvDouble is off by an ulp on e.g. "0.9900" and "0.00140")
@@ -176,11 +177,78 @@ fails "incomplete" "$P filter '\$1 <' ss.tsv" "expected a value"
 fails "regex" "$P filter '\$1 ~ \"a\"' ss.tsv" "regex matching is not supported"
 fails "chained" "$P filter '0 < \$1 < 5' ss.tsv" "can't be chained"
 fails "bare identifier" "$P filter 'P < 3' ss.tsv" "unknown identifier"
-fails "\$0" "$P filter '\$0 > 1' ss.tsv" "\$0 is not supported"
 fails "unbalanced paren" "$P filter '(\$1 > 2' ss.tsv" "expected ')'"
 fails "unterminated string" "$P filter '\$1 > \"abc' ss.tsv" "unterminated string"
 fails "unknown column" "$P filter '\$NOPE > 1' ss.tsv" "column 'NOPE' not found"
 fails "option missing arg" "$P filter -d" "missing its argument"
+
+# ---- filter: len() and substr() ----
+# Every 3rd/5th line gets a multi-base A1/A2, so SNP and indel filters both
+# select something.
+awk -F'\t' -v OFS='\t' 'NR > 1 && NR % 3 == 0 {$4 = $4 "TG"} NR > 1 && NR % 5 == 0 {$5 = $5 "A"} 1' ss.tsv > ssindel.tsv
+fi2() {  # fi2 NAME AWK_COND PTXT_ARGS...: like f, on ssindel.tsv.
+  local name=$1 cond=$2; shift 2
+  check "filter $name" "awk -F'\t' 'NR == 1 || ($cond)' ssindel.tsv" "$P filter -H $* ssindel.tsv"
+}
+fi2 "len snp only" 'length($4) == 1 && length($5) == 1' "'len(\$A1) == 1 && len(\$A2) == 1'"
+fi2 "len indel" 'length($4) != length($5)' "'len(\$A1) != len(\$A2)'"
+fi2 "length synonym" 'length($4) > 1 && $11 < 0.5' "'length(\$A1) > 1 && \$P < 0.5'"
+fi2 "len literal on left" '1 < length($5)' "'1 < len(\$A2)'"
+fi2 "len ge le" 'length($4) >= 2 && length($5) <= 1' "'len(\$4) >= 2 && len(\$5) <= 1'"
+fi2 "len arith" 'length($4) + length($5) == 4' "'len(\$A1) + len(\$A2) == 4'"
+fi2 "len of number field" 'length($11) < 6' "'len(\$P) < 6'"
+fi2 "len of computed number" 'length($7 + 0.5) == 8' "'len(\$N + 0.5) == 8'"
+fi2 "len no -H" 'length($4) == 3' "'len(\$4) == 3'"
+check "len -w" "awk 'length(\$4) == 1 && length(\$5) == 1' ws.assoc" "$P filter -w 'len(\$4) == 1 && len(\$5) == 1' ws.assoc"
+f "substr prefix" 'substr($3, 1, 3) == "rs1"' "'substr(\$SNP, 1, 3) == \"rs1\"'"
+f "substr literal on left" '"rs1" == substr($3, 1, 3)' "'\"rs1\" == substr(\$SNP, 1, 3)'"
+f "substr no n" 'substr($3, 3) < "5"' "'substr(\$SNP, 3) < \"5\"'"
+f "substr of number field" 'substr($11, 1, 4) == "0.12"' "'substr(\$P, 1, 4) == \"0.12\"'"
+f "substr field vs field" 'substr($4, 1, 1) == substr($5, 1, 1)' "'substr(\$A1, 1, 1) == substr(\$A2, 1, 1)'"
+f "substr computed args" 'substr($3, $1 % 3 + 1, 2) == "s1"' "'substr(\$SNP, \$CHR % 3 + 1, 2) == \"s1\"'"
+f "substr nested" 'length(substr($3, 3, 2)) == 2' "'len(substr(\$SNP, 3, 2)) == 2'"
+f "substr then arith" 'substr($3, 3) + 0 < 500' "'substr(\$SNP, 3) + 0 < 500'"
+check "substr chr strip" "awk -F'\t' 'NR == 1 || substr(\$1, 4) + 0 > 20' sschr.tsv" "$P filter -H 'substr(\$CHR, 4) + 0 > 20' sschr.tsv"
+printf 'w\thello\nx\t\ny\n' > sub.tsv
+# awk writes the expected substring as column 3; every line must match it.
+# (-1, 3) is left out: mawk disagrees with gawk and BSD awk there.
+for args in '2, 3' '1' '0, 2' '0' '5, 100' '6' '7, 1' '2, 0' '2, -1' '1.7, 1' '2.7, 1' '1, 1.7' '-0.5, 2' '"1", "2"'; do
+  awk -F'\t' -v OFS='\t' "{print \$1, \$2, substr(\$2, $args)}" sub.tsv > subx.tsv
+  check "substr($args)" "cat subx.tsv" "$P filter 'substr(\$2, $args) == \$3' subx.tsv"
+  # Literal comparisons take a specialized path.
+  exp=$(awk "BEGIN {print substr(\"hello\", $args)}")
+  for op in '==' '!=' '<' '>='; do
+    check "substr($args) $op literal" "awk -F'\t' 'substr(\$2, $args) $op \"$exp\"' sub.tsv" "$P filter 'substr(\$2, $args) $op \"$exp\"' sub.tsv"
+  done
+done
+expect "substr start below 1" "$P filter 'substr(\$2, -1, 3) == \"hel\"' sub.tsv" 'w\thello\n'
+expect "substr is a string" "$P filter -H 'substr(\$x, 1) == 10' ex.tsv | cut -f1" 'x\n10\n'
+expect "substr string vs number" "printf '10.0\n10\n' | $P filter 'substr(\$1, 1) == 10' -" '10\n'
+expect "substr of number literal" "printf 'a\n' | $P filter 'substr(1e7, 2, 3) == \"000\" && substr(1/4, 1) == \"0.25\" && len(1/3) == 8' -" 'a\n'
+expect "number vs string converts integer" "printf 'a\n' | $P filter '1e7 == \"10000000\"' -" 'a\n'
+expect "len past end" "$P filter -H 'len(\$z) == 0' ex.tsv | cut -f1" 'x\n0\n'
+expect "len empty field" "$P filter -H 'len(\$y) == 0' ex.tsv | cut -f1" 'x\n2\n'
+expect "len NA field" "$P filter -H 'len(\$y) == 2' ex.tsv | cut -f1" 'x\n1\n-3\n'
+expect "len of missing" "$P filter -H 'len(\$y + 1) >= 0' ex.tsv | cut -f1" 'x\n0\n10\n-3\n'
+expect "substr missing arg" "$P filter -H 'substr(\$z, \$y) == \"3\"' ex.tsv | cut -f1" 'x\n'
+expect "substr truthy" "$P filter -H 'substr(\$z, 2)' ex.tsv | cut -f1" 'x\n10\n-3\n'
+# ---- filter: $0 ----
+check "len \$0" "awk 'length(\$0) > 70' ss.tsv" "$P filter 'len(\$0) > 70' ss.tsv"
+check "len \$0 eq" "awk 'length(\$0) == 70' ss.tsv" "$P filter 'length(\$0) == 70' ss.tsv"
+check "len \$0 with fields" "awk -F'\t' 'NR == 1 || (length(\$0) > 70 && \$11 < 0.5 && \$4 == \"A\")' ss.tsv" "$P filter -H 'len(\$0) > 70 && \$P < 0.5 && \$A1 == \"A\"' ss.tsv"
+check "len \$0 -w" "awk 'length(\$0) > 90' ws.assoc" "$P filter -w 'len(\$0) > 90' ws.assoc"
+check "substr \$0" "awk 'substr(\$0, 1, 3) == \"22\t\"' ss.tsv" "$P filter 'substr(\$0, 1, 3) == \"22\t\"' ss.tsv"
+check "\$0 vs field" "awk -F'\t' 'substr(\$0, 1, length(\$1)) == \$1' edge.tsv" "$P filter 'substr(\$0, 1, len(\$1)) == \$1' edge.tsv"
+expect "\$0 numeric" "printf '5\n10\n1e3\nx\n' | $P filter '\$0 > 6' -" '10\n1e3\n'
+expect "\$0 string" "printf 'ab\nabc\n' | $P filter '\$0 == \"abc\"' -" 'abc\n'
+expect "\$0 no trailing newline" "printf 'abc' | $P filter 'len(\$0) == 3' -" 'abc\n'
+expect "\$0 keeps CR" "printf 'abc\\r\\nde\\n' | $P filter 'len(\$0) == 4' -" 'abc\r\n'
+expect "\$0 -w keeps leading space" "printf '  a b\n' | $P filter -w 'len(\$0) == 5 && \$1 == \"a\"' -" '  a b\n'
+fails "len no parens" "$P filter 'len > 1' ss.tsv" "expected '('"
+fails "len too many" "$P filter 'len(\$1, 2) > 1' ss.tsv" "too many arguments to len()"
+fails "substr too few" "$P filter 'substr(\$1) == \"a\"' ss.tsv" "too few arguments to substr()"
+fails "substr too many" "$P filter 'substr(\$1, 1, 2, 3) == \"a\"' ss.tsv" "too many arguments to substr()"
+fails "top-level comma" "$P filter '\$1 > 1, \$2' ss.tsv" "unexpected input"
 
 # ---- keep / remove ----
 check "keep" "awk -F'\t' 'NR == FNR {k[\$1]; next} FNR == 1 || (\$3 in k)' ids.txt ss.tsv" "$P keep SNP ids.txt ss.tsv"

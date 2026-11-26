@@ -315,7 +315,7 @@ static const ModeHelp kModeHelp[] = {
 "argument (but quote it anyway, to protect $, <, >, ( and &).\n"
 "\n"
 "Syntax:\n"
-"  Fields      $N, $NAME, or $\"NAME\" (names imply -H)\n"
+"  Fields      $N, $NAME, or $\"NAME\" (names imply -H); $0 is the whole line\n"
 "  Literals    numbers (any decimal or scientific notation), \"strings\"\n"
 "  Operators   in increasing precedence:\n"
 "                ||  (also |, or)\n"
@@ -325,6 +325,8 @@ static const ModeHelp kModeHelp[] = {
 "                *  /  %\n"
 "                unary !  (also not),  unary -  +\n"
 "  Functions   abs  log  log10  exp  sqrt\n"
+"              len(x) (also length): number of characters\n"
+"              substr(x, start[, n]): characters start..start+n-1 (from 1)\n"
 "  Grouping    ( )\n"
 "\n"
 "How values compare (as in awk, except for missing values):\n"
@@ -341,6 +343,10 @@ static const ModeHelp kModeHelp[] = {
 "  - A bare value used as a condition is true if it is a nonzero number or a\n"
 "    nonempty string.\n"
 "  - A field past the end of the line is an empty string.\n"
+"  - len() and substr() use a field's text as written.  A computed number\n"
+"    is converted as in awk (integers as integers, else %.6g).  substr()\n"
+"    returns a string, truncates positions to integers, and treats a start\n"
+"    below 1 as 1 without shortening n.\n"
 "  - Numbers are parsed with correct rounding, so boundary comparisons such as\n"
 "    0.9900 <= 0.99 agree with awk.\n"
 "\n", "\n"
@@ -348,6 +354,7 @@ static const ModeHelp kModeHelp[] = {
 "  ptxt filter '$P < 5e-8' ss.tsv\n"
 "  ptxt filter '$P < 5e-8 && ($1 == \"22\" || $CHR == \"X\")' ss.tsv.gz\n"
 "  ptxt filter 'abs($BETA / $SE) > 5 && $A1_FREQ >= 0.01' ss.tsv\n"
+"  ptxt filter 'len($A1) == 1 && len($A2) == 1' ss.tsv      # SNPs only\n"
 "  ptxt filter -w '-log10($9) > 8' plink.assoc\n", "It is copied through.", 0, 0},
 
   {"keep", "\n"
@@ -1012,8 +1019,10 @@ static void ModeSelect(int argc, char** argv) {
 //   mul     := unary ( ('*' | '/' | '%') unary )*
 //   unary   := ('!' | 'not' | '-' | '+') unary | primary
 //   primary := NUMBER | "STRING" | $N | $NAME | $"NAME" | FUNC '(' expr ')'
+//            | len '(' expr ')' | substr '(' expr ',' expr [',' expr] ')'
 //            | '(' expr ')'
 //   FUNC    := abs | log | log10 | exp | sqrt
+// ('length' is a synonym for 'len'.)  $0 is the whole line, as in awk.
 //
 // Value semantics follow awk, except that missing values never satisfy a
 // comparison (plink2 --extract-if-info convention):
@@ -1027,29 +1036,46 @@ static void ModeSelect(int argc, char** argv) {
 // - A bare value used as a condition is true iff it is nonzero (numbers) or
 //   nonempty (strings), as in awk.
 // - A field past the end of the line is the empty string.
+// - len() and substr() act on a field's text as written; a number that isn't
+//   a field is first converted like awk does (integers as integers, others
+//   with %.6g).  substr() returns a string, never a number, as in awk.
+//   Positions are truncated to integers; a start below 1 is treated as 1
+//   without shortening the length, as in gawk and BSD awk.
 
 typedef enum {
   kEnNum, kEnStr, kEnField, kEnNeg, kEnNot, kEnAdd, kEnSub, kEnMul, kEnDiv,
   kEnMod, kEnLt, kEnLe, kEnGt, kEnGe, kEnEq, kEnNe, kEnAnd, kEnOr, kEnFunc,
   // Specialized comparisons, rewritten after parsing: field OP number and
   // field OP "string" (op stored in ExprNode::func).
-  kEnCmpFN, kEnCmpFS
+  kEnCmpFN, kEnCmpFS,
+  // len(a); substr(a, b[, c]) (c == UINT32_MAX if absent).
+  kEnLen, kEnSubstr,
+  // len(field) OP number, and substr(field, number[, number]) OP "string"
+  // (op stored in ExprNode::func).
+  kEnCmpLN, kEnCmpSubFS
 } ExprNodeType;
 
 enum { kEfAbs, kEfLog, kEfLog10, kEfExp, kEfSqrt };
 
 typedef struct ExprNodeStruct {
   ExprNodeType t;
-  uint32_t a, b;     // child node indices
+  uint32_t a, b, c;  // child node indices
   double num;
   const char* str;   // string literal, or column name for kEnField
                      // (null-terminated)
   uint32_t slen;     // strlen(str)
-  uint32_t col;      // 0-based column (kEnField), resolved after parse
+  uint32_t col;      // 0-based column (kEnField), resolved after parse;
+                     // kExprLineCol for $0
   uint32_t slot;     // index into the sorted needed-column list
   uint32_t func;
+  char* buf;         // kEnSubstr: 32-byte scratch for a formatted number
+  int64_t sub_start; // kEnCmpSubFS: 1-based start (>= 1)
+  int64_t sub_n;     // kEnCmpSubFS: length (may be <= 0)
 } ExprNode;
 VEC_DEF(ExprNodeVec, ExprNode);
+
+// ExprNode::col value for $0, the whole line.
+static const uint32_t kExprLineCol = UINT32_MAX;
 
 typedef struct ExprParserStruct {
   const char* src;  // null-terminated
@@ -1098,6 +1124,35 @@ static uint32_t ExprBin(ExprParser* ps, ExprNodeType t, uint32_t a, uint32_t b) 
 }
 
 static uint32_t ExprParseOr(ExprParser* ps);
+
+// Parses '(' arg (',' arg)* ')' after a function name, storing up to
+// max_ct child indices in args[]; returns the argument count.
+static uint32_t ExprParseArgs(ExprParser* ps, uint32_t min_ct, uint32_t max_ct, const char* fname, uint32_t* args) {
+  ExprSkipWs(ps);
+  if (ExprPeek(ps, 0) != '(') ExprFail(ps, "expected '('");
+  ++ps->p;
+  uint32_t ct = 0;
+  while (1) {
+    const uint32_t arg = ExprParseOr(ps);
+    if (ct == max_ct) {
+      char msg[64];
+      snprintf(msg, sizeof msg, "too many arguments to %s()", fname);
+      ExprFail(ps, msg);
+    }
+    args[ct++] = arg;
+    ExprSkipWs(ps);
+    if (ExprPeek(ps, 0) != ',') break;
+    ++ps->p;
+  }
+  if (ExprPeek(ps, 0) != ')') ExprFail(ps, "expected ')'");
+  if (ct < min_ct) {
+    char msg[64];
+    snprintf(msg, sizeof msg, "too few arguments to %s()", fname);
+    ExprFail(ps, msg);
+  }
+  ++ps->p;
+  return ct;
+}
 
 // Assumes ExprPeek(ps, 0) == '"'.  Returns a malloc'd null-terminated copy
 // (with \t and \n unescaped); its length is stored in *len_ptr.
@@ -1153,8 +1208,7 @@ static uint32_t ExprParsePrimary(ExprParser* ps) {
         v = v * 10 + (ps->src[ps->p++] - '0');
         if (v > 0x7fffffff) ExprFail(ps, "column number too large");
       }
-      if (!v) ExprFail(ps, "$0 is not supported; columns are 1-based");
-      col = v - 1;
+      col = v ? v - 1 : kExprLineCol;
     } else {
       // Name runs until an operator, paren, quote, comma, or whitespace.
       const uintptr_t start = ps->p;
@@ -1182,6 +1236,18 @@ static uint32_t ExprParsePrimary(ExprParser* ps) {
     if (isalpha(S_CAST(unsigned char, ExprPeek(ps, 0))) || ExprPeek(ps, 0) == '_') ExprFail(ps, "invalid number");
     const uint32_t idx = ExprNew(ps, kEnNum);
     ps->nodes->p[idx].num = v;
+    return idx;
+  }
+  if (ExprKeyword(ps, "len") || ExprKeyword(ps, "length")) {
+    uint32_t arg;
+    ExprParseArgs(ps, 1, 1, "len", &arg);
+    return ExprBin(ps, kEnLen, arg, 0);
+  }
+  if (ExprKeyword(ps, "substr")) {
+    uint32_t args[3];
+    const uint32_t ct = ExprParseArgs(ps, 2, 3, "substr", args);
+    const uint32_t idx = ExprBin(ps, kEnSubstr, args[0], args[1]);
+    ps->nodes->p[idx].c = (ct == 3) ? args[2] : UINT32_MAX;
     return idx;
   }
   static const char* kFuncNames[] = {"abs", "log", "log10", "exp", "sqrt"};
@@ -1315,6 +1381,7 @@ static uint32_t ExprParse(const char* src, uintptr_t len, ExprNodeVec* nodes) {
 typedef struct ExprLineStruct {
   // Configuration.
   const uint32_t* need;  // sorted unique 0-based columns
+  uint32_t line_slot;    // == number of needed columns; this slot is $0
   char delim;
   // Per-line state.
   char* line;
@@ -1330,11 +1397,12 @@ typedef struct ExprLineStruct {
 } ExprLine;
 
 static void InitExprLine(const uint32_t* need, uint32_t nn, char delim, ExprLine* lc) {
-  lc->need = need; lc->delim = delim;
-  lc->fs = S_CAST(char**, XCalloc(nn, sizeof(intptr_t)));
-  lc->fe = S_CAST(char**, XCalloc(nn, sizeof(intptr_t)));
-  lc->numstate = S_CAST(uint8_t*, XCalloc(nn, 1));
-  lc->nums = S_CAST(double*, XCalloc(nn, sizeof(double)));
+  // One extra slot, past the needed columns, holds $0.
+  lc->need = need; lc->line_slot = nn; lc->delim = delim;
+  lc->fs = S_CAST(char**, XCalloc(nn + 1, sizeof(intptr_t)));
+  lc->fe = S_CAST(char**, XCalloc(nn + 1, sizeof(intptr_t)));
+  lc->numstate = S_CAST(uint8_t*, XCalloc(nn + 1, 1));
+  lc->nums = S_CAST(double*, XCalloc(nn + 1, sizeof(double)));
 }
 
 static void FreeExprLine(ExprLine* lc) {
@@ -1346,6 +1414,10 @@ static void FreeExprLine(ExprLine* lc) {
 
 static inline void ExprLineReset(char* line, char* lend, ExprLine* lc) {
   lc->line = line; lc->lend = lend; lc->located = 0; lc->exhausted = 0;
+  const uint32_t line_slot = lc->line_slot;
+  lc->fs[line_slot] = line;
+  lc->fe[line_slot] = lend;
+  lc->numstate[line_slot] = 0;
 }
 
 static void ExprLineLocateSlow(uint32_t slot, ExprLine* lc) {
@@ -1381,9 +1453,10 @@ static void ExprLineLocateSlow(uint32_t slot, ExprLine* lc) {
 }
 
 // Locates need[slot] (and everything before it), scanning only as far as
-// needed.  Missing fields become empty strings.
+// needed.  Missing fields become empty strings.  The $0 slot is always
+// located.
 static inline void ExprLineLocate(uint32_t slot, ExprLine* lc) {
-  if (slot < lc->located) return;
+  if ((slot < lc->located) || (slot == lc->line_slot)) return;
   ExprLineLocateSlow(slot, lc);
 }
 
@@ -1452,6 +1525,59 @@ static inline uint32_t CmpResult(uint32_t op, int c) {
   }
 }
 
+// Formats a non-field number the way awk converts it to a string: integral
+// values as integers, everything else with CONVFMT "%.6g".  buf must have room
+// for 32 bytes.  Returns the length.
+static uint32_t NumToStr(double d, char* buf) {
+  if (d == d && fabs(d) < 9.2e18 && d == floor(d)) {
+    return snprintf(buf, 32, "%lld", S_CAST(long long, d));
+  }
+  return snprintf(buf, 32, "%.6g", d);
+}
+
+static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc);
+
+// String form of node idx for len()/substr().  A field is located but not
+// parsed as a number.  A non-field number is formatted into buf (32 bytes).
+// Returns 0 for a missing value.
+static uint32_t EvalStr(const ExprNode* nodes, uint32_t idx, ExprLine* lc, char* buf, const char** sp, uint32_t* lenp) {
+  if (nodes[idx].t == kEnField) {
+    const uint32_t slot = nodes[idx].slot;
+    ExprLineLocate(slot, lc);
+    *sp = lc->fs[slot];
+    *lenp = lc->fe[slot] - lc->fs[slot];
+    return 1;
+  }
+  const Val v = EvalExpr(nodes, idx, lc);
+  if (v.k == kVkMissing) return 0;
+  if (v.k == kVkNum && !v.is_field) {
+    *lenp = NumToStr(v.num, buf);
+    *sp = buf;
+  } else {
+    *sp = v.s;
+    *lenp = v.len;
+  }
+  return 1;
+}
+
+// Truncates a substr() position toward zero; NaN counts as 0, and huge
+// values are clamped.
+static int64_t SubstrPos(double d) {
+  if (d != d) d = 0;
+  if (d > 4e18) d = 4e18;
+  else if (d < -4e18) d = -4e18;
+  return S_CAST(int64_t, d);
+}
+
+// Converts a substr() position argument (see SubstrPos); returns 0 if it is
+// missing or non-numeric.
+static uint32_t SubstrArg(const ExprNode* nodes, uint32_t idx, ExprLine* lc, int64_t* resultp) {
+  double d;
+  if (!ToNum(EvalExpr(nodes, idx, lc), &d)) return 0;
+  *resultp = SubstrPos(d);
+  return 1;
+}
+
 static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc) {
   const ExprNode* n = &(nodes[idx]);
   switch (n->t) {
@@ -1481,6 +1607,52 @@ static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc) {
       const uint32_t slot = n->slot;
       ExprLineLocate(slot, lc);
       return NumVal(CmpResult(n->func, StrCmp3(lc->fs[slot], lc->fe[slot] - lc->fs[slot], n->str, n->slen)));
+    }
+    case kEnCmpLN: {
+      const uint32_t slot = n->slot;
+      ExprLineLocate(slot, lc);
+      const double d = S_CAST(double, lc->fe[slot] - lc->fs[slot]);
+      return NumVal(CmpResult(n->func, (d > n->num) - (d < n->num)));
+    }
+    case kEnCmpSubFS: {
+      const uint32_t slot = n->slot;
+      ExprLineLocate(slot, lc);
+      const char* fs = lc->fs[slot];
+      const int64_t len = lc->fe[slot] - fs;
+      const int64_t m = n->sub_start;
+      int64_t stop = (n->sub_n > 0) ? m + n->sub_n : m;
+      if (stop > len + 1) stop = len + 1;
+      const uint32_t sublen = (stop > m) ? S_CAST(uint32_t, stop - m) : 0;
+      return NumVal(CmpResult(n->func, StrCmp3(&(fs[sublen ? m - 1 : 0]), sublen, n->str, n->slen)));
+    }
+    case kEnLen: {
+      char buf[32];
+      const char* s;
+      uint32_t len;
+      if (!EvalStr(nodes, n->a, lc, buf, &s, &len)) return MissingVal();
+      return NumVal(len);
+    }
+    case kEnSubstr: {
+      int64_t m;
+      int64_t cnt = INT64_MAX / 4;
+      if (!SubstrArg(nodes, n->b, lc, &m)) return MissingVal();
+      if (n->c != UINT32_MAX && !SubstrArg(nodes, n->c, lc, &cnt)) return MissingVal();
+      // The string argument may be a number formatted into a buffer, so the
+      // result has to outlive this call: keep it in the node's own buffer.
+      char* buf = n->buf;
+      const char* s;
+      uint32_t len;
+      if (!EvalStr(nodes, n->a, lc, buf, &s, &len)) return MissingVal();
+      if (m < 1) m = 1;
+      int64_t stop = (cnt > 0) ? m + cnt : m;  // exclusive, 1-based
+      if (stop > S_CAST(int64_t, len) + 1) stop = len + 1;
+      Val v; v.k = kVkStr; v.is_field = 0; v.num = 0;
+      if (stop <= m) {
+        v.s = s; v.len = 0;
+      } else {
+        v.s = &(s[m - 1]); v.len = stop - m;
+      }
+      return v;
     }
     case kEnAnd:
       return NumVal(Truthy(EvalExpr(nodes, n->a, lc)) && Truthy(EvalExpr(nodes, n->b, lc)));
@@ -1533,13 +1705,13 @@ static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc) {
     // Number vs non-numeric field: missing.
     return NumVal(n->t == kEnNe);
   } else {
-    // String comparison; a non-field number (vs a string literal) is
-    // formatted like awk's CONVFMT.
+    // String comparison; a non-field number (vs a string) is converted as
+    // awk does.
     char bx[32], by[32];
     const char* sx = x.s; uint32_t lx = x.len;
     const char* sy = y.s; uint32_t ly = y.len;
-    if (x.k == kVkNum && !x.is_field) { lx = snprintf(bx, sizeof bx, "%.6g", x.num); sx = bx; }
-    if (y.k == kVkNum && !y.is_field) { ly = snprintf(by, sizeof by, "%.6g", y.num); sy = by; }
+    if (x.k == kVkNum && !x.is_field) { lx = NumToStr(x.num, bx); sx = bx; }
+    if (y.k == kVkNum && !y.is_field) { ly = NumToStr(y.num, by); sy = by; }
     c = StrCmp3(sx, lx, sy, ly);
   }
   switch (n->t) {
@@ -1550,6 +1722,18 @@ static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc) {
     case kEnEq: return NumVal(c == 0);
     default: return NumVal(c != 0);
   }
+}
+
+// Returns 1 iff nodes[k] is something a comparison against a literal can be
+// specialized for: a field, len(field), or substr(field, number[, number]).
+static uint32_t ExprFieldLike(const ExprNode* nodes, uint32_t k) {
+  const ExprNode* n = &(nodes[k]);
+  if (n->t == kEnField) return 1;
+  if (n->t == kEnLen) return nodes[n->a].t == kEnField;
+  if (n->t == kEnSubstr) {
+    return (nodes[n->a].t == kEnField) && (nodes[n->b].t == kEnNum) && ((n->c == UINT32_MAX) || (nodes[n->c].t == kEnNum));
+  }
+  return 0;
 }
 
 static void ModeFilter(int argc, char** argv) {
@@ -1581,11 +1765,13 @@ static void ModeFilter(int argc, char** argv) {
     ExprNode* n = &(nodes[k]);
     if (n->t != kEnField) continue;
     if (n->slen) n->col = ResolveNamedCol(n->str, in.hline, in.hlend, delim);
-    need[need_ct++] = n->col;
+    if (n->col != kExprLineCol) need[need_ct++] = n->col;
   }
   need_ct = SortUniqU32(need, need_ct);
   for (uint32_t k = 0; k < node_ct; ++k) {
-    if (nodes[k].t == kEnField) nodes[k].slot = LowerBoundU32(need, need_ct, nodes[k].col);
+    if (nodes[k].t != kEnField) continue;
+    // $0 gets the slot just past the needed columns (see InitExprLine).
+    nodes[k].slot = (nodes[k].col == kExprLineCol) ? need_ct : LowerBoundU32(need, need_ct, nodes[k].col);
   }
   // Rewrite field-vs-literal comparisons into specialized nodes.  A literal on
   // the left is moved to the right by mirroring the operator.
@@ -1594,15 +1780,35 @@ static void ModeFilter(int argc, char** argv) {
     if (n->t < kEnLt || n->t > kEnNe) continue;
     uint32_t fa = n->a, la = n->b;
     ExprNodeType op = n->t;
-    if (nodes[fa].t != kEnField) {
+    if (!ExprFieldLike(nodes, fa)) {
       const uint32_t tmp = fa; fa = la; la = tmp;
       if (op == kEnLt) op = kEnGt;
       else if (op == kEnGt) op = kEnLt;
       else if (op == kEnLe) op = kEnGe;
       else if (op == kEnGe) op = kEnLe;
     }
-    if (nodes[fa].t != kEnField) continue;
     const ExprNodeType lt = nodes[la].t;
+    if (nodes[fa].t == kEnLen && nodes[nodes[fa].a].t == kEnField && lt == kEnNum) {
+      n->t = kEnCmpLN;
+      n->slot = nodes[nodes[fa].a].slot;
+      n->func = op;
+      n->num = nodes[la].num;
+      continue;
+    }
+    if (nodes[fa].t == kEnSubstr && ExprFieldLike(nodes, fa) && lt == kEnStr) {
+      const ExprNode* sub = &(nodes[fa]);
+      int64_t m = SubstrPos(nodes[sub->b].num);
+      if (m < 1) m = 1;
+      n->sub_start = m;
+      n->sub_n = (sub->c == UINT32_MAX) ? INT64_MAX / 4 : SubstrPos(nodes[sub->c].num);
+      n->t = kEnCmpSubFS;
+      n->slot = nodes[sub->a].slot;
+      n->func = op;
+      n->str = nodes[la].str;
+      n->slen = nodes[la].slen;
+      continue;
+    }
+    if (nodes[fa].t != kEnField) continue;
     if (lt != kEnNum && lt != kEnStr) continue;
     n->slot = nodes[fa].slot;
     n->func = op;
@@ -1614,6 +1820,9 @@ static void ModeFilter(int argc, char** argv) {
       n->str = nodes[la].str;
       n->slen = nodes[la].slen;
     }
+  }
+  for (uint32_t k = 0; k < node_ct; ++k) {
+    if (nodes[k].t == kEnSubstr) nodes[k].buf = S_CAST(char*, XMalloc(32));
   }
   ExprLine lc;
   InitExprLine(need, need_ct, delim, &lc);
@@ -1630,6 +1839,7 @@ static void ModeFilter(int argc, char** argv) {
   // it; rewritten kEnCmpFS nodes only borrow theirs.
   for (uint32_t k = 0; k < node_ct; ++k) {
     if (nodes[k].t == kEnStr || nodes[k].t == kEnField) free(K_CAST(char*, nodes[k].str));
+    free(nodes[k].buf);
   }
   free(nodes);
   free(need);
