@@ -753,4 +753,9 @@ cd TEST_VALIDATE_GAPS
 cd ..
 echo "TEST_VALIDATE_GAPS passed."
 
+cd TEST_DELTALIST64
+./run_tests.sh $d $2 $3 > TEST_DELTALIST64.log
+cd ..
+echo "TEST_DELTALIST64 passed."
+
 echo "All tests passed."
