@@ -351,6 +351,12 @@ explicit phased-dosages are present.
 Variant records are currently limited to 4294736160 (slightly under $2^{32}$)
 bytes.
 
+A variant record consists of exactly its main data track followed by the
+auxiliary data tracks its type calls for, with nothing between or after them:
+the record's length (as stored in the header, or implied by a fixed-width
+storage mode) must equal the total size of these tracks.  In particular,
+variant records cannot be padded.
+
 \subsubsection{Difflists}
 
 Before describing the main data track in more detail, it is useful to define
@@ -470,8 +476,7 @@ sample's category: an entry for a sample in category 0 (resp. 2, 3) is not
 permitted in a type 4 (resp. 6, 7) record, an entry in a type 1 record must
 name one of the two less common categories, and an entry in an LD-compressed
 record must differ from the sample's category in the previous
-non-LD-compressed variant (before the final inversion, for type 3).  Readers
-may assume this without checking.
+non-LD-compressed variant (before the final inversion, for type 3).
 
 \subsubsection{Multiallelic hard-calls}
 
@@ -544,6 +549,11 @@ set.
 \item \texttt{15}: Empty patch set; everything in category 2 is
   homozygous-ALT1.
 \end{itemize}
+
+The first byte of auxiliary data track \#1 cannot be \texttt{0xff}: when bit 3
+of the variant record type is set, at least one of the two patch sets must use
+format 0 or 1.  (If no hard-call involves an ALT allele after the first, bit 3
+must be clear instead.)
 
 \subsubsection{Phased heterozygous hard-calls}
 
@@ -671,7 +681,10 @@ As for auxiliary data track \#7:
   represents a missing dosage.  Track \#7 doesn't exist.
 \item Otherwise, let $D$ be the number of entries in track \#4.  Auxiliary data
   track \#7 is a bitarray with $D$ bits, where a bit is set iff the
-  corresponding dosage has a dosage-phase value stored in track \#8.
+  corresponding dosage has a dosage-phase value stored in track \#8.  At least
+  one bit must be set; if no dosage has an explicit dosage-phase value
+  (including when $D=0$), bit 7 of the variant record type must be clear
+  instead.
 \end{itemize}
 
 \subsubsection{Phased multiallelic dosages}
