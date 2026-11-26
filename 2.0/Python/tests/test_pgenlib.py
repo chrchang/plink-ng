@@ -8,6 +8,29 @@ import pytest
 import random
 import string
 
+@pytest.mark.parametrize("reader", [pgenlib.PgenReader, pgenlib.PvarReader])
+@pytest.mark.parametrize("path_kind", ["str", "bytes", "cloud"])
+def test_s3a_path_normalization(reader, path_kind, monkeypatch):
+    monkeypatch.setenv("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:1")
+    monkeypatch.setenv("AWS_NO_SIGN_REQUEST", "1")
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    path = "s3a://pgenlib-missing-fixture/missing"
+    if path_kind == "bytes":
+        path = path.encode("utf-8")
+    elif path_kind == "cloud":
+        class CloudPath:
+            protocol = "s3a"
+            storage_options = {"anon": True, "endpoint_url": "http://127.0.0.1:1"}
+
+            def __str__(self):
+                return "s3a://pgenlib-missing-fixture/missing"
+
+        path = CloudPath()
+    with pytest.raises(RuntimeError, match=r"s3://pgenlib-missing-fixture/missing|127[.]0[.]0[.]1") as error:
+        reader(path)
+    assert "s3a://" not in str(error.value)
+
+
 def generate_unphased_biallelic_test_genotypes(nsample, nvariant):
     geno_buf = np.zeros([nvariant, nsample], dtype=np.int8)
     for vidx in range(nvariant):

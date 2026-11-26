@@ -28,6 +28,9 @@
 
 #ifdef __cplusplus
 namespace plink2 {
+
+// Full definition in plink2_s3.h; only needed here as a pointer type.
+struct S3Credentials;
 #endif
 
 FLAGSET_DEF_START()
@@ -439,7 +442,7 @@ void PreinitPgfi(PgenFileInfo* pgfip);
 // - pgi_fname is ignored if the .pgen does not have an external index file.
 // - raw_variant_ct must be in [1, 2^31 - 3], and raw_sample_ct must be in [1,
 //   2^31 - 2].
-PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf);
+PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf, const S3Credentials* s3_creds = nullptr);
 
 // If allele_cts_already_loaded is set, but they're present in the file,
 // they'll be validated; similarly for nonref_flags_already_loaded.

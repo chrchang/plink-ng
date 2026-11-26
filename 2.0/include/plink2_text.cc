@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "plink2_simd.h"
+#include "plink2_s3.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -40,7 +41,7 @@ static inline const TextStreamMain* GetTxspK(const TextStream* txs_ptr) {
 }
 
 PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr) {
-  FILE* infile = fopen(fname, FOPEN_RB);
+  FILE* infile = OpenMaybeS3(fname);
   if (unlikely(!infile)) {
     // Note that this does not print an error message (since it may be called
     // by a worker thread).
@@ -136,7 +137,7 @@ const char kShortErrRfileAlreadyOpen[] = "TextFileOpenInternal can't be called o
 const char kShortErrRfileEnforcedMaxBlenTooSmall[] = "TextFileOpenInternal: enforced_max_line_blen too small (must be at least max(1 MiB, dst_capacity - 1 MiB))";
 const char kShortErrRfileDstCapacityTooSmall[] = "TextFileOpenInternal: dst_capacity too small (2 MiB minimum)";
 
-PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILEMain* txfp, TextStreamMain* txsp) {
+PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILEMain* txfp, TextStreamMain* txsp, const S3Credentials* s3_creds) {
   PglErr reterr = kPglRetSuccess;
   TextFileBase* trbp;
   if (txfp) {
@@ -173,7 +174,8 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
       // token-reading mode.  dst == nullptr not currently supported.
       assert(dst && (dst_capacity == kTokenStreamBlen));
     }
-    trbp->ff = fopen(fname, FOPEN_RB);
+    trbp->is_remote = IsS3Uri(fname);
+    trbp->ff = s3_creds? OpenS3WithCredentials(fname, s3_creds) : OpenMaybeS3(fname);
     if (unlikely(!trbp->ff)) {
       goto TextFileOpenInternal_ret_OPEN_FAIL;
     }
@@ -266,11 +268,13 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
     break;
   TextFileOpenInternal_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    trbp->errmsg = strerror(errno);
+    snprintf(trbp->io_error, sizeof(trbp->io_error), "%s", InputErrorMessage(trbp->is_remote));
+    trbp->errmsg = trbp->io_error;
     break;
   TextFileOpenInternal_ret_READ_FAIL:
     reterr = kPglRetReadFail;
-    trbp->errmsg = strerror(errno);
+    snprintf(trbp->io_error, sizeof(trbp->io_error), "%s", InputErrorMessage(trbp->is_remote));
+    trbp->errmsg = trbp->io_error;
     break;
   }
  TextFileOpenInternal_ret_1:
@@ -278,8 +282,8 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
   return reterr;
 }
 
-PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txf_ptr) {
-  return TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, GetTxfp(txf_ptr), nullptr);
+PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txf_ptr, const S3Credentials* s3_creds) {
+  return TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, GetTxfp(txf_ptr), nullptr, s3_creds);
 }
 
 // Set enforced_max_line_blen == 0 in the token-reading case.
@@ -1125,12 +1129,14 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       break;
     TextStreamThread_OPEN_FAIL:
       min_interrupt = kTxsInterruptShutdown;
-      syncp->errmsg = strerror(errno);
+      snprintf(basep->io_error, sizeof(basep->io_error), "%s", InputErrorMessage(IsS3Uri(new_fname)));
+      syncp->errmsg = basep->io_error;
       reterr = kPglRetOpenFail;
       break;
     TextStreamThread_READ_FAIL:
       min_interrupt = kTxsInterruptShutdown;
-      syncp->errmsg = strerror(errno);
+      snprintf(basep->io_error, sizeof(basep->io_error), "%s", InputErrorMessage(basep->is_remote));
+      syncp->errmsg = basep->io_error;
       reterr = kPglRetReadFail;
       break;
     TextStreamThread_LONG_LINE:
@@ -1143,6 +1149,10 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       reterr = kPglRetEof;
       break;
     TextStreamThread_MISC_FAIL:
+      if ((reterr == kPglRetReadFail) && basep->is_remote) {
+        snprintf(basep->io_error, sizeof(basep->io_error), "%s", InputErrorMessage(1));
+        syncp->errmsg = basep->io_error;
+      }
       min_interrupt = kTxsInterruptShutdown;
       break;
     }
@@ -1237,10 +1247,11 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       }
     } else {
       // Switch to another file, with less creation/destruction of resources.
-      FILE* next_ff = fopen(new_fname, FOPEN_RB);
+      FILE* next_ff = OpenMaybeS3(new_fname);
       if (unlikely(!next_ff)) {
         goto TextStreamThread_OPEN_FAIL;
       }
+      basep->is_remote = IsS3Uri(new_fname);
       // See TextFileOpenInternal().
       uint32_t nbytes = fread_unlocked(buf, 1, 16, next_ff);
       FileCompressionType next_file_type = kFileUncompressed;
@@ -1355,7 +1366,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
 
 const char kShortErrRfileInvalid[] = "TextStreamOpenEx can't be called with a closed or error-state textFILE";
 
-PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr) {
+PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr, const S3Credentials* s3_creds) {
   TextStreamMain* txsp = GetTxsp(txs_ptr);
   TextFileBase* txs_basep = &txsp->base;
   PglErr reterr = kPglRetSuccess;
@@ -1375,6 +1386,9 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
       }
       textFILEMain* txfp = GetTxfp(txf_ptr);
       *txs_basep = txfp->base;  // struct copy
+      if (txs_basep->errmsg == txfp->base.io_error) {
+        txs_basep->errmsg = txs_basep->io_error;
+      }
       // Simplify TextStreamThread() initialization.
       const uint32_t backfill_ct = txs_basep->consume_iter - txs_basep->dst;
       if (backfill_ct) {
@@ -1413,7 +1427,7 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
       }
       EraseTextFileBase(&txfp->base);
     } else {
-      reterr = TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, nullptr, txsp);
+      reterr = TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, nullptr, txsp, s3_creds);
     }
     if (reterr) {
       if (reterr == kPglRetEof) {
