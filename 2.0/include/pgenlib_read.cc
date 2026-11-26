@@ -1721,7 +1721,8 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       if (vrtype_and_fpos_storage == 12) {
         max_vrec_width = 3;
       } else if (vrtype_and_fpos_storage == 14) {
-        max_vrec_width = 6;
+        // entry value 15: record type 0xe0, 7 bytes
+        max_vrec_width = 7;
       } else {
         max_vrec_width = NypCtToByteCt(raw_sample_ct);
         if (vrtype_and_fpos_storage == 9) {
