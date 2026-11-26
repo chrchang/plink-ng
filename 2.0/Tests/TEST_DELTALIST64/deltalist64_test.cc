@@ -36,8 +36,15 @@ static std::vector<unsigned char> Encode(const std::vector<uint64_t>& idxs, uint
   return buf;
 }
 
-// Parses from a heap copy sized exactly to the input.
+// Parses from a heap copy sized exactly to the input.  The output buffer has
+// room for max_len entries, as ParseDeltalist64() requires, so keep max_len
+// small: a huge one (e.g. 2^31 - 1 => a 16 GiB buffer) can fail to allocate
+// on CI runners.
 static BoolErr Parse(const std::vector<unsigned char>& bytes, uint64_t idx_end, uint32_t max_len, std::vector<uint64_t>* out, uint32_t* consumed_ptr) {
+  if (max_len > (1U << 20)) {
+    fprintf(stderr, "Parse(): max_len %u too large for a test buffer\n", max_len);
+    exit(1);
+  }
   unsigned char* copy = static_cast<unsigned char*>(malloc(bytes.size() + 1));
   memcpy(copy, bytes.data(), bytes.size());
   const unsigned char* iter = copy;
@@ -196,10 +203,15 @@ int main() {
     CHECK(Parse(bytes, 100, 65, nullptr, &consumed));
   }
   {
-    // Length varint that doesn't fit in 63 bits.
+    // Length varint that doesn't fit in 63 bits.  (It's rejected before the
+    // length is compared against max_len.)
     std::vector<unsigned char> bytes(9, 0xff);
     bytes.push_back(0x01);
-    CHECK(Parse(bytes, 4000, 0x7fffffff, nullptr, &consumed));
+    CHECK(Parse(bytes, 4000, 100, nullptr, &consumed));
+    // Length that fits in 63 bits but exceeds max_len: 2^62, a 9-byte varint.
+    std::vector<unsigned char> bytes3(8, 0x80);
+    bytes3.push_back(0x40);
+    CHECK(Parse(bytes3, 4000, 100, nullptr, &consumed));
     // Delta varint that doesn't fit in 63 bits.
     std::vector<unsigned char> bytes2 = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     for (uint32_t i = 0; i != 9; ++i) {
