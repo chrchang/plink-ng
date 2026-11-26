@@ -7,11 +7,14 @@
 #    also mishandled this.
 # 2. fixed-width storage with a .pvar multiallelic variant that has no
 #    ALT2+ calls.
-# 3. multiallelic hardcall track mode byte 0xff.
-# 4. phased-dosage existence bitarray with no bits set.
 # 5. fused vrtype/length header modes 8-12 and 14 (stale header-size math in
 #    the trailing-bit check).
 # Each must validate and read exactly like an equivalent common encoding.
+#
+# Conversely, --validate is allowed to be stricter than the reader, and must
+# keep rejecting these (the spec is to be updated to prohibit them):
+# 3. multiallelic hardcall track mode byte 0xff.
+# 4. phased-dosage existence bitarray with no bits set.
 
 set -exo pipefail
 
@@ -46,14 +49,16 @@ cmp tmp_ldb5_mpk.raw tmp_ldb0_mpk.raw
 $1/plink2 $2 $3 --pfile tmp_fw_multi --validate --out tmp_fw_multi_v
 
 # 3, 4.
-for f in tmp_mh_ff tmp_mh_none tmp_dphase_empty tmp_dphase_none; do
-    $1/plink2 $2 $3 --pfile $f --validate --out ${f}_v
-    $1/plink2 $2 $3 --pfile $f --export vcf vcf-dosage=HDS --out ${f}_e
-done
-diff <(grep -v '^##' tmp_mh_ff_e.vcf) <(grep -v '^##' tmp_mh_none_e.vcf)
-# A phase track (even an empty one) makes VCF export print homozygous calls as
-# 0|0 instead of 0/0; the spec treats these as identical.
-diff <(grep -v '^##' tmp_dphase_empty_e.vcf | tr '|' '/') <(grep -v '^##' tmp_dphase_none_e.vcf)
+if $1/plink2 $2 $3 --pfile tmp_mh_ff --validate --out tmp_mh_ff_v; then
+    echo "expected --validate to reject multiallelic mode byte 0xff"
+    exit 1
+fi
+grep -q "Invalid multiallelic hardcall track mode byte (255" tmp_mh_ff_v.log
+if $1/plink2 $2 $3 --pfile tmp_dphase_empty --validate --out tmp_dphase_empty_v; then
+    echo "expected --validate to reject an empty phased-dosage bitarray"
+    exit 1
+fi
+grep -q "Invalid phased-dosage track" tmp_dphase_empty_v.log
 
 # 5.
 for m in 8 9 10 11 12 14; do

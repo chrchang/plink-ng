@@ -10744,15 +10744,19 @@ BoolErr ValidateMultiallelicHc(const unsigned char* fread_end, const uintptr_t* 
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t aux1_first_byte = **fread_pp;
   *fread_pp += 1;
-  const uint32_t aux1a_mode = aux1_first_byte & 15;
-  const uint32_t aux1b_mode = aux1_first_byte >> 4;
-  // Each nybble must be 0, 1, or 15.  (Both 15 is a pointless but valid
-  // encoding.)
-  if (unlikely(((aux1a_mode > 1) && (aux1a_mode != 15)) ||
-               ((aux1b_mode > 1) && (aux1b_mode != 15)))) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic hardcall track mode byte (%u; each nybble must be 0, 1, or 15) in (0-based) variant #%u.\n", aux1_first_byte, vidx);
+  if (unlikely(aux1_first_byte &&
+               (aux1_first_byte != 1) &&
+               (aux1_first_byte != 15) &&
+               (aux1_first_byte != 16) &&
+               (aux1_first_byte != 17) &&
+               (aux1_first_byte != 31) &&
+               (aux1_first_byte != 240) &&
+               (aux1_first_byte != 241))) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic hardcall track mode byte (%u; must be in {0, 1, 15, 16, 17, 31, 240, 241}) in (0-based) variant #%u.\n", aux1_first_byte, vidx);
     return 1;
   }
+  const uint32_t aux1a_mode = aux1_first_byte & 15;
+  const uint32_t aux1b_mode = aux1_first_byte >> 4;
   uint32_t raw_01_ct;
   uint32_t raw_10_ct;
   GenovecCount12Unsafe(raw_genovec, sample_ct, &raw_01_ct, &raw_10_ct);
@@ -11217,6 +11221,10 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
           return kPglRetMalformedInput;
         }
       }
+    }
+    if (unlikely(dphase_delta_read_biter == *fread_pp)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+      return kPglRetMalformedInput;
     }
     *fread_pp = dphase_delta_read_biter;
     if (PtrCheck(fread_end, *fread_pp, 0)) {

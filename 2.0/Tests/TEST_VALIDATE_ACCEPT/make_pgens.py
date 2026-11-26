@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # Writes small hand-built .pgen filesets (prefix tmp_) that the spec permits
 # but --validate used to reject, plus equivalent "control" filesets in more
-# common encodings.  Usage: make_pgens.py
+# common encodings.  Also writes two encodings (3 and 4 below) which the
+# reader tolerates but --validate deliberately rejects; the spec is to be
+# updated to prohibit them.  Usage: make_pgens.py
 
 import random
 import shutil
@@ -42,17 +44,15 @@ with open('tmp_fw_multi.pgen', 'wb') as f:
     f.write(b'\x6c\x1b\x02' + struct.pack('<II', 2, n) + bytes([0x40]) + bytes([0x01, 0x00]) * 2)
 side('tmp_fw_multi', n, ['C,G', 'C'])
 
-# 3. Multiallelic hardcall track with mode byte 0xff (both patch sets empty),
-#    vs. no multiallelic track.
+# 3. Multiallelic hardcall track with mode byte 0xff (both patch sets empty).
+#    Must be rejected by --validate.
 het0 = bytes([1, 0])
 write_var('tmp_mh_ff', n, [0x08], [het0 + bytes([0xff])], ['C,G'])
-write_var('tmp_mh_none', n, [0x00], [het0], ['C,G'])
 
-# 4. Phased-dosage existence bitarray with no bits set, vs. no phased-dosage
-#    track.  Dosage list: sample 0, dosage 1.0.
+# 4. Phased-dosage existence bitarray with no bits set.  Must be rejected by
+#    --validate.  Dosage list: sample 0, dosage 1.0.
 dl = bytes([1, 0]) + struct.pack('<H', 0x4000)
 write_var('tmp_dphase_empty', n, [0xa0], [het0 + dl + bytes([0x00])])
-write_var('tmp_dphase_none', n, [0x20], [het0 + dl])
 
 # 5. Fused vrtype/length header modes 8-12 and 14 (pgenlib-defined; see
 #    PgfiInitPhase1()), single sample, 3 vblocks with an odd variant count,
