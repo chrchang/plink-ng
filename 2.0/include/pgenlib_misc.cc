@@ -3861,6 +3861,109 @@ BoolErr PglDosagesAreInvalid(const uintptr_t* __restrict dosage_present, const u
   return 0;
 }
 
+unsigned char* Deltalist64Append(const uint64_t* __restrict idxs, uint32_t len, uint32_t idx_byte_ct, unsigned char* __restrict dst) {
+  assert(len < 0x80000000U);
+  dst = Vint32Append(len, dst);
+  if (!len) {
+    return dst;
+  }
+  const uint32_t group_ct = DivUp(len, kPglDifflistGroupSize);
+  unsigned char* group_starts_iter = dst;
+  unsigned char* group_byte_cts_iter = &(dst[group_ct * idx_byte_ct]);
+  unsigned char* write_iter = &(group_byte_cts_iter[2 * (group_ct - 1)]);
+  unsigned char* group_vints_start = write_iter;
+  uint64_t prev_idx = 0;
+  for (uint32_t list_idx = 0; list_idx != len; ++list_idx) {
+    const uint64_t cur_idx = idxs[list_idx];
+    if (!(list_idx % kPglDifflistGroupSize)) {
+      SubU64StoreMov(cur_idx, idx_byte_ct, &group_starts_iter);
+      if (list_idx) {
+        const uint32_t group_byte_ct = write_iter - group_vints_start;
+        assert(group_byte_ct < 65536);
+        SubU32StoreMov(group_byte_ct, 2, &group_byte_cts_iter);
+      }
+      group_vints_start = write_iter;
+    } else {
+      assert(cur_idx > prev_idx);
+      write_iter = Vint64Append(cur_idx - prev_idx, write_iter);
+    }
+    prev_idx = cur_idx;
+  }
+  return write_iter;
+}
+
+// Bounded varint read; values that don't fit in 63 bits are errors.
+static inline BoolErr GetVint63Ck(const unsigned char* buf_end, const unsigned char** buf_iterp, uint64_t* val_ptr) {
+  uint64_t val = 0;
+  for (uint32_t shift = 0; ; shift += 7) {
+    if (unlikely(*buf_iterp == buf_end)) {
+      return 1;
+    }
+    const uint64_t cur_byte = *((*buf_iterp)++);
+    val |= (cur_byte & 127) << shift;
+    if (cur_byte <= 127) {
+      *val_ptr = val;
+      return 0;
+    }
+    if (unlikely(shift == 56)) {
+      return 1;
+    }
+  }
+}
+
+BoolErr ParseDeltalist64(const unsigned char* fread_end, uint64_t idx_end, uint32_t max_len, const unsigned char** fread_pp, uint64_t* __restrict idxs, uint32_t* __restrict len_ptr) {
+  uint64_t len64;
+  if (unlikely(GetVint63Ck(fread_end, fread_pp, &len64) || (len64 > max_len))) {
+    return 1;
+  }
+  const uint32_t len = len64;
+  *len_ptr = len;
+  if (!len) {
+    return 0;
+  }
+  const uint32_t idx_byte_ct = Deltalist64IdxByteCt(idx_end);
+  const uint32_t group_ct = DivUp(len, kPglDifflistGroupSize);
+  const unsigned char* group_starts_iter = *fread_pp;
+  const unsigned char* group_byte_cts_iter = &(group_starts_iter[group_ct * idx_byte_ct]);
+  if (unlikely(PtrAddCk(fread_end, group_ct * idx_byte_ct + 2 * (group_ct - 1), fread_pp))) {
+    return 1;
+  }
+  const unsigned char* group_vints_start = *fread_pp;
+  uint64_t cur_idx = 0;
+  for (uint32_t list_idx = 0; list_idx != len; ++list_idx) {
+    if (!(list_idx % kPglDifflistGroupSize)) {
+      const uint64_t group_start = SubU64Load(group_starts_iter, idx_byte_ct);
+      group_starts_iter = &(group_starts_iter[idx_byte_ct]);
+      if (list_idx) {
+        if (unlikely(group_start <= cur_idx)) {
+          return 1;
+        }
+        uint16_t group_byte_ct;
+        CopyFromUnalignedU16(&group_byte_ct, group_byte_cts_iter);
+        group_byte_cts_iter = &(group_byte_cts_iter[2]);
+        if (unlikely(S_CAST(uintptr_t, (*fread_pp) - group_vints_start) != group_byte_ct)) {
+          return 1;
+        }
+        group_vints_start = *fread_pp;
+      }
+      cur_idx = group_start;
+    } else {
+      uint64_t delta;
+      if (unlikely(GetVint63Ck(fread_end, fread_pp, &delta) || (!delta) || (delta >= idx_end - cur_idx))) {
+        return 1;
+      }
+      cur_idx += delta;
+    }
+    if (unlikely(cur_idx >= idx_end)) {
+      return 1;
+    }
+    if (idxs) {
+      idxs[list_idx] = cur_idx;
+    }
+  }
+  return 0;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -431,6 +431,47 @@ HEADER_INLINE unsigned char* Vint64Append(uint64_t ullii, unsigned char* buf) {
   return buf;
 }
 
+// ***** 64-bit deltalists *****
+// Multiallelic dosage tracks #5 and #9 (see the record-type notes below) list
+// <sample, rare ALT> pairs as 64-bit indexes
+//   k = (sample_uidx << b) | r,
+// where r = (allele index - 2) and b = RareAltIdxBitCt(allele_ct).  The
+// encoding has the same shape as a 32-bit deltalist, except that group-start
+// indexes are Deltalist64IdxByteCt() bytes wide, and group byte sizes are
+// stored as plain uint16s (since a 64-bit delta can take up to 9 bytes, the
+// one-byte "size minus 63" field doesn't always suffice).
+
+// ceil(log2(allele_ct - 2)).  allele_ct must be >= 3.
+HEADER_INLINE uint32_t RareAltIdxBitCt(uint32_t allele_ct) {
+  return (allele_ct <= 3)? 0 : (bsru32(allele_ct - 3) + 1);
+}
+
+// idx_end = raw_sample_ct << RareAltIdxBitCt(allele_ct).  Same convention as
+// BytesToRepresentNzU32(raw_sample_ct) for 32-bit difflists.
+HEADER_INLINE uint32_t Deltalist64IdxByteCt(uint64_t idx_end) {
+  return 1 + (bsru64(idx_end) / CHAR_BIT);
+}
+
+// Upper bound on the number of bytes Deltalist64Append() writes.
+HEADER_INLINE uint64_t Deltalist64MaxByteCt(uint32_t len, uint32_t idx_byte_ct) {
+  if (!len) {
+    return 1;
+  }
+  const uint64_t group_ct = DivUp(len, kPglDifflistGroupSize);
+  return 5 + group_ct * idx_byte_ct + 2 * (group_ct - 1) + 9 * S_CAST(uint64_t, len - group_ct);
+}
+
+// idxs must be strictly increasing; len must be < 2^31.  Returns a pointer to
+// the end of the written bytes.
+unsigned char* Deltalist64Append(const uint64_t* __restrict idxs, uint32_t len, uint32_t idx_byte_ct, unsigned char* __restrict dst);
+
+// Parses a 64-bit deltalist, with full validation: every index must be <
+// idx_end, indexes must be strictly increasing, group sizes must match, and
+// nothing may extend past fread_end.  Also errors out if the length exceeds
+// max_len.  idxs may be nullptr, in which case the list is only validated and
+// counted.
+BoolErr ParseDeltalist64(const unsigned char* fread_end, uint64_t idx_end, uint32_t max_len, const unsigned char** fread_pp, uint64_t* __restrict idxs, uint32_t* __restrict len_ptr);
+
 HEADER_INLINE uint64_t GetVint64Unsafe(const unsigned char** buf_iterp) {
   uint64_t vint64 = *(*buf_iterp)++;
   if (vint64 <= 127) {
@@ -1026,22 +1067,41 @@ uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nyb
 //        unconditional-dosage case) value expressing the sum of all alt allele
 //        dosages.  (Yes, making this the ref allele dosage would have been a
 //        bit cleaner, but it's too late now.)
-//        If the variant is multiallelic, nonzero alt2/alt3/... dosages are
-//        likely to be sparse.  So,
-//        - track #5 contains a delta-encoded list describing which
-//          <sample_uidx x rarealt dosage> entries are nonzero, where rarealt
-//          index is in the lowest bits and sample_uidx can be computed via
-//          right-shift (to avoid integer-division headaches, especially
-//          important since indexes in this list can be larger than 2^32).
-//          We use sample_uidx here to make subsetting less painful.
+//        If the variant is multiallelic (allele_ct > 2), nonzero alt2/alt3/...
+//        ("rare alt") dosages are likely to be sparse.  So tracks #5 and #6
+//        are ALWAYS present after track #4 for a multiallelic variant with
+//        dosage data (an empty track #5 is a single zero byte), and never
+//        present for a biallelic variant:
+//        - track #5 is a 64-bit deltalist (see Deltalist64Append()) of the
+//          <sample_uidx, rare alt> pairs with nonzero dosage, encoded as
+//            k = (sample_uidx << b) | r,
+//          where r = (allele index - 2) and b = ceil(log2(allele_ct - 2))
+//          (RareAltIdxBitCt()); r values in [allele_ct - 2, 2^b) are invalid.
+//          The rare alt index is in the lowest bits so that sample_uidx can
+//          be computed via right-shift (to avoid integer-division headaches,
+//          especially important since these indexes can be larger than
+//          2^32), and sample_uidx is used to make subsetting less painful.
 //          Since each nonzero dosage value requires 16 bits, and
 //          delta-encoding of a dense list adds less than 9 bits per entry,
 //          there isn't much point in supporting a dense bitarray mode here.
-//          To keep memory requirements sane for biobank-scale datasets when
-//          the number of alt alleles is very large, each sample is prohibited
-//          from having more than 255 nonzero allele dosages (this makes no
-//          difference when sizeof(AlleleCode) == 1, but it may matter later).
-//        - track #6 contains the rarealt nonzero dosage values.
+//          Pairs may only reference samples with a non-missing track #4
+//          value.  To keep memory requirements sane for biobank-scale
+//          datasets when the number of alt alleles is very large, each sample
+//          is prohibited from having more than 255 nonzero rare alt dosages
+//          (this makes no difference when sizeof(AlleleCode) == 1, but it may
+//          matter later).
+//        - track #6 contains the rare alt dosage values, as uint16s in
+//          [1, 32768] (same units as track #4; zeros are omitted).  For each
+//          sample, the sum of its rare alt dosages must not exceed its track
+//          #4 value; alt1 dosage = (track #4 value) - (that sum), and ref
+//          dosage = 32768 - (track #4 value).
+//        Hardcall consistency (see the spec) generalizes to all alleles:
+//          sum_i |16384 * h_i - u_i| <= 16384,
+//        where i ranges over ref and all alts, h_i is the number of copies of
+//        allele i in the hardcall, and u_i is allele i's dosage as above.
+//        (In the biallelic case, this reduces to |16384c - v| <= 8192.)
+//        Fixed-width storage modes 0x03/0x04 have no tracks #5/#6; all rare
+//        alt dosages are zero there.
 //        Note that this and the other dosage modes are in ADDITION to
 //        hardcalls.  This increases filesize by up to 12.5%, but makes the
 //        reader substantially simpler; --hard-call-threshold logic is nicely
@@ -1079,8 +1139,20 @@ uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nyb
 //        triallelic variants as well, but it breaks down with 4 alleles, so we
 //        prohibit hardcall-phase + dosage + no-dosage-phase with more than 2
 //        alleles.
-//        In the multiallelic case, tracks #9 and #10 are analogous to #5 and
-//        #6.
+//        In the multiallelic case, tracks #9 and #10 are ALWAYS present after
+//        track #8 when bit 7 is set:
+//        - track #9 is a 64-bit deltalist, encoded as for track #5, of the
+//          <sample_uidx, rare alt> pairs with a nonzero dosage-phase delta.
+//          It must be a subset of the track #5 pairs, restricted to samples
+//          with an explicit, non-missing track #8 value.
+//        - track #10 contains int16 deltas <(hap1 rare alt prob) - (hap2
+//          rare alt prob)>, nonzero, in track #8's units.  Pairs in track #5
+//          but not track #9 have delta 0.  Each haplotype's share of each
+//          rare alt must be nonnegative (|delta_r| <= v_r), and so must each
+//          haplotype's share of alt1:
+//            sum_r (v_r + delta_r) <= v + delta and
+//            sum_r (v_r - delta_r) <= v - delta,
+//          where v and delta are the track #4 and track #8 values.
 //
 // Representation of variable ploidy (MT) was considered, but rejected since
 // dosages should be at least as appropriate for MT.
