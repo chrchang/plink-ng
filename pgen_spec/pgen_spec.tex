@@ -419,9 +419,10 @@ components of the difflist are, in order:
 
 \begin{enumerate}
 \item Sample IDs \#0, \#64, \#128, \#192, \ldots (i.e. the first ID in each
-  group), stored as \texttt{uint8}s iff $N\leq 2^8$, \texttt{uint16}s iff
-  $2^8<N\leq 2^{16}$, \texttt{uint24}s iff $2^{16}<N\leq 2^{24}$, and
-  \texttt{uint32}s otherwise.
+  group), stored as \texttt{uint8}s iff $N<2^8$, \texttt{uint16}s iff
+  $2^8\leq N<2^{16}$, \texttt{uint24}s iff $2^{16}\leq N<2^{24}$, and
+  \texttt{uint32}s otherwise.  (I.e. the width is the number of bytes needed
+  to represent $N$ itself, so e.g. $N=256$ requires \texttt{uint16}s.)
 \item $G-1$ bytes, where byte $j$ in this component is 63 less than the byte
   size of group \#$j$ in the final component.  (63 is subtracted because the
   minimum possible raw value is 63, and the maximum possible value is larger
