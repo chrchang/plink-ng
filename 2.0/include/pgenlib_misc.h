@@ -851,7 +851,7 @@ uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nyb
 //              usual, 3 = vrtype 16 with 1 phaseinfo byte, 4 = vrtype 0x45
 //              with 2 bytes, 5 = vrtype 0x40 with 3 total bytes, 12 = vrtype
 //              0xc5 with 4 total bytes, 13 = vrtype 0xc0 with 5 total bytes,
-//              15 = vrtype 0xe0 with 6 total bytes
+//              15 = vrtype 0xe0 with 7 total bytes
 //          15: reserved for single-sample multiallelic + phased dosage.
 //       bits 4-5: allele count storage (00 = unstored, 01-11 = bytes per ct)
 //       bits 6-7: nonref flags info (00 = unstored, 01 = all ref/alt, 10 =

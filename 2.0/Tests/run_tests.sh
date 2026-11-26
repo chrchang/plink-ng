@@ -723,4 +723,14 @@ cd TEST_IMPORT_OUTPUT_OPTS
 cd ..
 echo "TEST_IMPORT_OUTPUT_OPTS passed."
 
+cd TEST_VALIDATE_PGI
+./run_tests.sh $d $2 $3 > TEST_VALIDATE_PGI.log
+cd ..
+echo "TEST_VALIDATE_PGI passed."
+
+cd TEST_VALIDATE_ACCEPT
+./run_tests.sh $d $2 $3 > TEST_VALIDATE_ACCEPT.log
+cd ..
+echo "TEST_VALIDATE_ACCEPT passed."
+
 echo "All tests passed."
