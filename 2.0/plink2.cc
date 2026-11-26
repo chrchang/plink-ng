@@ -4959,7 +4959,7 @@ int main(int argc, char** argv) {
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
     int32_t vcf_max_dp = 0x7fffffff;
-    uint32_t vcf_depth_flags = 0;  // 1 = dp, 2 = lad
+    uint32_t vcf_depth_flags = 0;  // 1 = dp, 2 = ad-sum
     uintptr_t malloc_size_mib = 0;
     LoadParams load_params = kfLoadParams0;
     Xload xload = kfXload0;
@@ -15170,7 +15170,7 @@ int main(int argc, char** argv) {
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "cf-min-gp"))) {
           logerrputs("Error: --vcf-min-gp is no longer supported.  Use --import-dosage-certainty\ninstead.\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if (strequal_k_unsafe(flagname_p2, "cf-min-gq") || strequal_k_unsafe(flagname_p2, "cf-min-dp") || strequal_k_unsafe(flagname_p2, "cf-min-lad")) {
+        } else if (strequal_k_unsafe(flagname_p2, "cf-min-gq") || strequal_k_unsafe(flagname_p2, "cf-min-dp") || strequal_k_unsafe(flagname_p2, "cf-min-ad-sum")) {
           if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
             logerrprintf("Error: --%s must be used with --vcf/--bcf.\n", flagname_p);
             goto main_ret_INVALID_CMDLINE;
@@ -15187,9 +15187,9 @@ int main(int argc, char** argv) {
           if (flagname_p2[7] == 'g') {
             vcf_min_gq = uii;
           } else {
-            vcf_depth_flags |= (flagname_p2[7] == 'l')? 2 : 1;
+            vcf_depth_flags |= (flagname_p2[7] == 'a')? 2 : 1;
             if (unlikely(vcf_depth_flags == 3)) {
-              logerrputs("Error: --vcf-{min,max}-lad cannot be used with --vcf-{min,max}-dp.\n");
+              logerrputs("Error: --vcf-{min,max}-ad-sum cannot be used with --vcf-{min,max}-dp.\n");
               goto main_ret_INVALID_CMDLINE;
             }
             vcf_min_dp = uii;
@@ -15198,14 +15198,14 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE;
             }
           }
-        } else if (strequal_k_unsafe(flagname_p2, "cf-max-dp") || strequal_k_unsafe(flagname_p2, "cf-max-lad")) {
+        } else if (strequal_k_unsafe(flagname_p2, "cf-max-dp") || strequal_k_unsafe(flagname_p2, "cf-max-ad-sum")) {
           if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
             logerrprintf("Error: --%s must be used with --vcf/--bcf.\n", flagname_p);
             goto main_ret_INVALID_CMDLINE;
           }
-          vcf_depth_flags |= (flagname_p2[7] == 'l')? 2 : 1;
+          vcf_depth_flags |= (flagname_p2[7] == 'a')? 2 : 1;
           if (unlikely(vcf_depth_flags == 3)) {
-            logerrputs("Error: --vcf-{min,max}-lad cannot be used with --vcf-{min,max}-dp.\n");
+            logerrputs("Error: --vcf-{min,max}-ad-sum cannot be used with --vcf-{min,max}-dp.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
