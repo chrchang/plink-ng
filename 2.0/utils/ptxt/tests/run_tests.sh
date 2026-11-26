@@ -260,7 +260,9 @@ pr() {  # pr NAME AWK_PRINT_ARGS PTXT_ARGS...
 }
 pr "fields" '$3, $1' "'\$SNP, \$CHR'"
 pr "variant ID" '$1 ":" $2 ":" $5 ":" $4' "'\$CHR \":\" \$POS \":\" \$A2 \":\" \$A1'"
-pr "integers" '$2 - 1000, $7 * 1000000, $7 % 7' "'\$POS - 1000, \$N * 1000000, \$N % 7'"
+# Integers stay below 2^31: on 32-bit, mawk 1.3.3 prints larger ones with
+# %.6g ("print big integers" below checks them).
+pr "integers" '$2 - 1000, $7 * 1000, $7 % 7' "'\$POS - 1000, \$N * 1000, \$N % 7'"
 pr "floats" '-log($11) / log(10), $8 / $9, sqrt($6)' "'-log10(\$P), \$BETA / \$SE, sqrt(\$A1_FREQ)'"
 pr "len substr" 'length($4), substr($3, 3), substr($3, 1, 3) "x"' "'len(\$A1), substr(\$SNP, 3), substr(\$SNP, 1, 3) \"x\"'"
 pr "concat precedence" '$1 ":" $2 + 1, $1 $2 * 2' "'\$CHR \":\" \$POS + 1, \$CHR \$POS * 2'"
@@ -287,6 +289,7 @@ expect "print missing in concat" "$P print '(\$y + 1) \"a\", \$y \"a\"' ex.tsv |
 expect "print inf nan" "printf 'a\n' | $P print 'exp(1000), -exp(1000), log(-1), sqrt(-1) \"\"' -" 'inf\t-inf\tNA\tNA\n'
 expect "print -p 0" "printf 'a\n' | $P print -p 0 '0.1 + 0.2, 1 / 3, 1e-7 / 3, 1e300 * 10, 123456789.5, 2.5e-5, -0.0001, 7' -" '0.30000000000000004\t0.3333333333333333\t3.3333333333333334e-08\t1e+301\t123456789.5\t2.5e-05\t-0.0001\t7\n'
 expect "print -p 17" "printf 'a\n' | $P print -p 17 '0.1, 1 / 3' -" '0.10000000000000001\t0.33333333333333331\n'
+expect "print big integers" "printf 'a\n' | $P print '400999 * 1000000, -3000000000, 2147483648' -" '400999000000\t-3000000000\t2147483648\n'
 expect "print large values" "printf 'a\n' | $P print '4e15 + 0.5, 1e19, -0.0' -" '4e+15\t1e+19\t0\n'
 expect "print exact ties" "printf 'a\n' | $P print -p 3 '80050.5 - 0.5, 0.125, 1.0625, 1000.5' -" '80050\t0.125\t1.06\t1e+03\n'
 # Values on or within an ulp of a decimal tie take the Ryu fallback in
