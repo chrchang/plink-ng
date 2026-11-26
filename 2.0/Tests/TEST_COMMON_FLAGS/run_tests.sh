@@ -4,6 +4,10 @@ set -exo pipefail
 
 # Covers common flags which no other test mentions.  Most comparisons are with
 # plink 1.9, or with values known from how make_data.py built the data.
+#
+# The end of the file covers some less common flags: --vscore-col-nums,
+# --loop-cats, --error-on-freq-calc, --warning-errcode, and
+# --allow-misleading-out-arg.
 
 fails() {
     "$@" && exit 1 || true
@@ -140,3 +144,63 @@ test "$(grep -v '^#' plink2_fa.pvar | cut -f 2,4,5 | tr '\t\n' '  ')" = "10 C A 
 # Genotypes must flip too: C was 3/8 of the alleles at pos 10.
 $P2 --pfile plink2_fa --freq --out plink2_fa_freq
 test "$(tail -n +2 plink2_fa_freq.afreq | cut -f 5 | tr '\n' ' ')" = "0.625 0.333333 "
+
+# --vscore-col-nums picks weight columns by position (the IID column is 1).
+# u's values are 0/1, so its scores are the ALT dosages of s2 and s4 (with b's
+# missing s4 imputed as 2/3).
+printf '#IID\tw\tu\tz\ns1\t1\t0\t2\ns2\t2\t1\t0\ns3\t0.5\t0\t1\ns4\t-1\t1\t0\n' > tmp_weights3.txt
+$P2 --vcf tmp_small.vcf --variant-score tmp_weights3.txt --vscore-col-nums 2,4 --out plink2_vscore24
+test "$(head -n 1 plink2_vscore24.vscore | cut -f 6-)" = "$(printf 'w\tz')"
+test "$(tail -n +2 plink2_vscore24.vscore | cut -f 6 | tr '\n' ' ')" = "3 2.33333 3 6.5 4.5 "
+test "$(tail -n +2 plink2_vscore24.vscore | cut -f 7 | tr '\n' ' ')" = "2 2 2 5 1 "
+$P2 --vcf tmp_small.vcf --variant-score tmp_weights3.txt --vscore-col-nums 3-4 --out plink2_vscore34
+test "$(head -n 1 plink2_vscore34.vscore | cut -f 6-)" = "$(printf 'u\tz')"
+test "$(tail -n +2 plink2_vscore34.vscore | cut -f 6 | tr '\n' ' ')" = "1 1.66667 1 2 2 "
+fails $P2 --vcf tmp_small.vcf --vscore-col-nums 2 --freq --out plink2_vscore_bad
+
+# --loop-cats: one run per category of GRP, skipping s4's NONE.  The --maf
+# filter is recomputed for each category: x (s1, s3) keeps only the two 'a'
+# variants, y (s2) keeps a, b, a.  The x category's .afreq matches --keep.
+printf '#IID\tGRP\tQ\ns1\tx\t1\ns2\ty\t2\ns3\tx\t3\ns4\tNONE\t4\n' > tmp_grp.txt
+rm -f plink2_loop.*
+$P2 --vcf tmp_small.vcf --pheno tmp_grp.txt --loop-cats GRP --freq --maf 0.3 --write-snplist allow-dups --out plink2_loop
+test "$(ls plink2_loop.*.afreq | tr '\n' ' ')" = "plink2_loop.x.afreq plink2_loop.y.afreq "
+test "$(tr '\n' ' ' < plink2_loop.x.snplist)" = "a a "
+test "$(tr '\n' ' ' < plink2_loop.y.snplist)" = "a b a "
+printf 's1\ns3\n' > tmp_keep_x.txt
+$P2 --vcf tmp_small.vcf --keep tmp_keep_x.txt --freq --out plink2_keep_x
+diff plink2_keep_x.afreq plink2_loop.x.afreq
+grep -q "Processing category 'y' (1 sample)" plink2_loop.log
+fails $P2 --vcf tmp_small.vcf --pheno tmp_grp.txt --loop-cats Q --freq --out plink2_loop_bad
+fails $P2 --vcf tmp_small.vcf --pheno tmp_grp.txt --loop-cats NOPE --freq --out plink2_loop_bad
+
+# Run-control flags, on a copy of tmp_small with unique variant IDs.
+sed '/^1	30	/d; /^1	50	/d' tmp_small.vcf > tmp_uniq.vcf
+$P2 --vcf tmp_uniq.vcf --make-pgen --out tmp_uniq
+
+# --error-on-freq-calc: --maf needs frequencies, unless --read-freq supplies
+# them.  b (ALT freq 1/3) is filtered out; a and c (3/8 and 5/8) stay.
+fails $P2 --pfile tmp_uniq --maf 0.35 --error-on-freq-calc --make-just-pvar --out plink2_efc_bad
+$P2 --pfile tmp_uniq --freq --out plink2_efc_freq
+$P2 --pfile tmp_uniq --read-freq plink2_efc_freq.afreq --maf 0.35 --error-on-freq-calc --make-just-pvar --out plink2_efc
+test "$(grep -v '^#' plink2_efc.pvar | cut -f 3 | tr '\n' ' ')" = "a c "
+$P2 --pfile tmp_uniq --error-on-freq-calc --make-just-pvar --out plink2_efc_none
+
+# --warning-errcode: exit code 61 iff a warning was printed.
+set +e
+$P2 --pfile tmp_uniq --mendel --warning-errcode --out plink2_wec
+wec_rc=$?
+set -e
+test $wec_rc -eq 61
+grep -q 'Skipping --me/--mendel since there are no trios' plink2_wec.log
+$P2 --pfile tmp_uniq --mendel --out plink2_wec_off
+$P2 --pfile tmp_uniq --freq --warning-errcode --out plink2_wec_none
+
+# --allow-misleading-out-arg: an --out value ending in a fileset extension
+# is rejected, unless the flag says it's really meant as a prefix.
+rm -f plink2_out.vcf.*
+fails $P2 --pfile tmp_uniq --make-pgen --out plink2_out.vcf
+test ! -e plink2_out.vcf.pgen
+$P2 --pfile tmp_uniq --make-pgen --allow-misleading-out-arg --out plink2_out.vcf
+test -e plink2_out.vcf.pgen
+$P2 --pfile tmp_uniq --make-pgen --out plink2_out.vcf2

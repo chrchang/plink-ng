@@ -43,7 +43,7 @@ namespace plink2 {
 // Note that the immediate return value only corresponds to out-of-memory.
 // Other errors are indicated by glm_err_ptr on a *false* return
 // value, due to how the caller is expected to handle them.
-BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, RegressionNmPrecomp** nm_precomp_ptr, double** covars_cmaj_d_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t center_ok, uintptr_t xtx_state, RegressionNmPrecomp** nm_precomp_ptr, double** covars_cmaj_d_ptr, double** covar_beta_mults_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
   if (unlikely(bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr) ||
@@ -85,7 +85,7 @@ BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintp
                bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
     return 1;
   }
-  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, *covars_cmaj_d_ptr, *cur_covar_names_ptr, glm_err_ptr);
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, center_ok, covar_dotprod, corr_buf, inverse_corr_buf, *covars_cmaj_d_ptr, covar_beta_mults_ptr, *cur_covar_names_ptr, glm_err_ptr);
   if (unlikely(reterr)) {
     return (reterr == kPglRetNomem);
   }
@@ -99,7 +99,14 @@ BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintp
   return 0;
 }
 
-void FillPhenoAndXtY(const uintptr_t* sample_include, const double* __restrict pheno_qt, const double* __restrict covars_cmaj_d, uintptr_t sample_ct, uintptr_t domdev_third_p1, uintptr_t covar_ct, double* xt_y_image, double* __restrict pheno_d) {
+// Copies the phenotype values of the included samples to pheno_d[], centered
+// around their mean, and fills xt_y_image[] if it's non-null.  Since every
+// --glm linear model has an intercept, centering changes only the intercept
+// (by exactly the subtracted mean, which is saved to *pheno_mean_ptr if
+// pheno_mean_ptr is non-null).  It's important for numerical stability: the
+// residual sum of squares is computed as y^T y - y^T X beta, which loses
+// ~log2(1 + mean^2 / variance) bits when y is uncentered.
+void FillPhenoAndXtY(const uintptr_t* sample_include, const double* __restrict pheno_qt, const double* __restrict covars_cmaj_d, uintptr_t sample_ct, uintptr_t domdev_third_p1, uintptr_t covar_ct, double* xt_y_image, double* __restrict pheno_d, double* pheno_mean_ptr) {
   double* pheno_d_iter = pheno_d;
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = sample_include[0];
@@ -109,6 +116,16 @@ void FillPhenoAndXtY(const uintptr_t* sample_include, const double* __restrict p
     const double cur_pheno = pheno_qt[sample_uidx];
     *pheno_d_iter++ = cur_pheno;
     pheno_sum += cur_pheno;
+  }
+  const double pheno_mean = pheno_sum / u31tod(sample_ct);
+  pheno_sum = 0.0;
+  for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const double centered_pheno = pheno_d[sample_idx] - pheno_mean;
+    pheno_d[sample_idx] = centered_pheno;
+    pheno_sum += centered_pheno;
+  }
+  if (pheno_mean_ptr) {
+    *pheno_mean_ptr = pheno_mean;
   }
   if (!xt_y_image) {
     return;
@@ -150,7 +167,7 @@ BoolErr FillResidualizedPhenoAndXtY(const uintptr_t* sample_include, const doubl
     return 1;
   }
   assert(S_CAST(uintptr_t, g_bigstack_base - bigstack_mark) == GetResidualizedPhenoAndXtYWorkspaceSize(sample_ct, covar_ct));
-  FillPhenoAndXtY(sample_include, pheno_qt, covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, xt_y_tmp, orig_pheno_d);
+  FillPhenoAndXtY(sample_include, pheno_qt, covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, xt_y_tmp, orig_pheno_d, nullptr);
   for (uint32_t uii = 0; uii != sample_ct; ++uii) {
     predictors_pmaj[uii] = 1.0;
   }
@@ -178,8 +195,8 @@ void ClearNmPrecompCovars(uintptr_t sample_ct, uintptr_t domdev_third_p1, Regres
   ZeroDArr(domdev_third_p1 * domdev_third_p1, nm_precomp->corr_image);
 }
 
-BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const double* pheno_qt, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t is_qt_residualize, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, double** covars_cmaj_d_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
-  if (unlikely(GlmAllocFillAndTestCovarsQt(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, xtx_state, nm_precomp_ptr, covars_cmaj_d_ptr, cur_covar_names_ptr, glm_err_ptr))) {
+BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const double* pheno_qt, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t is_qt_residualize, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uint32_t center_ok, uintptr_t xtx_state, double** pheno_d_ptr, double* pheno_mean_ptr, RegressionNmPrecomp** nm_precomp_ptr, double** covars_cmaj_d_ptr, double** covar_beta_mults_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+  if (unlikely(GlmAllocFillAndTestCovarsQt(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, center_ok, xtx_state, nm_precomp_ptr, covars_cmaj_d_ptr, covar_beta_mults_ptr, cur_covar_names_ptr, glm_err_ptr))) {
     return 1;
   }
   if (*glm_err_ptr) {
@@ -198,9 +215,11 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
     (*nm_precomp_ptr)->xt_y_image = xt_y_image;
   }
   if (!is_qt_residualize) {
-    FillPhenoAndXtY(sample_include, pheno_qt, *covars_cmaj_d_ptr, sample_ct, xtx_state, new_covar_ct, xt_y_image, *pheno_d_ptr);
+    FillPhenoAndXtY(sample_include, pheno_qt, *covars_cmaj_d_ptr, sample_ct, xtx_state, new_covar_ct, xt_y_image, *pheno_d_ptr, pheno_mean_ptr);
     return 0;
   }
+  // residualized phenotype has mean zero, and the intercept is not meaningful
+  *pheno_mean_ptr = 0.0;
   if (unlikely(FillResidualizedPhenoAndXtY(sample_include, pheno_qt, *covars_cmaj_d_ptr, sample_ct, xtx_state, new_covar_ct, (*nm_precomp_ptr)->xt_y_image, *pheno_d_ptr))) {
     return 1;
   }
@@ -414,6 +433,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       const uint32_t* cur_sample_include_cumulative_popcounts;
       const double* cur_pheno;
       const RegressionNmPrecomp* nm_precomp;
+      const double* cur_pheno_means;
       const double* cur_covars_cmaj;
       const uintptr_t* cur_parameter_subset;
       const uintptr_t* cur_joint_test_params;
@@ -424,6 +444,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         cur_sample_include = common->sample_include_y;
         cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
         cur_pheno = ctx->pheno_y_d;
+        cur_pheno_means = ctx->pheno_y_means;
         nm_precomp = common->nm_precomp_y;
         cur_covars_cmaj = ctx->covars_cmaj_y_d;
         cur_parameter_subset = common->parameter_subset_y;
@@ -435,6 +456,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         cur_sample_include = common->sample_include_x;
         cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
         cur_pheno = ctx->pheno_x_d;
+        cur_pheno_means = ctx->pheno_x_means;
         nm_precomp = common->nm_precomp_x;
         cur_covars_cmaj = ctx->covars_cmaj_x_d;
         cur_parameter_subset = common->parameter_subset_x;
@@ -446,6 +468,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         cur_sample_include = common->sample_include;
         cur_sample_include_cumulative_popcounts = common->sample_include_cumulative_popcounts;
         cur_pheno = ctx->pheno_d;
+        cur_pheno_means = ctx->pheno_means;
         nm_precomp = common->nm_precomp;
         cur_covars_cmaj = ctx->covars_cmaj_d;
         cur_parameter_subset = common->parameter_subset;
@@ -1580,7 +1603,8 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 // constant, this writes the beta/se values for the first
                 // nonconstant, non-omitted allele where the results for the
                 // first allele belong.  We correct that below.
-                *beta_se_iter2++ = fitted_coefs[pred_uidx];
+                // phenotype was mean-centered, see FillPhenoAndXtY()
+                *beta_se_iter2++ = (pred_uidx || (!cur_pheno_means))? fitted_coefs[pred_uidx] : (fitted_coefs[0] + cur_pheno_means[0]);
                 *beta_se_iter2++ = dbl_2d_buf[pred_uidx];
               }
               // move this up since dbl_2d_buf may be clobbered
@@ -2073,6 +2097,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     uint32_t cur_constraint_ct = 0;
 
     const char* const* cur_test_names = nullptr;
+    const double* cur_test_mults = nullptr;
     uint32_t prev_block_variant_ct = 0;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
@@ -2153,16 +2178,19 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               cur_biallelic_predictor_ct = biallelic_predictor_ct_x;
               cur_constraint_ct = constraint_ct_x;
               cur_test_names = test_names_x;
+              cur_test_mults = common->test_beta_mults_x;
             } else if ((chr_idx == y_code) && sample_ct_y) {
               cur_biallelic_reported_test_ct = biallelic_reported_test_ct_y;
               cur_biallelic_predictor_ct = biallelic_predictor_ct_y;
               cur_constraint_ct = constraint_ct_y;
               cur_test_names = test_names_y;
+              cur_test_mults = common->test_beta_mults_y;
             } else {
               cur_biallelic_reported_test_ct = biallelic_reported_test_ct;
               cur_biallelic_predictor_ct = biallelic_predictor_ct;
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
+              cur_test_mults = common->test_beta_mults;
             }
             suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
@@ -2377,6 +2405,12 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   if (test_is_valid) {
                     tstat = beta / se;
                     ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
+                  }
+                  if (cur_test_mults && test_is_valid && (test_idx < cur_biallelic_reported_test_ct)) {
+                    // translate back to original covariate units
+                    const double cur_mult = cur_test_mults[test_idx];
+                    beta *= cur_mult;
+                    se *= cur_mult;
                   }
                   if (beta_col) {
                     *cswritep++ = '\t';
@@ -2734,6 +2768,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       const uint32_t* cur_sample_include_cumulative_popcounts;
       const double* cur_pheno_pmaj;
       const RegressionNmPrecomp* nm_precomp;
+      const double* cur_pheno_means;
       const double* cur_covars_cmaj;
       const uintptr_t* cur_parameter_subset;
       const uintptr_t* cur_joint_test_params;
@@ -2744,6 +2779,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         cur_sample_include = common->sample_include_y;
         cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
         cur_pheno_pmaj = ctx->pheno_y_d;
+        cur_pheno_means = ctx->pheno_y_means;
         nm_precomp = common->nm_precomp_y;
         cur_covars_cmaj = ctx->covars_cmaj_y_d;
         cur_parameter_subset = common->parameter_subset_y;
@@ -2755,6 +2791,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         cur_sample_include = common->sample_include_x;
         cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
         cur_pheno_pmaj = ctx->pheno_x_d;
+        cur_pheno_means = ctx->pheno_x_means;
         nm_precomp = common->nm_precomp_x;
         cur_covars_cmaj = ctx->covars_cmaj_x_d;
         cur_parameter_subset = common->parameter_subset_x;
@@ -2766,6 +2803,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         cur_sample_include = common->sample_include;
         cur_sample_include_cumulative_popcounts = common->sample_include_cumulative_popcounts;
         cur_pheno_pmaj = ctx->pheno_d;
+        cur_pheno_means = ctx->pheno_means;
         nm_precomp = common->nm_precomp;
         cur_covars_cmaj = ctx->covars_cmaj_d;
         cur_parameter_subset = common->parameter_subset;
@@ -3923,7 +3961,8 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   // constant, this writes the beta/se values for the first
                   // nonconstant, non-omitted allele where the results for the
                   // first allele belong.  We correct that below.
-                  *beta_se_iter2++ = tmp_fitted_coefs[pred_uidx];
+                  // phenotype was mean-centered, see FillPhenoAndXtY()
+                  *beta_se_iter2++ = (pred_uidx || (!cur_pheno_means))? tmp_fitted_coefs[pred_uidx] : (tmp_fitted_coefs[0] + cur_pheno_means[pheno_idx]);
                   *beta_se_iter2++ = dbl_2d_buf[pred_uidx];
                 }
                 // move this up since dbl_2d_buf may be clobbered
@@ -4267,6 +4306,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     const uint32_t is_qt_residualize = (glm_flags / kfGlmQtResidualize) & 1;
     const uintptr_t qt_residualize_alloc_size = is_qt_residualize? GetResidualizedPhenoAndXtYWorkspaceSize(max_sample_ct, max_covar_ct) : 0;
     double* pheno_d = nullptr;
+    double* pheno_means = nullptr;
+    double* pheno_x_means = nullptr;
+    double* pheno_y_means = nullptr;
     double* pheno_x_d = nullptr;
     double* pheno_y_d = nullptr;
     uintptr_t workspace_alloc;
@@ -4279,7 +4321,10 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         goto GlmLinearBatch_ret_NOMEM;
       }
       BigstackReset(bigstack_mark2);
-      if (bigstack_alloc_d(sample_ct * subbatch_size, &pheno_d)) {
+      if (bigstack_alloc_d(sample_ct * subbatch_size, &pheno_d) ||
+          bigstack_alloc_d(subbatch_size, &pheno_means) ||
+          bigstack_alloc_d(subbatch_size, &pheno_x_means) ||
+          bigstack_alloc_d(subbatch_size, &pheno_y_means)) {
         continue;
       }
       if (common->nm_precomp) {
@@ -4508,14 +4553,17 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         cswritep_arr[fidx] = cswritep;
 
         if (!is_qt_residualize) {
-          FillPhenoAndXtY(sample_include, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[fidx * (1 + domdev_third_p1 + covar_ct)])) : nullptr, &(pheno_d[fidx * sample_ct]));
+          FillPhenoAndXtY(sample_include, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[fidx * (1 + domdev_third_p1 + covar_ct)])) : nullptr, &(pheno_d[fidx * sample_ct]), &(pheno_means[fidx]));
           if (sample_ct_x) {
-            FillPhenoAndXtY(common->sample_include_x, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_x_d, sample_ct_x, domdev_third_p1, covar_ct_x, common->nm_precomp_x? (&(common->nm_precomp_x->xt_y_image[fidx * (1 + domdev_third_p1 + covar_ct_x)])) : nullptr, &(pheno_x_d[fidx * sample_ct_x]));
+            FillPhenoAndXtY(common->sample_include_x, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_x_d, sample_ct_x, domdev_third_p1, covar_ct_x, common->nm_precomp_x? (&(common->nm_precomp_x->xt_y_image[fidx * (1 + domdev_third_p1 + covar_ct_x)])) : nullptr, &(pheno_x_d[fidx * sample_ct_x]), &(pheno_x_means[fidx]));
           }
           if (sample_ct_y) {
-            FillPhenoAndXtY(common->sample_include_y, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[fidx * (1 + domdev_third_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[fidx * sample_ct_y]));
+            FillPhenoAndXtY(common->sample_include_y, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[fidx * (1 + domdev_third_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[fidx * sample_ct_y]), &(pheno_y_means[fidx]));
           }
         } else {
+          pheno_means[fidx] = 0.0;
+          pheno_x_means[fidx] = 0.0;
+          pheno_y_means[fidx] = 0.0;
           if (unlikely(FillResidualizedPhenoAndXtY(sample_include, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, &(common->nm_precomp->xt_y_image[fidx * (1 + domdev_third_p1)]), &(pheno_d[fidx * sample_ct])))) {
             assert(0);
             goto GlmLinearBatch_ret_NOMEM;
@@ -4530,6 +4578,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         ctx->pheno_d = pheno_d;
         ctx->pheno_x_d = pheno_x_d;
         ctx->pheno_y_d = pheno_y_d;
+        ctx->pheno_means = pheno_means;
+        ctx->pheno_x_means = pheno_x_means;
+        ctx->pheno_y_means = pheno_y_means;
       }
       if (is_qt_residualize) {
         common->covar_ct = 0;
@@ -4570,6 +4621,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       uint32_t cur_constraint_ct = 0;
 
       const char* const* cur_test_names = nullptr;
+      const double* cur_test_mults = nullptr;
       uint32_t prev_block_variant_ct = 0;
       uint32_t pct = 0;
       uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
@@ -4647,16 +4699,19 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                 cur_biallelic_predictor_ct = biallelic_predictor_ct_x;
                 cur_constraint_ct = constraint_ct_x;
                 cur_test_names = test_names_x;
+                cur_test_mults = common->test_beta_mults_x;
               } else if ((chr_idx == y_code) && sample_ct_y) {
                 cur_biallelic_reported_test_ct = biallelic_reported_test_ct_y;
                 cur_biallelic_predictor_ct = biallelic_predictor_ct_y;
                 cur_constraint_ct = constraint_ct_y;
                 cur_test_names = test_names_y;
+                cur_test_mults = common->test_beta_mults_y;
               } else {
                 cur_biallelic_reported_test_ct = biallelic_reported_test_ct;
                 cur_biallelic_predictor_ct = biallelic_predictor_ct;
                 cur_constraint_ct = constraint_ct;
                 cur_test_names = test_names;
+                cur_test_mults = common->test_beta_mults;
               }
               suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
               if (cur_constraint_ct) {
@@ -4878,6 +4933,12 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                         tstat = beta / se;
                         ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct + auxp->const_allele_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                       }
+                      if (cur_test_mults && test_is_valid && (test_idx < cur_biallelic_reported_test_ct)) {
+                        // translate back to original covariate units
+                        const double cur_mult = cur_test_mults[test_idx];
+                        beta *= cur_mult;
+                        se *= cur_mult;
+                      }
                       if (beta_col) {
                         *cswritep++ = '\t';
                         if (test_is_valid) {
@@ -5096,18 +5157,20 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
       const double vif_thresh = common->vif_thresh;
       // this technically wastes a bit of memory
       const char** cur_covar_names_unused = nullptr;
+      double* covar_beta_mults_unused;
+      const uint32_t covar_center_ok = !(glm_flags & (kfGlmIntercept | kfGlmInteraction));
       GlmErr glm_err;
-      if (unlikely(GlmAllocFillAndTestCovarsQt(sample_include, orig_covar_include, covar_cols, covar_names, sample_ct, orig_covar_ct, 0, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, domdev_third_p1, &(common->nm_precomp), &late_qtr_covars_cmaj_d, &cur_covar_names_unused, &glm_err))) {
+      if (unlikely(GlmAllocFillAndTestCovarsQt(sample_include, orig_covar_include, covar_cols, covar_names, sample_ct, orig_covar_ct, 0, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_center_ok, domdev_third_p1, &(common->nm_precomp), &late_qtr_covars_cmaj_d, &covar_beta_mults_unused, &cur_covar_names_unused, &glm_err))) {
         goto GlmLinearPerm_ret_NOMEM;
       }
       assert(!glm_err);
       if (sample_ct_x) {
-        if (unlikely(GlmAllocFillAndTestCovarsQt(common->sample_include_x, orig_covar_include_x, covar_cols, covar_names, sample_ct_x, orig_covar_ct_x, 0, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, max_corr, vif_thresh, domdev_third_p1, &(common->nm_precomp_x), &late_qtr_covars_cmaj_x_d, &cur_covar_names_unused, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestCovarsQt(common->sample_include_x, orig_covar_include_x, covar_cols, covar_names, sample_ct_x, orig_covar_ct_x, 0, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, max_corr, vif_thresh, covar_center_ok, domdev_third_p1, &(common->nm_precomp_x), &late_qtr_covars_cmaj_x_d, &covar_beta_mults_unused, &cur_covar_names_unused, &glm_err))) {
           goto GlmLinearPerm_ret_NOMEM;
         }
       }
       if (sample_ct_y) {
-        if (unlikely(GlmAllocFillAndTestCovarsQt(common->sample_include_y, orig_covar_include_y, covar_cols, covar_names, sample_ct_y, orig_covar_ct_y, 0, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, max_corr, vif_thresh, domdev_third_p1, &(common->nm_precomp_y), &late_qtr_covars_cmaj_y_d, &cur_covar_names_unused, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestCovarsQt(common->sample_include_y, orig_covar_include_y, covar_cols, covar_names, sample_ct_y, orig_covar_ct_y, 0, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, max_corr, vif_thresh, covar_center_ok, domdev_third_p1, &(common->nm_precomp_y), &late_qtr_covars_cmaj_y_d, &covar_beta_mults_unused, &cur_covar_names_unused, &glm_err))) {
           goto GlmLinearPerm_ret_NOMEM;
         }
       }
@@ -5610,12 +5673,12 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
       for (uint32_t pidx = 0; pidx != subbatch_size; ++pidx) {
         PermuteWithinD(perm_idx_to_orig_uidx, cat_cumulative_sizes, orig_pheno_qt, cat_ct, sfmtp, pheno_qt_tmp, perm_buf);
         if (!late_qt_residualize) {
-          FillPhenoAndXtY(sample_include, pheno_qt_tmp, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct)])) : nullptr, &(pheno_d[pidx * sample_ct]));
+          FillPhenoAndXtY(sample_include, pheno_qt_tmp, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct)])) : nullptr, &(pheno_d[pidx * sample_ct]), nullptr);
           if (sample_ct_x) {
-            FillPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, ctx->covars_cmaj_x_d, sample_ct_x, domdev_third_p1, covar_ct_x, common->nm_precomp_x? (&(common->nm_precomp_x->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_x)])) : nullptr, &(pheno_x_d[pidx * sample_ct_x]));
+            FillPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, ctx->covars_cmaj_x_d, sample_ct_x, domdev_third_p1, covar_ct_x, common->nm_precomp_x? (&(common->nm_precomp_x->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_x)])) : nullptr, &(pheno_x_d[pidx * sample_ct_x]), nullptr);
           }
           if (sample_ct_y) {
-            FillPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[pidx * sample_ct_y]));
+            FillPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[pidx * sample_ct_y]), nullptr);
           }
         } else {
           if (unlikely(FillResidualizedPhenoAndXtY(sample_include, pheno_qt_tmp, late_qtr_covars_cmaj_d, sample_ct, domdev_third_p1, orig_covar_ct + extra_cat_ct, &(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_d[pidx * sample_ct])))) {
@@ -5633,6 +5696,9 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
       ctx->pheno_d = pheno_d;
       ctx->pheno_x_d = pheno_x_d;
       ctx->pheno_y_d = pheno_y_d;
+      ctx->pheno_means = nullptr;
+      ctx->pheno_x_means = nullptr;
+      ctx->pheno_y_means = nullptr;
       if (late_qt_residualize) {
         ClearNmPrecompCovars(sample_ct, domdev_third_p1, common->nm_precomp);
         if (sample_ct_x) {

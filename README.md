@@ -94,6 +94,18 @@ cd 2.0/Tests
 ./run_tests.sh ../build_dynamic
 ```
 
+## Branches
+
+| Branch | Contents |
+| --- | --- |
+| `master` | the latest release; moves only when a new version is tagged |
+| `dev` | ongoing development; open pull requests against this branch |
+| `alphaN_patch` | bugfix backports for the alpha N series, from which its patch releases are cut |
+
+A checkout of `master` builds the same code as the newest prebuilt binary.
+New features and fixes land on `dev` first and reach `master` with the next
+release.
+
 `1.9/Tests` holds PLINK 1.9 regression tests. They take the PLINK 1.9 build
 directory (or use `plink` from the `PATH` if it is empty or omitted), and many
 use plink2 as a reference:

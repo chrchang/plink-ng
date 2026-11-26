@@ -12,6 +12,7 @@ on:
   push:
     branches:
       - master
+      - dev
     paths:
       - '1.9/**'
       - '!1.9/Tests/**'
@@ -21,6 +22,7 @@ on:
   pull_request:
     branches:
       - master
+      - dev
     paths:
       - '1.9/**'
       - '!1.9/Tests/**'

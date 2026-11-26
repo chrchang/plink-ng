@@ -1641,12 +1641,8 @@ void KeepOneId(const char* sample_id_flattened, const SampleIdInfo* siip, uint32
         cur_sid = nullptr;
         cur_sid_blen = 0;
       }
-    } else {
-      if (sids) {
-        cur_sid = &(g_one_char_strs[96]);  // "0"
-        cur_sid_blen = 2;
-      }
     }
+    // If no SID was provided, match all SIDs, consistent with --keep.
     const char* sample_ids = siip->sample_ids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;
@@ -2270,7 +2266,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
           char* token_end = CurTokenEnd(shard_iter);
           *token_end = '\0';
           // can't overread, category_names not in main workspace
-          const uint32_t cur_cat_idx = IdHtableFind(shard_iter, category_names, cat_id_htable, token_end - shard_iter, id_htable_size);
+          const uint32_t cur_cat_idx = IdHtableFindNoOverread(shard_iter, category_names, cat_id_htable, token_end - shard_iter, id_htable_size);
           if (cur_cat_idx == UINT32_MAX) {
             ++skip_ct;
           } else {
@@ -2294,7 +2290,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
       const char* cat_names_iter = cat_names_flattened;
       do {
         const uint32_t cat_name_slen = strlen(cat_names_iter);
-        const uint32_t cur_cat_idx = IdHtableFind(cat_names_iter, category_names, cat_id_htable, cat_name_slen, id_htable_size);
+        const uint32_t cur_cat_idx = IdHtableFindNoOverread(cat_names_iter, category_names, cat_id_htable, cat_name_slen, id_htable_size);
         if (cur_cat_idx == UINT32_MAX) {
           ++skip_ct;
         } else {
@@ -3376,13 +3372,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
                 if (!IsSet(matched_loaded_alleles, allele_idx)) {
-                  alt_freq_iter = AdvToDelim(alt_freq_iter, ',');
+                  alt_freq_iter = AdvToDelimShort(alt_freq_iter, ',');
                   continue;
                 }
                 double dxx;
                 const char* cur_freq_end = ScanadvDouble(alt_freq_iter, &dxx);
                 if (!cur_freq_end) {
-                  cur_freq_end = AdvToDelim(alt_freq_iter, ',');
+                  cur_freq_end = AdvToDelimShort(alt_freq_iter, ',');
                   if (likely(IsNanStr(alt_freq_iter, cur_freq_end - alt_freq_iter))) {
                     goto ReadAlleleFreqs_skip_variant;
                   }
@@ -3408,7 +3404,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   const uint32_t cap_mod_10 = (loaded_allele_idx_end - 1) % 10;
 #endif
                   while (1) {
-                    const char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
+                    const char* cur_entry_end = AdvToDelimShort(alt_freq_iter, ',');
                     uint32_t loaded_allele_idx;
 #ifdef __LP64__
                     if (unlikely(ScanmovUintCapped(loaded_allele_idx_end - 1, &alt_freq_iter, &loaded_allele_idx))) {
@@ -3455,7 +3451,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   char* alt_freq_iter = alt_freq_start;
                   char* alt_freq_end = &(alt_freq_start[full_slen]);
                   while (1) {
-                    char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
+                    char* cur_entry_end = AdvToDelimShort(alt_freq_iter, ',');
                     const uint32_t cur_entry_slen = cur_entry_end - alt_freq_iter;
                     char* eq_ptr = S_CAST(char*, memchr(alt_freq_iter, '=', cur_entry_slen));
                     if (unlikely(!eq_ptr)) {

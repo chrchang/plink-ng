@@ -48,7 +48,11 @@ ifeq ($(UNAME), Darwin)
   CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include -DACCELERATE_NEW_LAPACK
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LDFLAGS=-ldl -lpthread -lz -lzstd -flto -L/opt/homebrew/lib -L/usr/local/lib
+  # The SDK's library directory comes first, so -lz links Apple's system zlib
+  # (about twice as fast at inflate) rather than a stock zlib that may be
+  # installed in /opt/homebrew/lib or /usr/local/lib.
+  MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null)
+  LDFLAGS=-ldl -lpthread -lz -lzstd -flto $(if $(MACOS_SDK),-L$(MACOS_SDK)/usr/lib) -L/opt/homebrew/lib -L/usr/local/lib
 endif
 
 %.o: %.c

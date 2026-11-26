@@ -578,7 +578,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               strcpy_k(R_CAST(char*, arena_top), "PHENO1");
               first_pheno_ct = 1;
             } else if (pheno_ct) {
-              const uint32_t pheno_idx = IdHtableFind("PHENO1", TO_CONSTCPCONSTP(first_pheno_names), first_pheno_names_htable, strlen("PHENO1"), pheno_names_table_size);
+              const uint32_t pheno_idx = IdHtableFindNoOverread("PHENO1", TO_CONSTCPCONSTP(first_pheno_names), first_pheno_names_htable, strlen("PHENO1"), pheno_names_table_size);
               if (pheno_idx != UINT32_MAX) {
                 SetBit(pheno_idx, cur_pheno_include);
               }
@@ -661,7 +661,9 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
             }
             ++first_sample_id_ct;
           } else {
-            const uint32_t sample_idx = IdHtableFind(idbuf, first_sample_ids, first_sample_ids_htable, id_slen, sample_id_table_size);
+            // overread ok: first_sample_ids strings are at the bottom of
+            // bigstack, followed by arena allocations
+            const uint32_t sample_idx = IdHtableFindNnt(idbuf, first_sample_ids, first_sample_ids_htable, id_slen, sample_id_table_size);
             if (sample_idx != UINT32_MAX) {
               if (unlikely(IsSet(cur_sample_include, sample_idx))) {
                 TabsToSpaces(idbuf);
@@ -1879,7 +1881,7 @@ PglErr RescanOnePos(unsigned char* arena_top, uint32_t batch_size, uint32_t prev
           const uint32_t extra_alt_ct = container_of(tmp_variant_id, RescanOnePosRecord, variant_id)->allele_ct - 2;
           char* alt_iter = &(strnul(ref_allele)[1]);
           for (uint32_t extra_alt_idx = 0; extra_alt_idx != extra_alt_ct; ++extra_alt_idx) {
-            char* cur_alt_end = AdvToDelim(alt_iter, ',');
+            char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
             *cur_alt_end = '\0';
             // Missing allele prohibited here.
             *alleles_iter++ = alt_iter;
@@ -2669,7 +2671,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
           goto ScanPvarsAndMergeHeader_ret_1;
         }
 
-        char* line_end = AdvPastDelim(line_iter, '\n');
+        char* line_end = AdvPastDelimNear(line_iter, '\n');
         uint32_t line_blen = line_end - line_start;
         if (max_line_blen < line_blen) {
           max_line_blen = line_blen;
@@ -3318,10 +3320,10 @@ PglErr DetectConcatJob(const uint32_t* chr_idx_to_foidx, uintptr_t fileset_ct, S
     } else {
       STD_SORT(fileset_ct, FilesetNaturalCmp, R_CAST(PmergeFilesetNsorter*, sorted_filesets));
     }
-    uintptr_t prev_last_coord = sorted_filesets[0].last_coord;
+    uint64_t prev_last_coord = sorted_filesets[0].last_coord;
     uintptr_t fileset_idx = 1;
     for (; fileset_idx != fileset_ct; ++fileset_idx) {
-      const uintptr_t cur_first_coord = sorted_filesets[fileset_idx].first_coord;
+      const uint64_t cur_first_coord = sorted_filesets[fileset_idx].first_coord;
       if (cur_first_coord <= prev_last_coord) {
         if (cur_first_coord < prev_last_coord) {
           break;
@@ -3741,7 +3743,7 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
     pmcp->missing_comma_str = &(pmcp->pr_str[11]);
     pmcp->pr_pending_str = &(pmcp->pr_str[13]);
 
-    pmcp->pr_kidx = IdHtableFind("PR", info_keys, info_keys_htable, strlen("PR"), info_keys_htable_size);
+    pmcp->pr_kidx = IdHtableFindNoOverread("PR", info_keys, info_keys_htable, strlen("PR"), info_keys_htable_size);
   }
   pmcp->fnames = fnames;
   pmcp->line_idx_body_starts = line_idx_body_starts;
@@ -3804,16 +3806,16 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, uint32_t is_pr, Pva
   read_info_end[-1] = ';';
   char* read_info_iter = read_info_start;
   do {
-    char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+    char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
     const uint32_t key_slen = key_end - read_info_iter;
     if ((*key_end == ';') || ((key_end[1] == ';') && (key_slen == 2) && memequal_sk(read_info_iter, "PR"))) {
       // flag, or pending PR
       cswritep = memcpyax(cswritep, read_info_iter, key_slen, ';');
-      read_info_iter = AdvPastDelim(key_end, ';');
+      read_info_iter = AdvPastDelimShort(key_end, ';');
       continue;
     }
     char* value_iter = &(key_end[1]);
-    char* next_kv_start = AdvPastDelim(value_iter, ';');
+    char* next_kv_start = AdvPastDelimShort(value_iter, ';');
     const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
     if (kidx == UINT32_MAX) {
       // Undeclared key, retained since --merge-info-sort wasn't specified.
@@ -3838,12 +3840,12 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, uint32_t is_pr, Pva
     } else {
       *cswritep++ = '=';
       if (is_pr && (knum == kInfoVtypeA)) {
-        value_iter = AdvPastDelim(value_iter, ',');
+        value_iter = AdvPastDelimShort(value_iter, ',');
       }
       char* field_end = &(read_info_iter[-1]);
       *field_end = '=';
       while (1) {
-        char* next_eq = AdvToDelim(value_iter, '=');
+        char* next_eq = AdvToDelimShort(value_iter, '=');
         cswritep = memcpya(cswritep, value_iter, next_eq - value_iter);
         if (next_eq == field_end) {
           break;
@@ -3875,13 +3877,13 @@ PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t li
   read_info_end[-1] = ';';
   char* read_info_iter = read_info_start;
   do {
-    char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+    char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
     const uint32_t key_slen = key_end - read_info_iter;
     const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
     if (kidx == UINT32_MAX) {
       // Skip this key.  This can happen on e.g. a header conflict.
       if (*key_end != ';') {
-        key_end = AdvToDelim(&(key_end[1]), ';');
+        key_end = AdvToDelimShort(&(key_end[1]), ';');
       }
       read_info_iter = &(key_end[1]);
       continue;
@@ -3906,7 +3908,7 @@ PglErr RenderTmpInfoFromSingleUnsorted(const char* read_pvar_fname, uintptr_t li
     if (knum == 0) {
       read_info_iter = &(key_end[1]);
     } else {
-      char* value_end = AdvToDelim(&(key_end[1]), ';');
+      char* value_end = AdvToDelimShort(&(key_end[1]), ';');
       read_info_iter = &(value_end[1]);
     }
   } while (read_info_iter != read_info_end);
@@ -4183,12 +4185,12 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           char* read_info_end = &(read_info_start[read_info_slen]);
           *read_info_end++ = ';';
           do {
-            char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+            char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
             const uint32_t key_slen = key_end - read_info_iter;
             const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
             char* value_end = key_end;
             if (*value_end != ';') {
-              value_end = AdvToDelim(&(value_end[1]), ';');
+              value_end = AdvToDelimShort(&(value_end[1]), ';');
             }
             ++value_end;
             if (kidx != UINT32_MAX) {
@@ -4301,7 +4303,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           const uint32_t extra_alt_ct = allele_ct - 2;
           char* alt_iter = &(cur_variant_id[other_field_offsets[1]]);
           for (uint32_t uii = 0; uii != extra_alt_ct; ++uii) {
-            char* cur_alt_end = AdvToDelim(alt_iter, ',');
+            char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
             *cur_alt_end = '\0';
             alt_iter = &(cur_alt_end[1]);
           }
@@ -4653,7 +4655,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 if (!is_last) {
                   *subtoken_end = '\0';
                 }
-                const uint32_t filter_idx = IdHtableFind(filter_subtoken_iter, subtokens, filter_htable, subtoken_end - filter_subtoken_iter, htable_size);
+                const uint32_t filter_idx = IdHtableFindNoOverread(filter_subtoken_iter, subtokens, filter_htable, subtoken_end - filter_subtoken_iter, htable_size);
                 if (filter_idx == UINT32_MAX) {
                   mismatch_found = 1;
                   break;
@@ -4745,13 +4747,13 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
         }
 
         do {
-          char* key_end = S_CAST(char*, rawmemchr2(read_info_iter, '=', ';'));
+          char* key_end = AdvToEitherDelimShort(read_info_iter, '=', ';');
           const uint32_t key_slen = key_end - read_info_iter;
           const uint32_t kidx = IdHtableFindNnt(read_info_iter, info_keys, info_keys_htable, key_slen, info_keys_htable_size);
           if (kidx == UINT32_MAX) {
             // Skip this key.  This can happen on e.g. a header conflict.
             if (*key_end != ';') {
-              key_end = AdvToDelim(&(key_end[1]), ';');
+              key_end = AdvToDelimShort(&(key_end[1]), ';');
             }
             read_info_iter = &(key_end[1]);
             continue;
@@ -4769,7 +4771,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               // other record has a known REF allele, otherwise it contradicts
               // the .pgen flag.
               if (*key_end != ';') {
-                key_end = AdvToDelim(&(key_end[1]), ';');
+                key_end = AdvToDelimShort(&(key_end[1]), ';');
               }
               read_info_iter = &(key_end[1]);
               continue;
@@ -4801,7 +4803,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               }
               read_info_iter = &(key_end[1]);
             } else {
-              char* value_end = AdvToDelim(&(key_end[1]), ';');
+              char* value_end = AdvToDelimShort(&(key_end[1]), ';');
               if (!IsSet(info_field_set, kidx)) {
                 SetBit(kidx, info_field_set);
                 if (read_info_field_order_iter) {
@@ -4877,7 +4879,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             // values include one for the REF allele.
             const uint32_t rec_first_aidx = (cur_record->is_tmp && (cur_record->pgen_pr_status & 1))? 0 : first_aidx;
             read_info_iter = &(key_end[1]);
-            char* value_end = AdvToDelim(read_info_iter, ';');
+            char* value_end = AdvToDelimShort(read_info_iter, ';');
             if (unlikely(CountByte(read_info_iter, ',', value_end - read_info_iter) != read_allele_ct - rec_first_aidx - 1)) {
               const uint32_t file_idx = cur_record->secondary_key >> 32;
               const uint32_t variant_uidx = S_CAST(uint32_t, cur_record->secondary_key);
@@ -4897,7 +4899,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 if ((!cur_ar_info_fields[write_aidx]) && (!memequal_sk(read_info_iter, ".,"))) {
                   cur_ar_info_fields[write_aidx] = read_info_iter;
                 }
-                read_info_iter = AdvPastDelim(read_info_iter, ',');
+                read_info_iter = AdvPastDelimShort(read_info_iter, ',');
                 ++read_aidx;
               } while (read_aidx != read_allele_ct);
             } else if (merge_info_mode == kMergeInfoCmModeFirst) {
@@ -4911,14 +4913,14 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                 if ((!cur_ar_info_fields[write_aidx]) && ((!is_tmp) || (!memequal_sk(read_info_iter, "=,")))) {
                   cur_ar_info_fields[write_aidx] = read_info_iter;
                 }
-                read_info_iter = AdvPastDelim(read_info_iter, ',');
+                read_info_iter = AdvPastDelimShort(read_info_iter, ',');
                 ++read_aidx;
               } while (read_aidx != read_allele_ct);
             } else {
               // NmMatch
               do {
                 const uint32_t write_aidx = cur_allele_remap[read_aidx];
-                char* next_subtoken_start = AdvPastDelim(read_info_iter, ',');
+                char* next_subtoken_start = AdvPastDelimShort(read_info_iter, ',');
                 if (!memequal_sk(read_info_iter, ".,")) {
                   if (!cur_ar_info_fields[write_aidx]) {
                     cur_ar_info_fields[write_aidx] = read_info_iter;
@@ -7548,7 +7550,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         if (unlikely(!line_iter)) {
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
-        line_start = AdvPastDelim(line_iter, '\n');
+        line_start = AdvPastDelimNear(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
@@ -7723,7 +7725,7 @@ uint32_t CountMergedAlleles(SamePosPvarRecord** same_id_records, uintptr_t merge
     // Null-terminate extra ALT alleles, as MergePvariant() does.
     char* alt_iter = &(cur_record->variant_id[cur_record->other_field_offsets[1]]);
     for (uint32_t uii = 2; uii != allele_ct; ++uii) {
-      char* cur_alt_end = AdvToDelim(alt_iter, ',');
+      char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
       *cur_alt_end = '\0';
       alt_iter = &(cur_alt_end[1]);
     }
@@ -8315,7 +8317,7 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
         if (unlikely(!line_iter)) {
           goto PmergePassSingle_ret_PVAR_REWIND_FAIL_N;
         }
-        line_start = AdvPastDelim(line_iter, '\n');
+        line_start = AdvPastDelimNear(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           goto PmergePassSingle_ret_PVAR_REWIND_FAIL_N;
@@ -9662,7 +9664,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
       }
       {
         char* chrom_start = line_start;
-        line_start = AdvPastDelim(line_start, '\n');
+        line_start = AdvPastDelimNear(last_token_end, '\n');
 
         char* chrom_end = CurTokenEnd(chrom_start);
         *chrom_end = '\0';
@@ -9854,7 +9856,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         char* alt_iter = token_ptrs[3];
         alt_iter[token_slens[3]] = '\0';
         for (uint32_t allele2_idx = 1; allele2_idx != last_allele2_idx; ++allele2_idx) {
-          char* alt_end = AdvToDelim(alt_iter, ',');
+          char* alt_end = AdvToDelimShort(alt_iter, ',');
           *alt_end = '\0';
           cur_allele2s[allele2_idx] = alt_iter;
           alt_iter = &(alt_end[1]);

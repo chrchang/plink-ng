@@ -2896,9 +2896,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Linearly transform named covariates (and quantitative phenotypes, if\n"
 "    --variance-standardize) to mean-zero, variance 1.  If no arguments are\n"
 "    provided, all possible phenotypes/covariates are affected.\n"
-"    This is frequently necessary to prevent the multicollinearity check from\n"
-"    failing when dealing with covariates where abs(mean) is much larger than\n"
-"    the standard deviation, such as year of birth.\n"
+"    --glm standardizes covariates internally (reporting coefficients in their\n"
+"    original units), so this is usually unnecessary there.  But --glm can't\n"
+"    center covariates when 'intercept' or 'interaction' is specified, so this\n"
+"    may still be needed in that case when a covariate's abs(mean) is much\n"
+"    larger than its standard deviation (e.g. year of birth).\n"
 "  --quantile-normalize [...]       : Force named covariates and quantitative\n"
 "  --pheno-quantile-normalize [...]   phenotypes to a N(0,1) distribution,\n"
 "  --covar-quantile-normalize [...]   preserving only the original rank orders.\n"
@@ -2982,7 +2984,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("indv\0keep\0samples\0", &help_ctrl, 0,
 "  --indv <sample ID>   : Filter out all samples except for those matching\n"
 "                         the provided sample ID.  (Separate the parts of a\n"
-"                         multipart sample ID with spaces.)\n"
+"                         multipart sample ID with spaces.  If no SID is\n"
+"                         provided, all SIDs match.)\n"
               );
     HelpPrint("thin\0thin-count\0", &help_ctrl, 0,
 "  --thin <p>           : Randomly remove variants, retaining each with prob. p.\n"
@@ -3071,7 +3074,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      'first': Natural-sort SIDs and keep the first one.\n"
 "      'first-ascii': ASCII-sort SIDs and keep the first one.\n"
 "      'last': Natural-sort SIDs and keep the last one.\n"
-"      'last-ascii': Natural-sort SIDs and keep the last one.\n"
+"      'last-ascii': ASCII-sort SIDs and keep the last one.\n"
 "    * With 'parents-only', this filter is only applied to parents.\n"
               );
     /*
@@ -3624,9 +3627,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("mendel-duos\0mendel-missing-in-denom\0me\0mendel\0set-me-missing\0", &help_ctrl, 0,
 "  --mendel-duos             : Make Mendel error checks consider samples with\n"
 "                              only one parent in the dataset.\n"
-"  --mendel-missing-in-denom : When the child has a missing genotype, or both\n"
-"                              parents have missing genotypes, don't exclude the\n"
-"                              observation from error rate denominators.\n"
+"  --mendel-missing-in-denom : Don't exclude missing genotypes from error rate\n"
+"                              denominators.  By default, a trio is left out of\n"
+"                              a variant's denominator when the child or both\n"
+"                              parents are missing, and a variant is left out of\n"
+"                              a trio member's denominator when that member, the\n"
+"                              child, or both parents are missing.\n"
               );
     HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan-ref-freq\0flip-scan-ref-pfile\0flip-scan-ref-bfile\0flipscan-window\0flipscan-window-kb\0flipscan-threshold\0flipscan-freq-diff\0flipscan-max-maj-freq\0flipscan-min-neg\0flipscan-ref-freq\0flip-scan\0flipscan\0", &help_ctrl, 0,
 "  --flip-scan-window <ct+1> : Set --flip-scan max variant ct dist. (def. 10).\n"

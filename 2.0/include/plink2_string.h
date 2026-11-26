@@ -700,7 +700,7 @@ HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code)
 //   rawmemchr, strchrnul
 //   rawmemchr2, rawmemchr3, strnul, strchrnul_n, strchrnul2, strchrnul3,
 //     strchrnul_n_mov, incr_strchrnul_n_mov
-//   NextTokenMultFar
+//   NextTokenMultFar, CurTokenEndFar (after a short scalar probe)
 //   AdvToNthDelimChecked, AdvToNthDelim, AdvToDelimOrEnd, Memrchr,
 //     LastSpaceOrEoln
 
@@ -1030,42 +1030,149 @@ HEADER_INLINE char* AdvPastDelim(char* str_iter, char delim) {
 }
 #endif
 
+// Variants with a 2-byte scalar probe before the rawmemchr() call.  Use these
+// when the delimiter is usually 0-1 bytes away and the result is on a serial
+// dependency chain, e.g. the eoln scan right after lexing the last needed
+// .pvar column (which is frequently the last column, possibly followed by
+// '\r').  Rawmemchr()'s call + vector-to-scalar-register latency costs ~4ns
+// there (Nov 2026 testing on ARM), while the probe is ~free when it misses.
+HEADER_INLINE CXXCONST_CP AdvToDelimNear(const char* str_iter, char delim) {
+  if (str_iter[0] == delim) {
+    return S_CAST(CXXCONST_CP, str_iter);
+  }
+  if (str_iter[1] == delim) {
+    return S_CAST(CXXCONST_CP, &(str_iter[1]));
+  }
+  return AdvToDelim(&(str_iter[2]), delim);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvToDelimNear(char* str_iter, char delim) {
+  return const_cast<char*>(AdvToDelimNear(const_cast<const char*>(str_iter), delim));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP AdvPastDelimNear(const char* str_iter, char delim) {
+  return &(AdvToDelimNear(str_iter, delim)[1]);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvPastDelimNear(char* str_iter, char delim) {
+  return &(AdvToDelimNear(str_iter, delim)[1]);
+}
+#endif
+
+// Variant which scans the first 16 bytes with an unrolled scalar loop before
+// falling back to rawmemchr().  Use this when the delimiter is usually a few
+// bytes away and the result is on a serial dependency chain, e.g. splitting
+// a comma-delimited ALT allele list.  In Nov 2026 testing on ARM, this was ~7x
+// as fast as AdvToDelim() on 1-byte tokens, and only ~9% slower when every
+// token was 50-500 bytes long.
+HEADER_INLINE CXXCONST_CP AdvToDelimShort(const char* str_iter, char delim) {
+  for (uint32_t uii = 0; uii != 4; ++uii) {
+    if (str_iter[0] == delim) {
+      return S_CAST(CXXCONST_CP, str_iter);
+    }
+    if (str_iter[1] == delim) {
+      return S_CAST(CXXCONST_CP, &(str_iter[1]));
+    }
+    if (str_iter[2] == delim) {
+      return S_CAST(CXXCONST_CP, &(str_iter[2]));
+    }
+    if (str_iter[3] == delim) {
+      return S_CAST(CXXCONST_CP, &(str_iter[3]));
+    }
+    str_iter = &(str_iter[4]);
+  }
+  return AdvToDelim(str_iter, delim);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvToDelimShort(char* str_iter, char delim) {
+  return const_cast<char*>(AdvToDelimShort(const_cast<const char*>(str_iter), delim));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP AdvPastDelimShort(const char* str_iter, char delim) {
+  return &(AdvToDelimShort(str_iter, delim)[1]);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvPastDelimShort(char* str_iter, char delim) {
+  return &(AdvToDelimShort(str_iter, delim)[1]);
+}
+#endif
+
+// Two-delimiter version, analogous to rawmemchr2().  Intended for e.g. the
+// '='-or-';' key scan in INFO-parsing loops.
+// This scans only the first 8 bytes with scalar code: with twice as many
+// comparisons per byte, a 16-byte limit made the function large enough for
+// clang to decline to inline it in e.g. MergePvariant().  In Nov 2026 ARM
+// testing, the 8-byte limit was ~5% slower than an inlined 16-byte limit on
+// INFO key scans in isolation, and end-to-end --pmerge-list INFO merging was
+// within noise of both the inlined and out-of-line 16-byte versions.
+HEADER_INLINE CXXCONST_CP AdvToEitherDelimShort(const char* str_iter, char delim1, char delim2) {
+  for (uint32_t uii = 0; uii != 2; ++uii) {
+    if ((str_iter[0] == delim1) || (str_iter[0] == delim2)) {
+      return S_CAST(CXXCONST_CP, str_iter);
+    }
+    if ((str_iter[1] == delim1) || (str_iter[1] == delim2)) {
+      return S_CAST(CXXCONST_CP, &(str_iter[1]));
+    }
+    if ((str_iter[2] == delim1) || (str_iter[2] == delim2)) {
+      return S_CAST(CXXCONST_CP, &(str_iter[2]));
+    }
+    if ((str_iter[3] == delim1) || (str_iter[3] == delim2)) {
+      return S_CAST(CXXCONST_CP, &(str_iter[3]));
+    }
+    str_iter = &(str_iter[4]);
+  }
+  return S_CAST(CXXCONST_CP, rawmemchr2(str_iter, delim1, delim2));
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvToEitherDelimShort(char* str_iter, char delim1, char delim2) {
+  return const_cast<char*>(AdvToEitherDelimShort(const_cast<const char*>(str_iter), delim1, delim2));
+}
+#endif
+
 
 #ifdef __LP64__
 // This is a major VCF-parsing bottleneck, and inlining it makes a big
 // difference.
+//
+// Once the vector containing the target delimiter has been found, the
+// AdvToNthDelim...() functions below locate it in mask space, by clearing the
+// lowest (remaining_delim_ct - 1) set bits and counting trailing zeros.  (They
+// previously rescanned that vector's bytes with a scalar loop; in Nov 2026
+// x86 testing, that was 1.8x (SSE2) to 3.5x (AVX2) slower on the 8th-11th
+// fields of short-field TSV lines, since the per-byte branches are poorly
+// predicted, and it was the reason AVX2 builds were ~10% slower than SSE2
+// builds at this.)  WordBitIdxToUidx() uses _pdep_u64() in AVX2 builds, and
+// a bit-clearing loop otherwise.
 
 // ct must be nonzero
 HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char* str_end, uint32_t ct, char delim) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
   const uintptr_t ending_addr = R_CAST(uintptr_t, str_end);
-  VecUc* str_viter = R_CAST(VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecUc vvec_all_delim = vecuc_set1(delim);
   VecUc cur_vvec = *str_viter;
   VecUc delim_vvec = (cur_vvec == vvec_all_delim);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
 #  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
-  uint32_t delimiter_bytes = vecuc_movemask(delim_vvec) >> leading_byte_ct;
+  // Mask off (instead of shifting out) the leading bytes, so bit positions
+  // are always relative to str_viter.
+  uint32_t delimiter_bytes = vecuc_movemask(delim_vvec) & (UINT32_MAX << leading_byte_ct);
   for (uint32_t remaining_delim_ct = ct; ; ) {
     const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
     if (cur_delim_ct >= remaining_delim_ct) {
-      // todo: confirm this is faster when done outside vector-space, despite
-      // additional comparison relative to AdvToNthDelimOverread
-
-      // must not check preceding bytes if this happens on first loop iteration
-      if (R_CAST(const char*, str_viter) > str_iter) {
-        str_iter = R_CAST(const char*, str_viter);
+      const char* result = &(R_CAST(const char*, str_viter)[WordBitIdxToUidx(delimiter_bytes, remaining_delim_ct - 1)]);
+      // The final vector may extend past str_end.
+      if (result >= str_end) {
+        return nullptr;
       }
-      for (; str_iter != str_end; ++str_iter) {
-        const char cc = *str_iter;
-        if (cc != delim) {
-          continue;
-        }
-        if (!(--remaining_delim_ct)) {
-          return S_CAST(CXXCONST_CP, str_iter);
-        }
-      }
-      return nullptr;
+      return S_CAST(CXXCONST_CP, result);
     }
     remaining_delim_ct -= cur_delim_ct;
     ++str_viter;
@@ -1077,23 +1184,15 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
     delimiter_bytes = vecuc_movemask(delim_vvec);
   }
 #  else
-  uint64_t delimiter_nybbles = arm_shrn4_uc(delim_vvec) >> (4 * leading_byte_ct);
+  uint64_t delimiter_nybbles = arm_shrn4_uc(delim_vvec) & (UINT64_MAX << (4 * leading_byte_ct));
   for (uint32_t remaining_delim_ct = ct; ; ) {
     const uint32_t cur_delim_ct = count_set_nybbles(delimiter_nybbles);
     if (cur_delim_ct >= remaining_delim_ct) {
-      if (R_CAST(const char*, str_viter) > str_iter) {
-        str_iter = R_CAST(const char*, str_viter);
+      const char* result = &(R_CAST(const char*, str_viter)[WordBitIdxToUidx(delimiter_nybbles & kMask1111, remaining_delim_ct - 1) / 4]);
+      if (result >= str_end) {
+        return nullptr;
       }
-      for (; str_iter != str_end; ++str_iter) {
-        const char cc = *str_iter;
-        if (cc != delim) {
-          continue;
-        }
-        if (!(--remaining_delim_ct)) {
-          return S_CAST(CXXCONST_CP, str_iter);
-        }
-      }
-      return nullptr;
+      return S_CAST(CXXCONST_CP, result);
     }
     remaining_delim_ct -= cur_delim_ct;
     ++str_viter;
@@ -1110,27 +1209,16 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
 HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char delim) {
   const VecUc vvec_all_delim = vecuc_set1(delim);
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
-  VecUc* str_viter = R_CAST(VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
   VecUc cur_vvec = *str_viter;
   VecUc delim_vvec = (cur_vvec == vvec_all_delim);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
 #  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
-  uint32_t delimiter_bytes = vecuc_movemask(delim_vvec) >> leading_byte_ct;
+  uint32_t delimiter_bytes = vecuc_movemask(delim_vvec) & (UINT32_MAX << leading_byte_ct);
   for (uint32_t remaining_delim_ct = ct; ; ) {
     const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
     if (cur_delim_ct >= remaining_delim_ct) {
-      if (R_CAST(const char*, str_viter) > str_iter) {
-        str_iter = R_CAST(const char*, str_viter);
-      }
-      for (; ; ++str_iter) {
-        const char cc = *str_iter;
-        if (cc != delim) {
-          continue;
-        }
-        if (!(--remaining_delim_ct)) {
-          return S_CAST(CXXCONST_CP, str_iter);
-        }
-      }
+      return S_CAST(CXXCONST_CP, &(R_CAST(const char*, str_viter)[WordBitIdxToUidx(delimiter_bytes, remaining_delim_ct - 1)]));
     }
     remaining_delim_ct -= cur_delim_ct;
     ++str_viter;
@@ -1139,22 +1227,11 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char 
     delimiter_bytes = vecuc_movemask(delim_vvec);
   }
 #  else
-  uint64_t delimiter_nybbles = arm_shrn4_uc(delim_vvec) >> (4 * leading_byte_ct);
+  uint64_t delimiter_nybbles = arm_shrn4_uc(delim_vvec) & (UINT64_MAX << (4 * leading_byte_ct));
   for (uint32_t remaining_delim_ct = ct; ; ) {
     const uint32_t cur_delim_ct = count_set_nybbles(delimiter_nybbles);
     if (cur_delim_ct >= remaining_delim_ct) {
-      if (R_CAST(const char*, str_viter) > str_iter) {
-        str_iter = R_CAST(const char*, str_viter);
-      }
-      for (; ; ++str_iter) {
-        const char cc = *str_iter;
-        if (cc != delim) {
-          continue;
-        }
-        if (!(--remaining_delim_ct)) {
-          return S_CAST(CXXCONST_CP, str_iter);
-        }
-      }
+      return S_CAST(CXXCONST_CP, &(R_CAST(const char*, str_viter)[WordBitIdxToUidx(delimiter_nybbles & kMask1111, remaining_delim_ct - 1) / 4]));
     }
     remaining_delim_ct -= cur_delim_ct;
     ++str_viter;
@@ -1171,24 +1248,18 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimOverread(const char* str_iter, uint32_t c
     VecUc cur_vvec = vecuc_loadu(str_iter);
     VecUc delim_vvec = (cur_vvec == vvec_all_delim);
 #  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
-    uint32_t delimiter_bytes = vecuc_movemask(delim_vvec);
+    const uint32_t delimiter_bytes = vecuc_movemask(delim_vvec);
     const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
+    if (cur_delim_ct >= remaining_delim_ct) {
+      return S_CAST(CXXCONST_CP, &(str_iter[WordBitIdxToUidx(delimiter_bytes, remaining_delim_ct - 1)]));
+    }
 #  else
     const uint64_t delimiter_nybbles = arm_shrn4_uc(delim_vvec);
     const uint32_t cur_delim_ct = count_set_nybbles(delimiter_nybbles);
-#  endif
     if (cur_delim_ct >= remaining_delim_ct) {
-      // Faster to do this part outside of vector-space in my testing.
-      for (; ; ++str_iter) {
-        const char cc = *str_iter;
-        if (cc != delim) {
-          continue;
-        }
-        if (!(--remaining_delim_ct)) {
-          return S_CAST(CXXCONST_CP, str_iter);
-        }
-      }
+      return S_CAST(CXXCONST_CP, &(str_iter[WordBitIdxToUidx(delimiter_nybbles & kMask1111, remaining_delim_ct - 1) / 4]));
     }
+#  endif
     remaining_delim_ct -= cur_delim_ct;
     str_iter = &(str_iter[kBytesPerVec]);
   }
@@ -1308,6 +1379,18 @@ HEADER_INLINE char* NextTokenMult0(char* str, uint32_t ct) {
 }
 #endif
 
+// Outside of AVX2 builds, these lexers deliberately use simple scalar loops
+// to skip tokens, even when ARM narrowing-shift is available: the typical
+// token is short, and since each line's parse depends on where the previous
+// line's last token ended, vector-to-scalar-register latency is on the
+// critical path.  (A NEON port of the full-SIMD TokenLexK0() was ~20% slower
+// than this on a 5-column .pvar in Nov 2026 testing on ARM.)  See
+// CurTokenEndFar() for the case where a token is expected to be long.
+// AVX2 movemask is cheap enough that the reverse holds there: in Nov 2026
+// x86 testing, the scalar lexers made .pvar loading up to ~11% slower when
+// INFO was present (no difference on a 5-column .pvar), so AVX2 builds keep
+// the full-SIMD TokenLexK0().
+
 #ifdef USE_AVX2
 const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens);
 
@@ -1345,6 +1428,59 @@ HEADER_INLINE const char* TokenLexK0(const char* str_iter, const uint32_t* col_t
     --relevant_col_ct;
   }
   return TokenLexK(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
+}
+#endif  // !USE_AVX2
+
+#ifdef __LP64__
+// Like CurTokenEnd(), but switches to a vector scan if the token is longer
+// than a few characters.  Same aligned-overread assumptions as rawmemchr().
+HEADER_INLINE CXXCONST_CP CurTokenEndFar(const char* str_iter) {
+  // Short scalar probe first, so that short tokens don't pay the
+  // vector-to-scalar-register latency.  (8 was the sweet spot in Nov 2026
+  // testing.)
+  for (uint32_t uii = 0; uii != 8; ++uii) {
+    ++str_iter;
+    if (ctou32(*str_iter) <= 32) {
+      return S_CAST(CXXCONST_CP, str_iter);
+    }
+  }
+  ++str_iter;
+  const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
+  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
+  // 33..255 is a bit more annoying to check for efficiently than 32..255.
+  // Saturating-add 95: high bit is set iff byte >= 33.
+  const VecUc vvec_all95 = vecuc_set1(95);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+  uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(vecuc_adds(*str_viter, vvec_all95)));
+  nontoken_bytes &= UINT32_MAX << leading_byte_ct;
+  while (!nontoken_bytes) {
+    ++str_viter;
+    nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(vecuc_adds(*str_viter, vvec_all95)));
+  }
+  return &(DowncastToXC(str_viter)[ctzu32(nontoken_bytes)]);
+#  else
+  // Wrapping-add 95 maps 0..32 to 95..127, the only bytes signed-greater than
+  // 94.
+  const VecUc vvec_all94 = vecuc_set1(94);
+  uint64_t nontoken_nybbles = arm_shrn4_uc(vecuc_signed_cmpgt(vecuc_add(*str_viter, vvec_all95), vvec_all94));
+  nontoken_nybbles &= UINT64_MAX << (4 * leading_byte_ct);
+  while (!nontoken_nybbles) {
+    ++str_viter;
+    nontoken_nybbles = arm_shrn4_uc(vecuc_signed_cmpgt(vecuc_add(*str_viter, vvec_all95), vvec_all94));
+  }
+  return &(DowncastToXC(str_viter)[ctzw(nontoken_nybbles) / 4]);
+#  endif
+}
+#else
+HEADER_INLINE CXXCONST_CP CurTokenEndFar(const char* str_iter) {
+  return S_CAST(CXXCONST_CP, CurTokenEnd(str_iter));
+}
+#endif
+
+#ifdef __cplusplus
+HEADER_INLINE char* CurTokenEndFar(char* str_iter) {
+  return const_cast<char*>(CurTokenEndFar(const_cast<const char*>(str_iter)));
 }
 #endif
 

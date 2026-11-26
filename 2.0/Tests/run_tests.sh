@@ -373,10 +373,35 @@ cd TEST_BCF_MULTIALLELIC_HDS
 cd ..
 echo "TEST_BCF_MULTIALLELIC_HDS passed."
 
+cd TEST_BCF_PHASED_QUAL_FILTER
+./run_tests.sh $d $2 $3 > TEST_BCF_PHASED_QUAL_FILTER.log
+cd ..
+echo "TEST_BCF_PHASED_QUAL_FILTER passed."
+
+cd TEST_VCF_BCF_PARITY
+./run_tests.sh $d $2 $3 > TEST_VCF_BCF_PARITY.log
+cd ..
+echo "TEST_VCF_BCF_PARITY passed."
+
+cd TEST_VCF_GT_PREFIX_PHASING
+./run_tests.sh $d $2 $3 > TEST_VCF_GT_PREFIX_PHASING.log
+cd ..
+echo "TEST_VCF_GT_PREFIX_PHASING passed."
+
 cd TEST_BGEN_REF_FIRST_PHASE
 ./run_tests.sh $d $2 $3 > TEST_BGEN_REF_FIRST_PHASE.log
 cd ..
 echo "TEST_BGEN_REF_FIRST_PHASE passed."
+
+cd TEST_BGEN_PARITY
+./run_tests.sh $d $2 $3 > TEST_BGEN_PARITY.log
+cd ..
+echo "TEST_BGEN_PARITY passed."
+
+cd TEST_HDS_EQUAL_HAP_ERASE
+./run_tests.sh $d $2 $3 > TEST_HDS_EQUAL_HAP_ERASE.log
+cd ..
+echo "TEST_HDS_EQUAL_HAP_ERASE passed."
 
 cd TEST_SPLIT_PHASED
 ./run_tests.sh $d $2 $3 > TEST_SPLIT_PHASED.log
@@ -477,6 +502,11 @@ cd TEST_GLM_PERM
 ./run_tests.sh $d $2 $3 > TEST_GLM_PERM.log
 cd ..
 echo "TEST_GLM_PERM passed."
+
+cd TEST_GLM_AUTO_RESCALE
+./run_tests.sh $d $2 $3 > TEST_GLM_AUTO_RESCALE.log
+cd ..
+echo "TEST_GLM_AUTO_RESCALE passed."
 
 cd TEST_LD_CONSOLE_CHRX_FEMALES
 ./run_tests.sh $d $2 $3 > TEST_LD_CONSOLE_CHRX_FEMALES.log
@@ -677,5 +707,35 @@ cd TEST_CLUMP_FIELDS
 ./run_tests.sh $d $2 $3 > TEST_CLUMP_FIELDS.log
 cd ..
 echo "TEST_CLUMP_FIELDS passed."
+
+cd TEST_PGEN_INFO_COUNTS
+./run_tests.sh $d $2 $3 > TEST_PGEN_INFO_COUNTS.log
+cd ..
+echo "TEST_PGEN_INFO_COUNTS passed."
+
+cd TEST_GLM_OUTPUT_FLAGS
+./run_tests.sh $d $2 $3 > TEST_GLM_OUTPUT_FLAGS.log
+cd ..
+echo "TEST_GLM_OUTPUT_FLAGS passed."
+
+cd TEST_SAMPLE_ID_PHENO_FLAGS
+./run_tests.sh $d $2 $3 > TEST_SAMPLE_ID_PHENO_FLAGS.log
+cd ..
+echo "TEST_SAMPLE_ID_PHENO_FLAGS passed."
+
+cd TEST_VARIANT_FILTER_OPTS
+./run_tests.sh $d $2 $3 > TEST_VARIANT_FILTER_OPTS.log
+cd ..
+echo "TEST_VARIANT_FILTER_OPTS passed."
+
+cd TEST_LD_OPTIONS
+./run_tests.sh $d $2 $3 > TEST_LD_OPTIONS.log
+cd ..
+echo "TEST_LD_OPTIONS passed."
+
+cd TEST_IMPORT_OUTPUT_OPTS
+./run_tests.sh $d $2 $3 > TEST_IMPORT_OUTPUT_OPTS.log
+cd ..
+echo "TEST_IMPORT_OUTPUT_OPTS passed."
 
 echo "All tests passed."

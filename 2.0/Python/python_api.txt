@@ -73,7 +73,10 @@ class PgenReader:
     exception is thrown if any value is not an integer in 0..(raw_sample_ct -
     1), or the values are not strictly increasing, or the array is empty.
     (Empty array might be permitted in the future.)
-  - allele_idx_offsets is required when multiallelic variants are present.
+  - allele_idx_offsets is required when multiallelic variants are present,
+    in order for them to be read as multiallelic.  If it's omitted, all
+    variants are treated as biallelic, with ALT2+ alleles collapsed into ALT1;
+    this is an error if the file also contains phase or dosage data.
     When provided, it should be a np.uintp array of length (variant_ct+1),
     where allele_idx_offsets[i+1] - allele_idx_offsets[i] is max(2, number of
     alleles for 0-based variant i).

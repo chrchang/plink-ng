@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --clump options with no other test coverage: --clump-a1-field,
-# --clump-test-field, --clump-test, --clump-log10 (all modes),
+# --clump-test-field, --clump-test, --clump-log10 (all modes), --clump-range0,
 # --clump-log10-p1/-p2, --clump-bins, and --clump-unphased.
 #
 # Also a regression test: --clump-bins never enforced increasing order (the
@@ -169,3 +169,29 @@ $plink2 --pfile tmp_phase --clump tmp_phase_assoc.txt --out tmp_phased > /dev/nu
 test "$(tail -n +2 tmp_phased.clumps | cut -f 3,5,11)" = "$(printf 'w1\t0\t.')"
 $plink2 --pfile tmp_phase --clump tmp_phase_assoc.txt --clump-unphased --out tmp_unphased > /dev/null
 test "$(tail -n +2 tmp_unphased.clumps | cut -f 3,5,11)" = "$(printf 'w1\t1\tw2')"
+
+# --clump-range0 reads the same file as 0-based half-open intervals.  The v1
+# clump spans 10000-30000 and the v5 clump is just 50000.  GA and GB start at
+# a clump boundary, so they only overlap when 1-based; GC ends at a clump
+# boundary, so it overlaps either way.
+printf '1\t30000\t30005\tGA\n1\t50000\t50010\tGB\n1\t9000\t10000\tGC\n' > tmp_ranges.txt
+$plink2 --pfile tmp_data --clump tmp_assoc.txt --clump-range tmp_ranges.txt --out tmp_range1 > /dev/null
+test "$(tail -n +2 tmp_range1.clumps | cut -f 3,14 | tr '\t\n' ': ')" = "v1:GA,GC v5:GB "
+$plink2 --pfile tmp_data --clump tmp_assoc.txt --clump-range0 tmp_ranges.txt --out tmp_range0 > /dev/null
+test "$(tail -n +2 tmp_range0.clumps | cut -f 3,14 | tr '\t\n' ': ')" = "v1:GC v5:. "
+if $plink2 --pfile tmp_data --clump tmp_assoc.txt --clump-range tmp_ranges.txt --clump-range0 tmp_ranges.txt --out tmp_range_bad > /dev/null 2>&1; then
+    exit 1
+fi
+# A 0-based range whose end equals its start is empty.  The error says so,
+# instead of saying that the end is smaller than the start.
+printf '1\t50000\t50000\tGB\n' > tmp_ranges_empty.txt
+$plink2 --pfile tmp_data --clump tmp_assoc.txt --clump-range tmp_ranges_empty.txt --out tmp_range_e1 > /dev/null
+if $plink2 --pfile tmp_data --clump tmp_assoc.txt --clump-range0 tmp_ranges_empty.txt --out tmp_range_e0 > /dev/null 2>&1; then
+    exit 1
+fi
+grep -q 'Empty range (end position equal to start position) on line 1' tmp_range_e0.log
+printf '1\t50000\t49999\tGB\n' > tmp_ranges_rev.txt
+if $plink2 --pfile tmp_data --clump tmp_assoc.txt --clump-range0 tmp_ranges_rev.txt --out tmp_range_r0 > /dev/null 2>&1; then
+    exit 1
+fi
+grep -q 'Range end position smaller than range start on line 1' tmp_range_r0.log

@@ -88,7 +88,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 2202
+#define PGENLIB_INTERNAL_VERNUM 2203
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1099,6 +1099,21 @@ CONSTI32(kPglMaxVariantCt, 0x7ffffffd);
 CONSTI32(kPglMaxSampleCt, 0x7ffffffe);
 
 uint64_t PglHeaderBaseEndOffset(uint32_t variant_ct, uintptr_t vrec_len_byte_ct, uint32_t phase_or_dosage_present, uint32_t explicit_nonref_flags);
+
+// vrtype_groups packs up to 8 disjoint nonzero vrtype bitmasks, one per byte
+// (zero bytes are ignored).  Returns the bitwise-OR of
+// (vrtypes[variant_uidx] & <union of groups>) across all variant_uidx in
+// [variant_uidx_start, variant_uidx_end) which are in variant_include (or
+// all of them, if variant_include is nullptr), except that once any bit in a
+// group is found, the rest of that group is no longer searched for, and the
+// scan stops early when every group has been found.  So, for each group, the
+// return value is nonzero in that group iff at least one included variant has
+// a vrtype bit in the group.
+// vrtypes[] must be readable from RoundDownPow2(variant_uidx_start,
+// kBitsPerWord) up to RoundUpPow2(variant_uidx_end, kBitsPerWord) (true of
+// PgenFileInfo.vrtypes); bytes outside the range may be arbitrary, and so may
+// variant_include bits.
+uint32_t ScanVrtypeGroups(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint64_t vrtype_groups);
 
 // Current pgen-extension API assumes .pgen extension bodies fit comfortably in
 // memory.

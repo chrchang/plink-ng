@@ -3276,7 +3276,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
 }
 
 CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
-  // See TokenLexK0().
+  // See CurTokenEndFar().
   const VecUc vvec_all95 = vecuc_set1(95);
 #  ifdef SIMDE_ARM_NEON_A32V8_NATIVE
   const VecUc vvec_all94 = vecuc_set1(94);

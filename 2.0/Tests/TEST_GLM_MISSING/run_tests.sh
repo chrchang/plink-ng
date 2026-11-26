@@ -81,12 +81,22 @@ test "$(awk '$1 == 0' tmp_miss_counts.txt | wc -l)" -eq 8
 test "$(awk '$1 > 0 && $1 < 300' tmp_miss_counts.txt | wc -l)" -eq 24
 test "$(awk '$1 >= 300' tmp_miss_counts.txt | wc -l)" -eq 8
 
+# Each check_model() call runs one oracle regression per variant.  The weekly
+# workflow (auto_checkcommits_tests_linuxmac.yml) sets PLINK2_FULL_TESTS=1 to
+# check all 40 variants; otherwise only the first 10 are checked (in both
+# runs), which still covers each of the five missingness classes twice.
+if [ -n "$PLINK2_FULL_TESTS" ]; then
+    cp tmp_variants.txt tmp_check_variants.txt
+else
+    head -n 10 tmp_variants.txt > tmp_check_variants.txt
+fi
+
 # $1: --glm modifiers.  $2: the covariate arguments, defaulting to --covar; pass
 # an empty string to run without covariates.
 check_model() {
-    $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q1-Q4 ${2---covar tmp_covar.txt} --glm $1 --out tmp_main > /dev/null
+    $plink2 --pfile tmp_data --extract tmp_check_variants.txt --pheno tmp_pheno.txt --pheno-name Q1-Q4 ${2---covar tmp_covar.txt} --glm $1 --out tmp_main > /dev/null
     rm -f tmp_oracle.Q?.glm.linear
-    for v in $(cat tmp_variants.txt); do
+    for v in $(cat tmp_check_variants.txt); do
         echo $v > tmp_one.txt
         if [ -f tmp_miss_$v.txt ]; then
             (echo "#IID"; cat tmp_miss_$v.txt) > tmp_remove.txt
@@ -128,12 +138,17 @@ check_model "hide-covar hethom"
 #    --glm drop the covariate as constant, which is a different model.
 var=$(awk 'NR == FNR { n[FNR] = $1; next } { if (n[FNR] > 50 && n[FNR] < 250) { print $1; exit } }' tmp_miss_counts.txt tmp_variants.txt)
 test -n "$var"
-awk -v var="$var" 'BEGIN { OFS = "\t"; while ((getline line < ("tmp_miss_" var ".txt")) > 0) { miss[line] = 1 } }
-     FNR == 1 { print $1, $2, "CONST_ON_NM"; next }
-     { print $1, $2, ($1 in miss)? 1 : 0 }' tmp_covar.txt > tmp_const_covar.txt
-$plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q4 --covar tmp_const_covar.txt --glm hide-covar --out tmp_const > /dev/null
-awk -v var="$var" 'FNR > 1 && $3 == var { if ($NF != "VIF_INFINITE") { print "expected VIF_INFINITE on " var ", got " $NF; exit 1 }; print var " reported " $NF; ++n }
-     END { if (n != 1) { print "expected one row for " var ", got " n + 0; exit 1 } }' tmp_const.Q4.glm.linear
+#    The constant must be detected whether or not it's zero (--glm rescales
+#    covariates internally, so even a 0 becomes nonzero there), hence the
+#    second covariate file with constant 7.
+for c in 0 7; do
+    awk -v var="$var" -v c=$c 'BEGIN { OFS = "\t"; while ((getline line < ("tmp_miss_" var ".txt")) > 0) { miss[line] = 1 } }
+         FNR == 1 { print $1, $2, "CONST_ON_NM"; next }
+         { print $1, $2, ($1 in miss)? (c + 1) : c }' tmp_covar.txt > tmp_const_covar.txt
+    $plink2 --pfile tmp_data --pheno tmp_pheno.txt --pheno-name Q4 --covar tmp_const_covar.txt --glm hide-covar --out tmp_const > /dev/null
+    awk -v var="$var" 'FNR > 1 && $3 == var { if ($NF != "VIF_INFINITE") { print "expected VIF_INFINITE on " var ", got " $NF; exit 1 }; print var " reported " $NF; ++n }
+         END { if (n != 1) { print "expected one row for " var ", got " n + 0; exit 1 } }' tmp_const.Q4.glm.linear
+done
 
 # 5. Without covariates, the genotypic and hethom models still have two
 #    genotype columns to check against each other, and the missing-call branch

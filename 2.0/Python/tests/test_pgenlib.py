@@ -796,3 +796,96 @@ def test_count_multiallelic_sparse_patch(tmp_path, allele_ct):
             want = [int((copies == k).sum()) for k in range(3)] + [0]
             r.count(0, got, allele_idx)
             assert got.tolist() == want, (allele_idx, got.tolist(), want)
+
+
+@pytest.mark.parametrize("hardcall_phase_present", [False, True])
+def test_multiallelic_without_allele_idx_offsets(tmp_path, hardcall_phase_present):
+    # Without allele_idx_offsets, all variants are treated as biallelic, with
+    # ALT2+ collapsed into ALT1 (same as pgenlibr), unless the file also
+    # contains phase/dosage data.  The allele-code readers used to error out
+    # on multiallelic variants in this case.
+    random.seed(7)
+    nsample = 300
+    allele_cts = [2, 3, 4, 3]
+    codes = []
+    for allele_ct in allele_cts:
+        c = np.zeros(2 * nsample, np.int32)
+        for i in range(2 * nsample):
+            if random.random() < 0.3:
+                c[i] = random.randrange(1, allele_ct)
+        for sidx in random.sample(range(nsample), 4):
+            c[2 * sidx: 2 * sidx + 2] = -9
+        # Unphased hets are read back with the lower code first.
+        pairs = c.reshape(nsample, 2)
+        pairs.sort(axis=1)
+        codes.append(c)
+    # one multiallelic variant with only a few ALT2+ calls, stored sparsely
+    sparse = np.zeros(2 * nsample, np.int32)
+    sparse[[3, 101, 401]] = [1, 2, 2]
+    codes.append(sparse)
+    allele_cts.append(3)
+    nvariant = len(codes)
+    allele_idx_offsets = np.zeros(nvariant + 1, np.uintp)
+    allele_idx_offsets[1:] = np.cumsum(allele_cts)
+    path = bytes(tmp_path / ("m" + str(int(hardcall_phase_present)) + ".pgen"))
+    with pgenlib.PgenWriter(path, nsample, variant_ct=nvariant, nonref_flags=False, allele_ct_limit=4, hardcall_phase_present=hardcall_phase_present) as w:
+        for allele_ct, c in zip(allele_cts, codes):
+            w.append_alleles(c, all_phased=hardcall_phase_present, allele_ct=allele_ct)
+    with open(path, "rb") as f:
+        header_ctrl = f.read(12)[11]
+    assert ((header_ctrl & 15) < 4) == (not hardcall_phase_present)
+    if hardcall_phase_present:
+        with pytest.raises(RuntimeError, match="phase/dosage info simultaneously present"):
+            pgenlib.PgenReader(path)
+        return
+    collapsed_codes = [np.where(c > 1, 1, c) for c in codes]
+    def collapsed_geno(c):
+        pairs = c.reshape(nsample, 2)
+        g = (pairs > 0).sum(axis=1).astype(np.int32)
+        g[(pairs < 0).any(axis=1)] = -9
+        return g
+    with pgenlib.PgenReader(path) as r:
+        geno = np.empty(nsample, np.int32)
+        acodes = np.empty(2 * nsample, np.int32)
+        phasepresent = np.empty(nsample, np.bool_)
+        counts = np.empty(4, np.uint32)
+        for vidx in range(nvariant):
+            r.read(vidx, geno)
+            assert np.array_equal(geno, collapsed_geno(codes[vidx])), vidx
+            r.read_alleles(vidx, acodes)
+            assert np.array_equal(acodes, collapsed_codes[vidx]), vidx
+            r.read_alleles_and_phasepresent(vidx, acodes, phasepresent)
+            assert np.array_equal(acodes, collapsed_codes[vidx]), vidx
+            r.count(vidx, counts)
+            g = collapsed_geno(codes[vidx])
+            assert counts.tolist() == [int((g == k).sum()) for k in range(3)] + [int((g < 0).sum())], vidx
+            with pytest.raises(RuntimeError):
+                r.count(vidx, counts, 2)
+        want = np.array(collapsed_codes)
+        for hap_maj in (0, 1):
+            out = np.empty((2 * nsample, nvariant) if hap_maj else (nvariant, 2 * nsample), np.int32)
+            r.read_alleles_range(0, nvariant, out, hap_maj=hap_maj)
+            assert np.array_equal(out.T if hap_maj else out, want), hap_maj
+            idxs = np.array([4, 1, 2], np.uint32)
+            out = np.empty((2 * nsample, 3) if hap_maj else (3, 2 * nsample), np.int32)
+            r.read_alleles_list(idxs, out, hap_maj=hap_maj)
+            assert np.array_equal(out.T if hap_maj else out, want[idxs]), hap_maj
+        out = np.empty((nvariant, 2 * nsample), np.int32)
+        pp_out = np.empty((nvariant, nsample), np.bool_)
+        r.read_alleles_and_phasepresent_range(0, nvariant, out, pp_out)
+        assert np.array_equal(out, want)
+        r.read_alleles_and_phasepresent_list(np.array([3, 0], np.uint32), out[:2], pp_out[:2])
+        assert np.array_equal(out[:2], want[[3, 0]])
+        # sample subset
+        subset = np.array(sorted(random.sample(range(nsample), 120)), np.uint32)
+        r.change_sample_subset(subset)
+        sub_acodes = np.empty(2 * len(subset), np.int32)
+        for vidx in range(nvariant):
+            r.read_alleles(vidx, sub_acodes)
+            assert np.array_equal(sub_acodes, collapsed_codes[vidx].reshape(nsample, 2)[subset].ravel()), vidx
+    # With allele_idx_offsets, the real codes are returned.
+    with pgenlib.PgenReader(path, allele_idx_offsets=allele_idx_offsets) as r:
+        acodes = np.empty(2 * nsample, np.int32)
+        for vidx in range(nvariant):
+            r.read_alleles(vidx, acodes)
+            assert np.array_equal(acodes, codes[vidx]), vidx

@@ -338,7 +338,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
     } else {
-      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
+      alt1_slen = AdvToDelimShort(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
       alt1_slen = new_id_max_allele_slen;
@@ -457,7 +457,7 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
     } else {
-      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
+      alt1_slen = AdvToDelimShort(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
       if (alt1_slen > cur_max_overflow_slen) {
@@ -1564,6 +1564,26 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     } else if ((!info_pr_exists) && (!info_reload_slen) && (!info_existp) && (!info_nonexistp) && (!info_filter.expr.etype)) {
       info_col_present = 0;
     }
+    // INFO is frequently long, so when it's the last column we lex, we split
+    // it off from the main TokenLex() call: if it's needed, its end is found
+    // by CurTokenEndFar()'s vector scan; otherwise we just verify that it's
+    // present.  This is handled inside the existing info_col_present branch
+    // (and no new loop variable is introduced), since the no-INFO path was
+    // measurably slowed by anything more.
+    // info_col_present values in the main loop:
+    //   0: no INFO column, or INFO not needed and not the last lexed column
+    //   1: INFO needed, lexed by the main TokenLex() call
+    //   2: INFO needed, last lexed column
+    //   3: INFO not needed, last lexed column
+    // AVX2 builds don't do this, since their full-SIMD TokenLexK0() already
+    // handles a long last token well, and the second lexing pass made
+    // INFO-containing .pvar loading 5-8% slower in Nov 2026 testing.
+#ifndef USE_AVX2
+    if (col_types[relevant_postchr_col_ct - 1] == 6) {
+      --relevant_postchr_col_ct;
+      info_col_present = info_col_present? 2 : 3;
+    }
+#endif
 
     uint32_t fexcept_ct = 0;
     uintptr_t max_fexcept_blen = 2;
@@ -1843,10 +1863,26 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
 
         // It is possible for the info_token[info_slen] assignment below to
-        // clobber the line terminator, so we advance line_iter to eoln here
-        // and never reference it again before the next line.
-        line_iter = AdvToDelim(linebuf_iter, '\n');
+        // clobber the line terminator, so we advance line_iter to eoln before
+        // it and never reference it again before the next line.
         if (info_col_present) {
+          if (info_col_present != 1) {
+            if (info_col_present == 3) {
+              if (unlikely(!NextTokenMult(linebuf_iter, col_skips[relevant_postchr_col_ct]))) {
+                goto LoadPvar_ret_MISSING_TOKENS;
+              }
+              line_iter = AdvToDelim(linebuf_iter, '\n');
+              goto LoadPvar_info_done;
+            }
+            char* info_start = NextTokenMult(linebuf_iter, col_skips[relevant_postchr_col_ct]);
+            if (unlikely(!info_start)) {
+              goto LoadPvar_ret_MISSING_TOKENS;
+            }
+            token_ptrs[6] = info_start;
+            linebuf_iter = CurTokenEndFar(info_start);
+            token_slens[6] = linebuf_iter - info_start;
+          }
+          line_iter = AdvToDelimNear(linebuf_iter, '\n');
           const uint32_t info_slen = token_slens[6];
           if (info_slen > info_reload_slen) {
             info_reload_slen = info_slen;
@@ -1884,9 +1920,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               goto LoadPvar_skip_variant;
             }
           }
+        } else {
+          line_iter = AdvToDelimNear(linebuf_iter, '\n');
         }
+      LoadPvar_info_done:
         // POS
         // could error out on floating-point number?
+        ;
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
@@ -2081,7 +2121,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           char* alt_token_end = &(linebuf_iter[remaining_alt_char_ct]);
           for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-            char* cur_alt_end = AdvToDelim(linebuf_iter, ',');
+            char* cur_alt_end = AdvToDelimShort(linebuf_iter, ',');
             const uint32_t cur_allele_slen = cur_alt_end - linebuf_iter;
             if (cur_allele_slen == 1) {
               const char geno_char = linebuf_iter[0];
@@ -2176,7 +2216,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           char* alt_col_end = CurTokenEnd(alt_col_start);
           extra_alt_ct = CountByte(alt_col_start, ',', alt_col_end - alt_col_start);
-          line_iter = AdvToDelim(alt_col_end, '\n');
+          line_iter = AdvToDelimNear(alt_col_end, '\n');
         }
       LoadPvar_skip_variant:
         ++exclude_ct;
@@ -2705,7 +2745,7 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
       if (alt_col_slen > 1) {
         extra_alt_ct = CountByte(alt_iter, ',', alt_col_slen);
         for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-          const char* cur_alt_end = AdvToDelim(alt_iter, ',');
+          const char* cur_alt_end = AdvToDelimShort(alt_iter, ',');
           const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
           if (cur_allele_slen > max_allele_slen) {
             max_allele_slen = cur_allele_slen;
@@ -2723,7 +2763,7 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
       }
       allele_idx += cur_allele_ct;
       *allele_idx_offsets_iter++ = allele_idx;
-      const char* line_end = AdvPastDelim(alt_end, '\n');
+      const char* line_end = AdvPastDelimNear(alt_end, '\n');
       const uint32_t cur_line_blen = line_end - line_start;
       if (cur_line_blen > max_observed_line_blen) {
         max_observed_line_blen = cur_line_blen;

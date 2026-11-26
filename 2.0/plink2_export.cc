@@ -1715,7 +1715,6 @@ unsigned char* FillBgen13PloidyAndMissingness(const uintptr_t* genovec, const ui
       // -> 0,8,16,24,32,40,48,56, with extraneous bits set
       cur_hardcall_missing8 = cur_hardcall_missing8 * 0x41041;
       // 0,1,2,3,4,5,6,7 -> 0,8,16,24,32,40,48,56, with extraneous bits set
-      // this operation also appears in GflagsVfilter(), may want to wrap it
       cur_dosage_missing8 = ((cur_dosage_missing8 & 0xfe) * 0x2040810204080LLU) | (cur_dosage_missing8 & 1);
       const uint64_t cur_missing8 = ((cur_hardcall_missing8 & cur_dosage_missing8) & 0x101010101010101LLU) << 7;
 #endif
@@ -7838,11 +7837,11 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           write_iter = u32toa(pr_key_idx, write_iter);
           write_iter = strcpya_k(write_iter, ">" EOLN_STR);
         } else {
-          pr_key_idx = IdHtableFind("PR", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("PR"), fif_keys_htable_size);
+          pr_key_idx = IdHtableFindNoOverread("PR", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("PR"), fif_keys_htable_size);
           assert(pr_key_idx != UINT32_MAX);
         }
       }
-      end_key_idx = IdHtableFind("END", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("END"), fif_keys_htable_size);
+      end_key_idx = IdHtableFindNoOverread("END", TO_CONSTCPCONSTP(fif_keys_mutable), fif_keys_htable, strlen("END"), fif_keys_htable_size);
       if (end_key_idx != UINT32_MAX) {
         if ((fif_keys_mutable[end_key_idx][-1] & 7) != 3) {
           // Not an INFO key of type integer; ignore.
@@ -8479,7 +8478,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           *info_end = ';';
           char* info_stop = &(info_end[1]);
           do {
-            char* key_end = S_CAST(char*, rawmemchr2(info_iter, '=', ';'));
+            char* key_end = AdvToEitherDelimShort(info_iter, '=', ';');
             const uint32_t fif_idx = IdHtableFindNnt(info_iter, fif_keys, fif_keys_htable, key_end - info_iter, fif_keys_htable_size);
             // Second predicate verifies this is actually an INFO key.
             uint32_t info_type_code = 0;
@@ -8511,7 +8510,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               continue;
             }
             char* value_start = &(key_end[1]);
-            char* value_end = AdvToDelim(value_start, ';');
+            char* value_end = AdvToDelimShort(value_start, ';');
             if (info_type_code == 7) {
               // No need to count commas in this case.
               write_iter = AppendBcfCountedString(value_start, value_end - value_start, write_iter);
@@ -8626,7 +8625,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                       CopyToUnalignedOffsetF(write_uc, &fxx, value_idx);
                       value_iter = floatstr_end;
                     } else {
-                      const char* next_comma = AdvToDelim(value_iter, ',');
+                      const char* next_comma = AdvToDelimShort(value_iter, ',');
                       const uint32_t slen = next_comma - value_iter;
                       if (IsNanStr(value_iter, slen)) {
                         CopyToUnalignedOffsetU32(write_uc, &nan_bits, value_idx);

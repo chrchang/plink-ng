@@ -88,3 +88,19 @@ $1/plink2 $2 $3 --vcf in2.vcf --fa ref2.fa --normalize indel-join --make-pgen mu
 if $1/plink2 $2 $3 --vcf in.vcf --fa ref.fa --normalize left indel-join --make-pgen --out tmp_flag2; then
     exit 1
 fi
+
+# --allow-normalize-with-split: --normalize runs before the split, so the
+# multiallelic m is normalized as a whole, and its insertion half ends up
+# non-minimal (TAA>TAAA) instead of T>TA.  That's why the combination errors
+# out by default.  (multiallelics=+snps only joins, so it isn't affected.)
+printf '##fileformat=VCFv4.2\n##contig=<ID=1,length=30>\n##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n1\t5\tm\tAAA\tA,AAAA\t.\t.\t.\tGT\t0/1\t1/2\n' > tmp_in3.vcf
+for split in - -snps; do
+    if $1/plink2 $2 $3 --vcf tmp_in3.vcf --fa ref2.fa --normalize --make-pgen multiallelics=$split --out tmp_split_err; then
+        exit 1
+    fi
+done
+$1/plink2 $2 $3 --vcf tmp_in3.vcf --fa ref2.fa --normalize --make-pgen multiallelics=- --allow-normalize-with-split --out tmp_split_norm
+test "$(grep -v '^#' tmp_split_norm.pvar | cut -f 2,4,5 | tr '\t\n' ': ')" = "3:TAA:T 3:TAA:TAAA "
+$1/plink2 $2 $3 --vcf tmp_in3.vcf --make-pgen multiallelics=- --out tmp_split_first
+$1/plink2 $2 $3 --pfile tmp_split_first --fa ref2.fa --normalize --make-pgen --out tmp_split_then_norm
+test "$(grep -v '^#' tmp_split_then_norm.pvar | cut -f 2,4,5 | tr '\t\n' ': ')" = "3:TAA:T 3:T:TA "

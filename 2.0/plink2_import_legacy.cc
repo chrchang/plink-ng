@@ -1277,7 +1277,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
         fflush(stdout);
         next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
-      tped_line_iter = AdvPastDelim(tped_line_iter, '\n');
+      tped_line_iter = AdvPastDelimNear(tped_line_iter, '\n');
     }
     reterr = SpgwFinish(&spgw);
     if (unlikely(reterr)) {

@@ -18,7 +18,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-// This implements a hash table over a const char* const* array of strings.
+// This implements a hash table over a const char* const* array of strings.  It
+// now utilizes a C99 port of absl::Hash<std::string_view> from Abseil LTS
+// 20260817.0, which is Apache 2-licensed (see LICENSE.htable).
 
 #include "plink2_base.h"
 
@@ -38,17 +40,22 @@ namespace plink2 {
 // similarly, copy_when_nonmissing() retired in favor of genoarr_to_nonmissing
 // followed by a for loop
 
-// Benchmark results justify replacing this with XXH3 when the latter is ready.
-// Not considering it ready yet since the development XXH_INLINE_ALL setup
-// isn't very friendly.
-//
-// (Can also try using _mm_aesenc_si128() in a similar manner to the Golang
-// runtime when SSE4.2+ is available, and otherwise keeping Murmurhash.  See
-// aeshashbody() in https://golang.org/src/runtime/asm_amd64.s .)
+// C99 port of absl::Hash<std::string_view>'s portable code path, with a
+// fixed seed of 0 (see plink2_htable.cc).  absl's own hash tables use all 64
+// bits (low 7 bits as a tag, the rest for bucket selection).  Only reads
+// key[0..len-1].
+uint64_t Hash64(const void* key, uintptr_t len);
+
+// Top 32 bits of Hash64() (top since Hashceil() and other callers use high
+// bits).  This replaced 32-bit MurmurHash3 in Nov 2026; it's ~3x faster on
+// typical variant/sample IDs, and >10x faster on long inputs.
+// Defined inline so that callers make a single out-of-line call, to Hash64().
 //
 // Eventually want this to be a constexpr?  Seems painful to make that work,
 // though.
-uint32_t Hash32(const void* key, uint32_t len);
+HEADER_INLINE uint32_t Hash32(const void* key, uint32_t len) {
+  return Hash64(key, len) >> 32;
+}
 
 // see http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
 // Note that this is a bit more vulnerable to adversarial input: modulo
@@ -103,7 +110,7 @@ HEADER_INLINE uint32_t GetHtableFastSize(uint32_t item_ct) {
 }
 
 // cur_id DOES need to be null-terminated
-uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
+uint32_t IdHtableFindNoOverread(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
 
 // item_ids overread must be ok.  In exchange, cur_id doesn't need to be
 // null-terminated any more.
