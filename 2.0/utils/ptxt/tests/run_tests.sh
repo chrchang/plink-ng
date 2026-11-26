@@ -211,8 +211,10 @@ f "substr then arith" 'substr($3, 3) + 0 < 500' "'substr(\$SNP, 3) + 0 < 500'"
 check "substr chr strip" "awk -F'\t' 'NR == 1 || substr(\$1, 4) + 0 > 20' sschr.tsv" "$P filter -H 'substr(\$CHR, 4) + 0 > 20' sschr.tsv"
 printf 'w\thello\nx\t\ny\n' > sub.tsv
 # awk writes the expected substring as column 3; every line must match it.
-# (-1, 3) is left out: mawk disagrees with gawk and BSD awk there.
-for args in '2, 3' '1' '0, 2' '0' '5, 100' '6' '7, 1' '2, 0' '2, -1' '1.7, 1' '2.7, 1' '1, 1.7' '-0.5, 2' '"1", "2"'; do
+# A start below 1 with an explicit length is left out: mawk 1.3.3 counts the
+# length from the given start ("h" for (0, 2)), while gawk, BSD awk and mawk
+# 1.3.4 count it from 1 ("he"); ptxt follows the latter (checked below).
+for args in '2, 3' '1' '0' '5, 100' '6' '7, 1' '2, 0' '2, -1' '1.7, 1' '2.7, 1' '1, 1.7' '"1", "2"'; do
   awk -F'\t' -v OFS='\t' "{print \$1, \$2, substr(\$2, $args)}" sub.tsv > subx.tsv
   check "substr($args)" "cat subx.tsv" "$P filter 'substr(\$2, $args) == \$3' subx.tsv"
   # Literal comparisons take a specialized path.
@@ -222,6 +224,7 @@ for args in '2, 3' '1' '0, 2' '0' '5, 100' '6' '7, 1' '2, 0' '2, -1' '1.7, 1' '2
   done
 done
 expect "substr start below 1" "$P filter 'substr(\$2, -1, 3) == \"hel\"' sub.tsv" 'w\thello\n'
+expect "substr start 0" "$P filter 'substr(\$2, 0, 2) == \"he\" && substr(\$2, -0.5, 2) == \"he\"' sub.tsv" 'w\thello\n'
 expect "substr is a string" "$P filter -H 'substr(\$x, 1) == 10' ex.tsv | cut -f1" 'x\n10\n'
 expect "substr string vs number" "printf '10.0\n10\n' | $P filter 'substr(\$1, 1) == 10' -" '10\n'
 expect "substr of number literal" "printf 'a\n' | $P filter 'substr(1e7, 2, 3) == \"000\" && substr(1/4, 1) == \"0.25\" && len(1/3) == 8' -" 'a\n'
