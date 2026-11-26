@@ -1721,7 +1721,8 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       if (vrtype_and_fpos_storage == 12) {
         max_vrec_width = 3;
       } else if (vrtype_and_fpos_storage == 14) {
-        max_vrec_width = 6;
+        // entry value 15: record type 0xe0, 7 bytes
+        max_vrec_width = 7;
       } else {
         max_vrec_width = NypCtToByteCt(raw_sample_ct);
         if (vrtype_and_fpos_storage == 9) {
@@ -10682,8 +10683,10 @@ BoolErr ValidateGeno(const unsigned char* fread_end, uint32_t vidx, PgenReaderMa
   return 0;
 }
 
-BoolErr ValidateAndCountDeltalist(const unsigned char* fread_end, uint32_t sample_ct, const unsigned char** fread_pp, uint32_t* __restrict deltalist, uint32_t* deltalist_len_ptr) {
-  // pass deltalist == nullptr when actual bit positions aren't needed
+BoolErr ValidateAndCountDeltalist(const unsigned char* fread_end, uint32_t sample_ct, const unsigned char** fread_pp, uint32_t* __restrict deltalist, uintptr_t* __restrict deltalist_include, uint32_t* deltalist_len_ptr) {
+  // pass deltalist == nullptr when actual bit positions aren't needed.
+  // deltalist_include, if non-null, must be zero-initialized; a bit is set for
+  // each sample in the list.
   const unsigned char* group_info_iter;
   if (unlikely(ValidateDifflistHeader(fread_end, sample_ct, fread_pp, nullptr, &group_info_iter, deltalist_len_ptr))) {
     return 1;
@@ -10726,6 +10729,9 @@ BoolErr ValidateAndCountDeltalist(const unsigned char* fread_end, uint32_t sampl
       if (deltalist_iter) {
         *deltalist_iter++ = sample_idx;
       }
+      if (deltalist_include) {
+        SetBit(sample_idx, deltalist_include);
+      }
       if (deltalist_idx_lowbits == group_len_m1) {
         break;
       }
@@ -10744,6 +10750,10 @@ BoolErr ValidateMultiallelicHc(const unsigned char* fread_end, const uintptr_t* 
     return 1;
   }
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
+  if (unlikely(*fread_pp == fread_end)) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Multiallelic hardcall track for (0-based) variant #%u is missing its mode byte.\n", vidx);
+    return 1;
+  }
   const uint32_t aux1_first_byte = **fread_pp;
   *fread_pp += 1;
   if (unlikely(aux1_first_byte &&
@@ -10789,7 +10799,7 @@ BoolErr ValidateMultiallelicHc(const unsigned char* fread_end, const uintptr_t* 
         }
       }
     } else {
-      if (unlikely(ValidateAndCountDeltalist(fread_end, sample_ct, fread_pp, deltalist_workspace, &rare01_ct) || (!rare01_ct))) {
+      if (unlikely(ValidateAndCountDeltalist(fread_end, sample_ct, fread_pp, deltalist_workspace, nullptr, &rare01_ct) || (!rare01_ct))) {
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic het-ref hardcall deltalist-subset for (0-based) variant #%u.\n", vidx);
         return 1;
       }
@@ -10930,7 +10940,7 @@ BoolErr ValidateMultiallelicHc(const unsigned char* fread_end, const uintptr_t* 
         }
       }
     } else {
-      if (unlikely(ValidateAndCountDeltalist(fread_end, sample_ct, fread_pp, deltalist_workspace, &rare10_ct) || (!rare10_ct))) {
+      if (unlikely(ValidateAndCountDeltalist(fread_end, sample_ct, fread_pp, deltalist_workspace, nullptr, &rare10_ct) || (!rare10_ct))) {
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic altxy hardcall deltalist-subset for (0-based) variant #%u.\n", vidx);
         return 1;
       }
@@ -11085,9 +11095,28 @@ BoolErr ValidateHphase(const unsigned char* fread_end, uint32_t vidx, uint32_t h
   return 0;
 }
 
-PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, char* errstr_buf) {
-  // similar to ParseDosage16().  doesn't support multiallelic data yet.
-  const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
+// Dosages must be consistent with hardcalls: either the hardcall is missing,
+// or it is within 0.5 of the (total ALT) dosage.  Phase is not compared.
+// hardcall is a main-track genotype category (3 = missing), and dosage_val is
+// in [0, 32768].
+static inline BoolErr DosageHardcallInconsistent(uint32_t hardcall, uint32_t dosage_val) {
+  if (hardcall == 3) {
+    return 0;
+  }
+  // dosage_val 16384 = 1 ALT allele, so 0.5 = 8192.
+  const int32_t diff = S_CAST(int32_t, hardcall * 16384) - S_CAST(int32_t, dosage_val);
+  return (diff > 8192) || (diff < -8192);
+}
+
+static void FillDosageInconsistentErrstr(uint32_t sample_idx, uint32_t vidx, char* errstr_buf) {
+  snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Dosage for (0-based) sample #%u in (0-based) variant #%u is more than 0.5 away from its (non-missing) hardcall.\n", sample_idx, vidx);
+}
+
+// Checks the dosage tracks (#3, #4, #7, #8).  genovec must contain the
+// main-track genotype categories, with trailing bits zeroed.  Similar to
+// ParseDosage16(); doesn't support multiallelic dosage tracks yet.
+// May use pgrp->workspace_dosage_present.
+PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t vrtype, const uintptr_t* __restrict genovec, PgenReaderMain* pgrp, const unsigned char** fread_pp, char* errstr_buf) {
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   if ((vrtype & 0x60) == 0x40) {
     // unconditional dosage.  handle separately from other two cases since
@@ -11097,13 +11126,23 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional dosage track for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;
     }
-    // todo: verify genotype and dosage are consistent
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      uint16_t cur_dosage_val_p1;
-      CopyFromUnalignedOffsetU16(&cur_dosage_val_p1, dosage_main_read, sample_idx);
-      cur_dosage_val_p1 += 1;  // intentional overflow on 65535
-      if (unlikely(cur_dosage_val_p1 > 32769)) {
+      uint16_t dosage_val;
+      CopyFromUnalignedOffsetU16(&dosage_val, dosage_main_read, sample_idx);
+      const uint32_t hardcall = GetNyparrEntry(genovec, sample_idx);
+      if (dosage_val == 65535) {
+        if (unlikely(hardcall != 3)) {
+          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Dosage for (0-based) sample #%u in (0-based) variant #%u is missing, but its hardcall is not.\n", sample_idx, vidx);
+          return kPglRetMalformedInput;
+        }
+        continue;
+      }
+      if (unlikely(dosage_val > 32768)) {
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional dosage track for (0-based) variant #%u (dosage is greater than 2).\n", vidx);
+        return kPglRetMalformedInput;
+      }
+      if (unlikely(DosageHardcallInconsistent(hardcall, dosage_val))) {
+        FillDosageInconsistentErrstr(sample_idx, vidx, errstr_buf);
         return kPglRetMalformedInput;
       }
     }
@@ -11127,7 +11166,9 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
             snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosages for (0-based) variant #%u.\n", vidx);
             return kPglRetMalformedInput;
           }
-        } else if (unlikely((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768))) {
+        } else if (unlikely((dphase_delta_val == -32768) || (dpiece0_x2 > 32768) || (dpiece1_x2 > 32768))) {
+          // -32768 must be special-cased: with dosage_val 0 or 32768, both
+          // dpieces wrap around to values <= 32768.
           snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosages for (0-based) variant #%u.\n", vidx);
           return kPglRetMalformedInput;
         }
@@ -11135,10 +11176,13 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
     }
     return kPglRetSuccess;
   }
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  uintptr_t* dosage_present = pgrp->workspace_dosage_present;
+  ZeroWArr(sample_ctl, dosage_present);
   uint32_t dosage_ct;
   if ((vrtype & 0x60) == 0x20) {
     // dosage list
-    if (unlikely(ValidateAndCountDeltalist(fread_end, sample_ct, fread_pp, nullptr, &dosage_ct))) {
+    if (unlikely(ValidateAndCountDeltalist(fread_end, sample_ct, fread_pp, nullptr, dosage_present, &dosage_ct))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid dosage list for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;
     }
@@ -11148,6 +11192,7 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid dosage subset for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;
     }
+    memcpy(dosage_present, *fread_pp, sample_ctb);
     dosage_ct = PopcountBytes(*fread_pp, sample_ctb);
     *fread_pp += sample_ctb;
     const uint32_t sample_ct_mod8 = sample_ct % 8;
@@ -11163,11 +11208,18 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid dosage track for (0-based) variant #%u.\n", vidx);
     return kPglRetMalformedInput;
   }
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-    uint16_t cur_dosage_u16;
-    CopyFromUnalignedOffsetU16(&cur_dosage_u16, dosage_main_read, dosage_idx);
-    if (unlikely(cur_dosage_u16 > 32768)) {
+    const uint32_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
+    uint16_t dosage_val;
+    CopyFromUnalignedOffsetU16(&dosage_val, dosage_main_read, dosage_idx);
+    if (unlikely(dosage_val > 32768)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid dosage track for (0-based) variant #%u (dosage is greater than 2).\n", vidx);
+      return kPglRetMalformedInput;
+    }
+    if (unlikely(DosageHardcallInconsistent(GetNyparrEntry(genovec, sample_idx), dosage_val))) {
+      FillDosageInconsistentErrstr(sample_idx, vidx, errstr_buf);
       return kPglRetMalformedInput;
     }
   }
@@ -11218,7 +11270,8 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
         CopyFromUnalignedIncrI16(&dphase_delta_val, &dphase_delta_read_biter);
         const uint16_t dpiece0_x2 = dosage_val + dphase_delta_val;
         const uint16_t dpiece1_x2 = dosage_val - dphase_delta_val;
-        if (unlikely((dpiece0_x2 > 32768) || (dpiece1_x2 > 32768))) {
+        // -32768 must be special-cased; see the unconditional-dosage case.
+        if (unlikely((dphase_delta_val == -32768) || (dpiece0_x2 > 32768) || (dpiece1_x2 > 32768))) {
           snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
           return kPglRetMalformedInput;
         }
@@ -11237,10 +11290,169 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
   return kPglRetSuccess;
 }
 
+// Header extension type indexes (bit positions in the header-extension flag
+// varint) defined by the spec.
+CONSTI32(kPgenHeaderExtWriterId, 1);
+CONSTI32(kPgenHeaderExtPadding, 2);
+
+static void FillExpectedActualErrstr(const char* prefix, uint64_t expected, uint64_t actual, char* errstr_buf) {
+  char* write_iter = strcpya(errstr_buf, prefix);
+  write_iter = strcpya_k(write_iter, " (expected ");
+  write_iter = i64toa(expected, write_iter);
+  write_iter = strcpya_k(write_iter, ", actual ");
+  write_iter = i64toa(actual, write_iter);
+  strcpy_k(write_iter, ").\n");
+}
+
+// Flag bits past 255 are not permitted.
+static uint32_t ExtSetHasBitsPast255(const uintptr_t* ext_bitarr, uint32_t word_ct) {
+  return (word_ct > 256 / kBitsPerWord) && ext_bitarr[256 / kBitsPerWord];
+}
+
+typedef struct Utf8CheckerStruct {
+  uint32_t need;  // continuation bytes still expected
+  uint32_t lo;  // allowed range of the next continuation byte
+  uint32_t hi;
+} Utf8Checker;
+
+// Returns 1 on an invalid byte (overlong encodings, surrogates, and code
+// points past U+10FFFF are invalid).  Call with a fresh (zeroed) checker; the
+// input is valid iff no call fails and need == 0 at the end.
+static BoolErr Utf8CheckerUpdate(const unsigned char* buf, uintptr_t len, Utf8Checker* ucp) {
+  uint32_t need = ucp->need;
+  uint32_t lo = ucp->lo;
+  uint32_t hi = ucp->hi;
+  for (uintptr_t ulii = 0; ulii != len; ++ulii) {
+    const uint32_t cc = buf[ulii];
+    if (need) {
+      if ((cc < lo) || (cc > hi)) {
+        return 1;
+      }
+      --need;
+      lo = 0x80;
+      hi = 0xbf;
+      continue;
+    }
+    if (cc < 0x80) {
+      continue;
+    }
+    lo = 0x80;
+    hi = 0xbf;
+    if ((cc >= 0xc2) && (cc <= 0xdf)) {
+      need = 1;
+    } else if ((cc >= 0xe0) && (cc <= 0xef)) {
+      need = 2;
+      if (cc == 0xe0) {
+        lo = 0xa0;
+      } else if (cc == 0xed) {
+        hi = 0x9f;
+      }
+    } else if ((cc >= 0xf0) && (cc <= 0xf4)) {
+      need = 3;
+      if (cc == 0xf0) {
+        lo = 0x90;
+      } else if (cc == 0xf4) {
+        hi = 0x8f;
+      }
+    } else {
+      return 1;
+    }
+  }
+  ucp->need = need;
+  ucp->lo = lo;
+  ucp->hi = hi;
+  return 0;
+}
+
+// Validates the contents of a header extension body of known type, starting
+// at the current position of ff; or skips it if the type has no defined
+// constraints.  Caller must already have verified that byte_ct bytes remain.
+static PglErr ValidateHeaderExtBody(FILE* ff, uint32_t is_pgi, uint32_t type_idx, uint64_t byte_ct, char* errstr_buf) {
+  if ((type_idx != kPgenHeaderExtWriterId) && (type_idx != kPgenHeaderExtPadding)) {
+    if (unlikely(fseeko(ff, byte_ct, SEEK_CUR))) {
+      FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+    return kPglRetSuccess;
+  }
+  unsigned char buf[4096];
+  Utf8Checker uc;
+  uc.need = 0;
+  uc.lo = 0x80;
+  uc.hi = 0xbf;
+  while (byte_ct) {
+    const uintptr_t cur_byte_ct = MINV(byte_ct, sizeof(buf));
+    if (unlikely(!fread_unlocked(buf, cur_byte_ct, 1, ff))) {
+      FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+    if (type_idx == kPgenHeaderExtPadding) {
+      for (uintptr_t ulii = 0; ulii != cur_byte_ct; ++ulii) {
+        if (unlikely(buf[ulii])) {
+          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen%s padding header extension contains a nonzero byte.\n", is_pgi? ".pgi file" : "");
+          return kPglRetMalformedInput;
+        }
+      }
+    } else if (unlikely(Utf8CheckerUpdate(buf, cur_byte_ct, &uc))) {
+      break;
+    }
+    byte_ct -= cur_byte_ct;
+  }
+  if (unlikely(uc.need || byte_ct)) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen%s writer-identifier header extension is not valid UTF-8.\n", is_pgi? ".pgi file" : "");
+    return kPglRetMalformedInput;
+  }
+  return kPglRetSuccess;
+}
+
+// Reads ext_ct base-128 varint sizes from ff, then checks that the extension
+// bodies that follow fit in the file; *end_fpos_ptr is set to the end of the
+// last body.  If ext_bitarr is non-null, the bodies are also validated (this
+// is only done for header extensions).
+static PglErr ValidateExtSizesAndBodies(FILE* ff, uint32_t is_pgi, const uintptr_t* ext_bitarr, uint32_t ext_ct, uint64_t fsize, uint64_t* end_fpos_ptr, char* errstr_buf) {
+  uint64_t sizes[256];
+  for (uint32_t seq_idx = 0; seq_idx != ext_ct; ++seq_idx) {
+    const uint64_t cur_size = FGetVint63(ff);
+    if (unlikely(cur_size == (1LLU << 63))) {
+      if (ferror_unlocked(ff)) {
+        FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+        return kPglRetReadFail;
+      }
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s extension size.\n", is_pgi? ".pgi file" : "");
+      return kPglRetMalformedInput;
+    }
+    sizes[seq_idx] = cur_size;
+  }
+  uint64_t fpos = ftello(ff);
+  uint32_t seq_idx = 0;
+  for (uint32_t type_idx = 0; seq_idx != ext_ct; ++type_idx) {
+    if (ext_bitarr && (!IsSet(ext_bitarr, type_idx))) {
+      continue;
+    }
+    const uint64_t cur_size = sizes[seq_idx++];
+    if (unlikely(cur_size > fsize - fpos)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen%s extension extends past the end of the file.\n", is_pgi? ".pgi file" : "");
+      return kPglRetMalformedInput;
+    }
+    if (ext_bitarr) {
+      PglErr reterr = ValidateHeaderExtBody(ff, is_pgi, type_idx, cur_size, errstr_buf);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+    }
+    fpos += cur_size;
+  }
+  *end_fpos_ptr = fpos;
+  return kPglRetSuccess;
+}
+
 // Re-reads the parts of the header (or .pgi file) which PgfiInitPhase2Ex()
-// skips or doesn't validate: the vblock-start index, and trailing bits of the
-// final vrtype byte.  header_ff must be the .pgi file when is_pgi is set.
-static PglErr ValidateHeaderIndex(FILE* header_ff, uint32_t is_pgi, const PgenReaderMain* pgrp, char* errstr_buf) {
+// skips or doesn't validate: the vblock-start index, trailing bits of the
+// final vrtype byte, and header/footer extensions.  Also checks that variant
+// records start immediately after the header (and its extensions), and that
+// the .pgen ends immediately after the last record (or the footer, if there
+// is one).  header_ff must be the .pgi file when is_pgi is set.
+static PglErr ValidateHeaderIndex(FILE* header_ff, uint32_t is_pgi, FILE* pgen_ff, uint64_t pgen_fsize, const PgenReaderMain* pgrp, char* errstr_buf) {
   const uint32_t variant_ct = pgrp->fi.raw_variant_ct;
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
   uint32_t header_ctrl = 0;
@@ -11291,6 +11503,81 @@ static PglErr ValidateHeaderIndex(FILE* header_ff, uint32_t is_pgi, const PgenRe
       return kPglRetMalformedInput;
     }
   }
+
+  uint64_t header_fsize = pgen_fsize;
+  if (is_pgi) {
+    if (unlikely(fseeko(header_ff, 0, SEEK_END))) {
+      FillPgenHeaderReadErrstrFromNzErrno(1, errstr_buf);
+      return kPglRetReadFail;
+    }
+    header_fsize = ftello(header_ff);
+  }
+  uint64_t header_end = PgfiHeaderBaseEndOffset(header_ctrl, variant_ct);
+  uint64_t footer_fpos = 0;
+  uint32_t footer_ext_ct = 0;
+  if (pgrp->fi.extensions_present) {
+    if (unlikely(fseeko(header_ff, header_end, SEEK_SET))) {
+      FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+    uintptr_t header_bitarr[(256 / kBitsPerWord) + 1];
+    uint32_t header_bitarr_cumulative_popcounts[(256 / kBitsPerWord) + 1];
+    uint32_t header_word_ct;
+    PglErr reterr = PgfiInitReloadExtSet(is_pgi, header_ff, header_bitarr, header_bitarr_cumulative_popcounts, nullptr, &header_word_ct, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    uintptr_t footer_bitarr[(256 / kBitsPerWord) + 1];
+    uint32_t footer_bitarr_cumulative_popcounts[(256 / kBitsPerWord) + 1];
+    uint32_t footer_word_ct;
+    reterr = PgfiInitReloadExtSet(is_pgi, header_ff, footer_bitarr, footer_bitarr_cumulative_popcounts, &footer_fpos, &footer_word_ct, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    if (unlikely(ExtSetHasBitsPast255(header_bitarr, header_word_ct) || ExtSetHasBitsPast255(footer_bitarr, footer_word_ct))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen%s extension flag varint has a bit past 255 set.\n", is_pgi? ".pgi file" : " header");
+      return kPglRetMalformedInput;
+    }
+    footer_ext_ct = PopcountWords(footer_bitarr, footer_word_ct);
+    reterr = ValidateExtSizesAndBodies(header_ff, is_pgi, header_bitarr, PopcountWords(header_bitarr, header_word_ct), header_fsize, &header_end, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  const uint64_t records_start = pgrp->fi.var_fpos[0];
+  if (is_pgi) {
+    if (unlikely(header_fsize != header_end)) {
+      FillExpectedActualErrstr("Error: .pgen.pgi file size is inconsistent with its contents", header_end, header_fsize, errstr_buf);
+      return kPglRetMalformedInput;
+    }
+    if (unlikely(records_start != 3)) {
+      FillExpectedActualErrstr("Error: First variant record in .pgen file does not start immediately after the 3-byte file header", 3, records_start, errstr_buf);
+      return kPglRetMalformedInput;
+    }
+  } else if (unlikely(records_start != header_end)) {
+    FillExpectedActualErrstr(pgrp->fi.extensions_present? "Error: First variant record in .pgen file does not start immediately after the header extensions" : "Error: First variant record in .pgen file does not start immediately after the header", header_end, records_start, errstr_buf);
+    return kPglRetMalformedInput;
+  }
+  const uint64_t records_end = pgrp->fi.var_fpos[variant_ct];
+  uint64_t expected_fsize = records_end;
+  if (footer_ext_ct) {
+    if (unlikely(footer_fpos != records_end)) {
+      FillExpectedActualErrstr("Error: .pgen footer does not start immediately after the last variant record", records_end, footer_fpos, errstr_buf);
+      return kPglRetMalformedInput;
+    }
+    if (unlikely(fseeko(pgen_ff, footer_fpos, SEEK_SET))) {
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
+      return kPglRetReadFail;
+    }
+    PglErr reterr = ValidateExtSizesAndBodies(pgen_ff, 0, nullptr, footer_ext_ct, pgen_fsize, &expected_fsize, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  if (unlikely(pgen_fsize != expected_fsize)) {
+    FillExpectedActualErrstr(footer_ext_ct? "Error: .pgen file has extra bytes after its footer" : "Error: .pgen file has extra bytes after the last variant record", expected_fsize, pgen_fsize, errstr_buf);
+    return kPglRetMalformedInput;
+  }
   return kPglRetSuccess;
 }
 
@@ -11303,11 +11590,21 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
   const uint32_t variant_ct = pgrp->fi.raw_variant_ct;
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t const_vrtype = pgrp->fi.const_vrtype;
+  const uintptr_t* nonref_flags = pgrp->fi.nonref_flags;
+  if (nonref_flags) {
+    const uint32_t variant_ct_modl = variant_ct % kBitsPerWord;
+    if (variant_ct % CHAR_BIT) {
+      if (unlikely(nonref_flags[variant_ct / kBitsPerWord] >> variant_ct_modl)) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Nonzero trailing bits in last nonref_flags byte.\n");
+        return kPglRetMalformedInput;
+      }
+    }
+  }
   if (const_vrtype != UINT32_MAX) {
     // Fixed-width records can't store calls involving ALT2+, but a .pvar
     // multiallelic variant with no such calls is fine (as it is with a
     // variable-width record lacking a multiallelic hardcall track).
-    // const uintptr_t const_vrec_width = pgrp->fi.const_vrec_width;
+    // PgfiInitPhase1() has already verified the file size.
     if ((!const_vrtype) || (const_vrtype == kPglVrtypePlink1)) {
       // only thing that can go wrong is nonzero trailing bits
       const uint32_t dbl_sample_ct_mod4 = 2 * (sample_ct % 4);
@@ -11329,9 +11626,30 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
       }
       return kPglRetSuccess;
     }
-    // todo: 16-bit dosage entries can't be in [32769,65534]
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Validation of fixed-width dosage formats is not implemented yet.\n");
-    return kPglRetNotYetSupported;
+    // Fixed-width unconditional dosage (0x40) or phased dosage (0xc0).
+    const uint32_t genovec_byte_ct = NypCtToByteCt(sample_ct);
+    const uint32_t sample_ct_mod4 = sample_ct % 4;
+    for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+      const unsigned char* fread_ptr;
+      const unsigned char* fread_end = nullptr;
+      if (unlikely(InitReadPtrs(vidx, pgrp, &fread_ptr, &fread_end))) {
+        FillPgenReadErrstrFromErrno(errstr_buf);
+        return kPglRetReadFail;
+      }
+      memcpy(genovec_buf, fread_ptr, genovec_byte_ct);
+      fread_ptr = &(fread_ptr[genovec_byte_ct]);
+      if (sample_ct_mod4 && unlikely(fread_ptr[-1] >> (2 * sample_ct_mod4))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Last genotype byte for (0-based) variant #%u has nonzero trailing bits.\n", vidx);
+        return kPglRetMalformedInput;
+      }
+      ZeroTrailingNyps(sample_ct, genovec_buf);
+      PglErr reterr = ValidateDosage16(fread_end, vidx, const_vrtype, genovec_buf, pgrp, &fread_ptr, errstr_buf);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+      assert(fread_ptr == fread_end);
+    }
+    return kPglRetSuccess;
   }
   const unsigned char* vrtypes = pgrp->fi.vrtypes;
   for (uint32_t vidx = 0; vidx < variant_ct; vidx += kPglVblockSize) {
@@ -11349,8 +11667,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
   }
   fsize = ftello(ff);
   pgrp->fp_vidx = 1;  // force fseek when loading first variant
-  // todo: verify equality if no mode-0x11 footer; and if there is a footer,
-  // validate it
+  // ValidateHeaderIndex() checks for equality (allowing for a footer).
   const uint64_t expected_fsize_min = pgrp->fi.var_fpos[variant_ct];
   if (unlikely(expected_fsize_min > fsize)) {
     char* write_iter = strcpya_k(errstr_buf, "Error: .pgen header indicates that file size should be at least ");
@@ -11385,7 +11702,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
       return kPglRetOpenFail;
     }
   }
-  PglErr reterr = ValidateHeaderIndex(header_ff, is_pgi, pgrp, errstr_buf);
+  PglErr reterr = ValidateHeaderIndex(header_ff, is_pgi, ff, fsize, pgrp, errstr_buf);
   if (is_pgi) {
     if (unlikely(fclose(header_ff) && (!reterr))) {
       FillPgenHeaderReadErrstrFromNzErrno(1, errstr_buf);
@@ -11394,16 +11711,6 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
   }
   if (unlikely(reterr)) {
     return reterr;
-  }
-  const uintptr_t* nonref_flags = pgrp->fi.nonref_flags;
-  if (nonref_flags) {
-    const uint32_t variant_ct_modl = variant_ct % kBitsPerWord;
-    if (variant_ct % CHAR_BIT) {
-      if (unlikely(nonref_flags[variant_ct / kBitsPerWord] >> variant_ct_modl)) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Nonzero trailing bits in last nonref_flags byte.\n");
-        return kPglRetMalformedInput;
-      }
-    }
   }
 
   // could move most of this into plink2_common and make it multithreaded, if
@@ -11431,7 +11738,8 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
         return kPglRetMalformedInput;
       }
     }
-    // don't need genovec_buf to store main genotypes past this point.
+    // genovec_buf must still hold the main-track genotypes when
+    // ValidateDosage16() is called.
     if (VrtypeHphase(vrtype)) {
       if (unlikely(ValidateHphase(fread_end, vidx, het_ct, &fread_ptr, errstr_buf))) {
         return kPglRetMalformedInput;
@@ -11442,7 +11750,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid record type for (0-based) variant #%u (phased dosage bit set, but main dosage bits unset).\n", vidx);
         return kPglRetMalformedInput;
       }
-      reterr = ValidateDosage16(fread_end, vidx, pgrp, &fread_ptr, errstr_buf);
+      reterr = ValidateDosage16(fread_end, vidx, vrtype, genovec_buf, pgrp, &fread_ptr, errstr_buf);
       if (unlikely(reterr)) {
         return reterr;
       }

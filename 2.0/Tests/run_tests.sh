@@ -748,4 +748,9 @@ cd TEST_VALIDATE_ACCEPT
 cd ..
 echo "TEST_VALIDATE_ACCEPT passed."
 
+cd TEST_VALIDATE_GAPS
+./run_tests.sh $d $2 $3 > TEST_VALIDATE_GAPS.log
+cd ..
+echo "TEST_VALIDATE_GAPS passed."
+
 echo "All tests passed."

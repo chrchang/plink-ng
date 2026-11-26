@@ -91,6 +91,13 @@ variant records.  The header either contains enough information to enable
 random access to the variant records, or indicates that an external index file
 contains that information.
 
+There are no gaps: the first variant record starts immediately after the
+header (including any header extensions), and each variant record
+immediately follows the previous one.  The file ends immediately after the
+last variant record, or after the footer when one is present.  Likewise, an
+external index file ends immediately after its header (including any header
+extensions).
+
 A variant record's main data track can be ``LD-compressed'' (LD = linkage
 disequilibrium), referring to the most recent non-LD-compressed variant record
 and only storing genotype-category differences from it.  This is the only type
@@ -270,18 +277,21 @@ following is appended after the header body:
 \item A flag base-128 varint (see
   \url{https://protobuf.dev/programming-guides/encoding/#varints}) describing
   which header extensions are present.  As of this writing, the following
-  header extension is defined:
+  header extensions are defined:
   \begin{itemize}
     \item \texttt{0x2}: PGEN writer identifier (UTF-8 string, no terminator)
+    \item \texttt{0x4}: Padding.  Every byte must be zero.  This can be used
+      to align the first variant record, or to reserve space so that the
+      header can later be rewritten in place with fewer bytes.
   \end{itemize}
   The \texttt{0x1} flag can be safely used by developers for their own
-  purposes, as well as \texttt{(1 << 128)..(1 << 255)}.  Implementations can
-  assume flag bits past \texttt{(1 << 255)} are not permitted.
+  purposes, as well as \texttt{(1 << 128)..(1 << 255)}.  Flag bits past
+  \texttt{(1 << 255)} are not permitted.
 \item A flag base-128 varint describing which footer extensions are present.
   As of this writing, no footer extensions are defined.  The \texttt{0x1} flag
   can be safely used by developers for their own purposes, as well as
-  \texttt{(1 << 128)..(1 << 255)}.  Implementations can assume flag bits past
-  \texttt{(1 << 255)} are not permitted.
+  \texttt{(1 << 128)..(1 << 255)}.  Flag bits past \texttt{(1 << 255)} are
+  not permitted.
 \item If at least one footer extension is present, \texttt{uint64} byte offset
   of footer start.
 \item For each present header extension, a base-128 varint indicating its byte
@@ -626,14 +636,15 @@ diploid ALT allele dosage of roughly 0.05, or a haploid dosage of roughly
 calls; it is assumed that ploidy is known from other context.)
 
 \textbf{Dosages are not allowed to be inconsistent with the corresponding
-hard-calls.}  More precisely, given a (possibly phased) dosage, the (possibly
-phased) hard-call must be either missing, or have Manhattan distance $\leq 0.5$
-from the dosage (typesetted definition of Manhattan dosage distance TBD).
+hard-calls.}  More precisely, for each sample with a dosage, the hard-call
+must be either missing, or satisfy $|16384c - v|\leq 8192$, where $c$ is its
+main data track genotype category (0, 1, or 2; i.e. its number of ALT alleles)
+and $v$ is the sample's stored total-ALT dosage value in track \#4 below.  (On
+a 0..2 scale, the hard-call must be within 0.5 of the dosage.)  Phase is not
+taken into account.
 
-Note that some multiallelic dosages don't have any hard-calls within Manhattan
-distance 0.5; and maximum-likelihood variant calling can also be expected to
-produce a few biallelic-variant hard-calls which violate this consistency
-criterion.  If an analyst is unwilling to part with these marginal hard-calls,
+Note that maximum-likelihood variant calling can be expected to produce a few
+hard-calls which violate this consistency criterion.  If an analyst is unwilling to part with these marginal hard-calls,
 they are expected to keep them in a separate PGEN from the corresponding
 dosages.
 
