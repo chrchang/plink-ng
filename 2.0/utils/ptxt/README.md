@@ -135,9 +135,11 @@ Prints the lines that satisfy an awk-like expression. For example:
 ```
 ptxt filter '$P < 5e-8 && ($1 == "22" || $CHR == "X") && abs($BETA/$SE) > 5' ss.tsv
 ptxt filter '-log10($P) > 8' ss.tsv.gz
+ptxt filter 'len($A1) == 1 && len($A2) == 1 && $P < 5e-8' ss.tsv
 ```
 
-- Fields are written `$N`, `$NAME` or `$"NAME"`.
+- Fields are written `$N`, `$NAME` or `$"NAME"`. `$0` is the whole line
+  (without its newline), as in awk; e.g. `len($0) > 200`.
 - Operators, in awk precedence:
   - `||` (also `|`, `or`)
   - `&&` (also `&`, `and`)
@@ -147,6 +149,16 @@ ptxt filter '-log10($P) > 8' ss.tsv.gz
   - unary `!` (also `not`), `-`, `+`
 - Parentheses and the functions `abs`, `log`, `log10`, `exp` and `sqrt` are
   supported.
+- String functions:
+  - `len(x)` (also `length(x)`) is the number of characters in x.
+  - `substr(x, start)` and `substr(x, start, n)` are as in awk: characters
+    are numbered from 1, the result is a string (never a number), positions
+    are truncated to integers, and a start below 1 counts as 1 without
+    shortening n (as in gawk and BSD awk).
+  - Both act on a field's text as written. A computed number is converted
+    first, as awk does: integers as integers, anything else with `%.6g`.
+  - Example: `len($4) == 1 && len($5) == 1` keeps SNPs, and
+    `substr($SNP, 1, 2) == "rs"` keeps rsIDs.
 - All arguments before FILE are joined with spaces, so the expression doesn't
   have to be quoted as a single argument.
 
