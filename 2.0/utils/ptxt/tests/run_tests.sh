@@ -244,6 +244,65 @@ expect "\$0 string" "printf 'ab\nabc\n' | $P filter '\$0 == \"abc\"' -" 'abc\n'
 expect "\$0 no trailing newline" "printf 'abc' | $P filter 'len(\$0) == 3' -" 'abc\n'
 expect "\$0 keeps CR" "printf 'abc\\r\\nde\\n' | $P filter 'len(\$0) == 4' -" 'abc\r\n'
 expect "\$0 -w keeps leading space" "printf '  a b\n' | $P filter -w 'len(\$0) == 5 && \$1 == \"a\"' -" '  a b\n'
+# ---- filter: concatenation ----
+f "concat" '$4 $5 == "AC"' "'\$A1 \$A2 == \"AC\"'"
+f "concat number" '$1 ":" $2 == "1:1000" || $1 ":" $2 + 7 == "1:1014"' "'\$CHR \":\" \$POS == \"1:1000\" || \$CHR \":\" \$POS + 7 == \"1:1014\"'"
+f "concat vs subtraction" '$2 -1000 < 50' "'\$POS -1000 < 50'"
+
+# ---- print: agreement with awk ----
+# Data lines only (awk computes 0 from the header's text where ptxt prints NA).
+pr() {  # pr NAME AWK_PRINT_ARGS PTXT_ARGS...
+  local name=$1 a=$2; shift 2
+  check "print $name" "awk -F'\t' -v OFS='\t' 'NR > 1 {print $a}' ss.tsv" "$P print -H $* ss.tsv | tail -n +2"
+}
+pr "fields" '$3, $1' "'\$SNP, \$CHR'"
+pr "variant ID" '$1 ":" $2 ":" $5 ":" $4' "'\$CHR \":\" \$POS \":\" \$A2 \":\" \$A1'"
+pr "integers" '$2 - 1000, $7 * 1000000, $7 % 7' "'\$POS - 1000, \$N * 1000000, \$N % 7'"
+pr "floats" '-log($11) / log(10), $8 / $9, sqrt($6)' "'-log10(\$P), \$BETA / \$SE, sqrt(\$A1_FREQ)'"
+pr "len substr" 'length($4), substr($3, 3), substr($3, 1, 3) "x"' "'len(\$A1), substr(\$SNP, 3), substr(\$SNP, 1, 3) \"x\"'"
+pr "concat precedence" '$1 ":" $2 + 1, $1 $2 * 2' "'\$CHR \":\" \$POS + 1, \$CHR \$POS * 2'"
+pr "number in concat" '$8 / $9 "x", "<" $6 * 3 ">"' "'\$BETA / \$SE \"x\", \"<\" \$A1_FREQ * 3 \">\"'"
+pr "comparisons" '($11 < 0.5), ($4 == $5), ($1 > 9)' "'\$P < 0.5, \$A1 == \$A2, \$CHR > 9'"
+pr "literals" '1.50, "s", 2 * 3, 1e6, 1e-5, 0.1 + 0.2' "'1.50, \"s\", 2 * 3, 1e6, 1e-5, 0.1 + 0.2'"
+pr "number field verbatim" '$11, $6, $8' "'\$P, \$A1_FREQ, \$BETA'"
+check "print -p" "awk -F'\t' -v OFS='\t' -v OFMT=%.10g -v CONVFMT=%.10g 'NR > 1 {print \$8 / \$9, \$8 / \$9 \"\", -log(\$11)}' ss.tsv" "$P print -H -p 10 '\$BETA / \$SE, \$BETA / \$SE \"\", -log(\$P)' ss.tsv | tail -n +2"
+check "print -p 1" "awk -F'\t' -v OFS='\t' -v OFMT=%.1g -v CONVFMT=%.1g 'NR > 1 {print \$8 / \$9, \$6 + 0.01}' ss.tsv" "$P print -H -p 1 '\$BETA / \$SE, \$A1_FREQ + 0.01' ss.tsv | tail -n +2"
+check "print -O" "awk -F'\t' -v OFS=, '{print \$3, \$1 \"-\" \$2}' ss.tsv" "$P print -O , '\$3, \$1 \"-\" \$2' ss.tsv"
+check "print no -H" "awk -F'\t' -v OFS='\t' '{print \$3 \"_\" \$1, length(\$0), \$0}' ss.tsv" "$P print '\$3 \"_\" \$1, len(\$0), \$0' ss.tsv"
+check "print -w" "awk -v OFS='\t' 'NR > 1 {print \$2, \$11 * 2}' ws.assoc" "$P print -w -H '\$SNP, \$P * 2' ws.assoc | tail -n +2"
+check "print -f" "awk -F'\t' -v OFS='\t' 'NR > 1 && \$11 < 0.01 && length(\$4) == 1 {print \$3, \$11}' ss.tsv" "$P print -f '\$P < 0.01 && len(\$A1) == 1' '\$SNP, \$P' ss.tsv | tail -n +2"
+check "print -f no header" "awk -F'\t' '\$1 == 22 {print \$2}' ss.tsv" "$P print -f '\$1 == 22' '\$2' ss.tsv"
+check "print -" "$P print '\$3' ss.tsv" "cat ss.tsv | $P print '\$3' -"
+
+# ---- print: header, missing values, number formats ----
+expect "print header" "$P print '\$x, \$y + 1 as Y1, \$x * 2' ex.tsv" 'x\tY1\t$x * 2\n1\tNA\t2\n2\tNA\t4\n0\t1.5\t0\n10\t1001\t20\n-3\t1.5\t-6\n'
+expect "print -H numbered" "$P print -H '\$2, \$1 + 1' ex.tsv | head -2" 'y\t$1 + 1\nNA\t2\n'
+expect "print header \$0" "$P print -H '\$0, \$1' ex.tsv | head -2" 'x\ty\tz\tx\n1\tNA\t3\t1\n'
+expect "print quoted label 2" "$P print '\$x as \"my col\", \$x' ex.tsv | head -1" 'my col\tx\n'
+expect "print -e" "$P print -e . '\$y * 1, \$y / 0' ex.tsv | tail -n +2" '.\t.\n.\t.\n0.5\t.\n1000\t.\n0.5\t.\n'
+expect "print missing in concat" "$P print '(\$y + 1) \"a\", \$y \"a\"' ex.tsv | tail -n +2" 'NA\tNAa\nNA\ta\n1.5a\t0.5a\n1001a\t1e3a\n1.5a\t.5a\n'
+expect "print inf nan" "printf 'a\n' | $P print 'exp(1000), -exp(1000), log(-1), sqrt(-1) \"\"' -" 'inf\t-inf\tNA\tNA\n'
+expect "print -p 0" "printf 'a\n' | $P print -p 0 '0.1 + 0.2, 1 / 3, 1e-7 / 3, 1e300 * 10, 123456789.5, 2.5e-5, -0.0001, 7' -" '0.30000000000000004\t0.3333333333333333\t3.3333333333333334e-08\t1e+301\t123456789.5\t2.5e-05\t-0.0001\t7\n'
+expect "print -p 17" "printf 'a\n' | $P print -p 17 '0.1, 1 / 3' -" '0.10000000000000001\t0.33333333333333331\n'
+expect "print large values" "printf 'a\n' | $P print '4e15 + 0.5, 1e19, -0.0' -" '4e+15\t1e+19\t0\n'
+expect "print exact ties" "printf 'a\n' | $P print -p 3 '80050.5 - 0.5, 0.125, 1.0625, 1000.5' -" '80050\t0.125\t1.06\t1e+03\n'
+# Values on or within an ulp of a decimal tie take the Ryu fallback in
+# FormatNum(); compare with awk's printf at several precisions.
+for prec in 1 2 3 6 9 12 15; do
+  check "print near ties -p $prec" "printf 'a\n' | awk -v OFS='\t' -v OFMT=%.${prec}g '{print 0.15 + 0, 0.25 + 0, 0.35 + 0, 2.675 + 0, 1.0000005 + 0, 0.0001234565 + 0, 1234.5625 + 0, 9.9999995 + 0, 99999.95 + 0, 1e-300 / 3, 123456789012.5 + 0.25}'" "printf 'a\n' | $P print -p $prec '0.15, 0.25, 0.35, 2.675, 1.0000005, 0.0001234565, 1234.5625, 9.9999995, 99999.95, 1e-300 / 3, 123456789012.5 + 0.25' -"
+done
+expect "print juxtaposed numbers" "printf 'a\n' | $P print '1 2 3, 1 -1' -" '123\t0\n'
+expect "print no trailing newline" "printf 'ab' | $P print 'len(\$0)' -" '2\n'
+fails "print as without name" "$P print '\$1 as' ss.tsv" "expected a column name after 'as'"
+fails "print trailing comma" "$P print '\$1,' ss.tsv" "expected a value"
+fails "print error names subcommand" "$P print 'x' ss.tsv" "invalid print expression"
+fails "print bad -f" "$P print -f '\$1 <' '\$1' ss.tsv" "expected a value"
+fails "print -p too big" "$P print -p 18 '\$1' ss.tsv" "invalid -p precision"
+fails "print -p not a number" "$P print -p x '\$1' ss.tsv" "invalid -p precision"
+fails "print usage" "$P print '\$1'" "usage: ptxt print"
+fails "print unknown column" "$P print '\$NOPE' ss.tsv" "column 'NOPE' not found"
+fails "-f outside print" "$P filter -f '\$1' ss.tsv" "invalid filter expression"
+
 fails "len no parens" "$P filter 'len > 1' ss.tsv" "expected '('"
 fails "len too many" "$P filter 'len(\$1, 2) > 1' ss.tsv" "too many arguments to len()"
 fails "substr too few" "$P filter 'substr(\$1) == \"a\"' ss.tsv" "too few arguments to substr()"
@@ -398,6 +457,7 @@ fails "uniq unknown name" "$P uniq NOPE ss.tsv" "column 'NOPE' not found"
 # ---- compressed input ----
 gzip -c ss.tsv > ss.tsv.gz
 check "gzip" "$P filter '\$P < 0.01' ss.tsv" "$P filter '\$P < 0.01' ss.tsv.gz"
+check "print gzip" "$P print -H '\$SNP, -log10(\$P)' ss.tsv" "$P print -H '\$SNP, -log10(\$P)' ss.tsv.gz"
 check "gzip cut" "cut -f2,11 ss.tsv" "$P cut 2,11 ss.tsv.gz"
 if command -v bgzip > /dev/null; then
   bgzip -c ss.tsv > ss.bgz.gz
@@ -429,7 +489,7 @@ PASS=$((PASS + 1))
 # '-h' after other options all give the same text, starting with SUB's
 # synopsis, and it fits in 80 columns.
 SUBS=$("$P" --help | awk '/^     [a-z]+  / {print $1}')
-[[ $(wc -w <<< "$SUBS") -eq 14 ]] || { echo "FAIL: summary lists $(wc -w <<< "$SUBS") subcommands"; exit 1; }
+[[ $(wc -w <<< "$SUBS") -eq 15 ]] || { echo "FAIL: summary lists $(wc -w <<< "$SUBS") subcommands"; exit 1; }
 for sub in $SUBS; do
   check "$sub -h = help $sub" "$P help $sub" "$P $sub -h"
   if ! out=$("$P" $sub -h) || [[ "$out" != *"ptxt $sub "* ]]; then

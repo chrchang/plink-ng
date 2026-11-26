@@ -20,6 +20,10 @@ BASEFLAGS=
 BASEFLAGS += ${DEBUG}
 
 include ../../Makefile.src
+# Ryu (2.0/ryu/), for number output.  Its files include each other as
+# "ryu/...", hence -I../...
+RYU_CSRC3 = ../../ryu/d2s.c ../../ryu/d2fixed.c
+RYU_OBJL = d2s.o d2fixed.o
 OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TEXTLIB_CCSRC:.cc=.o)
 OBJL = $(notdir $(OBJ))
 
@@ -124,11 +128,12 @@ else
   CCSRC_LINK = $(CXX)
 endif
 
-ptxt$(SFX): $(CSRC3) $(ZCSRC3) $(ZSSRC3) $(TEXTLIB_CCSRC3) ptxt.cc
+ptxt$(SFX): $(CSRC3) $(ZCSRC3) $(ZSSRC3) $(TEXTLIB_CCSRC3) $(RYU_CSRC3) ptxt.cc
 	$(CC) $(CFLAGS) $(CSRC3) -c
+	$(CC) $(CFLAGS) -I../.. $(RYU_CSRC3) -c
 	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC3) $(ZSSRC3) -c
 	$(CCSRC_COMPILE) $(TEXTLIB_CCSRC3) ptxt.cc -c
-	$(CCSRC_LINK) $(LDFLAGS) $(TEXTLIB_OBJL) ptxt.o $(ARCH32) -o $@ $(LDLIBS)
+	$(CCSRC_LINK) $(LDFLAGS) $(TEXTLIB_OBJL) $(RYU_OBJL) ptxt.o $(ARCH32) -o $@ $(LDLIBS)
 
 .PHONY: test
 test: ptxt$(SFX) gen$(SFX)

@@ -1,0 +1,13 @@
+Ryu (https://github.com/ulfjack/ryu) by Ulf Adams, dual-licensed under
+Apache-2.0 (LICENSE-Apache2) or Boost 1.0 (LICENSE-Boost).
+
+Vendored unmodified from commit 4c0618b0e44f7ef027ebae05d2cc7812048f7c8f
+(10 Feb 2026), files from upstream's ryu/ directory:
+  d2s.c, d2s_full_table.h, d2s_small_table.h  shortest round-trip (d2s_*)
+  d2fixed.c, d2fixed_full_table.h             exact %f / %e (d2fixed_*, d2exp_*)
+  ryu.h, common.h, digit_table.h, d2s_intrinsics.h
+
+The sources include each other as "ryu/...", so compile them with the
+directory containing ryu/ (i.e. 2.0/) on the include path.  They are C99.
+
+Used by utils/ptxt for number output.

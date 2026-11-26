@@ -26,6 +26,7 @@
 #include "../../include/plink2_htable.h"
 #include "../../include/plink2_text.h"
 #include "../../include/plink2_thread.h"
+#include "../../ryu/ryu.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -232,6 +233,7 @@ static const char kSummaryHelp[] = "\n"
 "Subcommands:\n"
 "  -- Columns\n"
 "     select    columns in any order, repeats allowed    awk '{print $3,$1}'\n"
+"     print     computed columns (expressions)           awk '{print $1\":\"$2}'\n"
 "     cut       columns in ascending order (tab only)    cut -f\n"
 "     paste     two files side by side                   paste\n"
 "     prefix    add a leading string to a column         awk '{$1=\"chr\"$1}1'\n"
@@ -321,6 +323,7 @@ static const ModeHelp kModeHelp[] = {
 "                ||  (also |, or)\n"
 "                &&  (also &, and)\n"
 "                <  <=  >  >=  ==  (also =)  !=\n"
+"                concatenation, written as juxtaposition: $CHR \":\" $POS\n"
 "                +  -\n"
 "                *  /  %\n"
 "                unary !  (also not),  unary -  +\n"
@@ -356,6 +359,40 @@ static const ModeHelp kModeHelp[] = {
 "  ptxt filter 'abs($BETA / $SE) > 5 && $A1_FREQ >= 0.01' ss.tsv\n"
 "  ptxt filter 'len($A1) == 1 && len($A2) == 1' ss.tsv      # SNPs only\n"
 "  ptxt filter -w '-log10($9) > 8' plink.assoc\n", "It is copied through.", 0, 0},
+
+  {"print", "\n"
+"  ptxt print [options] [-f COND] [-p N] [-e STR] EXPRS FILE\n"
+"\n"
+"Prints computed columns, like awk '{print EXPR, EXPR, ...}'.  EXPRS is a\n"
+"comma-separated list of expressions in the language of 'ptxt filter' (see\n"
+"'ptxt filter -h'); all arguments before FILE are joined with spaces.\n"
+"  - A bare field ($N, $NAME, $0) is printed exactly as written.\n"
+"  - A string, substr() or concatenation result is printed as is.\n"
+"  - A computed number is printed as an integer if it is one, and otherwise\n"
+"    with 6 significant digits, like awk's default %.6g (see -p).  Numbers\n"
+"    inside a concatenation are converted the same way.\n"
+"  - A comparison prints 1 or 0.\n"
+"  - A missing value (arithmetic on a non-number, division by 0, log of a\n"
+"    negative number, etc.) prints as the -e string, where awk would\n"
+"    print a number.\n"
+"  - 'EXPR as NAME' (or as \"NAME\") names an output column.\n"
+"\n"
+"With -H (or any column name), the output starts with a header line: each\n"
+"column's 'as' NAME, the header text of a bare field, or else the\n"
+"expression's own text.\n"
+"\n"
+"Print options:\n"
+"  -f COND   Print only for lines satisfying COND, a filter expression.\n"
+"  -p N      Significant digits for computed non-integers (default 6, at most\n"
+"            17).  0 prints the shortest digits that read back as the same\n"
+"            double, e.g. 0.1 + 0.2 as 0.30000000000000004.\n"
+"  -e STR    Text for missing values (default: NA).\n"
+"\n", "\n"
+"Examples:\n"
+"  ptxt print '$CHR \":\" $POS \":\" $A2 \":\" $A1 as ID, $P' ss.tsv\n"
+"  ptxt print -f '$P < 5e-8' '$SNP, -log10($P), $BETA / $SE as Z' ss.tsv.gz\n"
+"  ptxt print -p 0 '$1, $3 - $2' regions.bed\n",
+"It is replaced (see above).", 1, 0},
 
   {"keep", "\n"
 "  ptxt keep [options] COL IDFILE FILE\n"
@@ -614,7 +651,9 @@ typedef struct OptsStruct {
   const char* odelim;
   uint32_t header;
   uint32_t left_outer;  // join -a
-  const char* fill;     // join -e
+  const char* fill;     // join/print -e
+  const char* cond;     // print -f
+  uint32_t prec;        // print -p
 } Opts;
 
 static void InitOpts(Opts* o) {
@@ -623,11 +662,16 @@ static void InitOpts(Opts* o) {
   o->header = 0;
   o->left_outer = 0;
   o->fill = "NA";
+  o->cond = nullptr;
+  o->prec = 6;
 }
 
+// Extra options accepted by ParseOpts().
+enum { kOptJoin = 1, kOptPrint = 2 };
+
 // Parses leading options; returns index of first positional arg.
-// join_opts enables -a and -e (join only).
-static int ParseOpts(int argc, char** argv, int start, Opts* o, uint32_t join_opts) {
+// extra_opts: kOptJoin enables -a and -e; kOptPrint enables -f, -p and -e.
+static int ParseOpts(int argc, char** argv, int start, Opts* o, uint32_t extra_opts) {
   int i = start;
   // Only exact option names are consumed, so a filter expression may start
   // with '-' (e.g. '-log10($P) > 8').  '--' ends option parsing.
@@ -635,8 +679,8 @@ static int ParseOpts(int argc, char** argv, int start, Opts* o, uint32_t join_op
     const char* a = argv[i];
     if (!strcmp(a, "--")) { ++i; break; }
     if (IsHelpFlag(a)) PrintModeHelp(FindModeHelp(g_mode), 0);
-    const uint32_t is_join_opt = join_opts && (!strcmp(a, "-a") || !strcmp(a, "-e"));
-    if (strcmp(a, "-w") && strcmp(a, "-H") && strcmp(a, "-d") && strcmp(a, "-O") && !is_join_opt) break;
+    const uint32_t is_extra_opt = ((extra_opts & kOptJoin) && (!strcmp(a, "-a") || !strcmp(a, "-e"))) || ((extra_opts & kOptPrint) && (!strcmp(a, "-f") || !strcmp(a, "-p") || !strcmp(a, "-e")));
+    if (strcmp(a, "-w") && strcmp(a, "-H") && strcmp(a, "-d") && strcmp(a, "-O") && !is_extra_opt) break;
     if (!strcmp(a, "-w")) o->delim = '\0';
     else if (!strcmp(a, "-a")) o->left_outer = 1;
     else if (!strcmp(a, "-H")) o->header = 1;
@@ -646,6 +690,14 @@ static int ParseOpts(int argc, char** argv, int start, Opts* o, uint32_t join_op
       if (o->delim == '\n' || !o->delim) Die("invalid -d delimiter");
     } else if (!strcmp(a, "-e")) {
       o->fill = argv[++i];
+    } else if (!strcmp(a, "-f")) {
+      o->cond = argv[++i];
+    } else if (!strcmp(a, "-p")) {
+      const char* v = argv[++i];
+      char* vend;
+      const long prec = strtol(v, &vend, 10);
+      if (!*v || *vend || prec < 0 || prec > 17) Die("invalid -p precision (must be 0-17)");
+      o->prec = prec;
     } else {
       o->odelim = argv[++i];
     }
@@ -1014,7 +1066,9 @@ static void ModeSelect(int argc, char** argv) {
 // Grammar (awk precedence, lowest first):
 //   expr    := and ( ('||' | '|' | 'or') and )*
 //   and     := cmp ( ('&&' | '&' | 'and') cmp )*
-//   cmp     := add [ ('<' | '<=' | '>' | '>=' | '==' | '=' | '!=') add ]
+//   cmp     := cat [ ('<' | '<=' | '>' | '>=' | '==' | '=' | '!=') cat ]
+//   cat     := add ( add )*      (string concatenation by juxtaposition; an
+//                                 operand can't start with '-', '+' or '!')
 //   add     := mul ( ('+' | '-') mul )*
 //   mul     := unary ( ('*' | '/' | '%') unary )*
 //   unary   := ('!' | 'not' | '-' | '+') unary | primary
@@ -1052,7 +1106,9 @@ typedef enum {
   kEnLen, kEnSubstr,
   // len(field) OP number, and substr(field, number[, number]) OP "string"
   // (op stored in ExprNode::func).
-  kEnCmpLN, kEnCmpSubFS
+  kEnCmpLN, kEnCmpSubFS,
+  // Concatenation of args[0..arg_ct).
+  kEnCat
 } ExprNodeType;
 
 enum { kEfAbs, kEfLog, kEfLog10, kEfExp, kEfSqrt };
@@ -1068,7 +1124,10 @@ typedef struct ExprNodeStruct {
                      // kExprLineCol for $0
   uint32_t slot;     // index into the sorted needed-column list
   uint32_t func;
-  char* buf;         // kEnSubstr: 32-byte scratch for a formatted number
+  char* buf;         // kEnSubstr: kNumBufSize scratch for a formatted number
+  uint32_t* args;    // kEnCat operands
+  uint32_t arg_ct;
+  CharVec* cat;      // kEnCat result buffer
   int64_t sub_start; // kEnCmpSubFS: 1-based start (>= 1)
   int64_t sub_n;     // kEnCmpSubFS: length (may be <= 0)
 } ExprNode;
@@ -1085,7 +1144,7 @@ typedef struct ExprParserStruct {
 } ExprParser;
 
 PTXT_NORETURN static void ExprFail(const ExprParser* ps, const char* msg) {
-  fprintf(stderr, "ptxt: invalid filter expression (%s):\n  %s\n  %*s^\n", msg, ps->src, S_CAST(int, ps->p), "");
+  fprintf(stderr, "ptxt: invalid %s expression (%s):\n  %s\n  %*s^\n", g_mode, msg, ps->src, S_CAST(int, ps->p), "");
   exit(1);
 }
 
@@ -1319,8 +1378,42 @@ static uint32_t ExprParseAdd(ExprParser* ps) {
   }
 }
 
+// Returns 1 iff the next token can start a concatenation operand: a field,
+// string, number, '(' or a function call.  ('-', '+' and '!' can't, so that
+// '$1 -1' is a subtraction, as in awk.)  Assumes whitespace was skipped.
+static uint32_t ExprCanStartCatOperand(const ExprParser* ps) {
+  const char c = ExprPeek(ps, 0);
+  if (c == '$' || c == '"' || c == '(' || isdigit(S_CAST(unsigned char, c))) return 1;
+  if (c == '.') return isdigit(S_CAST(unsigned char, ExprPeek(ps, 1))) != 0;
+  if (!isalpha(S_CAST(unsigned char, c))) return 0;
+  uintptr_t len = 0;
+  while (isalnum(S_CAST(unsigned char, ExprPeek(ps, len))) || ExprPeek(ps, len) == '_') ++len;
+  static const char* kNames[] = {"len", "length", "substr", "abs", "log", "log10", "exp", "sqrt"};
+  for (uint32_t k = 0; k < sizeof(kNames) / sizeof(kNames[0]); ++k) {
+    if (strlen(kNames[k]) == len && !strncasecmp(&(ps->src[ps->p]), kNames[k], len)) return 1;
+  }
+  return 0;
+}
+
+static uint32_t ExprParseCat(ExprParser* ps) {
+  const uint32_t first = ExprParseAdd(ps);
+  ExprSkipWs(ps);
+  if (!ExprCanStartCatOperand(ps)) return first;
+  U32Vec args = {nullptr, 0, 0};
+  VEC_PUSH(args, first);
+  do {
+    const uint32_t operand = ExprParseAdd(ps);
+    VEC_PUSH(args, operand);
+    ExprSkipWs(ps);
+  } while (ExprCanStartCatOperand(ps));
+  const uint32_t idx = ExprNew(ps, kEnCat);
+  ps->nodes->p[idx].args = args.p;
+  ps->nodes->p[idx].arg_ct = args.n;
+  return idx;
+}
+
 static uint32_t ExprParseCmp(ExprParser* ps) {
-  const uint32_t lhs = ExprParseAdd(ps);
+  const uint32_t lhs = ExprParseCat(ps);
   ExprSkipWs(ps);
   const char c0 = ExprPeek(ps, 0), c1 = ExprPeek(ps, 1);
   ExprNodeType t;
@@ -1330,7 +1423,7 @@ static uint32_t ExprParseCmp(ExprParser* ps) {
   else if (c0 == '!' && c1 == '=') { t = kEnNe; ps->p += 2; }
   else if (c0 == '~' || (c0 == '!' && c1 == '~')) ExprFail(ps, "regex matching is not supported");
   else return lhs;
-  const uint32_t rhs = ExprParseAdd(ps);
+  const uint32_t rhs = ExprParseCat(ps);
   ExprSkipWs(ps);
   const char d0 = ExprPeek(ps, 0), d1 = ExprPeek(ps, 1);
   if (d0 == '<' || d0 == '>' || (d0 == '=' && d1 != '=') || (d0 == '=' && d1 == '=') || (d0 == '!' && d1 == '=')) {
@@ -1382,6 +1475,7 @@ typedef struct ExprLineStruct {
   // Configuration.
   const uint32_t* need;  // sorted unique 0-based columns
   uint32_t line_slot;    // == number of needed columns; this slot is $0
+  uint32_t prec;         // significant digits for number-to-string; 0 = shortest
   char delim;
   // Per-line state.
   char* line;
@@ -1398,7 +1492,7 @@ typedef struct ExprLineStruct {
 
 static void InitExprLine(const uint32_t* need, uint32_t nn, char delim, ExprLine* lc) {
   // One extra slot, past the needed columns, holds $0.
-  lc->need = need; lc->line_slot = nn; lc->delim = delim;
+  lc->need = need; lc->line_slot = nn; lc->delim = delim; lc->prec = 6;
   lc->fs = S_CAST(char**, XCalloc(nn + 1, sizeof(intptr_t)));
   lc->fe = S_CAST(char**, XCalloc(nn + 1, sizeof(intptr_t)));
   lc->numstate = S_CAST(uint8_t*, XCalloc(nn + 1, 1));
@@ -1525,21 +1619,137 @@ static inline uint32_t CmpResult(uint32_t op, int c) {
   }
 }
 
-// Formats a non-field number the way awk converts it to a string: integral
-// values as integers, everything else with CONVFMT "%.6g".  buf must have room
-// for 32 bytes.  Returns the length.
-static uint32_t NumToStr(double d, char* buf) {
-  if (d == d && fabs(d) < 9.2e18 && d == floor(d)) {
-    return snprintf(buf, 32, "%lld", S_CAST(long long, d));
+// Lays out a decimal significand (dig[0..nd), with an implied point after the
+// first digit) times 10^x the way printf's %g does with precision prec:
+// trailing zeros are dropped, and exponential notation is used iff
+// x < -4 or x >= prec.  Returns the length.
+static uint32_t LayoutG(uint32_t neg, const char* dig, uint32_t nd, int32_t x, int32_t prec, char* out) {
+  char* o = out;
+  if (neg) *o++ = '-';
+  while (nd > 1 && dig[nd - 1] == '0') --nd;
+  if (x < -4 || x >= prec) {
+    *o++ = dig[0];
+    if (nd > 1) {
+      *o++ = '.';
+      memcpy(o, &(dig[1]), nd - 1);
+      o += nd - 1;
+    }
+    *o++ = 'e';
+    *o++ = (x < 0) ? '-' : '+';
+    const uint32_t ax = (x < 0) ? -x : x;
+    if (ax < 10) *o++ = '0';
+    o = u32toa(ax, o);
+  } else if (x >= 0) {
+    for (int32_t k = 0; k <= x; ++k) *o++ = (S_CAST(uint32_t, k) < nd) ? dig[k] : '0';
+    if (nd > S_CAST(uint32_t, x) + 1) {
+      *o++ = '.';
+      memcpy(o, &(dig[x + 1]), nd - x - 1);
+      o += nd - x - 1;
+    }
+  } else {
+    *o++ = '0';
+    *o++ = '.';
+    for (int32_t k = 0; k < -x - 1; ++k) *o++ = '0';
+    memcpy(o, dig, nd);
+    o += nd;
   }
-  return snprintf(buf, 32, "%.6g", d);
+  return o - out;
+}
+
+// Room for any FormatNum() result, e.g. "-2.2250738585072014e-308".
+enum { kNumBufSize = 48 };
+
+// Formats a finite, nonzero d with Ryu: %.<prec>g, or the shortest
+// round-trip digits if prec is 0.
+static uint32_t FormatNumRyu(double d, uint32_t prec, char* buf) {
+  // Both Ryu forms are [-]D[.DDD](e|E)[+|-]X; split out the digits and x.
+  char tmp[kNumBufSize];
+  const int tlen = prec ? d2exp_buffered_n(d, prec - 1, tmp) : d2s_buffered_n(d, tmp);
+  const char* t = tmp;
+  const char* tend = &(tmp[tlen]);
+  const uint32_t neg = (*t == '-');
+  t += neg;
+  char dig[24];
+  uint32_t nd = 0;
+  for (; t != tend && *t != 'e' && *t != 'E'; ++t) {
+    if (*t != '.') dig[nd++] = *t;
+  }
+  ++t;
+  int32_t xsign = 1;
+  if (*t == '-' || *t == '+') xsign = (*t++ == '-') ? -1 : 1;
+  int32_t x = 0;
+  for (; t != tend; ++t) x = x * 10 + (*t - '0');
+  // For shortest output, switch to exponential notation at 17 digits, past
+  // where any non-integral double can be.
+  return LayoutG(neg, dig, nd, xsign * x, prec ? prec : 17, buf);
+}
+
+static const double kPow10D[23] = {
+  1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13,
+  1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
+
+// Converts a number to text the way awk does with OFMT/CONVFMT "%.<prec>g":
+// integral values as integers, everything else correctly rounded to prec
+// significant digits.  prec 0 gives the shortest digits that read back as the
+// same double.  NaN prints as "nan", infinities as "inf" and "-inf".  buf must
+// have room for kNumBufSize bytes.  Returns the length.
+static uint32_t FormatNum(double d, uint32_t prec, char* buf) {
+  if (d == d && fabs(d) < 9.2e18 && d == floor(d)) {
+    return i64toa(S_CAST(int64_t, d), buf) - buf;
+  }
+  if (d != d) {
+    memcpy(buf, "nan", 3);
+    return 3;
+  }
+  const double a = fabs(d);
+  if (a == HUGE_VAL) {
+    if (d < 0) { memcpy(buf, "-inf", 4); return 4; }
+    memcpy(buf, "inf", 3);
+    return 3;
+  }
+  if ((!prec) || (prec > 15) || (a < 1e-290)) return FormatNumRyu(d, prec, buf);
+  // Fast path: scale a by a power of 10 into [10^(prec-1), 10^prec) with one
+  // correctly rounded multiply or divide (relative error <= 2^-53), and round
+  // to an integer.  That rounding is right unless the scaled value lies within
+  // the error of a tie, in which case Ryu decides.
+  int32_t ex;
+  frexp(a, &ex);
+  // Estimate of floor(log10(a)); may be one too low or high.
+  int32_t e10 = S_CAST(int32_t, floor((ex - 1) * 0.30102999566398120));
+  const double lo = kPow10D[prec - 1];
+  const double hi = kPow10D[prec];
+  double x = 0;
+  for (uint32_t tries = 0; ; ++tries) {
+    const int32_t sc = S_CAST(int32_t, prec) - 1 - e10;
+    if (sc > 22 || sc < -22 || tries == 3) return FormatNumRyu(d, prec, buf);
+    x = (sc >= 0) ? a * kPow10D[sc] : a / kPow10D[-sc];
+    if (x >= hi) ++e10;
+    else if (x < lo) --e10;
+    else break;
+  }
+  const double r = floor(x);
+  const double frac = x - r;
+  // 2^-50 * x is 8 ulps of x.
+  if (fabs(frac - 0.5) <= x * 8.881784197001252e-16) return FormatNumRyu(d, prec, buf);
+  uint64_t m = S_CAST(uint64_t, r) + (frac > 0.5);
+  if (m == S_CAST(uint64_t, hi)) {
+    m = S_CAST(uint64_t, lo);
+    ++e10;
+  }
+  char dig[16];
+  for (uint32_t k = prec; k; ) {
+    --k;
+    dig[k] = '0' + (m % 10);
+    m /= 10;
+  }
+  return LayoutG(d < 0, dig, prec, e10, prec, buf);
 }
 
 static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc);
 
-// String form of node idx for len()/substr().  A field is located but not
-// parsed as a number.  A non-field number is formatted into buf (32 bytes).
-// Returns 0 for a missing value.
+// String form of node idx for len(), substr() and concatenation.  A field is
+// located but not parsed as a number.  A non-field number is formatted into
+// buf (kNumBufSize bytes).  Returns 0 for a missing value (including NaN).
 static uint32_t EvalStr(const ExprNode* nodes, uint32_t idx, ExprLine* lc, char* buf, const char** sp, uint32_t* lenp) {
   if (nodes[idx].t == kEnField) {
     const uint32_t slot = nodes[idx].slot;
@@ -1551,7 +1761,8 @@ static uint32_t EvalStr(const ExprNode* nodes, uint32_t idx, ExprLine* lc, char*
   const Val v = EvalExpr(nodes, idx, lc);
   if (v.k == kVkMissing) return 0;
   if (v.k == kVkNum && !v.is_field) {
-    *lenp = NumToStr(v.num, buf);
+    if (v.num != v.num) return 0;
+    *lenp = FormatNum(v.num, lc->prec, buf);
     *sp = buf;
   } else {
     *sp = v.s;
@@ -1625,8 +1836,22 @@ static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc) {
       const uint32_t sublen = (stop > m) ? S_CAST(uint32_t, stop - m) : 0;
       return NumVal(CmpResult(n->func, StrCmp3(&(fs[sublen ? m - 1 : 0]), sublen, n->str, n->slen)));
     }
+    case kEnCat: {
+      CharVec* cb = n->cat;
+      cb->n = 0;
+      for (uint32_t k = 0; k < n->arg_ct; ++k) {
+        char buf[kNumBufSize];
+        const char* s;
+        uint32_t len;
+        if (!EvalStr(nodes, n->args[k], lc, buf, &s, &len)) return MissingVal();
+        CvAppend(cb, s, len);
+      }
+      Val v; v.k = kVkStr; v.is_field = 0; v.num = 0;
+      v.s = cb->p ? cb->p : ""; v.len = cb->n;
+      return v;
+    }
     case kEnLen: {
-      char buf[32];
+      char buf[kNumBufSize];
       const char* s;
       uint32_t len;
       if (!EvalStr(nodes, n->a, lc, buf, &s, &len)) return MissingVal();
@@ -1707,11 +1932,11 @@ static Val EvalExpr(const ExprNode* nodes, uint32_t idx, ExprLine* lc) {
   } else {
     // String comparison; a non-field number (vs a string) is converted as
     // awk does.
-    char bx[32], by[32];
+    char bx[kNumBufSize], by[kNumBufSize];
     const char* sx = x.s; uint32_t lx = x.len;
     const char* sy = y.s; uint32_t ly = y.len;
-    if (x.k == kVkNum && !x.is_field) { lx = NumToStr(x.num, bx); sx = bx; }
-    if (y.k == kVkNum && !y.is_field) { ly = NumToStr(y.num, by); sy = by; }
+    if (x.k == kVkNum && !x.is_field) { lx = FormatNum(x.num, lc->prec, bx); sx = bx; }
+    if (y.k == kVkNum && !y.is_field) { ly = FormatNum(y.num, lc->prec, by); sy = by; }
     c = StrCmp3(sx, lx, sy, ly);
   }
   switch (n->t) {
@@ -1736,35 +1961,36 @@ static uint32_t ExprFieldLike(const ExprNode* nodes, uint32_t k) {
   return 0;
 }
 
-static void ModeFilter(int argc, char** argv) {
-  Opts o; InitOpts(&o);
-  int i = ParseOpts(argc, argv, 2, &o, 0);
-  if (argc - i < 2) DieUsage("ptxt filter [options] EXPR FILE");
-  // All args before FILE are joined with spaces, so quoting is optional
-  // where the shell permits.
-  CharVec src = {nullptr, 0, 0};
-  for (int k = i; k < argc - 1; ++k) {
-    if (k > i) CvPushCh(&src, ' ');
-    CvAppend(&src, argv[k], strlen(argv[k]));
+// Joins argv[start..end) with spaces into *src (null-terminated); returns
+// the length.  This way an expression doesn't have to be one shell argument.
+static uintptr_t JoinArgs(char** argv, int start, int end, CharVec* src) {
+  for (int k = start; k < end; ++k) {
+    if (k > start) CvPushCh(src, ' ');
+    CvAppend(src, argv[k], strlen(argv[k]));
   }
-  const uintptr_t src_len = src.n;
-  CvPushCh(&src, '\0');
-  ExprNodeVec nv = {nullptr, 0, 0};
-  const uint32_t root = ExprParse(src.p, src_len, &nv);
-  ExprNode* nodes = nv.p;
-  const uint32_t node_ct = nv.n;
-  uint32_t any_names = 0;
-  for (uint32_t k = 0; k < node_ct; ++k) any_names |= (nodes[k].t == kEnField && nodes[k].slen);
-  if (any_names) o.header = 1;
-  Input in; OpenInput(argv[argc - 1], nullptr, &o, &in);
-  const char delim = o.delim;
-  // Resolve names; collect needed columns.
+  const uintptr_t len = src->n;
+  CvPushCh(src, '\0');
+  return len;
+}
+
+static uint32_t ExprAnyNames(const ExprNode* nodes, uint32_t node_ct) {
+  for (uint32_t k = 0; k < node_ct; ++k) {
+    if (nodes[k].t == kEnField && nodes[k].slen) return 1;
+  }
+  return 0;
+}
+
+// Readies parsed nodes (any number of roots sharing one array) for
+// evaluation: resolves column names against the header, assigns slots,
+// rewrites field-vs-literal comparisons into specialized nodes, and allocates
+// scratch buffers.  Returns the sorted needed-column list (caller frees).
+static uint32_t* ExprPrepare(ExprNode* nodes, uint32_t node_ct, const Input* in, char delim, uint32_t* need_ct_ptr) {
   uint32_t* need = S_CAST(uint32_t*, XMalloc(node_ct * sizeof(int32_t)));
   uint32_t need_ct = 0;
   for (uint32_t k = 0; k < node_ct; ++k) {
     ExprNode* n = &(nodes[k]);
     if (n->t != kEnField) continue;
-    if (n->slen) n->col = ResolveNamedCol(n->str, in.hline, in.hlend, delim);
+    if (n->slen) n->col = ResolveNamedCol(n->str, in->hline, in->hlend, delim);
     if (n->col != kExprLineCol) need[need_ct++] = n->col;
   }
   need_ct = SortUniqU32(need, need_ct);
@@ -1822,10 +2048,45 @@ static void ModeFilter(int argc, char** argv) {
     }
   }
   for (uint32_t k = 0; k < node_ct; ++k) {
-    if (nodes[k].t == kEnSubstr) nodes[k].buf = S_CAST(char*, XMalloc(32));
+    if (nodes[k].t == kEnSubstr) nodes[k].buf = S_CAST(char*, XMalloc(kNumBufSize));
+    if (nodes[k].t == kEnCat) nodes[k].cat = S_CAST(CharVec*, XCalloc(1, sizeof(CharVec)));
   }
+  *need_ct_ptr = need_ct;
+  return need;
+}
+
+static void ExprFreeNodes(ExprNode* nodes, uint32_t node_ct) {
+  // Each literal/name string is owned by the kEnStr/kEnField node that parsed
+  // it; rewritten kEnCmpFS/kEnCmpSubFS nodes only borrow theirs.
+  for (uint32_t k = 0; k < node_ct; ++k) {
+    ExprNode* n = &(nodes[k]);
+    if (n->t == kEnStr || n->t == kEnField) free(K_CAST(char*, n->str));
+    free(n->buf);
+    free(n->args);
+    if (n->cat) {
+      free(n->cat->p);
+      free(n->cat);
+    }
+  }
+  free(nodes);
+}
+
+static void ModeFilter(int argc, char** argv) {
+  Opts o; InitOpts(&o);
+  int i = ParseOpts(argc, argv, 2, &o, 0);
+  if (argc - i < 2) DieUsage("ptxt filter [options] EXPR FILE");
+  CharVec src = {nullptr, 0, 0};
+  const uintptr_t src_len = JoinArgs(argv, i, argc - 1, &src);
+  ExprNodeVec nv = {nullptr, 0, 0};
+  const uint32_t root = ExprParse(src.p, src_len, &nv);
+  ExprNode* nodes = nv.p;
+  const uint32_t node_ct = nv.n;
+  if (ExprAnyNames(nodes, node_ct)) o.header = 1;
+  Input in; OpenInput(argv[argc - 1], nullptr, &o, &in);
+  uint32_t need_ct;
+  uint32_t* need = ExprPrepare(nodes, node_ct, &in, o.delim, &need_ct);
   ExprLine lc;
-  InitExprLine(need, need_ct, delim, &lc);
+  InitExprLine(need, need_ct, o.delim, &lc);
   EmitHeader(&in);
   char* line;
   while (!TextNextLine(&in.txs, &line)) {
@@ -1835,13 +2096,135 @@ static void ModeFilter(int argc, char** argv) {
   }
   FinishTs(&in.txs);
   FreeExprLine(&lc);
-  // Each literal/name string is owned by the kEnStr/kEnField node that parsed
-  // it; rewritten kEnCmpFS nodes only borrow theirs.
-  for (uint32_t k = 0; k < node_ct; ++k) {
-    if (nodes[k].t == kEnStr || nodes[k].t == kEnField) free(K_CAST(char*, nodes[k].str));
-    free(nodes[k].buf);
+  ExprFreeNodes(nodes, node_ct);
+  free(need);
+  free(src.p);
+  free(in.cols.p);
+}
+
+typedef struct PrintColStruct {
+  uint32_t root;
+  const char* label;     // from 'as NAME' (malloc'd), or nullptr
+  uint32_t label_len;
+  uintptr_t src_start;   // the expression's text, for the header
+  uintptr_t src_end;
+} PrintCol;
+VEC_DEF(PrintColVec, PrintCol);
+
+// Parses EXPR [as NAME] (',' EXPR [as NAME])* into *nodes and *cols.
+static void ExprParsePrintList(const char* src, uintptr_t len, ExprNodeVec* nodes, PrintColVec* cols) {
+  ExprParser ps;
+  ps.src = src; ps.len = len; ps.p = 0; ps.nodes = nodes;
+  while (1) {
+    ExprSkipWs(&ps);
+    PrintCol col;
+    col.src_start = ps.p;
+    col.root = ExprParseOr(&ps);
+    col.src_end = ps.p;
+    while (col.src_end > col.src_start && S_CAST(unsigned char, src[col.src_end - 1]) <= 32) --col.src_end;
+    col.label = nullptr;
+    col.label_len = 0;
+    ExprSkipWs(&ps);
+    if (ExprKeyword(&ps, "as")) {
+      ExprSkipWs(&ps);
+      if (ExprPeek(&ps, 0) == '"') {
+        col.label = ExprParseQuoted(&ps, &col.label_len);
+      } else {
+        const uintptr_t start = ps.p;
+        while (ps.p < len && S_CAST(unsigned char, src[ps.p]) > 32 && src[ps.p] != ',') ++ps.p;
+        if (ps.p == start) ExprFail(&ps, "expected a column name after 'as'");
+        col.label_len = ps.p - start;
+        char* label = S_CAST(char*, XMalloc(col.label_len + 1));
+        memcpy(label, &(src[start]), col.label_len);
+        label[col.label_len] = '\0';
+        col.label = label;
+      }
+      ExprSkipWs(&ps);
+    }
+    VEC_PUSH(*cols, col);
+    if (ps.p == len) return;
+    if (ExprPeek(&ps, 0) != ',') ExprFail(&ps, "unexpected input");
+    ++ps.p;
   }
-  free(nodes);
+}
+
+// Prints the value of node root.  A bare field is copied as written.
+static inline void EmitExprVal(const ExprNode* nodes, uint32_t root, const char* fill, uint32_t fill_len, ExprLine* lc) {
+  const ExprNode* n = &(nodes[root]);
+  if (n->t == kEnField) {
+    const uint32_t slot = n->slot;
+    ExprLineLocate(slot, lc);
+    Emit(lc->fs[slot], lc->fe[slot] - lc->fs[slot]);
+    return;
+  }
+  const Val v = EvalExpr(nodes, root, lc);
+  if (v.k == kVkMissing || (v.k == kVkNum && v.num != v.num)) {
+    Emit(fill, fill_len);
+  } else if (v.k == kVkNum && !v.is_field) {
+    char buf[kNumBufSize];
+    Emit(buf, FormatNum(v.num, lc->prec, buf));
+  } else {
+    Emit(v.s, v.len);
+  }
+}
+
+static void ModePrint(int argc, char** argv) {
+  Opts o; InitOpts(&o);
+  int i = ParseOpts(argc, argv, 2, &o, kOptPrint);
+  if (argc - i < 2) DieUsage("ptxt print [options] [-f COND] [-p N] [-e STR] EXPRS FILE");
+  ExprNodeVec nv = {nullptr, 0, 0};
+  uint32_t cond_root = UINT32_MAX;
+  if (o.cond) cond_root = ExprParse(o.cond, strlen(o.cond), &nv);
+  CharVec src = {nullptr, 0, 0};
+  const uintptr_t src_len = JoinArgs(argv, i, argc - 1, &src);
+  PrintColVec cols = {nullptr, 0, 0};
+  ExprParsePrintList(src.p, src_len, &nv, &cols);
+  ExprNode* nodes = nv.p;
+  const uint32_t node_ct = nv.n;
+  if (ExprAnyNames(nodes, node_ct)) o.header = 1;
+  Input in; OpenInput(argv[argc - 1], nullptr, &o, &in);
+  uint32_t need_ct;
+  uint32_t* need = ExprPrepare(nodes, node_ct, &in, o.delim, &need_ct);
+  ExprLine lc;
+  InitExprLine(need, need_ct, o.delim, &lc);
+  lc.prec = o.prec;
+  const char* odelim = o.odelim;
+  const uint32_t odelim_len = strlen(odelim);
+  const uint32_t fill_len = strlen(o.fill);
+  const uint32_t col_ct = cols.n;
+  if (in.hline) {
+    // Output header: 'as' names, the header text of bare fields, and
+    // otherwise the expression's own text.
+    ExprLineReset(in.hline, in.hlend, &lc);
+    for (uint32_t c = 0; c < col_ct; ++c) {
+      if (c) Emit(odelim, odelim_len);
+      const PrintCol* col = &(cols.p[c]);
+      if (col->label) {
+        Emit(col->label, col->label_len);
+      } else if (nodes[col->root].t == kEnField) {
+        EmitExprVal(nodes, col->root, o.fill, fill_len, &lc);
+      } else {
+        Emit(&(src.p[col->src_start]), col->src_end - col->src_start);
+      }
+    }
+    EmitCh('\n');
+  }
+  char* line;
+  while (!TextNextLine(&in.txs, &line)) {
+    char* lnext = TextLineEnd(&in.txs);
+    ExprLineReset(line, lnext - 1, &lc);
+    if (cond_root != UINT32_MAX && !Truthy(EvalExpr(nodes, cond_root, &lc))) continue;
+    for (uint32_t c = 0; c < col_ct; ++c) {
+      if (c) Emit(odelim, odelim_len);
+      EmitExprVal(nodes, cols.p[c].root, o.fill, fill_len, &lc);
+    }
+    EmitCh('\n');
+  }
+  FinishTs(&in.txs);
+  FreeExprLine(&lc);
+  ExprFreeNodes(nodes, node_ct);
+  for (uint32_t c = 0; c < col_ct; ++c) free(K_CAST(char*, cols.p[c].label));
+  free(cols.p);
   free(need);
   free(src.p);
   free(in.cols.p);
@@ -2045,7 +2428,7 @@ static uint32_t JoinPayload(const CharpVec* fs, const CharpVec* fe, const uint8_
 
 static void ModeJoin(int argc, char** argv) {
   Opts o; InitOpts(&o);
-  int i = ParseOpts(argc, argv, 2, &o, 1);
+  int i = ParseOpts(argc, argv, 2, &o, kOptJoin);
   if (argc - i != 4) DieUsage("ptxt join [options] [-a] [-e STR] KEYS1 FILE1 KEYS2 FILE2");
   CheckOneStdin(argv[i + 1], argv[i + 3]);
   ColTokVec toks1 = {nullptr, 0, 0};
@@ -2918,6 +3301,7 @@ int main(int argc, char** argv) {
   else if (!strcmp(mode, "paste")) ModePaste(argc, argv);
   else if (!strcmp(mode, "select")) ModeSelect(argc, argv);
   else if (!strcmp(mode, "filter")) ModeFilter(argc, argv);
+  else if (!strcmp(mode, "print")) ModePrint(argc, argv);
   else if (!strcmp(mode, "keep")) ModeKeep(argc, argv, 0);
   else if (!strcmp(mode, "remove")) ModeKeep(argc, argv, 1);
   else if (!strcmp(mode, "count")) ModeCount(argc, argv);
