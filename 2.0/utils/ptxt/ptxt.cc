@@ -218,7 +218,7 @@ static void ParallelFor(uint32_t thread_ct, uintptr_t n, RangeFn fn, void* share
 // SUB') prints everything about one subcommand; 'ptxt -v' prints kVersion.
 // Keep lines <= 80 columns.
 
-static const char kVersion[] = "ptxt v0.1.1 (25 Nov 2026)";
+static const char kVersion[] = "ptxt v0.1.2 (26 Nov 2026)";
 
 static const char kSummaryHelp[] = "\n"
 "  ptxt <subcommand> [options...] <arguments...>\n"
