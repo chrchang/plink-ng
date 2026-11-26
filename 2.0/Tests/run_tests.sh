@@ -733,4 +733,14 @@ cd TEST_VALIDATE_ACCEPT
 cd ..
 echo "TEST_VALIDATE_ACCEPT passed."
 
+cd TEST_EXPORT_INVALID_DPHASE
+./run_tests.sh $d $2 $3 > TEST_EXPORT_INVALID_DPHASE.log
+cd ..
+echo "TEST_EXPORT_INVALID_DPHASE passed."
+
+cd TEST_DIFFLIST_ID_WIDTH
+./run_tests.sh $d $2 $3 > TEST_DIFFLIST_ID_WIDTH.log
+cd ..
+echo "TEST_DIFFLIST_ID_WIDTH passed."
+
 echo "All tests passed."
