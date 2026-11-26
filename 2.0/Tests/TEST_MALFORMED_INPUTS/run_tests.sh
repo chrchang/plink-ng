@@ -99,10 +99,18 @@ grep -q 'Invalid p-value on line 3' tmp_bad.log
 # 11. Long alleles in --adjust-file and --meta-analysis overflowed the output
 #     buffer, which was sized for short alleles only.  Silent corruption:
 #     --adjust-file printed an UNADJ like 2.44169e+982215 and lost rows.
-long_allele=$(head -c 200000 /dev/zero | tr '\0' 'A')
+#     The 200000-character allele is streamed straight into the input files
+#     rather than kept in a shell variable: under set -x, a command line
+#     containing it is traced as a single 200 KB line, after which the GitHub
+#     Actions job log stops recording output (hiding every later test).
+long_allele() {
+    head -c 200000 /dev/zero | tr '\0' 'A'
+}
 {
     printf '#CHROM\tID\tREF\tALT\tA1\tP\n'
-    printf '1\tv1\t%s\tC\tC\t0.001\n' $long_allele
+    printf '1\tv1\t'
+    long_allele
+    printf '\tC\tC\t0.001\n'
     printf '1\tv2\tA\tC\tC\t0.5\n1\tv3\tA\tC\tC\t0.2\n'
 } > tmp_long.txt
 $plink2 --adjust-file tmp_long.txt cols=+ref --out tmp_long > /dev/null
@@ -110,7 +118,9 @@ test "$(grep -vc '^#' tmp_long.adjusted)" -eq 3
 awk -F '\t' 'NR == 1 {for (i = 1; i <= NF; ++i) {if ($i == "UNADJ") {c = i}}} $2 == "v1" { if ($c != 0.001) { print "v1 UNADJ is " $c; exit 1 } }' tmp_long.adjusted
 {
     printf 'CHR SNP BP A1 A2 OR SE\n'
-    printf '1 rs1 100 %s G 1.2 0.1\n' $long_allele
+    printf '1 rs1 100 '
+    long_allele
+    printf ' G 1.2 0.1\n'
     printf '1 rs2 200 A G 1.1 0.1\n'
 } > tmp_ml1.txt
 sed 's/ 1.2 / 1.3 /; s/ 1.1 / 1.0 /' tmp_ml1.txt > tmp_ml2.txt
