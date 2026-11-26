@@ -768,4 +768,9 @@ cd TEST_DELTALIST64
 cd ..
 echo "TEST_DELTALIST64 passed."
 
+cd TEST_MULTIDOSAGE_WRITER
+./run_tests.sh $d $2 $3 > TEST_MULTIDOSAGE_WRITER.log
+cd ..
+echo "TEST_MULTIDOSAGE_WRITER passed."
+
 echo "All tests passed."
