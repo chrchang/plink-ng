@@ -1547,7 +1547,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
           logprintfww5("Validating %s... ", pgenname);
           fflush(stdout);
-          reterr = PgrValidate(&simple_pgr, genovec_buf, g_logbuf);
+          reterr = PgrValidate(&simple_pgr, pgenname, pcp->pginame, genovec_buf, g_logbuf);
           if (unlikely(reterr)) {
             logputs("\n");
             WordWrapB(0);

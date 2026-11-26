@@ -687,6 +687,23 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
   return cachelines_required;
 }
 
+// Returns pgi_fname if it's non-null.  Otherwise, writes fname with ".pgi"
+// appended to pgi_fname_buf (which must have space for kPglFnamesize bytes)
+// and returns that, or returns nullptr if the result would be too long.
+static const char* PgiFnameOrDefault(const char* fname, const char* pgi_fname, char* pgi_fname_buf) {
+  if (pgi_fname) {
+    return pgi_fname;
+  }
+  const uint32_t fname_slen = strlen(fname);
+  // need space to append ".pgi" plus null-terminator
+  if (unlikely(fname_slen > kPglFnamesize - 5)) {
+    return nullptr;
+  }
+  char* fname_iter = memcpya(pgi_fname_buf, fname, fname_slen);
+  strcpy_k(fname_iter, ".pgi");
+  return pgi_fname_buf;
+}
+
 static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase1().");
 PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
   pgfip->var_fpos = nullptr;
@@ -811,17 +828,10 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       return kPglRetMalformedInput;
     }
   } else {
-    header_fname = pgi_fname;
-    if (!header_fname) {
-      const uint32_t fname_slen = strlen(fname);
-      // need space to append ".pgi" plus null-terminator
-      if (unlikely(fname_slen > kPglFnamesize - 5)) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen filename too long.\n");
-        return kPglRetMalformedInput;
-      }
-      char* fname_iter = memcpya(pgi_fname_buf, fname, fname_slen);
-      strcpy_k(fname_iter, ".pgi");
-      header_fname = pgi_fname_buf;
+    header_fname = PgiFnameOrDefault(fname, pgi_fname, pgi_fname_buf);
+    if (unlikely(!header_fname)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen filename too long.\n");
+      return kPglRetMalformedInput;
     }
     header_ff = fopen(header_fname, FOPEN_RB);
     pgfip->pgi_ff = header_ff;
@@ -11212,8 +11222,90 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
   return kPglRetSuccess;
 }
 
+// Re-reads the parts of the header (or .pgi file) which PgfiInitPhase2Ex()
+// skips or doesn't validate: the vblock-start index, and trailing bits of the
+// final vrtype byte.  header_ff must be the .pgi file when is_pgi is set.
+static PglErr ValidateHeaderIndex(FILE* header_ff, uint32_t is_pgi, const PgenReaderMain* pgrp, char* errstr_buf) {
+  const uint32_t variant_ct = pgrp->fi.raw_variant_ct;
+  const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
+  uint32_t header_ctrl = 0;
+  if (unlikely(fseeko(header_ff, 11, SEEK_SET))) {
+    FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+    return kPglRetReadFail;
+  }
+  header_ctrl = getc_unlocked(header_ff);
+  if (unlikely(header_ctrl > 255)) {
+    FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
+    return kPglRetReadFail;
+  }
+  for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
+    uint64_t vblock_start_fpos;
+    if (unlikely(!fread_unlocked(&vblock_start_fpos, sizeof(int64_t), 1, header_ff))) {
+      FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+    if (unlikely(vblock_start_fpos != pgrp->fi.var_fpos[vblock_idx * kPglVblockSize])) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen%s vblock-start index is inconsistent with variant record length index.\n", is_pgi? ".pgi file" : " header");
+      return kPglRetMalformedInput;
+    }
+  }
+  const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
+  const uint32_t alt_allele_ct_byte_ct = (header_ctrl >> 4) & 3;
+  const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
+
+  // does not include vrtypes yet
+  uint64_t vblock_index_byte_ct = kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3) + alt_allele_ct_byte_ct);
+  if (nonref_flags_stored) {
+    vblock_index_byte_ct += kPglVblockSize / CHAR_BIT;
+  }
+  uint64_t last_vrtype_byte_offset = 0;
+  uint32_t trailing_shift = 4;
+  if (vrtype_and_fpos_storage & 8) {
+    vblock_index_byte_ct += kPglVblockSize >> (10 - vrtype_and_fpos_storage);
+    if (vrtype_and_fpos_storage == 8) {
+      const uint32_t variant_ct_mod4 = variant_ct % 4;
+      if (variant_ct_mod4) {
+        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 4);
+        trailing_shift = variant_ct_mod4 * 2;
+      }
+    } else {
+      assert(vrtype_and_fpos_storage == 9);
+      if (variant_ct % 2) {
+        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
+      }
+    }
+  } else if (!(vrtype_and_fpos_storage & 4)) {
+    vblock_index_byte_ct += kPglVblockSize / 2;
+    if (variant_ct % 2) {
+      // bugfix (22 Nov 2017): forgot to add offset in last block
+      last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
+    }
+    /*
+  } else {
+    vblock_index_byte_ct += kPglVblockSize;
+    */
+  }
+  if (last_vrtype_byte_offset) {
+    uint32_t last_vrtype_byte = 0;
+    if (unlikely(fseeko(header_ff, last_vrtype_byte_offset, SEEK_SET))) {
+      FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+    last_vrtype_byte = getc_unlocked(header_ff);
+    if (unlikely(last_vrtype_byte > 255)) {
+      FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+    if (unlikely(last_vrtype_byte >> trailing_shift)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Nonzero trailing bits in last vrtype index byte of .pgen%s.\n", is_pgi? ".pgi file" : " header");
+      return kPglRetMalformedInput;
+    }
+  }
+  return kPglRetSuccess;
+}
+
 static_assert(kPglVblockSize == 65536, "PgrValidate() needs to have an error message updated.");
-PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf) {
+PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_fname, uintptr_t* genovec_buf, char* errstr_buf) {
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);
   // Performs all validation which isn't done by pgfi_init_phase{1,2}() and
   // PgrInit().
@@ -11279,79 +11371,40 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
     strcpy_k(write_iter, " bytes.\n");
     return kPglRetMalformedInput;
   }
-  const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
-  uint32_t header_ctrl = 0;
-  if (unlikely(fseeko(ff, 11, SEEK_SET))) {
+  // With storage modes 0x20/0x21, the header is in the external .pgi file.
+  if (unlikely(fseeko(ff, 2, SEEK_SET))) {
     FillPgenReadErrstrFromNzErrno(errstr_buf);
     return kPglRetReadFail;
   }
-  header_ctrl = getc_unlocked(ff);
-  if (unlikely(header_ctrl > 255)) {
+  const int32_t file_type_code = getc_unlocked(ff);
+  if (unlikely(file_type_code == EOF)) {
     FillPgenReadErrstr(ff, errstr_buf);
     return kPglRetReadFail;
   }
-  for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
-    uint64_t vblock_start_fpos;
-    if (unlikely(!fread_unlocked(&vblock_start_fpos, sizeof(int64_t), 1, ff))) {
-      FillPgenReadErrstr(ff, errstr_buf);
-      return kPglRetReadFail;
-    }
-    if (unlikely(vblock_start_fpos != pgrp->fi.var_fpos[vblock_idx * kPglVblockSize])) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen header vblock-start index is inconsistent with variant record length index.\n");
+  const uint32_t is_pgi = ((S_CAST(uint32_t, file_type_code) & 0xfe) == 0x20);
+  FILE* header_ff = ff;
+  if (is_pgi) {
+    char pgi_fname_buf[kPglFnamesize];
+    const char* header_fname = PgiFnameOrDefault(pgen_fname, pgi_fname, pgi_fname_buf);
+    if (unlikely(!header_fname)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen filename too long.\n");
       return kPglRetMalformedInput;
     }
+    header_ff = fopen(header_fname, FOPEN_RB);
+    if (unlikely(!header_ff)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", header_fname, strerror(errno));
+      return kPglRetOpenFail;
+    }
   }
-  const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
-  const uint32_t alt_allele_ct_byte_ct = (header_ctrl >> 4) & 3;
-  const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
-
-  // does not include vrtypes yet
-  uint64_t vblock_index_byte_ct = kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3) + alt_allele_ct_byte_ct);
-  if (nonref_flags_stored) {
-    vblock_index_byte_ct += kPglVblockSize / CHAR_BIT;
+  PglErr reterr = ValidateHeaderIndex(header_ff, is_pgi, pgrp, errstr_buf);
+  if (is_pgi) {
+    if (unlikely(fclose(header_ff) && (!reterr))) {
+      FillPgenHeaderReadErrstrFromNzErrno(1, errstr_buf);
+      reterr = kPglRetReadFail;
+    }
   }
-  uint64_t last_vrtype_byte_offset = 0;
-  uint32_t trailing_shift = 4;
-  if (vrtype_and_fpos_storage & 8) {
-    vblock_index_byte_ct += kPglVblockSize >> (10 - vrtype_and_fpos_storage);
-    if (vrtype_and_fpos_storage == 8) {
-      const uint32_t variant_ct_mod4 = variant_ct % 4;
-      if (variant_ct_mod4) {
-        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 4);
-        trailing_shift = variant_ct_mod4 * 2;
-      }
-    } else {
-      assert(vrtype_and_fpos_storage == 9);
-      if (variant_ct % 2) {
-        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
-      }
-    }
-  } else if (!(vrtype_and_fpos_storage & 4)) {
-    vblock_index_byte_ct += kPglVblockSize / 2;
-    if (variant_ct % 2) {
-      // bugfix (22 Nov 2017): forgot to add offset in last block
-      last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
-    }
-    /*
-  } else {
-    vblock_index_byte_ct += kPglVblockSize;
-    */
-  }
-  if (last_vrtype_byte_offset) {
-    uint32_t last_vrtype_byte = 0;
-    if (unlikely(fseeko(ff, last_vrtype_byte_offset, SEEK_SET))) {
-      FillPgenReadErrstrFromNzErrno(errstr_buf);
-      return kPglRetReadFail;
-    }
-    last_vrtype_byte = getc_unlocked(ff);
-    if (unlikely(last_vrtype_byte > 255)) {
-      FillPgenReadErrstr(ff, errstr_buf);
-      return kPglRetReadFail;
-    }
-    if (unlikely(last_vrtype_byte >> trailing_shift)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Nonzero trailing bits in last vrtype index byte.\n");
-      return kPglRetMalformedInput;
-    }
+  if (unlikely(reterr)) {
+    return reterr;
   }
   const uintptr_t* nonref_flags = pgrp->fi.nonref_flags;
   if (nonref_flags) {
@@ -11400,7 +11453,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid record type for (0-based) variant #%u (phased dosage bit set, but main dosage bits unset).\n", vidx);
         return kPglRetMalformedInput;
       }
-      PglErr reterr = ValidateDosage16(fread_end, vidx, pgrp, &fread_ptr, errstr_buf);
+      reterr = ValidateDosage16(fread_end, vidx, pgrp, &fread_ptr, errstr_buf);
       if (unlikely(reterr)) {
         return reterr;
       }
