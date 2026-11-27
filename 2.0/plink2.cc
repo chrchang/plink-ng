@@ -1541,13 +1541,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         pgfi.shared_ff = shared_ff_copy;
         if (pcp->command_flags1 & kfCommand1Validate) {
-          uintptr_t* genovec_buf;
-          if (unlikely(bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf))) {
+          uintptr_t* validate_workspace;
+          if (unlikely(bigstack_alloc_w(PgrValidateWorkspaceWordCt(raw_sample_ct, pgfi.max_allele_ct), &validate_workspace))) {
             goto Plink2Core_ret_NOMEM;
           }
           logprintfww5("Validating %s... ", pgenname);
           fflush(stdout);
-          reterr = PgrValidate(&simple_pgr, pgenname, pcp->pginame, genovec_buf, g_logbuf);
+          reterr = PgrValidate(&simple_pgr, pgenname, pcp->pginame, validate_workspace, g_logbuf);
           if (unlikely(reterr)) {
             logputs("\n");
             WordWrapB(0);
@@ -1564,7 +1564,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (pcp->command_flags1 == kfCommand1Validate) {
             goto Plink2Core_ret_1;
           }
-          BigstackReset(genovec_buf);
+          BigstackReset(validate_workspace);
         }
       }
       // any functions using blockload must perform its own PgrInit(), etc.

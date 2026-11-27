@@ -747,9 +747,15 @@ PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetInde
 // to maximize parallelism
 PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);
 
+// Number of words of workspace PgrValidate() needs.  max_allele_ct must be
+// the value in pgfi.
+uintptr_t PgrValidateWorkspaceWordCt(uint32_t raw_sample_ct, uint32_t max_allele_ct);
+
 // pgen_fname and pgi_fname must be the values passed to PgfiInitPhase1();
 // they're needed to reopen the external index file, if there is one.
-PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_fname, uintptr_t* genovec_buf, char* errstr_buf);
+// workspace must be vector-aligned, with room for
+// PgrValidateWorkspaceWordCt() words.
+PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_fname, uintptr_t* workspace, char* errstr_buf);
 
 // missingness bit is set iff hardcall is not present (even if dosage info *is*
 // present)

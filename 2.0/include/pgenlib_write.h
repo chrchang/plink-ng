@@ -372,25 +372,26 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
 //     tracks are always written, even if empty.
 //   multidosage_*, multidphase_*: rare-alt dosages and dosage-phase deltas.
 //     Nonempty ones require kfPgenGlobalMultiallelicDosagePresent to have
-//     been passed to the init function (otherwise this returns 1).
+//     been passed to the init function.
 // The file must have been initialized with nonzero phase_dosage_gflags.
-// Also returns 1 if the record would be too large, if multidosage or
-// multidphase codes are out of range or not increasing within a sample, or if
-// a sample has a dosage and a phased heterozygous hardcall but no explicit
-// dosage-phase value (implicit dosage-phase isn't defined for multiallelic
-// variants).  The caller is responsible for the other value constraints
-// described in pgenlib_misc.h.
-BoolErr PwcAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, PgenWriterCommon* pwcp);
+// Returns:
+// - kPglRetVarRecordTooLarge if the record would be too large;
+// - kPglRetImproperFunctionCall if rare-alt dosages are nonempty and
+//   kfPgenGlobalMultiallelicDosagePresent wasn't passed to the init function;
+// - kPglRetMalformedInput if multidosage or multidphase codes are out of range
+//   or not increasing within a sample, or if a sample has a dosage and a
+//   phased heterozygous hardcall but no explicit dosage-phase value (implicit
+//   dosage-phase isn't defined for multiallelic variants).
+// The caller is responsible for the other value constraints described in
+// pgenlib_misc.h.
+PglErr PwcAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, STPgenWriter* spgwp) {
   if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
   PgenWriterCommon* pwcp = &GET_PRIVATE(*spgwp, pwc);
-  if (unlikely(PwcAppendMultiallelicGenovecDphase16(pgvp, allele_ct, pwcp))) {
-    return kPglRetVarRecordTooLarge;
-  }
-  return kPglRetSuccess;
+  return PwcAppendMultiallelicGenovecDphase16(pgvp, allele_ct, pwcp);
 }
 
 // only exported for MpgwFlush()'s consumption
