@@ -190,12 +190,16 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
 // called, but size and contents don't need to be filled until final flush.
 // Extension linked-lists must be ordered with lower type_idx first.
 //
+// Upper bound on the size of a multiallelic record's rare-alt dosage tracks
+// (#5-6, plus #9-10 if dphase_gflag is set).  When nonempty_ok is false, only
+// empty lists can be written.
+uint64_t MultidosageTracksMaxByteCt(uint32_t sample_ct, uint32_t allele_ct, uint32_t dphase_gflag, uint32_t nonempty_ok);
+
 // To write nonempty rare-alt dosages (multiallelic dosage tracks #5-6/#9-10)
 // with SpgwAppendMultiallelicGenovecDphase16(), include
 // kfPgenGlobalMultiallelicDosagePresent in phase_dosage_gflags; this sizes
 // the write buffer for the worst case, which can be large when
-// allele_ct_upper_bound is.  (The multithreaded writer doesn't support
-// multiallelic dosage yet.)
+// allele_ct_upper_bound is.  (MpgwInitPhase1() honors the flag too.)
 PglErr SpgwInitPhase1Ex(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
 
 HEADER_INLINE PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {

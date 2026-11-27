@@ -97,8 +97,10 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     //     5-16                   (sample_ct - 1)
     //   17-256               2 * (sample_ct - 1)
     //
-    // (todo: also take multiallelic dosage into account)
-    assert(!dosage_gflag);
+    // Multiallelic variants with dosage data also have rare-alt dosage
+    // tracks; see MultidosageTracksMaxByteCt().
+    const uint32_t multidosage_nonempty_ok = (phase_dosage_gflags / kfPgenGlobalMultiallelicDosagePresent) & 1;
+    uint64_t max_multidosage_byte_ct = 0;
     uintptr_t prev_offset = 0;
     uint32_t vidx = 0;
     const uint32_t extra_bytes_base = 2 + sizeof(AlleleCode) + (sample_ct + 6) / 8;
@@ -154,6 +156,13 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
         const uintptr_t cur_offset = allele_idx_offsets[++vidx];
         const uint32_t alt_ct_p1 = cur_offset - prev_offset;
         if (alt_ct_p1 > 2) {
+          if (dosage_gflag) {
+            const uint64_t cur_multidosage_byte_ct = MultidosageTracksMaxByteCt(sample_ct, alt_ct_p1, dosage_phase_gflag, multidosage_nonempty_ok);
+            cur_vblock_byte_ct += cur_multidosage_byte_ct;
+            if (cur_multidosage_byte_ct > max_multidosage_byte_ct) {
+              max_multidosage_byte_ct = cur_multidosage_byte_ct;
+            }
+          }
           if (alt_ct_p1 >= extra_alt_ceil) {
             ++extra_alt_ceil_ct;
           } else {
@@ -186,7 +195,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     if (extra_alt_ceil_ct) {
       max_vrec_len = kPglMaxBytesPerVariant;
     } else {
-      max_vrec_len = uncompressed_biallelic_vrec_len + extra_byte_cts[bsru32(altx_seen_mask)];
+      max_vrec_len = uncompressed_biallelic_vrec_len + extra_byte_cts[bsru32(altx_seen_mask)] + max_multidosage_byte_ct;
     }
   }
   if (max_vrec_len >= kPglMaxBytesPerVariant) {

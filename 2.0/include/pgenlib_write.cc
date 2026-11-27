@@ -263,6 +263,20 @@ uintptr_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct_limit, uint32_t s
   return cachelines_required;
 }
 
+uint64_t MultidosageTracksMaxByteCt(uint32_t sample_ct, uint32_t allele_ct, uint32_t dphase_gflag, uint32_t nonempty_ok) {
+  if (!nonempty_ok) {
+    // empty deltalists
+    return 1 + dphase_gflag;
+  }
+  // At most min(allele_ct - 2, 255) entries per sample.  Per entry:
+  // group-start or group-byte-count share (bounded by idx_byte_ct + 2), delta
+  // varint, and 2-byte value.
+  const uint64_t entry_ct = S_CAST(uint64_t, sample_ct) * MINV(allele_ct - 2, 255);
+  const uint64_t idx_end = S_CAST(uint64_t, sample_ct) << RareAltIdxBitCt(allele_ct);
+  const uint32_t idx_byte_ct = Deltalist64IdxByteCt(idx_end);
+  return (1 + dphase_gflag) * (5 + entry_ct * (idx_byte_ct + 2 + Vint64Bytect(idx_end) + 2));
+}
+
 static_assert(kPglMaxAlleleCt == 255, "Need to update SpgwInitPhase1Ex().");
 PglErr SpgwInitPhase1Ex(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
   assert(variant_ct_limit);
@@ -311,18 +325,7 @@ PglErr SpgwInitPhase1Ex(const char* __restrict fname, const uintptr_t* __restric
     if (max_alt_ct_p1 > 2) {
       // aux5-6 (and aux9-10): rare-alt dosage tracks, always present for
       // multiallelic variants with dosage data.
-      if (phase_dosage_gflags & kfPgenGlobalMultiallelicDosagePresent) {
-        // At most min(allele_ct - 2, 255) entries per sample.  Per entry:
-        // group-start or group-byte-count share (bounded by idx_byte_ct + 2),
-        // delta varint, and 2-byte value.
-        const uint64_t entry_ct = S_CAST(uint64_t, sample_ct) * MINV(max_alt_ct_p1 - 2, 255);
-        const uint64_t idx_end = S_CAST(uint64_t, sample_ct) << RareAltIdxBitCt(max_alt_ct_p1);
-        const uint32_t idx_byte_ct = Deltalist64IdxByteCt(idx_end);
-        max_vrec_len += (1 + dphase_gflag) * (5 + entry_ct * (idx_byte_ct + 2 + Vint64Bytect(idx_end) + 2));
-      } else {
-        // empty deltalists
-        max_vrec_len += 1 + dphase_gflag;
-      }
+      max_vrec_len += MultidosageTracksMaxByteCt(sample_ct, max_alt_ct_p1, dphase_gflag, (phase_dosage_gflags / kfPgenGlobalMultiallelicDosagePresent) & 1);
     }
   }
 #ifdef __LP64__

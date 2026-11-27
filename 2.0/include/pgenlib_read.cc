@@ -1196,7 +1196,10 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
     assert(!is_pgi);
     // no allele counts to verify if fixed-width
     // always need ldbase_raw_genovec
-    *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(pgfip->raw_sample_ct, pgfip->gflags, 2, use_blockload? 0 : const_vrec_width);
+    // bugfix (26 Nov 2026): this used max_allele_ct = 2 even when the caller
+    // had set pgfip->max_allele_ct higher, while PgrInit() lays out its
+    // workspace according to pgfip->max_allele_ct.
+    *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(pgfip->raw_sample_ct, pgfip->gflags, pgfip->max_allele_ct, use_blockload? 0 : const_vrec_width);
     *max_vrec_width_ptr = const_vrec_width;
     if ((!(header_ctrl & 192)) || (pgfip->const_vrtype == kPglVrtypePlink1)) {
       return kPglRetSuccess;
@@ -5700,7 +5703,7 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
     return reterr;
   }
 
-  const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
   CopyNyparrNonemptySubset(raw_genovec, sample_include, raw_sample_ct, sample_ct, allele_countvec);
   ZeroTrailingNyps(raw_sample_ct, raw_genovec);
@@ -7495,7 +7498,7 @@ PglErr PgrGetP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex 
 PglErr Get1MP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
   // sample_ct > 0; either allele_idx > 1 or ((allele_idx == 1) &&
   // multiallelic_hc_present)
-  const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if (!VrtypeHphase(vrtype)) {
     *phasepresent_ct_ptr = 0;
     if (fread_pp) {
@@ -8226,12 +8229,14 @@ PglErr ParseDosage16Unchecked(const unsigned char* fread_ptr, const unsigned cha
   uint32_t raw_dphase_ct = 0;
   uint32_t dphase_ct = 0;
   uintptr_t* raw_dphase_present = nullptr;
-  if (multidosage_startp) {
+  // Fixed-width storage modes have no rare-alt tracks.
+  const uint32_t has_rare_alt_tracks = (allele_ct > 2) && (pgrp->fi.const_vrtype == UINT32_MAX);
+  if (multidosage_startp && has_rare_alt_tracks) {
     *multidosage_startp = &(fread_ptr[raw_dosage_ct * 2]);
   }
   if (dphase_present && (vrtype & 0x80)) {
     fread_ptr = &(fread_ptr[raw_dosage_ct * 2]);
-    if (allele_ct > 2) {
+    if (has_rare_alt_tracks) {
       // skip tracks #5-6
       RareAltTrackReader rr;
       if (unlikely(RareAltTrackReaderInit(fread_end, raw_sample_ct, allele_ct, &fread_ptr, &rr))) {
@@ -8254,7 +8259,7 @@ PglErr ParseDosage16Unchecked(const unsigned char* fread_ptr, const unsigned cha
         CopyBitarrSubset(raw_dphase_present, sample_include, sample_ct, dphase_present);
         dphase_ct = PopcountWords(dphase_present, sample_ctl);
       }
-      if (multidphase_startp && dphase_ct) {
+      if (multidphase_startp && dphase_ct && has_rare_alt_tracks) {
         *multidphase_startp = &(fread_ptr[raw_dphase_ct * sizeof(int16_t)]);
       }
     } else {
@@ -8264,7 +8269,7 @@ PglErr ParseDosage16Unchecked(const unsigned char* fread_ptr, const unsigned cha
       }
       dphase_ct = dosage_ct;
       SetAllBits(sample_ct, dphase_present);
-      if (multidphase_startp) {
+      if (multidphase_startp && has_rare_alt_tracks) {
         *multidphase_startp = &(fread_ptr[raw_dosage_ct * sizeof(int16_t)]);
       }
     }
@@ -8723,9 +8728,14 @@ static PglErr Get1MultiallelicDp(const uintptr_t* __restrict sample_include, con
     if (unlikely(reterr)) {
       return reterr;
     }
+  } else if (allele_idx >= 2) {
+    // No rare-alt tracks (fixed-width storage): rare-alt dosages are zero.
+    memset(dosage_main, 0, (*dosage_ct_ptr) * sizeof(int16_t));
   }
   if (multidphase_start) {
     reterr = ApplyRareAltTracks(fread_end, multidphase_start, subset, sample_include_cumulative_popcounts, raw_sample_ct, allele_ct, allele_idx, 1, dphase_present, dphase_ct, R_CAST(uint16_t*, dphase_delta));
+  } else if ((allele_idx >= 2) && dphase_ct) {
+    memset(dphase_delta, 0, dphase_ct * sizeof(int16_t));
   }
   return reterr;
 }
@@ -8754,7 +8764,7 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
     *dosage_ct_ptr = dosage_ct;
     return reterr;
   }
-  const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if ((!VrtypeDosage(vrtype)) || (!sample_ct)) {
     *dosage_ct_ptr = 0;
     return IMPLPgrGet1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec);
@@ -8783,7 +8793,7 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIn
     *dosage_ct_ptr = dosage_ct;
     return reterr;
   }
-  const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if ((!VrtypeDosage(vrtype)) || (!sample_ct)) {
     *dosage_ct_ptr = 0;
     return IMPLPgrGetInv1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_invcountvec);
@@ -10181,7 +10191,10 @@ static PglErr GetMultiallelicCountsWithDosage16s(const uintptr_t* __restrict sam
   if (PtrAddCk(fread_end, raw_dosage_ct * sizeof(int16_t), &fread_ptr)) {
     return kPglRetMalformedInput;
   }
-  const unsigned char* tracks56_start = fread_ptr;
+  // Fixed-width storage modes have no rare-alt tracks (all rare-alt dosages
+  // are zero).
+  const uint32_t has_rare_alt_tracks = (pgrp->fi.const_vrtype == UINT32_MAX);
+  const unsigned char* tracks56_start = has_rare_alt_tracks? fread_ptr : nullptr;
   // Tracks #7-8 and the start of #9, if needed.
   const unsigned char* file_dphase_present = nullptr;
   const unsigned char* dphase_deltas = nullptr;
@@ -10189,7 +10202,7 @@ static PglErr GetMultiallelicCountsWithDosage16s(const uintptr_t* __restrict sam
   const uint32_t dphase_mode = ((vrtype & 0x80) && phase_matters)? (1 + is_unconditional_dosage) : 0;
   if (dphase_mode) {
     RareAltTrackReader rr;
-    if (unlikely(RareAltTrackReaderInit(fread_end, raw_sample_ct, allele_ct, &fread_ptr, &rr))) {
+    if (has_rare_alt_tracks && unlikely(RareAltTrackReaderInit(fread_end, raw_sample_ct, allele_ct, &fread_ptr, &rr))) {
       return kPglRetMalformedInput;
     }
     uint32_t raw_dphase_ct = raw_sample_ct;
@@ -10205,7 +10218,9 @@ static PglErr GetMultiallelicCountsWithDosage16s(const uintptr_t* __restrict sam
     if (PtrAddCk(fread_end, raw_dphase_ct * sizeof(int16_t), &fread_ptr)) {
       return kPglRetMalformedInput;
     }
-    tracks910_start = fread_ptr;
+    if (has_rare_alt_tracks) {
+      tracks910_start = fread_ptr;
+    }
   }
 
   // Hardcall contributions, from the included samples without dosages.
@@ -10257,10 +10272,13 @@ static PglErr GetMultiallelicCountsWithDosage16s(const uintptr_t* __restrict sam
   // Dosage contributions.
   RareAltPeeker dosage_rp;
   RareAltPeeker dphase_rp;
-  if (unlikely(RareAltPeekerInit(fread_end, raw_sample_ct, allele_ct, &tracks56_start, &dosage_rp))) {
+  // An "empty" peeker stands in for absent tracks.
+  dosage_rp.next_sample_idx = UINT32_MAX;
+  dphase_rp.next_sample_idx = UINT32_MAX;
+  if (tracks56_start && unlikely(RareAltPeekerInit(fread_end, raw_sample_ct, allele_ct, &tracks56_start, &dosage_rp))) {
     return kPglRetMalformedInput;
   }
-  if (dphase_mode && unlikely(RareAltPeekerInit(fread_end, raw_sample_ct, allele_ct, &tracks910_start, &dphase_rp))) {
+  if (tracks910_start && unlikely(RareAltPeekerInit(fread_end, raw_sample_ct, allele_ct, &tracks910_start, &dphase_rp))) {
     return kPglRetMalformedInput;
   }
   uint32_t rare_codes[256];
@@ -10640,7 +10658,7 @@ PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, PgrSampleSubsetI
     }
     return reterr;
   }
-  const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if ((!VrtypeDosage(vrtype)) || (!sample_ct)) {
     pgvp->dosage_ct = 0;
     pgvp->dphase_ct = 0;

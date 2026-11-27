@@ -1599,7 +1599,419 @@ static void RunFile(const char* fname, uint32_t sample_ct, uint32_t variant_ct, 
   }
 }
 
-int main() {
+// ***** "compare" mode: semantic comparison of two filesets *****
+
+struct PvarInfo {
+  std::vector<std::string> ids;
+  std::vector<std::vector<std::string>> alleles;
+  std::vector<uintptr_t> allele_idx_offsets;
+};
+
+static std::vector<std::string> SplitTabs(const std::string& line) {
+  std::vector<std::string> out;
+  size_t start = 0;
+  while (1) {
+    const size_t pos = line.find('\t', start);
+    if (pos == std::string::npos) {
+      out.push_back(line.substr(start));
+      return out;
+    }
+    out.push_back(line.substr(start, pos - start));
+    start = pos + 1;
+  }
+}
+
+static std::vector<std::string> ReadLines(const std::string& fname) {
+  std::vector<std::string> out;
+  FILE* ff = fopen(fname.c_str(), "r");
+  if (!ff) {
+    return out;
+  }
+  char buf[1 << 16];
+  while (fgets(buf, sizeof(buf), ff)) {
+    std::string line(buf);
+    while ((!line.empty()) && ((line.back() == '\n') || (line.back() == '\r'))) {
+      line.pop_back();
+    }
+    out.push_back(line);
+  }
+  fclose(ff);
+  return out;
+}
+
+static int ReadPvar(const std::string& prefix, PvarInfo& pi) {
+  int id_col = -1;
+  int ref_col = -1;
+  int alt_col = -1;
+  pi.allele_idx_offsets.push_back(0);
+  for (const std::string& line : ReadLines(prefix + ".pvar")) {
+    if ((line.size() >= 2) && (line[0] == '#') && (line[1] == '#')) {
+      continue;
+    }
+    const std::vector<std::string> toks = SplitTabs(line);
+    if (line[0] == '#') {
+      for (size_t i = 0; i != toks.size(); ++i) {
+        if (toks[i] == "ID") {
+          id_col = i;
+        } else if (toks[i] == "REF") {
+          ref_col = i;
+        } else if (toks[i] == "ALT") {
+          alt_col = i;
+        }
+      }
+      continue;
+    }
+    if ((id_col < 0) || (ref_col < 0) || (alt_col < 0)) {
+      return 1;
+    }
+    pi.ids.push_back(toks[id_col]);
+    std::vector<std::string> alleles(1, toks[ref_col]);
+    size_t start = 0;
+    const std::string& alt = toks[alt_col];
+    while (1) {
+      const size_t pos = alt.find(',', start);
+      alleles.push_back(alt.substr(start, (pos == std::string::npos)? std::string::npos : (pos - start)));
+      if (pos == std::string::npos) {
+        break;
+      }
+      start = pos + 1;
+    }
+    pi.allele_idx_offsets.push_back(pi.allele_idx_offsets.back() + alleles.size());
+    pi.alleles.push_back(alleles);
+  }
+  return pi.ids.empty();
+}
+
+static std::vector<std::string> ReadPsamIids(const std::string& prefix) {
+  std::vector<std::string> out;
+  int iid_col = -1;
+  for (const std::string& line : ReadLines(prefix + ".psam")) {
+    const std::vector<std::string> toks = SplitTabs(line);
+    if (line[0] == '#') {
+      for (size_t i = 0; i != toks.size(); ++i) {
+        if ((toks[i] == "IID") || (toks[i] == "#IID")) {
+          iid_col = i;
+        }
+      }
+      continue;
+    }
+    out.push_back(toks[iid_col]);
+  }
+  return out;
+}
+
+// Per-allele dosage and dosage-phase vectors (empty when absent), from a
+// decoded sample.
+static void DenseAlleleVals(const SampleData& sd, uint32_t allele_ct, std::vector<int32_t>& u, std::vector<int32_t>& d) {
+  u.clear();
+  d.clear();
+  if (sd.has_dosage) {
+    u.assign(allele_ct, 0);
+    u[0] = 32768 - sd.dosage;
+    u[1] = sd.dosage;
+    for (const auto& pr : sd.md) {
+      u[pr.first] = pr.second;
+      u[1] -= pr.second;
+    }
+  }
+  if (sd.has_dphase) {
+    d.assign(allele_ct, 0);
+    d[0] = -sd.dphase;
+    d[1] = sd.dphase;
+    for (const auto& pr : sd.mdp) {
+      d[pr.first] = pr.second;
+      d[1] -= pr.second;
+    }
+  }
+}
+
+// Compares orig_prefix.{pgen,pvar,psam} and new_prefix.*, matching samples by
+// IID, variants by ID, and alleles by string.  Hardcalls, phase, dosages, and
+// dosage-phase values must agree (phaseinfo only when the variant's allele
+// order is unchanged).  If strip_phase is set, the new fileset must have no
+// phase information; if strip_dosage is set, no dosages.
+// If hets_missing is set, the original's heterozygous hardcalls (including
+// altx/alty) must be missing in the new fileset, with their dosages erased,
+// and all phase information must be gone (cf. --set-mixed-mt-missing).
+static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint32_t strip_phase, uint32_t strip_dosage, uint32_t hets_missing) {
+  strip_phase |= hets_missing;
+  PvarInfo orig_pi;
+  PvarInfo new_pi;
+  if (ReadPvar(orig_prefix, orig_pi) || ReadPvar(new_prefix, new_pi)) {
+    fprintf(stderr, "compare: failed to read .pvar files\n");
+    return 1;
+  }
+  const std::vector<std::string> orig_iids = ReadPsamIids(orig_prefix);
+  const std::vector<std::string> new_iids = ReadPsamIids(new_prefix);
+  std::vector<uint32_t> new_to_orig_sample(new_iids.size());
+  for (size_t new_idx = 0; new_idx != new_iids.size(); ++new_idx) {
+    size_t orig_idx = 0;
+    while ((orig_idx != orig_iids.size()) && (orig_iids[orig_idx] != new_iids[new_idx])) {
+      ++orig_idx;
+    }
+    if (orig_idx == orig_iids.size()) {
+      fprintf(stderr, "compare: sample %s not in original\n", new_iids[new_idx].c_str());
+      return 1;
+    }
+    new_to_orig_sample[new_idx] = orig_idx;
+  }
+  const uint32_t orig_sample_ct = orig_iids.size();
+  const uint32_t new_sample_ct = new_iids.size();
+  const uint32_t orig_variant_ct = orig_pi.ids.size();
+  const uint32_t new_variant_ct = new_pi.ids.size();
+  Reader orig_r;
+  Reader new_r;
+  if (OpenReader((std::string(orig_prefix) + ".pgen").c_str(), orig_pi.allele_idx_offsets.data(), orig_variant_ct, orig_sample_ct, orig_r) ||
+      OpenReader((std::string(new_prefix) + ".pgen").c_str(), new_pi.allele_idx_offsets.data(), new_variant_ct, new_sample_ct, new_r)) {
+    fprintf(stderr, "compare: failed to open .pgen files\n");
+    return 1;
+  }
+  ReaderBufs orig_rb;
+  ReaderBufs new_rb;
+  InitReaderBufs(orig_sample_ct, 255, orig_rb);
+  InitReaderBufs(new_sample_ct, 255, new_rb);
+  PgrSampleSubsetIndex orig_pssi;
+  PgrSampleSubsetIndex new_pssi;
+  PgrClearSampleSubsetIndex(&orig_r.pgr, &orig_pssi);
+  PgrClearSampleSubsetIndex(&new_r.pgr, &new_pssi);
+  uint64_t mismatch_ct = 0;
+  uint64_t md_entry_ct = 0;
+  for (uint32_t new_vidx = 0; new_vidx != new_variant_ct; ++new_vidx) {
+    uint32_t orig_vidx = 0;
+    while ((orig_vidx != orig_variant_ct) && (orig_pi.ids[orig_vidx] != new_pi.ids[new_vidx])) {
+      ++orig_vidx;
+    }
+    if (orig_vidx == orig_variant_ct) {
+      fprintf(stderr, "compare: variant %s not in original\n", new_pi.ids[new_vidx].c_str());
+      return 1;
+    }
+    const std::vector<std::string>& orig_alleles = orig_pi.alleles[orig_vidx];
+    const std::vector<std::string>& new_alleles = new_pi.alleles[new_vidx];
+    // orig allele index -> new allele index (UINT32_MAX if dropped)
+    std::vector<uint32_t> orig_to_new(orig_alleles.size(), UINT32_MAX);
+    uint32_t order_unchanged = (orig_alleles.size() == new_alleles.size());
+    for (size_t new_aidx = 0; new_aidx != new_alleles.size(); ++new_aidx) {
+      for (size_t orig_aidx = 0; orig_aidx != orig_alleles.size(); ++orig_aidx) {
+        if (orig_alleles[orig_aidx] == new_alleles[new_aidx]) {
+          orig_to_new[orig_aidx] = new_aidx;
+          order_unchanged = order_unchanged && (orig_aidx == new_aidx);
+        }
+      }
+    }
+    if (PgrGetMDp(nullptr, orig_pssi, orig_sample_ct, orig_vidx, &orig_r.pgr, &orig_rb.pgv) ||
+        PgrGetMDp(nullptr, new_pssi, new_sample_ct, new_vidx, &new_r.pgr, &new_rb.pgv)) {
+      fprintf(stderr, "compare: read failure at variant %s\n", new_pi.ids[new_vidx].c_str());
+      return 1;
+    }
+    const std::vector<SampleData> orig_sds = Decode(orig_rb.pgv, orig_sample_ct, 1, 1, 1);
+    const std::vector<SampleData> new_sds = Decode(new_rb.pgv, new_sample_ct, 1, 1, 1);
+    md_entry_ct += new_rb.pgv.multidosage_sample_ct;
+    for (uint32_t new_sidx = 0; new_sidx != new_sample_ct; ++new_sidx) {
+      SampleData o = orig_sds[new_to_orig_sample[new_sidx]];
+      const SampleData& n = new_sds[new_sidx];
+      if (hets_missing && (o.a1 != UINT32_MAX) && (o.a1 != o.a2)) {
+        o.a1 = UINT32_MAX;
+        o.a2 = UINT32_MAX;
+        o.has_dosage = 0;
+        o.has_dphase = 0;
+        o.md.clear();
+        o.mdp.clear();
+      }
+      // hardcalls, as unordered new-space allele pairs
+      uint32_t expected_a1 = UINT32_MAX;
+      uint32_t expected_a2 = UINT32_MAX;
+      if (o.a1 != UINT32_MAX) {
+        expected_a1 = orig_to_new[o.a1];
+        expected_a2 = orig_to_new[o.a2];
+        if (expected_a1 > expected_a2) {
+          std::swap(expected_a1, expected_a2);
+        }
+      }
+      int ok = (n.a1 == expected_a1) && (n.a2 == expected_a2);
+      // phase
+      if (strip_phase) {
+        ok = ok && (!n.phased) && (!n.has_dphase);
+      } else {
+        ok = ok && (n.phased == o.phased);
+        if (order_unchanged) {
+          ok = ok && (n.phaseinfo == o.phaseinfo);
+        }
+      }
+      // dosages
+      std::vector<int32_t> ou;
+      std::vector<int32_t> od;
+      std::vector<int32_t> nu;
+      std::vector<int32_t> nd;
+      DenseAlleleVals(o, orig_alleles.size(), ou, od);
+      DenseAlleleVals(n, new_alleles.size(), nu, nd);
+      if (strip_dosage) {
+        ok = ok && nu.empty() && nd.empty();
+      } else {
+        std::vector<int32_t> eu;
+        std::vector<int32_t> ed;
+        if (!ou.empty()) {
+          eu.assign(new_alleles.size(), 0);
+          for (size_t orig_aidx = 0; orig_aidx != ou.size(); ++orig_aidx) {
+            if (orig_to_new[orig_aidx] != UINT32_MAX) {
+              eu[orig_to_new[orig_aidx]] = ou[orig_aidx];
+            } else if (ou[orig_aidx]) {
+              ok = 0;
+            }
+          }
+        }
+        if ((!od.empty()) && (!strip_phase)) {
+          ed.assign(new_alleles.size(), 0);
+          for (size_t orig_aidx = 0; orig_aidx != od.size(); ++orig_aidx) {
+            if (orig_to_new[orig_aidx] != UINT32_MAX) {
+              ed[orig_to_new[orig_aidx]] = od[orig_aidx];
+            }
+          }
+        }
+        ok = ok && (nu == eu);
+        if (!strip_phase) {
+          ok = ok && (nd == ed);
+        }
+      }
+      if (!ok) {
+        if (mismatch_ct < 10) {
+          fprintf(stderr, "compare: mismatch at variant %s, sample %s: hardcall %u/%u vs expected %u/%u, phased %u vs %u, dosage %s, dphase %s\n", new_pi.ids[new_vidx].c_str(), new_iids[new_sidx].c_str(), n.a1, n.a2, expected_a1, expected_a2, n.phased, o.phased, (nu.empty() == ou.empty())? "presence ok" : "presence differs", (nd.empty() == od.empty())? "presence ok" : "presence differs");
+        }
+        ++mismatch_ct;
+      }
+    }
+  }
+  FreeReaderBufs(orig_rb);
+  FreeReaderBufs(new_rb);
+  CloseReader(orig_r);
+  CloseReader(new_r);
+  if (mismatch_ct) {
+    fprintf(stderr, "compare: %" PRIu64 " mismatch(es).\n", mismatch_ct);
+    return 1;
+  }
+  printf("compare: %s matches %s (%u variants, %u samples, %" PRIu64 " samples with rare-alt dosages).\n", new_prefix, orig_prefix, new_variant_ct, new_sample_ct, md_entry_ct);
+  return 0;
+}
+
+// Writes tmp_fixed.{pgen,pvar,psam}: fixed-width phased-dosage storage (mode
+// 0x04) for 50 samples and 6 variants, which the .pvar declares to have 3
+// alleles each.  Fixed-width records have no rare-alt tracks, so the readers
+// must not look for any; rare-alt dosages are all zero.
+static void CheckFixedWidth() {
+  const uint32_t sample_ct = 50;
+  const uint32_t variant_ct = 6;
+  std::vector<uintptr_t> allele_idx_offsets(variant_ct + 1);
+  for (uint32_t vidx = 0; vidx <= variant_ct; ++vidx) {
+    allele_idx_offsets[vidx] = 3 * vidx;
+  }
+  std::vector<unsigned char> file = {0x6c, 0x1b, 0x04};
+  for (uint32_t uii = 0; uii != 4; ++uii) {
+    file.push_back((variant_ct >> (8 * uii)) & 255);
+  }
+  for (uint32_t uii = 0; uii != 4; ++uii) {
+    file.push_back((sample_ct >> (8 * uii)) & 255);
+  }
+  file.push_back(0);
+  std::vector<std::vector<uint32_t>> genos(variant_ct, std::vector<uint32_t>(sample_ct));
+  std::vector<std::vector<uint16_t>> dosages(variant_ct, std::vector<uint16_t>(sample_ct));
+  std::vector<std::vector<int16_t>> deltas(variant_ct, std::vector<int16_t>(sample_ct));
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    std::vector<unsigned char> genobytes(DivUp(sample_ct, 4), 0);
+    for (uint32_t s = 0; s != sample_ct; ++s) {
+      uint32_t geno = RandBelow(4);
+      uint16_t dosage = 65535;
+      int16_t delta = -32768;
+      if (geno != 3) {
+        // within half a copy of the hardcall
+        const int32_t lo = MAXV(0, S_CAST(int32_t, 16384 * geno) - 8192);
+        const int32_t hi = MINV(32768, S_CAST(int32_t, 16384 * geno) + 8192);
+        dosage = lo + RandBelow(hi - lo + 1);
+        const int32_t lim = MINV(dosage, 32768 - dosage);
+        delta = S_CAST(int32_t, RandBelow(2 * lim + 1)) - lim;
+      } else if (RandBelow(2)) {
+        // missing hardcall, nonmissing dosage
+        dosage = RandBelow(32769);
+        const int32_t lim = MINV(dosage, 32768 - dosage);
+        delta = S_CAST(int32_t, RandBelow(2 * lim + 1)) - lim;
+      }
+      genos[vidx][s] = geno;
+      dosages[vidx][s] = dosage;
+      deltas[vidx][s] = delta;
+      genobytes[s / 4] |= geno << (2 * (s % 4));
+    }
+    file.insert(file.end(), genobytes.begin(), genobytes.end());
+    for (uint16_t d : dosages[vidx]) {
+      file.push_back(d & 255);
+      file.push_back(d >> 8);
+    }
+    for (int16_t d : deltas[vidx]) {
+      file.push_back(S_CAST(uint16_t, d) & 255);
+      file.push_back(S_CAST(uint16_t, d) >> 8);
+    }
+  }
+  FILE* ff = fopen("tmp_fixed.pgen", "wb");
+  CHECK(ff && (fwrite(file.data(), 1, file.size(), ff) == file.size()));
+  fclose(ff);
+  WritePvarPsam("tmp_fixed", allele_idx_offsets.data(), variant_ct, sample_ct);
+
+  char errstr[kPglErrstrBufBlen];
+  const PglErr validate_reterr = ValidateFile("tmp_fixed.pgen", allele_idx_offsets.data(), variant_ct, sample_ct, errstr);
+  if (validate_reterr) {
+    fprintf(stderr, "tmp_fixed.pgen: PgrValidate() failed: %s", errstr);
+  }
+  CHECK(!validate_reterr);
+  Reader r;
+  CHECK(!OpenReader("tmp_fixed.pgen", allele_idx_offsets.data(), variant_ct, sample_ct, r));
+  ReaderBufs rb;
+  InitReaderBufs(sample_ct, 3, rb);
+  PgrSampleSubsetIndex pssi;
+  PgrClearSampleSubsetIndex(&r.pgr, &pssi);
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    PgenVariant& out = rb.pgv;
+    CHECK(!PgrGetMDp(nullptr, pssi, sample_ct, vidx, &r.pgr, &out));
+    CHECK(!out.multidosage_sample_ct);
+    CHECK(!out.multidphase_sample_ct);
+    const std::vector<SampleData> sds = Decode(out, sample_ct, 1, 1, 1);
+    for (uint32_t s = 0; s != sample_ct; ++s) {
+      const SampleData& sd = sds[s];
+      const uint32_t geno = genos[vidx][s];
+      CHECK((geno == 3)? (sd.a1 == UINT32_MAX) : ((sd.a1 == (geno == 2)) && (sd.a2 == (geno != 0))));
+      CHECK(sd.has_dosage == (dosages[vidx][s] != 65535));
+      if (sd.has_dosage) {
+        CHECK(sd.dosage == dosages[vidx][s]);
+        CHECK(sd.has_dphase && (sd.dphase == deltas[vidx][s]));
+      }
+    }
+    // rare-alt dosages are zero
+    CHECK(!PgrGet1D(nullptr, pssi, sample_ct, vidx, 2, &r.pgr, out.genovec, out.dosage_present, out.dosage_main, &out.dosage_ct));
+    for (uint32_t dosage_idx = 0; dosage_idx != out.dosage_ct; ++dosage_idx) {
+      CHECK(!out.dosage_main[dosage_idx]);
+    }
+    STD_ARRAY_DECL(uint32_t, 4, genocounts);
+    uint64_t all_dosages[3];
+    uint32_t het_ct;
+    double imp_r2;
+    CHECK(!PgrGetMDCounts(nullptr, nullptr, pssi, sample_ct, vidx, 1, &r.pgr, &imp_r2, &het_ct, genocounts, all_dosages));
+    CHECK(!all_dosages[2]);
+  }
+  FreeReaderBufs(rb);
+  CloseReader(r);
+}
+
+int main(int argc, char** argv) {
+  // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
+  // [hets-missing]": see
+  // CompareFilesets().
+  if ((argc >= 4) && (!strcmp(argv[1], "compare"))) {
+    uint32_t strip_phase = 0;
+    uint32_t strip_dosage = 0;
+    uint32_t hets_missing = 0;
+    for (int argi = 4; argi < argc; ++argi) {
+      strip_phase |= !strcmp(argv[argi], "strip-phase");
+      strip_dosage |= !strcmp(argv[argi], "strip-dosage");
+      hets_missing |= !strcmp(argv[argi], "hets-missing");
+    }
+    return CompareFilesets(argv[2], argv[3], strip_phase, strip_dosage, hets_missing);
+  }
   // 300 samples: 2-byte group starts for most allele counts.  70000 samples:
   // 3-byte group starts, and sample IDs past 2^16.
   RunFile("tmp_small.pgen", 300, 6 * 36, 0, 1);
@@ -1607,6 +2019,7 @@ int main() {
   RunFile("tmp_big.pgen", 70000, 6 * 12, 24, 0);
 
   ValidatorTinyTests();
+  CheckFixedWidth();
 
   // Error paths.
   {
