@@ -524,6 +524,152 @@ BoolErr InitNmPrecomp(const double* covars_cmaj, const double* covar_dotprod, co
   return 0;
 }
 
+uintptr_t GlmMultidosageWorkspaceSize(uint32_t sample_ct, uint32_t md_allele_ct) {
+  if (!md_allele_ct) {
+    return 0;
+  }
+  const uintptr_t entry_ct = S_CAST(uintptr_t, sample_ct) * MINV(md_allele_ct - 2, 255);
+  return RoundUpPow2(BitCtToWordCt(sample_ct) * sizeof(intptr_t), kCacheline) +
+    RoundUpPow2(sample_ct, kCacheline) +
+    RoundUpPow2(entry_ct * sizeof(AlleleCode), kCacheline) +
+    RoundUpPow2(entry_ct * sizeof(uint16_t), kCacheline) +
+    2 * RoundUpPow2(md_allele_ct * sizeof(int32_t), kCacheline) +
+    RoundUpPow2(md_allele_ct * 6 * sizeof(int32_t), kCacheline);
+}
+
+void GlmReserveMultidosageWorkspace(uint32_t sample_ct, GlmCtx* common, uintptr_t* workspace_alloc_ptr) {
+  const uintptr_t workspace_alloc = RoundUpPow2(*workspace_alloc_ptr, kCacheline);
+  common->md_ws_sample_ct = sample_ct;
+  common->md_ws_offset = workspace_alloc;
+  *workspace_alloc_ptr = workspace_alloc + GlmMultidosageWorkspaceSize(sample_ct, common->md_allele_ct);
+}
+
+void GlmInitThreadMultidosage(const GlmCtx* common, unsigned char* workspace_buf, PgenVariant* pgvp, uint32_t** md_u_ptr, int32_t** md_d_ptr, uint32_t** md_hc_cts_ptr) {
+  pgvp->multidosage_present = nullptr;
+  pgvp->multidosage_cts = nullptr;
+  pgvp->multidosage_codes = nullptr;
+  pgvp->multidosage_vals = nullptr;
+  pgvp->multidosage_sample_ct = 0;
+  // PgrGetMD() never touches these
+  pgvp->phasepresent_ct = 0;
+  pgvp->dphase_ct = 0;
+  pgvp->multidphase_sample_ct = 0;
+  *md_u_ptr = nullptr;
+  *md_d_ptr = nullptr;
+  *md_hc_cts_ptr = nullptr;
+  const uint32_t md_allele_ct = common->md_allele_ct;
+  if (!md_allele_ct) {
+    return;
+  }
+  const uint32_t sample_ct = common->md_ws_sample_ct;
+  const uintptr_t entry_ct = S_CAST(uintptr_t, sample_ct) * MINV(md_allele_ct - 2, 255);
+  unsigned char* iter = &(workspace_buf[common->md_ws_offset]);
+  pgvp->multidosage_present = S_CAST(uintptr_t*, arena_alloc_raw_rd(BitCtToWordCt(sample_ct) * sizeof(intptr_t), &iter));
+  pgvp->multidosage_cts = S_CAST(unsigned char*, arena_alloc_raw_rd(sample_ct, &iter));
+  pgvp->multidosage_codes = S_CAST(AlleleCode*, arena_alloc_raw_rd(entry_ct * sizeof(AlleleCode), &iter));
+  pgvp->multidosage_vals = S_CAST(uint16_t*, arena_alloc_raw_rd(entry_ct * sizeof(uint16_t), &iter));
+  *md_u_ptr = S_CAST(uint32_t*, arena_alloc_raw_rd(md_allele_ct * sizeof(int32_t), &iter));
+  *md_d_ptr = S_CAST(int32_t*, arena_alloc_raw_rd(md_allele_ct * sizeof(int32_t), &iter));
+  *md_hc_cts_ptr = S_CAST(uint32_t*, arena_alloc_raw_rd(md_allele_ct * 6 * sizeof(int32_t), &iter));
+}
+
+// Shared part of GlmFillMultiallelicDosageCols{D,F}(); exactly one of dcols
+// and fcols is non-null.
+static BoolErr GlmMultiallelicDosageScan(const PgenVariant* pgvp, const uintptr_t* sample_nm, const uintptr_t* pheno_cc, uint32_t cur_sample_ct, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t col_stride, double* const* dcols, float* const* fcols, uint64_t* dosage_sums, uint64_t* dosage_ssqs, uintptr_t* const_alleles, uint32_t* hc_cts, uint32_t* u_buf, int32_t* d_buf) {
+  for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+    if (dcols) {
+      if (dcols[allele_idx]) {
+        ZeroDArr(col_stride, dcols[allele_idx]);
+      }
+    } else if (fcols[allele_idx]) {
+      ZeroFArr(col_stride, fcols[allele_idx]);
+    }
+  }
+  ZeroU64Arr(allele_ct, dosage_sums);
+  ZeroU64Arr(allele_ct, dosage_ssqs);
+  uint32_t hc_case_ct = 0;
+  uint32_t hc_ctrl_ct = 0;
+  if (hc_cts) {
+    ZeroU32Arr(allele_ct * 6, hc_cts);
+  }
+  MdCursor cursor;
+  MdCursorInit(pgvp, &cursor);
+  uint32_t nm_idx = 0;
+  for (uint32_t sample_idx = 0; sample_idx != cur_sample_ct; ++sample_idx) {
+    MdSample s;
+    if (unlikely(MdCursorNext(pgvp, sample_idx, allele_ct, 1, &cursor, &s, u_buf, d_buf))) {
+      return 1;
+    }
+    if (!IsSet(sample_nm, sample_idx)) {
+      continue;
+    }
+    if (hc_cts && (!s.is_missing)) {
+      // hc_cts[] holds one-copy counts in [1]/[4] and two-copy counts in
+      // [2]/[5] for now; zero-copy counts are filled in at the end.
+      const uint32_t ofs = 3 * (!IsSet(pheno_cc, sample_idx));
+      hc_case_ct += !ofs;
+      hc_ctrl_ct += !!ofs;
+      if (s.ac0 == s.ac1) {
+        hc_cts[6 * s.ac0 + ofs + 2] += 1;
+      } else {
+        hc_cts[6 * s.ac0 + ofs + 1] += 1;
+        hc_cts[6 * s.ac1 + ofs + 1] += 1;
+      }
+    }
+    // allele 0's dosage is 2 copies minus the ALT dosages
+    uint32_t alt_sum = 0;
+    for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+      const uint64_t cur_u = u_buf[allele_idx - 1];
+      alt_sum += cur_u;
+      if (!cur_u) {
+        continue;
+      }
+      dosage_sums[allele_idx] += cur_u;
+      dosage_ssqs[allele_idx] += cur_u * cur_u;
+      if (dcols) {
+        if (dcols[allele_idx]) {
+          dcols[allele_idx][nm_idx] = S_CAST(double, cur_u) * kRecipDosageMid;
+        }
+      } else if (fcols[allele_idx]) {
+        fcols[allele_idx][nm_idx] = S_CAST(float, cur_u) * kRecipDosageMidf;
+      }
+    }
+    const uint64_t ref_u = kDosageMax - alt_sum;
+    if (ref_u) {
+      dosage_sums[0] += ref_u;
+      dosage_ssqs[0] += ref_u * ref_u;
+      if (dcols) {
+        if (dcols[0]) {
+          dcols[0][nm_idx] = S_CAST(double, ref_u) * kRecipDosageMid;
+        }
+      } else if (fcols[0]) {
+        fcols[0][nm_idx] = S_CAST(float, ref_u) * kRecipDosageMidf;
+      }
+    }
+    ++nm_idx;
+  }
+  assert(nm_idx == nm_sample_ct);
+  for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+    if (const_alleles && DosageIsConstant(dosage_sums[allele_idx], dosage_ssqs[allele_idx], nm_sample_ct)) {
+      SetBit(allele_idx, const_alleles);
+    }
+    if (hc_cts) {
+      uint32_t* cur_hc_cts = &(hc_cts[6 * allele_idx]);
+      cur_hc_cts[0] = hc_case_ct - cur_hc_cts[1] - cur_hc_cts[2];
+      cur_hc_cts[3] = hc_ctrl_ct - cur_hc_cts[4] - cur_hc_cts[5];
+    }
+  }
+  return 0;
+}
+
+BoolErr GlmFillMultiallelicDosageColsD(const PgenVariant* pgvp, const uintptr_t* sample_nm, const uintptr_t* pheno_cc, uint32_t cur_sample_ct, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t col_stride, double* const* cols, uint64_t* dosage_sums, uint64_t* dosage_ssqs, uintptr_t* const_alleles, uint32_t* hc_cts, uint32_t* u_buf, int32_t* d_buf) {
+  return GlmMultiallelicDosageScan(pgvp, sample_nm, pheno_cc, cur_sample_ct, nm_sample_ct, allele_ct, col_stride, cols, nullptr, dosage_sums, dosage_ssqs, const_alleles, hc_cts, u_buf, d_buf);
+}
+
+BoolErr GlmFillMultiallelicDosageColsF(const PgenVariant* pgvp, const uintptr_t* sample_nm, const uintptr_t* pheno_cc, uint32_t cur_sample_ct, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t col_stride, float* const* cols, uint64_t* dosage_sums, uint64_t* dosage_ssqs, uintptr_t* const_alleles, uint32_t* hc_cts, uint32_t* u_buf, int32_t* d_buf) {
+  return GlmMultiallelicDosageScan(pgvp, sample_nm, pheno_cc, cur_sample_ct, nm_sample_ct, allele_ct, col_stride, nullptr, cols, dosage_sums, dosage_ssqs, const_alleles, hc_cts, u_buf, d_buf);
+}
+
 uint32_t DosageIsConstant(uint64_t dosage_sum, uint64_t dosage_ssq, uint32_t nm_sample_ct) {
   // Dosages are all identical iff dosage_sum * dosage_sum ==
   // dosage_ssq * nm_sample_ct.

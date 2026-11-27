@@ -172,6 +172,138 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
   return BigstackBaseSetChecked(g_bigstack_base);
 }
 
+uint32_t MultiallelicDosageMaxAlleleCt(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const unsigned char* vrtypes, uint32_t variant_ct) {
+  if (!allele_idx_offsets) {
+    return 0;
+  }
+  uint32_t max_allele_ct = 0;
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+    if ((allele_ct > max_allele_ct) && (allele_ct > 2) && ((!vrtypes) || (vrtypes[variant_uidx] & 0x60))) {
+      max_allele_ct = allele_ct;
+    }
+  }
+  return max_allele_ct;
+}
+
+void MdCursorInit(const PgenVariant* pgvp, MdCursor* cp) {
+  cp->patch_01_iter = pgvp->patch_01_vals;
+  cp->patch_10_iter = pgvp->patch_10_vals;
+  cp->dosage_iter = pgvp->dosage_main;
+  cp->dphase_iter = pgvp->dphase_delta;
+  cp->md_cts_iter = pgvp->multidosage_cts;
+  cp->md_codes_iter = pgvp->multidosage_codes;
+  cp->md_vals_iter = pgvp->multidosage_vals;
+  cp->mdp_cts_iter = pgvp->multidphase_cts;
+  cp->mdp_codes_iter = pgvp->multidphase_codes;
+  cp->mdp_delta_iter = pgvp->multidphase_delta;
+}
+
+BoolErr MdCursorNext(const PgenVariant* pgvp, uint32_t sample_idx, uint32_t allele_ct, uint32_t hc_vals, MdCursor* cp, MdSample* sp, uint32_t* u, int32_t* d) {
+  const uint32_t geno = GetNyparrEntry(pgvp->genovec, sample_idx);
+  uint32_t ac0 = 0;
+  uint32_t ac1 = 0;
+  if (geno == 1) {
+    ac1 = 1;
+    if (pgvp->patch_01_ct && IsSet(pgvp->patch_01_set, sample_idx)) {
+      ac1 = *(cp->patch_01_iter)++;
+    }
+  } else if (geno == 2) {
+    ac0 = 1;
+    ac1 = 1;
+    if (pgvp->patch_10_ct && IsSet(pgvp->patch_10_set, sample_idx)) {
+      ac0 = cp->patch_10_iter[0];
+      ac1 = cp->patch_10_iter[1];
+      cp->patch_10_iter = &(cp->patch_10_iter[2]);
+    }
+  }
+  sp->ac0 = ac0;
+  sp->ac1 = ac1;
+  sp->is_missing = (geno == 3);
+  const uint32_t is_het = (ac0 != ac1);
+  sp->is_het = is_het;
+  sp->hc_phased = is_het && pgvp->phasepresent_ct && IsSet(pgvp->phasepresent, sample_idx);
+  sp->hc_phaseinfo = sp->hc_phased && IsSet(pgvp->phaseinfo, sample_idx);
+  sp->has_vals = 0;
+  sp->hap_split = 0;
+  const uint32_t alt_ct = allele_ct - 1;
+  const uint32_t has_dosage = pgvp->dosage_ct && IsSet(pgvp->dosage_present, sample_idx);
+  sp->has_dosage = has_dosage;
+  if (has_dosage) {
+    const uint32_t has_dphase = pgvp->dphase_ct && IsSet(pgvp->dphase_present, sample_idx);
+    ZeroU32Arr(alt_ct, u);
+    memset(d, 0, alt_ct * sizeof(int32_t));
+    uint32_t alt1_dosage = *(cp->dosage_iter)++;
+    if (alt1_dosage > kDosageMax) {
+      return 1;
+    }
+    if (pgvp->multidosage_sample_ct && IsSet(pgvp->multidosage_present, sample_idx)) {
+      const uint32_t entry_ct = *(cp->md_cts_iter)++;
+      for (uint32_t uii = 0; uii != entry_ct; ++uii) {
+        const uint32_t code = *(cp->md_codes_iter)++;
+        const uint32_t val = *(cp->md_vals_iter)++;
+        if ((code < 2) || (code >= allele_ct) || (val > alt1_dosage)) {
+          return 1;
+        }
+        u[code - 1] = val;
+        alt1_dosage -= val;
+      }
+    }
+    u[0] = alt1_dosage;
+    if (has_dphase) {
+      int32_t alt1_dphase = *(cp->dphase_iter)++;
+      if (pgvp->multidphase_sample_ct && IsSet(pgvp->multidphase_present, sample_idx)) {
+        const uint32_t entry_ct = *(cp->mdp_cts_iter)++;
+        for (uint32_t uii = 0; uii != entry_ct; ++uii) {
+          const uint32_t code = *(cp->mdp_codes_iter)++;
+          const int32_t val = *(cp->mdp_delta_iter)++;
+          if ((code < 2) || (code >= allele_ct)) {
+            return 1;
+          }
+          d[code - 1] = val;
+          alt1_dphase -= val;
+        }
+      }
+      d[0] = alt1_dphase;
+      // both haplotype dosages must be in [0, 1]
+      for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+        const int32_t cur_u = u[uii];
+        const int32_t cur_d = d[uii];
+        if ((cur_d > cur_u) || (-cur_d > cur_u) || (cur_u + cur_d > S_CAST(int32_t, kDosageMax)) || (cur_u - cur_d > S_CAST(int32_t, kDosageMax))) {
+          return 1;
+        }
+      }
+      sp->hap_split = 1;
+    }
+    sp->has_vals = 1;
+  } else if (hc_vals && (geno != 3)) {
+    ZeroU32Arr(alt_ct, u);
+    memset(d, 0, alt_ct * sizeof(int32_t));
+    if (ac0) {
+      u[ac0 - 1] += kDosageMid;
+    }
+    if (ac1) {
+      u[ac1 - 1] += kDosageMid;
+    }
+    if (sp->hc_phased) {
+      const uint32_t ac_left = sp->hc_phaseinfo? ac1 : ac0;
+      const uint32_t ac_right = ac0 + ac1 - ac_left;
+      if (ac_left) {
+        d[ac_left - 1] = kDosageMid;
+      }
+      if (ac_right) {
+        d[ac_right - 1] = -kDosageMid;
+      }
+      sp->hap_split = 1;
+    }
+    sp->has_vals = 1;
+  }
+  return 0;
+}
+
 static_assert(kDosageMid == 16384, "PrintDosageDecimal() needs to be updated.");
 char* PrintDosageDecimal(uint32_t remainder, char* start) {
   // Instead of constant 5-digit precision, we print fewer digits whenever that

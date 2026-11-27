@@ -175,6 +175,12 @@ typedef struct GlmCtxStruct {
   uint32_t sample_ct_x;
   uint32_t sample_ct_y;
   uint32_t max_extra_allele_ct;
+  // Multiallelic records with dosages: largest allele count among them (0 if
+  // none), and where each thread's PgrGetMD() rare-alt buffers live in its
+  // workspace_bufs[] entry (see GlmMultidosageWorkspaceSize()).
+  uint32_t md_allele_ct;
+  uint32_t md_ws_sample_ct;
+  uintptr_t md_ws_offset;
   uint32_t covar_ct;
   uint32_t local_covar_ct;
   uint32_t covar_ct_x;
@@ -311,6 +317,35 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
 BoolErr InitNmPrecomp(const double* covars_cmaj, const double* covar_dotprod, const double* corr_buf, const double* corr_inv_tri, uint32_t sample_ct, uint32_t is_qt, uintptr_t new_covar_ct, uintptr_t xtx_state, RegressionNmPrecomp* nm_precomp);
 
 uint32_t DosageIsConstant(uint64_t dosage_sum, uint64_t dosage_ssq, uint32_t nm_sample_ct);
+
+// Per-thread workspace bytes for PgrGetMD()'s rare-alt dosage buffers and
+// GlmFillMultiallelicDosageCols{D,F}()'s scratch (0 when md_allele_ct == 0).
+uintptr_t GlmMultidosageWorkspaceSize(uint32_t sample_ct, uint32_t md_allele_ct);
+
+// Adds the rare-alt dosage workspace to *workspace_alloc_ptr, and records its
+// position in common.
+void GlmReserveMultidosageWorkspace(uint32_t sample_ct, GlmCtx* common, uintptr_t* workspace_alloc_ptr);
+
+// In a thread: points pgvp's multidosage_* fields into the thread's
+// workspace (or sets them to nullptr if there are no multiallelic dosage
+// records), and sets *md_u_ptr/*md_d_ptr/*md_hc_cts_ptr to the scratch arrays
+// used by GlmFillMultiallelicDosageCols{D,F}().
+void GlmInitThreadMultidosage(const GlmCtx* common, unsigned char* workspace_buf, PgenVariant* pgvp, uint32_t** md_u_ptr, int32_t** md_d_ptr, uint32_t** md_hc_cts_ptr);
+
+// Fills the predictor columns of a multiallelic variant with dosages
+// (pgvp->dosage_ct > 0, from PgrGetMD()).  cols[allele_idx] (nullptr to
+// skip) receives allele dosages on a 0..2 scale for the samples in sample_nm,
+// in order, using dosages where present and hardcalls elsewhere; each column
+// is first zeroed up to col_stride.  dosage_sums/dosage_ssqs get per-allele
+// sums (16384 = 1 copy) over those samples, and (if const_alleles is
+// non-null) const_alleles bits are set for alleles with constant columns.
+// If hc_cts is non-null (requires pheno_cc), hc_cts[6 * allele_idx..] gets
+// {case 0, 1, 2 copies, control 0, 1, 2 copies} hardcall counts over samples
+// with nonmissing hardcalls.  u_buf and d_buf need allele_ct - 1 entries.
+// Returns 1 on an out-of-range dosage.
+BoolErr GlmFillMultiallelicDosageColsD(const PgenVariant* pgvp, const uintptr_t* sample_nm, const uintptr_t* pheno_cc, uint32_t cur_sample_ct, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t col_stride, double* const* cols, uint64_t* dosage_sums, uint64_t* dosage_ssqs, uintptr_t* const_alleles, uint32_t* hc_cts, uint32_t* u_buf, int32_t* d_buf);
+
+BoolErr GlmFillMultiallelicDosageColsF(const PgenVariant* pgvp, const uintptr_t* sample_nm, const uintptr_t* pheno_cc, uint32_t cur_sample_ct, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t col_stride, float* const* cols, uint64_t* dosage_sums, uint64_t* dosage_ssqs, uintptr_t* const_alleles, uint32_t* hc_cts, uint32_t* u_buf, int32_t* d_buf);
 
 uint32_t GetBiallelicReportedTestCt(const uintptr_t* parameter_subset, GlmFlags glm_flags, uint32_t covar_ct, uint32_t tests_flag);
 

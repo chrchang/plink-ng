@@ -1184,12 +1184,15 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
   pgv.genovec = common->genovecs[tidx];
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
-  pgv.multidosage_present = nullptr;  // rare-alt dosages unsupported for now
   if (common->dosage_presents) {
     pgv.dosage_present = common->dosage_presents[tidx];
     pgv.dosage_main = common->dosage_mains[tidx];
   }
   unsigned char* workspace_buf = common->workspace_bufs[tidx];
+  uint32_t* md_u;
+  int32_t* md_d;
+  uint32_t* md_hc_cts;
+  GlmInitThreadMultidosage(common, workspace_buf, &pgv, &md_u, &md_d, &md_hc_cts);
   const uintptr_t* variant_include = common->variant_include;
   const uintptr_t* allele_idx_offsets = common->allele_idx_offsets;
   const AlleleCode* omitted_alleles = common->omitted_alleles;
@@ -1622,6 +1625,35 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
               cur_geno_hardcall_cts[3 + geno_hardcall_idx] = genocounts[geno_hardcall_idx] - cur_geno_hardcall_cts[geno_hardcall_idx];
             }
           }
+        } else if (pgv.dosage_ct) {
+          // multiallelic, with dosages: same column layout as the hardcall
+          // case below (see the geno_col computation further down)
+          multi_start = &(nm_predictors_pmaj_buf[(expected_predictor_ct - allele_ct_m2) * nm_sample_ctav]);
+          float* allele_cols[kPglMaxAlleleCt];
+          for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+            if (allele_idx == omitted_allele_idx) {
+              allele_cols[allele_idx] = nullptr;
+            } else if (allele_idx > (!omitted_allele_idx)) {
+              allele_cols[allele_idx] = &(nm_predictors_pmaj_buf[(expected_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ctav]);
+            } else {
+              allele_cols[allele_idx] = genotype_vals;
+            }
+          }
+          uint32_t* hc_cts = cur_gcount_case_interleaved_vec? md_hc_cts : nullptr;
+          if (unlikely(GlmFillMultiallelicDosageColsF(&pgv, sample_nm, cur_pheno_cc, cur_sample_ct, nm_sample_ct, allele_ct, nm_sample_ctav, allele_cols, machr2_dosage_sums, machr2_dosage_ssqs, const_alleles, hc_cts, md_u, md_d))) {
+            new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto GlmLogisticThreadF_err;
+          }
+          if (hc_cts) {
+            uint32_t nonomitted_allele_idx = 0;
+            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+              if (allele_idx == omitted_allele_idx) {
+                continue;
+              }
+              memcpy(&(block_aux_iter[nonomitted_allele_idx].geno_hardcall_cts[0]), &(hc_cts[6 * allele_idx]), 6 * sizeof(int32_t));
+              ++nonomitted_allele_idx;
+            }
+          }
         } else {
           // multiallelic.
           // Update (18 Mar 2020): If some but not all alleles have constant
@@ -1631,8 +1663,6 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
           // is not affected by this; the ones corresponding to the constant
           // alleles have NA values.
 
-          // dosage_ct == 0 temporarily guaranteed if we reach here.
-          assert(!pgv.dosage_ct);
           multi_start = &(nm_predictors_pmaj_buf[(expected_predictor_ct - allele_ct_m2) * nm_sample_ctav]);
           ZeroU64Arr(allele_ct, machr2_dosage_sums);
           ZeroU64Arr(allele_ct, machr2_dosage_ssqs);
@@ -3841,12 +3871,15 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
   pgv.genovec = common->genovecs[tidx];
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
-  pgv.multidosage_present = nullptr;  // rare-alt dosages unsupported for now
   if (common->dosage_presents) {
     pgv.dosage_present = common->dosage_presents[tidx];
     pgv.dosage_main = common->dosage_mains[tidx];
   }
   unsigned char* workspace_buf = common->workspace_bufs[tidx];
+  uint32_t* md_u;
+  int32_t* md_d;
+  uint32_t* md_hc_cts;
+  GlmInitThreadMultidosage(common, workspace_buf, &pgv, &md_u, &md_d, &md_hc_cts);
   const uintptr_t* variant_include = common->variant_include;
   const uintptr_t* allele_idx_offsets = common->allele_idx_offsets;
   const AlleleCode* omitted_alleles = common->omitted_alleles;
@@ -4273,6 +4306,35 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               cur_geno_hardcall_cts[3 + geno_hardcall_idx] = genocounts[geno_hardcall_idx] - cur_geno_hardcall_cts[geno_hardcall_idx];
             }
           }
+        } else if (pgv.dosage_ct) {
+          // multiallelic, with dosages: same column layout as the hardcall
+          // case below (see the geno_col computation further down)
+          multi_start = &(nm_predictors_pmaj_buf[(expected_predictor_ct - allele_ct_m2) * nm_sample_ctav]);
+          double* allele_cols[kPglMaxAlleleCt];
+          for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+            if (allele_idx == omitted_allele_idx) {
+              allele_cols[allele_idx] = nullptr;
+            } else if (allele_idx > (!omitted_allele_idx)) {
+              allele_cols[allele_idx] = &(nm_predictors_pmaj_buf[(expected_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ctav]);
+            } else {
+              allele_cols[allele_idx] = genotype_vals;
+            }
+          }
+          uint32_t* hc_cts = cur_gcount_case_interleaved_vec? md_hc_cts : nullptr;
+          if (unlikely(GlmFillMultiallelicDosageColsD(&pgv, sample_nm, cur_pheno_cc, cur_sample_ct, nm_sample_ct, allele_ct, nm_sample_ctav, allele_cols, machr2_dosage_sums, machr2_dosage_ssqs, const_alleles, hc_cts, md_u, md_d))) {
+            new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto GlmLogisticThreadD_err;
+          }
+          if (hc_cts) {
+            uint32_t nonomitted_allele_idx = 0;
+            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+              if (allele_idx == omitted_allele_idx) {
+                continue;
+              }
+              memcpy(&(block_aux_iter[nonomitted_allele_idx].geno_hardcall_cts[0]), &(hc_cts[6 * allele_idx]), 6 * sizeof(int32_t));
+              ++nonomitted_allele_idx;
+            }
+          }
         } else {
           // multiallelic.
           // Update (18 Mar 2020): If some but not all alleles have constant
@@ -4282,8 +4344,6 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
           // is not affected by this; the ones corresponding to the constant
           // alleles have NA values.
 
-          // dosage_ct == 0 temporarily guaranteed if we reach here.
-          assert(!pgv.dosage_ct);
           multi_start = &(nm_predictors_pmaj_buf[(expected_predictor_ct - allele_ct_m2) * nm_sample_ctav]);
           ZeroU64Arr(allele_ct, machr2_dosage_sums);
           ZeroU64Arr(allele_ct, machr2_dosage_ssqs);
@@ -5402,6 +5462,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
     // +1 is for top-level common->workspace_bufs
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
+    GlmReserveMultidosageWorkspace(max_sample_ct, common, &workspace_alloc);
     uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
 
     uintptr_t per_variant_xalloc_byte_ct = max_sample_ct * local_covar_ct * (2 - is_single_prec) * sizeof(float);
@@ -6445,6 +6506,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
     }
     // +1 is for top-level common->workspace_bufs
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
+    GlmReserveMultidosageWorkspace(max_sample_ct, common, &workspace_alloc);
     uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
 
     uintptr_t per_variant_xalloc_byte_ct = max_sample_ct * local_covar_ct * (2 - is_single_prec) * sizeof(float);
