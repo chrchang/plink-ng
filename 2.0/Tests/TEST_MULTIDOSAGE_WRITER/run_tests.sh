@@ -406,3 +406,53 @@ $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --pca 4 allele-wts --out tmp
 ./tmp_multidosage_writer_test checkpca tmp_rel_sq.rel tmp_rel_pca.eigenvec tmp_rel_pca.eigenval
 $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --pca 4 approx allele-wts --out tmp_rel_pcaa
 ./tmp_multidosage_writer_test checkpca tmp_rel_sqmi.rel tmp_rel_pcaa.eigenvec tmp_rel_pcaa.eigenval approx
+
+# --score with rare ALT alleles counted (PgrGet1D()): ALT2 for every
+# multiallelic variant, plus ALT3 where present (two rows for the same
+# variant), under the additive/dominant/recessive models, with and without
+# mean imputation, and on MT (haploid: dosages halved).  Expected sums are
+# computed from the DS-force VCF by score_compare.awk.  (The 255-allele
+# variants are left out to keep the VCF small.)
+$P --pfile tmp_small --max-alleles 20 --export vcf vcf-dosage=DS-force --out tmp_sc_ds
+$P --pfile tmp_small --max-alleles 20 --freq --out tmp_sc_freq
+awk 'BEGIN {OFS = "\t"} !/^#/ {n = split($5, a, ","); if (n >= 2) print $3, a[2], ((NR * 37) % 11 - 5) / 7; if (n >= 3) print $3, a[3], ((NR * 53) % 13 - 6) / 9}' tmp_small.pvar > tmp_sc_file.txt
+for mod in "" "dominant" "recessive"; do
+    for imp in "no-mean-imputation" ""; do
+        $P --pfile tmp_small --max-alleles 20 --read-freq tmp_sc_freq.afreq --score tmp_sc_file.txt $mod $imp cols=+scoresums --out tmp_sc
+        awk -v mod="$mod" -v imp="$imp" -v haploid=0 -f score_compare.awk tmp_sc_freq.afreq tmp_sc_file.txt tmp_sc_ds.vcf tmp_sc.sscore
+    done
+done
+for imp in "no-mean-imputation" ""; do
+    $P --pfile tmp_mt --max-alleles 20 --read-freq tmp_sc_freq.afreq --score tmp_sc_file.txt $imp cols=+scoresums --out tmp_sc_mt
+    awk -v mod="" -v imp="$imp" -v haploid=1 -f score_compare.awk tmp_sc_freq.afreq tmp_sc_file.txt tmp_sc_ds.vcf tmp_sc_mt.sscore
+done
+# PCA projection: projecting the same samples with the .eigenvec.allele
+# weights must give back their PCs, up to one constant factor per PC.
+# ('meanimpute' PCs, since a projection treats missing calls the same way;
+# the default PCs use per-pair nonmissing counts.)
+$P --pfile tmp_small --read-freq tmp_rel_freq.afreq --pca 4 meanimpute allele-wts --out tmp_sc_pca
+$P --pfile tmp_small --read-freq tmp_rel_freq.afreq --score tmp_sc_pca.eigenvec.allele 2 5 header-read no-mean-imputation variance-standardize cols=+scoresums --score-col-nums 6-9 --out tmp_sc_proj
+awk 'function absf(x) { return (x < 0)? -x : x }
+     FNR == 1 { next }
+     NR == FNR { for (k = 1; k <= 4; ++k) e[FNR, k] = $(k + 1); next }
+     { for (k = 1; k <= 4; ++k) s[FNR, k] = $(NF - 4 + k); n = FNR - 1 }
+     END {
+       for (k = 1; k <= 4; ++k) {
+         se = ss = see = sss = ses = 0;
+         for (i = 2; i <= n + 1; ++i) {
+           x = e[i, k]; y = s[i, k];
+           se += x; ss += y; see += x * x; sss += y * y; ses += x * y;
+         }
+         c = (ses - se * ss / n) / sqrt((see - se * se / n) * (sss - ss * ss / n));
+         print "PC" k " projection correlation " c;
+         if (absf(c) < 0.99999) bad = 1;
+       }
+       exit bad;
+     }' tmp_sc_pca.eigenvec tmp_sc_proj.sscore
+# --variant-score uses total ALT dosages (PgrGetD()'s collapse), with
+# missing dosages imputed from the total ALT frequency.
+awk 'BEGIN {OFS = "\t"; print "#IID", "W1", "W2"} NR > 1 {print $1, ((NR * 29) % 17 - 8) / 5, ((NR * 41) % 7) / 3}' tmp_small.psam > tmp_sc_vw.txt
+for sp in "" "single-prec"; do
+    $P --pfile tmp_small --max-alleles 20 --read-freq tmp_sc_freq.afreq --variant-score tmp_sc_vw.txt $sp cols=+altfreq,+nmiss --out tmp_sc_vs
+    awk -f vscore_compare.awk tmp_sc_vw.txt tmp_sc_ds.vcf tmp_sc_vs.vscore
+done
