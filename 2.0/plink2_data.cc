@@ -8250,25 +8250,35 @@ static void ApplyMultiallelicDosageCallOps(const RareAltList* mdp, const RareAlt
 // variants.
 // new_variant_idx_to_old == nullptr means variants are written in their
 // original order.
-static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const uint32_t* new_variant_idx_to_old, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const unsigned char* vrtypes, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t dphase_present, uintptr_t* max_variant_raw_word_ct_ptr, uint64_t* max_vblock_raw_word_ct_ptr) {
+// With multiallelic split (write_variant_ct > variant_ct), split variants are
+// passed to MakePgenThread() as biallelic records, so only the unsplit ones
+// count.
+static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const uint32_t* new_variant_idx_to_old, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const unsigned char* vrtypes, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t dphase_present, uintptr_t* max_variant_raw_word_ct_ptr, uint64_t* max_vblock_raw_word_ct_ptr) {
   uint32_t max_allele_ct = 0;
   uintptr_t max_variant_raw_word_ct = 0;
   uint64_t max_vblock_raw_word_ct = 0;
   uint64_t cur_vblock_raw_word_ct = 0;
   uintptr_t variant_uidx_base = 0;
   uintptr_t cur_bits = variant_include[0];
-  for (uint32_t write_idx = 0; write_idx != variant_ct; ++write_idx) {
-    if (!(write_idx % kPglVblockSize)) {
+  uint32_t write_idx = 0;
+  for (uint32_t read_idx = 0; read_idx != variant_ct; ++read_idx) {
+    const uint32_t variant_uidx = new_variant_idx_to_old? new_variant_idx_to_old[read_idx] : BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    const uint32_t read_allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
+    const uint32_t write_allele_ct = write_allele_idx_offsets? (write_allele_idx_offsets[write_idx + 1] - write_allele_idx_offsets[write_idx]) : 2;
+    const uint32_t cur_write_idx = write_idx;
+    if ((variant_ct != write_variant_ct) && (read_allele_ct != write_allele_ct)) {
+      write_idx += read_allele_ct - 1;
+      continue;
+    }
+    ++write_idx;
+    if (!(cur_write_idx % kPglVblockSize)) {
       cur_vblock_raw_word_ct = 0;
     }
-    const uint32_t variant_uidx = new_variant_idx_to_old? new_variant_idx_to_old[write_idx] : BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     // vrtypes == nullptr for fixed-width storage, where every record has
     // dosages if any does.
     if (vrtypes && (!(vrtypes[variant_uidx] & 0x60))) {
       continue;
     }
-    const uint32_t read_allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
-    const uint32_t write_allele_ct = write_allele_idx_offsets? (write_allele_idx_offsets[write_idx + 1] - write_allele_idx_offsets[write_idx]) : 2;
     const uint32_t cur_max = MAXV(read_allele_ct, write_allele_ct);
     if (cur_max <= 2) {
       continue;
@@ -8287,6 +8297,7 @@ static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const 
       }
     }
   }
+  assert(write_idx == write_variant_ct);
   *max_variant_raw_word_ct_ptr = max_variant_raw_word_ct;
   *max_vblock_raw_word_ct_ptr = max_vblock_raw_word_ct;
   return max_allele_ct;
@@ -8297,8 +8308,8 @@ static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const 
 // among multiallelic dosage records (0 if none), and in that case adds
 // kfPgenGlobalMultiallelicDosagePresent to the read and write flags.
 // Prints an error and returns kPglRetNotYetSupported for operations that
-// don't support multiallelic dosages yet (multiallelic split/join, and
-// 'keep-dosage' modifiers).
+// don't support multiallelic dosages yet ('keep-dosage' modifiers).
+// (Variant-join is handled by MakePgenJoin() instead.)
 static PglErr PrepareMakePgenMultidosage(const uintptr_t* variant_include, const uint32_t* new_variant_idx_to_old, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const unsigned char* vrtypes, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t write_variant_ct, const MakeCommon* mcp, PgenGlobalFlags* read_gflags_ptr, PgenGlobalFlags* write_gflags_ptr, uint32_t* max_md_allele_ct_ptr, uintptr_t* max_variant_raw_word_ct_ptr, uint64_t* max_vblock_raw_word_ct_ptr) {
   *max_md_allele_ct_ptr = 0;
   *max_variant_raw_word_ct_ptr = 0;
@@ -8313,15 +8324,16 @@ static PglErr PrepareMakePgenMultidosage(const uintptr_t* variant_include, const
   // These require multiallelic semantics that haven't been defined, or code
   // paths that don't handle rare-alt dosages; they were previously blocked
   // whenever multiallelic variants and dosages were both present.
-  if ((variant_ct != write_variant_ct) || (mcp->plink2_write_flags & (kfPlink2WriteSetInvalidHaploidMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage))) {
-    logerrputs("Error: Multiallelic dosages aren't supported yet by multiallelic split/join or\n'keep-dosage' modifiers.\n");
+  assert(variant_ct <= write_variant_ct);
+  if (mcp->plink2_write_flags & (kfPlink2WriteSetInvalidHaploidMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
+    logerrputs("Error: Multiallelic dosages aren't supported yet by 'keep-dosage' modifiers.\n");
     return kPglRetNotYetSupported;
   }
   // Only read-side dosages can produce multiallelic dosage records here.
   if (!(read_gflags & kfPgenGlobalDosagePresent)) {
     return kPglRetSuccess;
   }
-  const uint32_t max_md_allele_ct = ScanMultiallelicDosages(variant_include, new_variant_idx_to_old, allele_idx_offsets, write_allele_idx_offsets, vrtypes, raw_sample_ct, variant_ct, (read_gflags / kfPgenGlobalDosagePhasePresent) & 1, max_variant_raw_word_ct_ptr, max_vblock_raw_word_ct_ptr);
+  const uint32_t max_md_allele_ct = ScanMultiallelicDosages(variant_include, new_variant_idx_to_old, allele_idx_offsets, write_allele_idx_offsets, vrtypes, raw_sample_ct, variant_ct, write_variant_ct, (read_gflags / kfPgenGlobalDosagePhasePresent) & 1, max_variant_raw_word_ct_ptr, max_vblock_raw_word_ct_ptr);
   if (!max_md_allele_ct) {
     return kPglRetSuccess;
   }
@@ -9266,6 +9278,63 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
+// Multiallelic split, dosage (or dosage-phase) side.  Given one input
+// variant's dosage_present/dosage_main and rare-alt entries (as filled by
+// PgrGetMDp()), computes each dosage sample's ALT1 value (alt-sum minus the
+// rare-alt values), and the range of its rare-alt entries.
+// Works for int16 dosage-phase deltas too, since uint16 arithmetic wraps.
+static void InitSplitDosages(const uintptr_t* dosage_present, const uint16_t* main_vals, const uintptr_t* rare_present, const unsigned char* rare_cts, const uint16_t* rare_vals, uint32_t dosage_ct, uint32_t rare_sample_ct, uint16_t* alt1_vals, uint32_t* entry_nexts, uint32_t* entry_ends) {
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  uintptr_t rare_uidx_base = 0;
+  uintptr_t rare_bits = rare_sample_ct? rare_present[0] : 0;
+  uint32_t rare_idx = 0;
+  uint32_t next_rare_uidx = rare_sample_ct? BitIter1(rare_present, &rare_uidx_base, &rare_bits) : UINT32_MAX;
+  uint32_t entry_offset = 0;
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+    uint16_t alt1_val = main_vals[dosage_idx];
+    entry_nexts[dosage_idx] = entry_offset;
+    if (sample_uidx == next_rare_uidx) {
+      const uint32_t entry_end = entry_offset + rare_cts[rare_idx];
+      for (; entry_offset != entry_end; ++entry_offset) {
+        alt1_val -= rare_vals[entry_offset];
+      }
+      ++rare_idx;
+      next_rare_uidx = (rare_idx != rare_sample_ct)? BitIter1(rare_present, &rare_uidx_base, &rare_bits) : UINT32_MAX;
+    }
+    entry_ends[dosage_idx] = entry_offset;
+    alt1_vals[dosage_idx] = alt1_val;
+  }
+}
+
+// Appends the raw biallelic dosage (or dosage-phase) section, as parsed by
+// MakePgenThread(), for split variant aidx (the input's ALT allele index).
+// Must be called with aidx = 1, 2, ... in order, since it advances
+// entry_nexts.
+static void AppendSplitDosageRaw(const uintptr_t* dosage_present, const uint16_t* alt1_vals, const AlleleCode* rare_codes, const uint16_t* rare_vals, uint32_t raw_sample_ct, uint32_t dosage_ct, uint32_t aidx, uint32_t* entry_nexts, const uint32_t* entry_ends, uintptr_t** loadbuf_iterp) {
+  uintptr_t* present_write = *loadbuf_iterp;
+  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+  const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
+  memcpy(present_write, dosage_present, raw_sample_ctl * sizeof(intptr_t));
+  ZeroWArr(raw_sample_ctaw - raw_sample_ctl, &(present_write[raw_sample_ctl]));
+  uint16_t* vals_write = R_CAST(uint16_t*, &(present_write[raw_sample_ctaw]));
+  if (aidx == 1) {
+    memcpy(vals_write, alt1_vals, dosage_ct * sizeof(int16_t));
+  } else {
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uint32_t entry_idx = entry_nexts[dosage_idx];
+      uint16_t cur_val = 0;
+      if ((entry_idx != entry_ends[dosage_idx]) && (rare_codes[entry_idx] == aidx)) {
+        cur_val = rare_vals[entry_idx];
+        entry_nexts[dosage_idx] = entry_idx + 1;
+      }
+      vals_write[dosage_idx] = cur_val;
+    }
+  }
+  *loadbuf_iterp = &(present_write[raw_sample_ctaw + DosageCtToAlignedWordCt(dosage_ct)]);
+}
+
 void SplitNonrefFlags(const uintptr_t* old_nonref_flags, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t only_split_snps, uintptr_t* nonref_flags_write) {
   // Variant-iteration logic based off PlanMultiallelicSplit().
   // Assumes nonref_flags_write zeroed out.
@@ -9631,9 +9700,14 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uint32_t** alt_regular_one_sample_idx_starts = nullptr;
       uint32_t** alt_invphase_one_sample_idx_starts = nullptr;
       uint32_t** alt_two_sample_idx_starts = nullptr;
+      uint16_t* split_alt1_dosages = nullptr;
+      uint16_t* split_alt1_deltas = nullptr;
+      uint32_t* split_md_nexts = nullptr;
+      uint32_t* split_md_ends = nullptr;
+      uint32_t* split_mdp_nexts = nullptr;
+      uint32_t* split_mdp_ends = nullptr;
       if (make_plink2_flags & (kfMakePlink2MSplitBase * 7)) {
-        // split or join
-        // this is currently for split with no dosages
+        // split (variant-join is handled by MakePgenJoin())
         if (unlikely(bigstack_alloc_w(raw_sample_ctl2, &pgv.genovec) ||
                      bigstack_alloc_w(raw_sample_ctl, &pgv.patch_01_set) ||
                      bigstack_alloc_ac(raw_sample_ct, &pgv.patch_01_vals) ||
@@ -9655,9 +9729,35 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           }
         }
         if (read_dosage_present) {
-          logerrputs("Error: Multiallelic dosages aren't supported yet.\n");
-          reterr = kPglRetNotYetSupported;
-          goto MakePgenRobust_ret_1;
+          // Each split variant gets the dosage (and dosage-phase value) of
+          // its ALT allele, with the other ALT alleles lumped with REF.
+          if (unlikely(bigstack_alloc_w(raw_sample_ctl, &pgv.dosage_present) ||
+                       bigstack_alloc_dosage(raw_sample_ct, &pgv.dosage_main) ||
+                       bigstack_alloc_u16(raw_sample_ct, &split_alt1_dosages) ||
+                       bigstack_alloc_u32(raw_sample_ct, &split_md_nexts) ||
+                       bigstack_alloc_u32(raw_sample_ct, &split_md_ends))) {
+            goto MakePgenRobust_ret_NOMEM;
+          }
+          const uintptr_t max_entry_ct = S_CAST(uintptr_t, raw_sample_ct) * MINV(MAXV(max_read_allele_ct, 3) - 2, 255);
+          if (unlikely(bigstack_alloc_w(raw_sample_ctl, &pgv.multidosage_present) ||
+                       bigstack_alloc_uc(raw_sample_ct, &pgv.multidosage_cts) ||
+                       bigstack_alloc_ac(max_entry_ct, &pgv.multidosage_codes) ||
+                       bigstack_alloc_u16(max_entry_ct, &pgv.multidosage_vals))) {
+            goto MakePgenRobust_ret_NOMEM;
+          }
+          if (read_dphase_present) {
+            if (unlikely(bigstack_alloc_w(raw_sample_ctl, &pgv.dphase_present) ||
+                         bigstack_alloc_dphase(raw_sample_ct, &pgv.dphase_delta) ||
+                         bigstack_alloc_u16(raw_sample_ct, &split_alt1_deltas) ||
+                         bigstack_alloc_u32(raw_sample_ct, &split_mdp_nexts) ||
+                         bigstack_alloc_u32(raw_sample_ct, &split_mdp_ends) ||
+                         bigstack_alloc_w(raw_sample_ctl, &pgv.multidphase_present) ||
+                         bigstack_alloc_uc(raw_sample_ct, &pgv.multidphase_cts) ||
+                         bigstack_alloc_ac(max_entry_ct, &pgv.multidphase_codes) ||
+                         bigstack_alloc_i16(max_entry_ct, &pgv.multidphase_delta))) {
+              goto MakePgenRobust_ret_NOMEM;
+            }
+          }
         }
       }
 
@@ -10024,7 +10124,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                     STD_SORT(alt_regular_one_sample_idx_starts[aidx + 1] - regular_start, u32cmp, regular_start);
                   }
                 }
-                // todo: multiallelic dosage
+                if (pgv.dosage_ct) {
+                  InitSplitDosages(pgv.dosage_present, pgv.dosage_main, pgv.multidosage_present, pgv.multidosage_cts, pgv.multidosage_vals, pgv.dosage_ct, pgv.multidosage_sample_ct, split_alt1_dosages, split_md_nexts, split_md_ends);
+                  if (pgv.dphase_ct) {
+                    InitSplitDosages(pgv.dphase_present, R_CAST(uint16_t*, pgv.dphase_delta), pgv.multidphase_present, pgv.multidphase_cts, R_CAST(uint16_t*, pgv.multidphase_delta), pgv.dphase_ct, pgv.multidphase_sample_ct, split_alt1_deltas, split_mdp_nexts, split_mdp_ends);
+                  }
+                }
 
                 for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
                   // keep 3s, set 1s and 2s to 0
@@ -10180,6 +10285,14 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                   AlignWToVec(&loadbuf_iter);
                   if (cur_loaded_vrtypes) {
                     cur_loaded_vrtypes[block_widx] = 0x10;
+                  }
+                }
+                if (pgv.dosage_ct) {
+                  AppendSplitDosageRaw(pgv.dosage_present, split_alt1_dosages, pgv.multidosage_codes, pgv.multidosage_vals, raw_sample_ct, pgv.dosage_ct, write_aidx, split_md_nexts, split_md_ends, &loadbuf_iter);
+                  cur_loaded_vrtypes[block_widx] |= 0x20;
+                  if (pgv.dphase_ct) {
+                    AppendSplitDosageRaw(pgv.dphase_present, split_alt1_deltas, pgv.multidphase_codes, R_CAST(uint16_t*, pgv.multidphase_delta), raw_sample_ct, pgv.dphase_ct, write_aidx, split_mdp_nexts, split_mdp_ends, &loadbuf_iter);
+                    cur_loaded_vrtypes[block_widx] |= 0x80;
                   }
                 }
               }
