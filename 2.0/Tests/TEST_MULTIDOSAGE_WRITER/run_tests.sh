@@ -203,3 +203,38 @@ mp_check tmp_flip tmp_sp4 split
 awk 'NR > 65001 {print $1}' tmp_big.psam > tmp_keep_bigsplit.txt
 $P --pfile tmp_big --keep tmp_keep_bigsplit.txt --memory 640 --make-pgen multiallelics=- varid-dup --out tmp_spb
 mp_check tmp_big tmp_spb split
+
+# Variant-join (multiallelics=+...) with dosages.
+# Joining the split filesets must reproduce the originals exactly (the split
+# variants share their original's ID, which the joined variant keeps).
+$P --pfile tmp_sp1 --make-pgen multiallelics=+any --out tmp_jn1
+mp_check tmp_small tmp_jn1
+$P --pfile tmp_sp1 --keep tmp_keep.txt --indiv-sort f tmp_order.txt --make-pgen multiallelics=+any --out tmp_jn2
+mp_check tmp_small tmp_jn2
+# '+snps' rejoins the A/C/G/T/N variants; the others (including 255-allele
+# dosage records) are written as single-variant groups
+$P --pfile tmp_sp4 --make-pgen multiallelics=+snps --out tmp_jn3
+mp_check tmp_flip tmp_jn3
+# tmp_joinsrc covers rescaled and missing overflows, inconsistent and
+# conflicting hardcalls, implicit and hardcall-derived dosage-phase, etc.;
+# compared against CompareJoin()'s reference implementation.
+CJ="./tmp_multidosage_writer_test comparejoin"
+$P --pfile tmp_joinsrc --validate --out tmp_joinsrc_v
+$P --pfile tmp_joinsrc --make-pgen multiallelics=+any --out tmp_jn4
+$P --pfile tmp_jn4 --validate --out tmp_jn4_v
+$CJ tmp_joinsrc tmp_jn4
+awk 'NR > 1 && (NR % 3 != 0) {print $1}' tmp_joinsrc.psam > tmp_keep_join.txt
+awk '{a[NR] = $1} END {for (i = NR; i; --i) print a[i]}' tmp_keep_join.txt > tmp_order_join.txt
+$P --pfile tmp_joinsrc --keep tmp_keep_join.txt --indiv-sort f tmp_order_join.txt --make-pgen multiallelics=+any --out tmp_jn5
+$P --pfile tmp_jn5 --validate --out tmp_jn5_v
+$CJ tmp_joinsrc tmp_jn5
+$P --pfile tmp_joinsrc --make-pgen multiallelics=+any erase-phase --out tmp_jn6
+$P --pfile tmp_jn6 --validate --out tmp_jn6_v
+$CJ tmp_joinsrc tmp_jn6 strip-phase
+# not supported yet with dosages
+for f in "--hard-call-threshold 0.1" "--dosage-erase-threshold 0.1"; do
+    if $P --pfile tmp_joinsrc $f --make-pgen multiallelics=+any --out tmp_jn_err; then
+        echo "variant-join accepted $f"
+        exit 1
+    fi
+done

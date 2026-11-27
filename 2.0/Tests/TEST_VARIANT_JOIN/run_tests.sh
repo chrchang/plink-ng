@@ -354,7 +354,8 @@ if $1/plink2 $2 $3 --pgen tmp_fields.pgen --pvar tmp_unsorted.pvar --psam tmp_fi
 fi
 grep -q 'Error: Variant-join requires a sorted .pvar.' tmp_unsorted_join.log
 
-# Dosages need 'erase-dosage'.
+# Dosages.  (On import, s2's 0/1:1.2 at G fails the default hardcall
+# threshold, so its hardcall is missing there, and in the joined variant.)
 cat > dosage.vcf << 'EOF2'
 ##fileformat=VCFv4.3
 ##contig=<ID=1,length=1000>
@@ -365,8 +366,12 @@ cat > dosage.vcf << 'EOF2'
 1	100	b	A	G	.	.	.	GT:DS	0/0:0	0/1:1.2
 EOF2
 $1/plink2 $2 $3 --vcf dosage.vcf dosage=DS --make-pgen --out tmp_dosage
-if $1/plink2 $2 $3 --pfile tmp_dosage --make-pgen multiallelics=+ --out tmp_dosage_join; then
-    exit 1
-fi
-grep -q 'Error: Variant-join does not support dosages yet.' tmp_dosage_join.log
+$1/plink2 $2 $3 --pfile tmp_dosage --make-pgen multiallelics=+ --out tmp_dosage_join
+$1/plink2 $2 $3 --pfile tmp_dosage_join --validate --out tmp_dosage_join_v
+# ALT alleles ordered by (dosage-based) frequency: G (0.3), then C (0.25).
+$1/plink2 $2 $3 --pfile tmp_dosage_join --export vcf --out tmp_dosage_join
+[[ "$(awk '!/^#/ {print $5, $10, $11}' tmp_dosage_join.vcf)" == "G,C 0/2 ./." ]] || exit 1
+# REF dosages: 2 - 0.9 for s1, and 2 - 0.1 - 1.2 for s2.
+$1/plink2 $2 $3 --pfile tmp_dosage_join --export A --out tmp_dosage_join
+[[ "$(awk 'NR > 1 {print $7}' tmp_dosage_join.raw | tr '\n' ' ')" == "1.1 0.7 " ]] || exit 1
 $1/plink2 $2 $3 --pfile tmp_dosage --make-pgen multiallelics=+ erase-dosage --out tmp_dosage_join
