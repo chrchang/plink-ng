@@ -238,3 +238,43 @@ for f in "--hard-call-threshold 0.1" "--dosage-erase-threshold 0.1"; do
         exit 1
     fi
 done
+
+# 'keep-dosage': cleared heterozygous hardcalls keep their dosages, and those
+# without one get a dosage equal to the hardcall (one copy of each allele;
+# rare-alt entries for ALT2+).  Dosage-phase values of affected samples are
+# erased.
+$P --pfile tmp_mt --set-mixed-mt-missing keep-dosage --make-pgen --out tmp_kd1
+mp_check tmp_mt tmp_kd1 hets-missing keep-dosage
+# chrY without sex information: all hets
+cp tmp_small.pgen tmp_y.pgen
+cp tmp_small.psam tmp_y.psam
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "Y"; print}' tmp_small.pvar > tmp_y.pvar
+$P --pfile tmp_y --set-invalid-haploid-missing keep-dosage --make-pgen --out tmp_kd2
+mp_check tmp_y tmp_kd2 hets-missing keep-dosage
+# chrX: only males are affected (and females keep their phase)
+cp tmp_small.pgen tmp_x.pgen
+awk 'BEGIN {OFS = "\t"} NR == 1 {print "#IID", "SEX"; next} {print $1, (NR % 2)? 1 : 2}' tmp_small.psam > tmp_x.psam
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "X"; print}' tmp_small.pvar > tmp_x.pvar
+awk 'NR > 1 && $2 == 1 {print $1}' tmp_x.psam > tmp_x_males.txt
+$P --pfile tmp_x --set-invalid-haploid-missing keep-dosage --make-pgen --out tmp_kd3
+mp_check tmp_x tmp_kd3 hets-missing keep-dosage hm-samples=tmp_x_males.txt
+$P --pfile tmp_x --set-invalid-haploid-missing --make-pgen --out tmp_kd4
+mp_check tmp_x tmp_kd4 hets-missing hm-samples=tmp_x_males.txt
+# chrY with females (whose calls are all set to missing, dosages included):
+# just --validate
+cp tmp_x.psam tmp_ys.psam
+cp tmp_small.pgen tmp_ys.pgen
+cp tmp_y.pvar tmp_ys.pvar
+$P --pfile tmp_ys --set-invalid-haploid-missing keep-dosage --make-pgen --out tmp_kd5
+$P --pfile tmp_kd5 --validate --out tmp_kd5_v
+$P --pfile tmp_ys --set-invalid-haploid-missing --make-pgen --out tmp_kd6
+$P --pfile tmp_kd6 --validate --out tmp_kd6_v
+# hardcall-only multiallelic input: new dosages only
+cp tmp_flipnd.pgen tmp_ndmt.pgen
+cp tmp_flipnd.psam tmp_ndmt.psam
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "MT"; print}' tmp_flipnd.pvar > tmp_ndmt.pvar
+$P --pfile tmp_ndmt --set-mixed-mt-missing keep-dosage --make-pgen --out tmp_kd7
+mp_check tmp_ndmt tmp_kd7 hets-missing keep-dosage
+# multithreaded writer with sample subsetting
+$P --pfile tmp_mt --threads 2 --keep tmp_keep.txt --set-mixed-mt-missing keep-dosage --make-pgen --out tmp_kd8
+mp_check tmp_mt tmp_kd8 hets-missing keep-dosage
