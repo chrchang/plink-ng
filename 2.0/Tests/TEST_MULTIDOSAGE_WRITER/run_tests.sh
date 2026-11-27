@@ -184,3 +184,22 @@ if $P --pfile tmp_flipfail $FFL --make-pgen --out tmp_ff2; then
     exit 1
 fi
 grep -q "Cannot flip" tmp_ff2.log
+
+# Multiallelic split ('varid-dup' keeps the original IDs, which the
+# comparison matches on): each split variant gets its ALT allele's dosage and
+# dosage-phase value, with the other ALT alleles lumped with REF.
+$P --pfile tmp_small --make-pgen multiallelics=- varid-dup --out tmp_sp1
+mp_check tmp_small tmp_sp1 split
+$P --pfile tmp_small --keep tmp_keep.txt --indiv-sort f tmp_order.txt --make-pgen multiallelics=- varid-dup --out tmp_sp2
+mp_check tmp_small tmp_sp2 split
+$P --pfile tmp_small --make-pgen multiallelics=- varid-dup erase-phase --out tmp_sp3
+mp_check tmp_small tmp_sp3 split strip-phase
+# '-snps': the A/C/G/T/N variants are split, and the others keep their
+# multiallelic dosage records
+$P --pfile tmp_flip --make-pgen multiallelics=-snps varid-dup --out tmp_sp4
+mp_check tmp_flip tmp_sp4 split
+# sample indexes past 2^16, and (with --memory 640, 623-variant write blocks)
+# 255-allele splits interrupted by write block boundaries
+awk 'NR > 65001 {print $1}' tmp_big.psam > tmp_keep_bigsplit.txt
+$P --pfile tmp_big --keep tmp_keep_bigsplit.txt --memory 640 --make-pgen multiallelics=- varid-dup --out tmp_spb
+mp_check tmp_big tmp_spb split

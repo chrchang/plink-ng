@@ -1742,6 +1742,9 @@ struct CallOps {
   int32_t erase_thresh = -1;
   std::set<std::string> flip_vars;
   std::set<std::string> flip_samples;
+  // multiallelic split: original alleles absent from the new variant are
+  // lumped with REF
+  uint32_t split = 0;
 };
 
 // Returns the strand-flipped allele, or the empty string if allele isn't one
@@ -1918,6 +1921,8 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
   PgrClearSampleSubsetIndex(&new_r.pgr, &new_pssi);
   uint64_t mismatch_ct = 0;
   uint64_t md_entry_ct = 0;
+  uint32_t cached_orig_vidx = UINT32_MAX;
+  std::vector<SampleData> orig_sds;
   for (uint32_t new_vidx = 0; new_vidx != new_variant_ct; ++new_vidx) {
     uint32_t orig_vidx = 0;
     while ((orig_vidx != orig_variant_ct) && (orig_pi.ids[orig_vidx] != new_pi.ids[new_vidx])) {
@@ -1930,7 +1935,7 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
     const std::vector<std::string>& orig_alleles = orig_pi.alleles[orig_vidx];
     const std::vector<std::string>& new_alleles = new_pi.alleles[new_vidx];
     // orig allele index -> new allele index (UINT32_MAX if dropped)
-    std::vector<uint32_t> orig_to_new(orig_alleles.size(), UINT32_MAX);
+    std::vector<uint32_t> orig_to_new(orig_alleles.size(), ops.split? 0 : UINT32_MAX);
     for (size_t new_aidx = 0; new_aidx != new_alleles.size(); ++new_aidx) {
       for (size_t orig_aidx = 0; orig_aidx != orig_alleles.size(); ++orig_aidx) {
         if (orig_alleles[orig_aidx] == new_alleles[new_aidx]) {
@@ -1955,12 +1960,19 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
         }
       }
     }
-    if (PgrGetMDp(nullptr, orig_pssi, orig_sample_ct, orig_vidx, &orig_r.pgr, &orig_rb.pgv) ||
-        PgrGetMDp(nullptr, new_pssi, new_sample_ct, new_vidx, &new_r.pgr, &new_rb.pgv)) {
+    // (consecutive split variants share their original)
+    if (orig_vidx != cached_orig_vidx) {
+      if (PgrGetMDp(nullptr, orig_pssi, orig_sample_ct, orig_vidx, &orig_r.pgr, &orig_rb.pgv)) {
+        fprintf(stderr, "compare: read failure at variant %s\n", orig_pi.ids[orig_vidx].c_str());
+        return 1;
+      }
+      orig_sds = Decode(orig_rb.pgv, orig_sample_ct, 1, 1, 1);
+      cached_orig_vidx = orig_vidx;
+    }
+    if (PgrGetMDp(nullptr, new_pssi, new_sample_ct, new_vidx, &new_r.pgr, &new_rb.pgv)) {
       fprintf(stderr, "compare: read failure at variant %s\n", new_pi.ids[new_vidx].c_str());
       return 1;
     }
-    const std::vector<SampleData> orig_sds = Decode(orig_rb.pgv, orig_sample_ct, 1, 1, 1);
     const std::vector<SampleData> new_sds = Decode(new_rb.pgv, new_sample_ct, 1, 1, 1);
     md_entry_ct += new_rb.pgv.multidosage_sample_ct;
     for (uint32_t new_sidx = 0; new_sidx != new_sample_ct; ++new_sidx) {
@@ -1991,8 +2003,10 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
       if (strip_phase) {
         ok = ok && (!n.phased) && (!n.has_dphase);
       } else {
-        ok = ok && (n.phased == o.phased);
-        if (o.phased) {
+        // (a phased het can become homozygous under split)
+        const uint32_t expected_phased = o.phased && (expected_a1 != expected_a2);
+        ok = ok && (n.phased == expected_phased);
+        if (expected_phased) {
           // phaseinfo is relative to allele order
           ok = ok && (n.phaseinfo == (o.phaseinfo ^ (allele_map[o.a1] > allele_map[o.a2])));
         }
@@ -2013,7 +2027,7 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
           eu.assign(new_alleles.size(), 0);
           for (size_t orig_aidx = 0; orig_aidx != ou.size(); ++orig_aidx) {
             if (allele_map[orig_aidx] != UINT32_MAX) {
-              eu[allele_map[orig_aidx]] = ou[orig_aidx];
+              eu[allele_map[orig_aidx]] += ou[orig_aidx];
             } else if (ou[orig_aidx]) {
               ok = 0;
             }
@@ -2023,7 +2037,7 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
           ed.assign(new_alleles.size(), 0);
           for (size_t orig_aidx = 0; orig_aidx != od.size(); ++orig_aidx) {
             if (allele_map[orig_aidx] != UINT32_MAX) {
-              ed[allele_map[orig_aidx]] = od[orig_aidx];
+              ed[allele_map[orig_aidx]] += od[orig_aidx];
             }
           }
         }
@@ -2180,7 +2194,8 @@ static void WriteFlipFail() {
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
   // [hets-missing] [hct=<thresh>] [fill] [erase=<thresh>]
-  // [flip-vars=<variant ID file> flip-samples=<IID file>]" (thresholds in
+  // [flip-vars=<variant ID file> flip-samples=<IID file>] [split]"
+  // (thresholds in
   // 16384ths of a copy, as plink2 truncates them; '#' lines in the ID files
   // are ignored): see CompareFilesets().
   if ((argc >= 4) && (!strcmp(argv[1], "compare"))) {
@@ -2193,6 +2208,7 @@ int main(int argc, char** argv) {
       strip_dosage |= !strcmp(argv[argi], "strip-dosage");
       hets_missing |= !strcmp(argv[argi], "hets-missing");
       ops.fill |= !strcmp(argv[argi], "fill");
+      ops.split |= !strcmp(argv[argi], "split");
       if (!strncmp(argv[argi], "hct=", 4)) {
         ops.hc_thresh = atoi(&(argv[argi][4]));
       } else if (!strncmp(argv[argi], "erase=", 6)) {
