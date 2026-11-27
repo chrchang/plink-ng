@@ -607,6 +607,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                   'HDS': Minimac3-style phased dosages, omitted for hardcalls\n"
 "                          and unphased calls.  Also includes 'DS' output.\n"
 "                   'HDS-force': Always report DS and HDS.\n"
+"                   For multiallelic variants, DS has one entry per ALT allele,\n"
+"                   and HDS lists the first haplotype's ALT dosages followed by\n"
+"                   the second haplotype's.  GP is not exported for multiallelic\n"
+"                   variants with dosages.\n"
                // possible todo: pedigree output?
 "    In addition,\n"
 "    * The '12' modifier causes ref alleles to be coded as '1' and alt1 alleles\n"
