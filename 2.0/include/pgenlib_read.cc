@@ -11543,11 +11543,319 @@ static void FillDosageInconsistentErrstr(uint32_t sample_idx, uint32_t vidx, cha
   snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Dosage for (0-based) sample #%u in (0-based) variant #%u is more than 0.5 away from its (non-missing) hardcall.\n", sample_idx, vidx);
 }
 
-// Checks the dosage tracks (#3, #4, #7, #8).  genovec must contain the
-// main-track genotype categories, with trailing bits zeroed.  Similar to
-// ParseDosage16(); doesn't support multiallelic dosage tracks yet.
+// Multiallelic hardcall information for ValidateDosage16(), when
+// allele_ct > 2.
+typedef struct ValidateMhcStruct {
+  // patch_01_set/patch_10_set may be nullptr when the corresponding count is
+  // zero.
+  const uintptr_t* patch_01_set;
+  const AlleleCode* patch_01_vals;
+  const uintptr_t* patch_10_set;
+  const AlleleCode* patch_10_vals;
+  // Samples with a phased heterozygous hardcall; nullptr if there are none.
+  const uintptr_t* phased_hets;
+  uint32_t patch_01_ct;
+  uint32_t patch_10_ct;
+} ValidateMhc;
+
+// Iterates over the dosage entries of a record, in sample order, skipping
+// missing (65535) unconditional dosages.
+typedef struct DosageEntryIterStruct {
+  const uintptr_t* dosage_present;  // nullptr for unconditional dosage
+  const unsigned char* dosage_main;
+  uintptr_t sample_idx_base;
+  uintptr_t cur_bits;
+  uint32_t dosage_ct;
+  uint32_t dosage_idx;
+} DosageEntryIter;
+
+static void DosageEntryIterInit(const uintptr_t* dosage_present, const unsigned char* dosage_main, uint32_t dosage_ct, DosageEntryIter* dip) {
+  dip->dosage_present = dosage_present;
+  dip->dosage_main = dosage_main;
+  dip->sample_idx_base = 0;
+  dip->cur_bits = dosage_present? dosage_present[0] : 0;
+  dip->dosage_ct = dosage_ct;
+  dip->dosage_idx = 0;
+}
+
+// Returns 0 when there are no more entries.  *dosage_idx_ptr is the entry's
+// index in track #4 (= sample_idx for unconditional dosage).
+static uint32_t DosageEntryIterNext(DosageEntryIter* dip, uint32_t* sample_idx_ptr, uint32_t* dosage_idx_ptr, uint32_t* dosage_val_ptr) {
+  while (dip->dosage_idx != dip->dosage_ct) {
+    const uint32_t dosage_idx = dip->dosage_idx++;
+    const uint32_t dosage_val = CopyFromUnalignedOffsetU16ZX(dip->dosage_main, dosage_idx);
+    uint32_t sample_idx = dosage_idx;
+    if (dip->dosage_present) {
+      sample_idx = BitIter1(dip->dosage_present, &(dip->sample_idx_base), &(dip->cur_bits));
+    } else if (dosage_val == 65535) {
+      continue;
+    }
+    *sample_idx_ptr = sample_idx;
+    *dosage_idx_ptr = dosage_idx;
+    *dosage_val_ptr = dosage_val;
+    return 1;
+  }
+  return 0;
+}
+
+// Pending-entry wrapper around RareAltTrackReader, so that a sample's entries
+// can be collected without overrunning into the next sample's.
+typedef struct RareAltPeekerStruct {
+  RareAltTrackReader rr;
+  uint32_t next_sample_idx;  // UINT32_MAX when exhausted
+  uint32_t next_code;
+  uint16_t next_val;
+} RareAltPeeker;
+
+static BoolErr RareAltPeekerAdvance(RareAltPeeker* rpp) {
+  if (rpp->rr.list_idx == rpp->rr.len) {
+    rpp->next_sample_idx = UINT32_MAX;
+    return 0;
+  }
+  uint32_t rare_alt_idx;
+  if (unlikely(RareAltTrackReaderNext(&(rpp->rr), &(rpp->next_sample_idx), &rare_alt_idx, &(rpp->next_val)))) {
+    return 1;
+  }
+  rpp->next_code = rare_alt_idx + 2;
+  return 0;
+}
+
+static BoolErr RareAltPeekerInit(const unsigned char* fread_end, uint32_t sample_ct, uint32_t allele_ct, const unsigned char** fread_pp, RareAltPeeker* rpp) {
+  return RareAltTrackReaderInit(fread_end, sample_ct, allele_ct, fread_pp, &(rpp->rr)) || RareAltPeekerAdvance(rpp);
+}
+
+// Collects sample_idx's entries (at most allele_ct - 2 <= 253, since entries
+// are distinct).  Returns 1 on malformed input.
+static BoolErr RareAltPeekerCollect(uint32_t sample_idx, RareAltPeeker* rpp, uint32_t* codes, uint32_t* vals, uint32_t* ct_ptr) {
+  uint32_t ct = 0;
+  while (rpp->next_sample_idx == sample_idx) {
+    codes[ct] = rpp->next_code;
+    vals[ct] = rpp->next_val;
+    ++ct;
+    if (unlikely(RareAltPeekerAdvance(rpp))) {
+      return 1;
+    }
+  }
+  *ct_ptr = ct;
+  return 0;
+}
+
+static void FillMultidosageErrstr(uint32_t vidx, const char* reason, char* errstr_buf) {
+  snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic dosage track for (0-based) variant #%u (%s).\n", vidx, reason);
+}
+
+static inline uint32_t AbsDiffI32(int32_t a, int32_t b) {
+  return (a > b)? (a - b) : (b - a);
+}
+
+// Validates tracks #5-6, starting at *fread_pp, and checks allele-aware
+// hardcall consistency for every non-missing dosage:
+//   sum_i |16384 * h_i - u_i| <= 16384
+// over ref and all alts, where h_i is allele i's hardcall copy count and u_i
+// is its dosage.  dosage_present is nullptr for unconditional dosage.
+static PglErr ValidateMultiallelicDosages(const unsigned char* fread_end, uint32_t vidx, uint32_t allele_ct, const uintptr_t* __restrict genovec, const ValidateMhc* mhcp, const uintptr_t* __restrict dosage_present, const unsigned char* dosage_main, uint32_t dosage_ct, uint32_t sample_ct, const unsigned char** fread_pp, char* errstr_buf) {
+  RareAltPeeker rp;
+  if (unlikely(RareAltPeekerInit(fread_end, sample_ct, allele_ct, fread_pp, &rp))) {
+    FillMultidosageErrstr(vidx, "malformed rare-alt dosage list", errstr_buf);
+    return kPglRetMalformedInput;
+  }
+  BitRanker patch_01_ranker;
+  BitRanker patch_10_ranker;
+  BitRankerInit(mhcp->patch_01_set, &patch_01_ranker);
+  BitRankerInit(mhcp->patch_10_set, &patch_10_ranker);
+  uint32_t codes[256];
+  uint32_t vals[256];
+  DosageEntryIter di;
+  DosageEntryIterInit(dosage_present, dosage_main, dosage_ct, &di);
+  uint32_t sample_idx;
+  uint32_t dosage_idx;
+  uint32_t dosage_val;
+  while (DosageEntryIterNext(&di, &sample_idx, &dosage_idx, &dosage_val)) {
+    if (unlikely(rp.next_sample_idx < sample_idx)) {
+      // Also catches entries for missing unconditional dosages.
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Rare-alt dosage for (0-based) sample #%u in (0-based) variant #%u, which has no (non-missing) dosage.\n", rp.next_sample_idx, vidx);
+      return kPglRetMalformedInput;
+    }
+    uint32_t entry_ct;
+    if (unlikely(RareAltPeekerCollect(sample_idx, &rp, codes, vals, &entry_ct))) {
+      FillMultidosageErrstr(vidx, "malformed rare-alt dosage list", errstr_buf);
+      return kPglRetMalformedInput;
+    }
+    // dosage_val <= 32768 was already checked.
+    uint32_t rare_sum = 0;
+    for (uint32_t entry_idx = 0; entry_idx != entry_ct; ++entry_idx) {
+      const uint32_t cur_val = vals[entry_idx];
+      rare_sum += cur_val;
+      if (unlikely((!cur_val) || (cur_val > 32768))) {
+        FillMultidosageErrstr(vidx, "rare-alt dosage is zero or greater than 2", errstr_buf);
+        return kPglRetMalformedInput;
+      }
+    }
+    if (unlikely(rare_sum > dosage_val)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Rare-alt dosages for (0-based) sample #%u in (0-based) variant #%u sum to more than its total alt dosage.\n", sample_idx, vidx);
+      return kPglRetMalformedInput;
+    }
+    const uint32_t geno = GetNyparrEntry(genovec, sample_idx);
+    if (geno == 3) {
+      continue;
+    }
+    uint32_t ac0 = 0;
+    uint32_t ac1 = 1;
+    if (geno == 0) {
+      ac1 = 0;
+    } else if (geno == 1) {
+      if (mhcp->patch_01_ct && IsSet(mhcp->patch_01_set, sample_idx)) {
+        ac1 = mhcp->patch_01_vals[BitRankerGet(sample_idx, &patch_01_ranker)];
+      }
+    } else {
+      ac0 = 1;
+      if (mhcp->patch_10_ct && IsSet(mhcp->patch_10_set, sample_idx)) {
+        const uint32_t rank = BitRankerGet(sample_idx, &patch_10_ranker);
+        ac0 = mhcp->patch_10_vals[2 * rank];
+        ac1 = mhcp->patch_10_vals[2 * rank + 1];
+      }
+    }
+    // ref and alt1 terms
+    uint32_t tot = AbsDiffI32(16384 * ((ac0 == 0) + (ac1 == 0)), 32768 - dosage_val);
+    tot += AbsDiffI32(16384 * ((ac0 == 1) + (ac1 == 1)), dosage_val - rare_sum);
+    // rare alts with nonzero dosage
+    uint32_t ac0_seen = (ac0 < 2);
+    uint32_t ac1_seen = (ac1 < 2);
+    for (uint32_t entry_idx = 0; entry_idx != entry_ct; ++entry_idx) {
+      const uint32_t cur_code = codes[entry_idx];
+      tot += AbsDiffI32(16384 * ((ac0 == cur_code) + (ac1 == cur_code)), vals[entry_idx]);
+      ac0_seen |= (ac0 == cur_code);
+      ac1_seen |= (ac1 == cur_code);
+    }
+    // rare alts in the hardcall with zero dosage
+    tot += 16384 * ((!ac0_seen) + (!ac1_seen));
+    if (unlikely(tot > 16384)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Dosages for (0-based) sample #%u in (0-based) variant #%u are inconsistent with its (non-missing) hardcall.\n", sample_idx, vidx);
+      return kPglRetMalformedInput;
+    }
+  }
+  if (unlikely(rp.next_sample_idx != UINT32_MAX)) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Rare-alt dosage for (0-based) sample #%u in (0-based) variant #%u, which has no (non-missing) dosage.\n", rp.next_sample_idx, vidx);
+    return kPglRetMalformedInput;
+  }
+  return kPglRetSuccess;
+}
+
+// Validates tracks #9-10 (when dphase_mode != 0), starting at *fread_pp, and
+// the multiallelic implicit-dosage-phase ban.
+// dphase_mode: 0 = no track #8, 1 = track #7 bitarray (file_dphase_present,
+// over dosage entries), 2 = unconditional.
+// tracks56_start must point to the (already validated) track #5.
+static PglErr ValidateMultiallelicDphases(const unsigned char* fread_end, uint32_t vidx, uint32_t allele_ct, const uintptr_t* __restrict phased_hets, const uintptr_t* __restrict dosage_present, const unsigned char* dosage_main, uint32_t dosage_ct, uint32_t dphase_mode, const unsigned char* file_dphase_present, const unsigned char* dphase_deltas, const unsigned char* tracks56_start, uint32_t sample_ct, const unsigned char** fread_pp, char* errstr_buf) {
+  RareAltPeeker dosage_rp;
+  RareAltPeeker dphase_rp;
+  if (dphase_mode) {
+    if (unlikely(RareAltPeekerInit(fread_end, sample_ct, allele_ct, &tracks56_start, &dosage_rp))) {
+      // shouldn't happen, since this was validated
+      FillMultidosageErrstr(vidx, "malformed rare-alt dosage list", errstr_buf);
+      return kPglRetMalformedInput;
+    }
+    if (unlikely(RareAltPeekerInit(fread_end, sample_ct, allele_ct, fread_pp, &dphase_rp))) {
+      FillMultidosageErrstr(vidx, "malformed rare-alt dosage-phase list", errstr_buf);
+      return kPglRetMalformedInput;
+    }
+  }
+  uint32_t dosage_codes[256];
+  uint32_t dosage_vals[256];
+  uint32_t dphase_codes[256];
+  uint32_t dphase_vals[256];
+  DosageEntryIter di;
+  DosageEntryIterInit(dosage_present, dosage_main, dosage_ct, &di);
+  uint32_t dphase_idx = 0;
+  uint32_t sample_idx;
+  uint32_t dosage_idx;
+  uint32_t dosage_val;
+  while (DosageEntryIterNext(&di, &sample_idx, &dosage_idx, &dosage_val)) {
+    uint32_t has_dphase = 0;
+    int32_t dphase_delta = 0;
+    if (dphase_mode == 2) {
+      has_dphase = 1;
+      dphase_delta = S_CAST(int16_t, CopyFromUnalignedOffsetU16ZX(dphase_deltas, sample_idx));
+    } else if (dphase_mode == 1) {
+      has_dphase = (file_dphase_present[dosage_idx / CHAR_BIT] >> (dosage_idx % CHAR_BIT)) & 1;
+      if (has_dphase) {
+        dphase_delta = S_CAST(int16_t, CopyFromUnalignedOffsetU16ZX(dphase_deltas, dphase_idx));
+        ++dphase_idx;
+      }
+    }
+    if (unlikely((!has_dphase) && phased_hets && IsSet(phased_hets, sample_idx))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: (0-based) sample #%u in (0-based) variant #%u has a dosage and a phased heterozygous hardcall, but no explicit dosage-phase value (required when there are more than two alleles).\n", sample_idx, vidx);
+      return kPglRetMalformedInput;
+    }
+    if (!dphase_mode) {
+      continue;
+    }
+    if (unlikely(dphase_rp.next_sample_idx < sample_idx)) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Rare-alt dosage-phase value for (0-based) sample #%u in (0-based) variant #%u, which has no (non-missing) explicit dosage-phase value.\n", dphase_rp.next_sample_idx, vidx);
+      return kPglRetMalformedInput;
+    }
+    uint32_t dosage_entry_ct;
+    uint32_t dphase_entry_ct;
+    // dosage_rp entries for samples with missing unconditional dosages were
+    // already rejected.
+    if (unlikely(RareAltPeekerCollect(sample_idx, &dosage_rp, dosage_codes, dosage_vals, &dosage_entry_ct) ||
+                 RareAltPeekerCollect(sample_idx, &dphase_rp, dphase_codes, dphase_vals, &dphase_entry_ct))) {
+      FillMultidosageErrstr(vidx, "malformed rare-alt dosage-phase list", errstr_buf);
+      return kPglRetMalformedInput;
+    }
+    if (!has_dphase) {
+      if (unlikely(dphase_entry_ct)) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Rare-alt dosage-phase value for (0-based) sample #%u in (0-based) variant #%u, which has no (non-missing) explicit dosage-phase value.\n", sample_idx, vidx);
+        return kPglRetMalformedInput;
+      }
+      continue;
+    }
+    // Each haplotype's share of each allele must be nonnegative.  Track #8
+    // values were already checked against track #4.
+    int32_t rare_plus = 0;
+    int32_t rare_minus = 0;
+    uint32_t dosage_entry_idx = 0;
+    for (uint32_t dphase_entry_idx = 0; dphase_entry_idx != dphase_entry_ct; ++dphase_entry_idx) {
+      const uint32_t cur_code = dphase_codes[dphase_entry_idx];
+      while ((dosage_entry_idx != dosage_entry_ct) && (dosage_codes[dosage_entry_idx] < cur_code)) {
+        ++dosage_entry_idx;
+      }
+      if (unlikely((dosage_entry_idx == dosage_entry_ct) || (dosage_codes[dosage_entry_idx] != cur_code))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Rare-alt dosage-phase value for (0-based) sample #%u in (0-based) variant #%u has no corresponding rare-alt dosage.\n", sample_idx, vidx);
+        return kPglRetMalformedInput;
+      }
+      const int32_t cur_delta = S_CAST(int16_t, dphase_vals[dphase_entry_idx]);
+      const int32_t cur_dosage = dosage_vals[dosage_entry_idx];
+      if (unlikely((!cur_delta) || (cur_delta > cur_dosage) || (cur_delta < -cur_dosage))) {
+        FillMultidosageErrstr(vidx, "rare-alt dosage-phase value is zero or inconsistent with its dosage", errstr_buf);
+        return kPglRetMalformedInput;
+      }
+      rare_plus += cur_delta;
+      rare_minus -= cur_delta;
+    }
+    for (uint32_t entry_idx = 0; entry_idx != dosage_entry_ct; ++entry_idx) {
+      rare_plus += dosage_vals[entry_idx];
+      rare_minus += dosage_vals[entry_idx];
+    }
+    const int32_t main_dosage = dosage_val;
+    if (unlikely((rare_plus > main_dosage + dphase_delta) || (rare_minus > main_dosage - dphase_delta))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Phased rare-alt dosages for (0-based) sample #%u in (0-based) variant #%u leave a negative alt1 dosage on one haplotype.\n", sample_idx, vidx);
+      return kPglRetMalformedInput;
+    }
+  }
+  if (unlikely(dphase_mode && (dphase_rp.next_sample_idx != UINT32_MAX))) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Rare-alt dosage-phase value for (0-based) sample #%u in (0-based) variant #%u, which has no (non-missing) explicit dosage-phase value.\n", dphase_rp.next_sample_idx, vidx);
+    return kPglRetMalformedInput;
+  }
+  return kPglRetSuccess;
+}
+
+// Checks the dosage tracks (#3-10).  genovec must contain the main-track
+// genotype categories, with trailing bits zeroed.  When allele_ct > 2, mhcp
+// must describe the multiallelic hardcalls and phased hets.  Similar to
+// ParseDosage16().
 // May use pgrp->workspace_dosage_present.
-PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t vrtype, const uintptr_t* __restrict genovec, PgenReaderMain* pgrp, const unsigned char** fread_pp, char* errstr_buf) {
+PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t vrtype, uint32_t allele_ct, const uintptr_t* __restrict genovec, const ValidateMhc* mhcp, PgenReaderMain* pgrp, const unsigned char** fread_pp, char* errstr_buf) {
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   if ((vrtype & 0x60) == 0x40) {
     // unconditional dosage.  handle separately from other two cases since
@@ -11577,8 +11885,16 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t 
         return kPglRetMalformedInput;
       }
     }
+    const unsigned char* tracks56_start = *fread_pp;
+    if (allele_ct > 2) {
+      PglErr reterr = ValidateMultiallelicDosages(fread_end, vidx, allele_ct, genovec, mhcp, nullptr, dosage_main_read, sample_ct, sample_ct, fread_pp, errstr_buf);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+    }
+    const unsigned char* dphase_delta_read = nullptr;
     if (vrtype & 0x80) {
-      const unsigned char* dphase_delta_read = *fread_pp;
+      dphase_delta_read = *fread_pp;
       if (PtrAddCk(fread_end, sample_ct * sizeof(int16_t), fread_pp)) {
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosages for (0-based) variant #%u.\n", vidx);
         return kPglRetMalformedInput;
@@ -11604,6 +11920,9 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t 
           return kPglRetMalformedInput;
         }
       }
+    }
+    if (allele_ct > 2) {
+      return ValidateMultiallelicDphases(fread_end, vidx, allele_ct, mhcp->phased_hets, nullptr, dosage_main_read, sample_ct, (vrtype & 0x80)? 2 : 0, nullptr, dphase_delta_read, tracks56_start, sample_ct, fread_pp, errstr_buf);
     }
     return kPglRetSuccess;
   }
@@ -11654,13 +11973,22 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t 
       return kPglRetMalformedInput;
     }
   }
+  const unsigned char* tracks56_start = *fread_pp;
+  if (allele_ct > 2) {
+    PglErr reterr = ValidateMultiallelicDosages(fread_end, vidx, allele_ct, genovec, mhcp, dosage_present, dosage_main_read, dosage_ct, sample_ct, fread_pp, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  const unsigned char* file_dphase_present = nullptr;
+  const unsigned char* dphase_deltas = nullptr;
   if (vrtype & 0x80) {
     if (unlikely(!dosage_ct)) {
       // can't have any phased entries
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;
     }
-    const unsigned char* file_dphase_present = *fread_pp;
+    file_dphase_present = *fread_pp;
     const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
     if (PtrAddCk(fread_end, dphase_present_byte_ct, fread_pp)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
@@ -11672,6 +12000,7 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t 
       return kPglRetMalformedInput;
     }
     const unsigned char* dosage_main_read_biter = dosage_main_read;
+    dphase_deltas = *fread_pp;
     const unsigned char* dphase_delta_read_biter = *fread_pp;
     const uint32_t dphase_widx_last = (dphase_present_byte_ct - 1) / kBytesPerWord;
     uint32_t loop_end = kBitsPerWord;
@@ -11717,6 +12046,9 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, uint32_t 
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
       return kPglRetMalformedInput;
     }
+  }
+  if (allele_ct > 2) {
+    return ValidateMultiallelicDphases(fread_end, vidx, allele_ct, mhcp->phased_hets, dosage_present, dosage_main_read, dosage_ct, file_dphase_present? 1 : 0, file_dphase_present, dphase_deltas, tracks56_start, sample_ct, fread_pp, errstr_buf);
   }
   return kPglRetSuccess;
 }
@@ -12013,8 +12345,20 @@ static PglErr ValidateHeaderIndex(FILE* header_ff, uint32_t is_pgi, FILE* pgen_f
 }
 
 static_assert(kPglVblockSize == 65536, "PgrValidate() needs to have an error message updated.");
-PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_fname, uintptr_t* genovec_buf, char* errstr_buf) {
+uintptr_t PgrValidateWorkspaceWordCt(uint32_t raw_sample_ct, uint32_t max_allele_ct) {
+  uintptr_t word_ct = NypCtToAlignedWordCt(raw_sample_ct);
+  if (max_allele_ct > 2) {
+    // patch_01_set, patch_10_set, all_hets, phased_hets
+    word_ct += 4 * BitCtToAlignedWordCt(raw_sample_ct);
+    // patch_01_vals, patch_10_vals
+    word_ct += kWordsPerVec * (DivUp(raw_sample_ct, kBytesPerVec) + DivUp(2 * k1LU * raw_sample_ct, kBytesPerVec));
+  }
+  return word_ct;
+}
+
+PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_fname, uintptr_t* workspace, char* errstr_buf) {
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);
+  uintptr_t* genovec_buf = workspace;
   // Performs all validation which isn't done by pgfi_init_phase{1,2}() and
   // PgrInit().
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
@@ -12074,7 +12418,9 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
         return kPglRetMalformedInput;
       }
       ZeroTrailingNyps(sample_ct, genovec_buf);
-      PglErr reterr = ValidateDosage16(fread_end, vidx, const_vrtype, genovec_buf, pgrp, &fread_ptr, errstr_buf);
+      // Fixed-width records have no tracks #5-6 (all rare-alt dosages are
+      // zero) and no multiallelic hardcalls, so the biallelic checks suffice.
+      PglErr reterr = ValidateDosage16(fread_end, vidx, const_vrtype, 2, genovec_buf, nullptr, pgrp, &fread_ptr, errstr_buf);
       if (unlikely(reterr)) {
         return reterr;
       }
@@ -12144,6 +12490,28 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
     return reterr;
   }
 
+  // Multiallelic-dosage workspace; see PgrValidateWorkspaceWordCt().
+  const uint32_t max_allele_ct = pgrp->fi.max_allele_ct;
+  ValidateMhc mhc;
+  uintptr_t* patch_01_set = nullptr;
+  AlleleCode* patch_01_vals = nullptr;
+  uintptr_t* patch_10_set = nullptr;
+  AlleleCode* patch_10_vals = nullptr;
+  uintptr_t* all_hets = nullptr;
+  uintptr_t* phased_hets = nullptr;
+  if (max_allele_ct > 2) {
+    const uintptr_t bitvec_word_ct = BitCtToAlignedWordCt(sample_ct);
+    uintptr_t* workspace_iter = &(workspace[NypCtToAlignedWordCt(sample_ct)]);
+    patch_01_set = workspace_iter;
+    patch_10_set = &(workspace_iter[bitvec_word_ct]);
+    all_hets = &(workspace_iter[2 * bitvec_word_ct]);
+    phased_hets = &(workspace_iter[3 * bitvec_word_ct]);
+    workspace_iter = &(workspace_iter[4 * bitvec_word_ct]);
+    patch_01_vals = DowncastWToAC(workspace_iter);
+    patch_10_vals = DowncastWToAC(&(workspace_iter[kWordsPerVec * DivUp(sample_ct, kBytesPerVec)]));
+  }
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+
   // could move most of this into plink2_common and make it multithreaded, if
   // speed is ever an issue.
   uint32_t allele_ct = 2;
@@ -12164,16 +12532,69 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
     if (allele_idx_offsets) {
       allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
     }
+    // Multiallelic dosage checks need the full hardcalls and the set of
+    // phased hets.
+    const uint32_t multiallelic_dosage = (allele_ct > 2) && (vrtype & 0x60);
+    if (unlikely(multiallelic_dosage && (max_allele_ct <= 2))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgrValidate() requires pgfi.max_allele_ct to be set.\n");
+      return kPglRetImproperFunctionCall;
+    }
+    mhc.patch_01_ct = 0;
+    mhc.patch_10_ct = 0;
+    mhc.phased_hets = nullptr;
     if (VrtypeMultiallelicHc(vrtype)) {
+      const unsigned char* aux1_start = fread_ptr;
       if (unlikely(ValidateMultiallelicHc(fread_end, genovec_buf, vidx, allele_ct, pgrp, &fread_ptr, &het_ct, errstr_buf))) {
         return kPglRetMalformedInput;
       }
+      if (multiallelic_dosage) {
+        // Already validated, so this can't fail.
+        const uint32_t aux1_first_byte = *aux1_start++;
+        const uint32_t aux1a_mode = aux1_first_byte & 15;
+        const uint32_t aux1b_mode = aux1_first_byte >> 4;
+        uint32_t raw_01_ct;
+        uint32_t raw_10_ct;
+        GenovecCount12Unsafe(genovec_buf, sample_ct, &raw_01_ct, &raw_10_ct);
+        if (aux1a_mode != 15) {
+          reterr = ExportAux1a(fread_end, genovec_buf, aux1a_mode, sample_ct, allele_ct, raw_01_ct, &aux1_start, patch_01_set, patch_01_vals, &mhc.patch_01_ct);
+          if (unlikely(reterr)) {
+            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic hardcall track for (0-based) variant #%u.\n", vidx);
+            return reterr;
+          }
+        }
+        if (aux1b_mode != 15) {
+          reterr = ExportAux1b(fread_end, genovec_buf, aux1b_mode, sample_ct, allele_ct, raw_10_ct, &aux1_start, patch_10_set, patch_10_vals, &mhc.patch_10_ct);
+          if (unlikely(reterr)) {
+            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic hardcall track for (0-based) variant #%u.\n", vidx);
+            return reterr;
+          }
+        }
+      }
     }
+    mhc.patch_01_set = mhc.patch_01_ct? patch_01_set : nullptr;
+    mhc.patch_01_vals = patch_01_vals;
+    mhc.patch_10_set = mhc.patch_10_ct? patch_10_set : nullptr;
+    mhc.patch_10_vals = patch_10_vals;
     // genovec_buf must still hold the main-track genotypes when
     // ValidateDosage16() is called.
     if (VrtypeHphase(vrtype)) {
+      const unsigned char* aux2_start = fread_ptr;
       if (unlikely(ValidateHphase(fread_end, vidx, het_ct, &fread_ptr, errstr_buf))) {
         return kPglRetMalformedInput;
+      }
+      if (multiallelic_dosage) {
+        if (mhc.patch_10_ct) {
+          PgrDetectGenoarrHetsMultiallelic(genovec_buf, patch_10_set, patch_10_vals, sample_ct, all_hets);
+        } else {
+          PgrDetectGenoarrHets(genovec_buf, sample_ct, all_hets);
+        }
+        if (aux2_start[0] & 1) {
+          // explicit phasepresent bitarray over hets
+          ExpandBytearr(aux2_start, all_hets, sample_ctl, het_ct, 1, phased_hets);
+          mhc.phased_hets = phased_hets;
+        } else {
+          mhc.phased_hets = all_hets;
+        }
       }
     }
     if (vrtype & 0xe0) {
@@ -12181,7 +12602,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, const char* pgen_fname, const char* pgi_
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid record type for (0-based) variant #%u (phased dosage bit set, but main dosage bits unset).\n", vidx);
         return kPglRetMalformedInput;
       }
-      reterr = ValidateDosage16(fread_end, vidx, vrtype, genovec_buf, pgrp, &fread_ptr, errstr_buf);
+      reterr = ValidateDosage16(fread_end, vidx, vrtype, allele_ct, genovec_buf, &mhc, pgrp, &fread_ptr, errstr_buf);
       if (unlikely(reterr)) {
         return reterr;
       }

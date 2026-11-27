@@ -4,13 +4,17 @@
 // record ends with independently computed bytes for tracks #5-10 (parsing the
 // header by hand).  Then reads the files back with PgrGetMDp(), PgrGetMD(),
 // PgrGetDp(), PgrGet1D(), PgrGetInv1D(), and PgrGetInv1Dp(), with and without
-// sample subsetting, and compares against the source data.
+// sample subsetting, and compares against the source data, and checks that
+// PgrValidate() accepts the files.  Finally, PgrValidate() is run on small
+// hand-built records that each violate one multiallelic-dosage rule.
 
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
+#include <string>
 #include <vector>
 
 #include "pgenlib_read.h"
@@ -112,12 +116,20 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
     }
   }
   std::vector<uint32_t> is_het(sample_ct, 0);
+  // hardcall alleles (UINT32_MAX = missing)
+  std::vector<uint32_t> hc_a1(sample_ct);
+  std::vector<uint32_t> hc_a2(sample_ct);
   for (uint32_t s = 0; s != sample_ct; ++s) {
     pgv.genovec[s / kBitsPerWordD2] |= S_CAST(uintptr_t, cats[s]) << (2 * (s % kBitsPerWordD2));
-    if ((cats[s] == 1) && RandBelow(3) == 0) {
+    hc_a1[s] = (cats[s] == 3)? UINT32_MAX : (cats[s] == 2);
+    hc_a2[s] = (cats[s] == 3)? UINT32_MAX : (cats[s] != 0);
+    // No rare-alt hardcalls when there are to be no rare-alt dosages, since
+    // they'd be inconsistent with each other.
+    if (rare_density && (cats[s] == 1) && RandBelow(3) == 0) {
       SetBit(s, pgv.patch_01_set);
       vd.patch_01_vals.push_back(2 + RandBelow(rare_ct));
-    } else if ((cats[s] == 2) && RandBelow(3) == 0) {
+      hc_a2[s] = vd.patch_01_vals.back();
+    } else if (rare_density && (cats[s] == 2) && RandBelow(3) == 0) {
       SetBit(s, pgv.patch_10_set);
       uint32_t lo = 1 + RandBelow(allele_ct - 1);
       uint32_t hi = 1 + RandBelow(allele_ct - 1);
@@ -129,6 +141,8 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
       }
       vd.patch_10_vals.push_back(lo);
       vd.patch_10_vals.push_back(hi);
+      hc_a1[s] = lo;
+      hc_a2[s] = hi;
       het_ct += (lo != hi);
       is_het[s] = (lo != hi);
     }
@@ -157,6 +171,12 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
   // dosage needs an explicit dosage-phase value.  (All hets are phased when
   // hphase is set.)
   const uint32_t het_dosage_needs_dphase = hphase && het_ct;
+  std::vector<uint32_t> u(allele_ct, 0);
+  std::vector<uint32_t> touched;
+  auto add_dosage = [&](uint32_t allele, uint32_t amt) {
+    u[allele] += amt;
+    touched.push_back(allele);
+  };
   for (uint32_t s = 0; s != sample_ct; ++s) {
     if (het_dosage_needs_dphase && (!dphase) && (is_het[s] || dosage_missing[s])) {
       // Dropping the hets' dosages means the record can't use unconditional
@@ -176,21 +196,74 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
       dphase_bits.push_back(dphase && (dosage_mode == 2));
       continue;
     }
-    const uint32_t v = RandBelow(32769);
+    // Per-allele dosages u[], summing to 32768.  With a non-missing hardcall,
+    // start from the hardcall and move at most half a copy's worth (8192)
+    // away, so that sum_i |16384 * h_i - u_i| <= 16384.
+    touched.clear();
+    uint32_t v;
+    if (cats[s] == 3) {
+      v = RandBelow(32769);
+      add_dosage(0, 32768 - v);
+      uint32_t remaining = v;
+      if (rare_density) {
+        const uint32_t max_entries = (rare_density == 1)? (RandBelow(4) == 0) : MINV(rare_ct, 255);
+        uint32_t entry_ct = 0;
+        for (uint32_t code = 2; (code < allele_ct) && (entry_ct < max_entries) && remaining; ++code) {
+          if ((rare_density == 2) || RandBelow(rare_ct) == 0) {
+            const uint32_t cur = 1 + RandBelow(MINV(remaining, 1 + (v / 4)));
+            add_dosage(code, cur);
+            remaining -= cur;
+            ++entry_ct;
+          }
+        }
+      }
+      add_dosage(1, remaining);
+    } else {
+      const uint32_t a1 = hc_a1[s];
+      const uint32_t a2 = hc_a2[s];
+      add_dosage(a1, 16384);
+      add_dosage(a2, 16384);
+      uint32_t budget = RandBelow(8193);
+      const uint32_t transfer_ct = (rare_density == 0)? 1 : ((rare_density == 1)? (1 + (RandBelow(4) == 0)) : MINV(rare_ct, 255));
+      for (uint32_t t = 0; (t != transfer_ct) && budget; ++t) {
+        uint32_t src = RandBelow(2)? a1 : a2;
+        if (!u[src]) {
+          src = (src == a1)? a2 : a1;
+        }
+        uint32_t dst;
+        if (rare_density == 0) {
+          dst = (src == 0)? 1 : 0;
+        } else if (rare_density == 2) {
+          dst = 2 + t;
+        } else {
+          dst = RandBelow(allele_ct);
+        }
+        if ((dst == src) || (!u[src])) {
+          continue;
+        }
+        const uint32_t amt = 1 + RandBelow(MINV(u[src], budget));
+        u[src] -= amt;
+        add_dosage(dst, amt);
+        budget -= amt;
+      }
+      v = 32768 - u[0];
+    }
+    std::sort(touched.begin(), touched.end());
+    touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
+    std::vector<uint32_t> nz_alleles;
+    for (uint32_t a : touched) {
+      if (u[a]) {
+        nz_alleles.push_back(a);
+      }
+    }
     vd.dosage_main.push_back(v);
     // rare-alt dosages
     std::vector<uint32_t> codes;
     std::vector<uint32_t> vals;
-    if (rare_density) {
-      const uint32_t max_entries = (rare_density == 1)? (RandBelow(4) == 0) : MINV(rare_ct, 255);
-      uint32_t remaining = v;
-      for (uint32_t code = 2; (code < allele_ct) && (codes.size() < max_entries) && remaining; ++code) {
-        if ((rare_density == 2) || RandBelow(rare_ct) == 0) {
-          const uint32_t cur = 1 + RandBelow(MINV(remaining, 1 + (v / 4)));
-          codes.push_back(code);
-          vals.push_back(cur);
-          remaining -= cur;
-        }
+    for (uint32_t a : nz_alleles) {
+      if (a >= 2) {
+        codes.push_back(a);
+        vals.push_back(u[a]);
       }
     }
     if (!codes.empty()) {
@@ -206,31 +279,43 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
     uint32_t explicit_dphase = 0;
     if (dphase && ((dosage_mode == 2) || (het_dosage_needs_dphase && is_het[s]) || RandBelow(2))) {
       explicit_dphase = 1;
-      const int32_t lim = MINV(v, 32768 - v);
-      const int32_t delta = lim? (S_CAST(int32_t, RandBelow(2 * lim + 1)) - lim) : 0;
-      SetBit(s, pgv.dphase_present);
-      vd.dphase_delta.push_back(delta);
-      // rare-alt deltas, keeping each haplotype's alt1 share nonnegative
-      int64_t sum_plus = 0;
-      int64_t sum_minus = 0;
+      // Split u[] into two haplotypes h1[], h2[], each summing to 16384 with
+      // nonnegative entries: h1_i in [max(0, u_i - 16384), min(u_i, 16384)].
+      std::vector<uint32_t> h1(nz_alleles.size());
+      std::vector<uint32_t> caps(nz_alleles.size());
+      uint32_t rem = 16384;
+      for (size_t i = 0; i != nz_alleles.size(); ++i) {
+        const uint32_t ui = u[nz_alleles[i]];
+        h1[i] = (ui > 16384)? (ui - 16384) : 0;
+        caps[i] = MINV(ui, 16384) - h1[i];
+        rem -= h1[i];
+      }
+      for (uint32_t pass = 0; pass != 2; ++pass) {
+        for (size_t i = 0; (i != nz_alleles.size()) && rem; ++i) {
+          const uint32_t limit = MINV(caps[i], rem);
+          const uint32_t give = pass? limit : RandBelow(limit + 1);
+          h1[i] += give;
+          caps[i] -= give;
+          rem -= give;
+        }
+      }
+      // delta_i = h1_i - h2_i = 2 * h1_i - u_i; the alt-sum delta is minus
+      // the ref delta.
+      int32_t delta = 0;
       std::vector<uint32_t> pcodes;
       std::vector<int32_t> pdeltas;
-      for (size_t i = 0; i != codes.size(); ++i) {
-        if (RandBelow(2)) {
-          continue;
+      for (size_t i = 0; i != nz_alleles.size(); ++i) {
+        const uint32_t a = nz_alleles[i];
+        const int32_t cur_delta = 2 * S_CAST(int32_t, h1[i]) - S_CAST(int32_t, u[a]);
+        if (!a) {
+          delta = -cur_delta;
+        } else if ((a >= 2) && cur_delta) {
+          pcodes.push_back(a);
+          pdeltas.push_back(cur_delta);
         }
-        const int32_t vr = vals[i];
-        const int32_t dr = S_CAST(int32_t, RandBelow(2 * vr + 1)) - vr;
-        if ((!dr) || (sum_plus + vr + dr > v + delta) || (sum_minus + vr - dr > S_CAST(int32_t, v) - delta)) {
-          sum_plus += vr;
-          sum_minus += vr;
-          continue;
-        }
-        sum_plus += vr + dr;
-        sum_minus += vr - dr;
-        pcodes.push_back(codes[i]);
-        pdeltas.push_back(dr);
       }
+      SetBit(s, pgv.dphase_present);
+      vd.dphase_delta.push_back(delta);
       if (!pcodes.empty()) {
         SetBit(s, pgv.multidphase_present);
         vd.mdp_cts.push_back(pcodes.size());
@@ -241,6 +326,9 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
           mdp_vals_u.push_back(S_CAST(uint16_t, pdeltas[i]));
         }
       }
+    }
+    for (uint32_t a : touched) {
+      u[a] = 0;
     }
     dphase_bits.push_back(explicit_dphase);
   }
@@ -803,6 +891,341 @@ static void CheckCorruptValue(const char* fname, const std::vector<VariantData>&
   CloseReader(r);
 }
 
+// ***** PgrValidate() *****
+
+// Writes a .pvar (distinct made-up alleles) and .psam for fname_prefix.pgen,
+// so that run_tests.sh can run plink2 --validate on it.
+static void WritePvarPsam(const char* fname_prefix, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct) {
+  std::string fname = std::string(fname_prefix) + ".pvar";
+  FILE* ff = fopen(fname.c_str(), "w");
+  CHECK(ff);
+  fputs("#CHROM\tPOS\tID\tREF\tALT\n", ff);
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    fprintf(ff, "1\t%u\tv%u\tA\t", vidx + 1, vidx);
+    const uint32_t allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
+    for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+      // "C" followed by aidx in base 4 (ACGT): distinct, and never "A"
+      std::string allele = "C";
+      for (uint32_t uii = aidx; uii; uii /= 4) {
+        allele += "ACGT"[uii % 4];
+      }
+      fprintf(ff, "%s%s", (aidx == 1)? "" : ",", allele.c_str());
+    }
+    fputc('\n', ff);
+  }
+  fclose(ff);
+  fname = std::string(fname_prefix) + ".psam";
+  ff = fopen(fname.c_str(), "w");
+  CHECK(ff);
+  fputs("#IID\n", ff);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    fprintf(ff, "s%u\n", sample_idx);
+  }
+  fclose(ff);
+}
+
+static PglErr ValidateFile(const char* fname, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct, char* errstr) {
+  errstr[0] = '\0';
+  Reader r;
+  PglErr reterr = OpenReader(fname, allele_idx_offsets, variant_ct, sample_ct, r);
+  if (!reterr) {
+    uintptr_t* workspace = AllocWords(64 * PgrValidateWorkspaceWordCt(sample_ct, r.pgfi.max_allele_ct));
+    reterr = PgrValidate(&r.pgr, fname, nullptr, workspace, errstr);
+    free(workspace);
+  }
+  CloseReader(r);
+  return reterr;
+}
+
+// A 4-sample, single-variant record built from scratch.  By default, sample
+// 0 has a missing hardcall and a 1.0 total alt dosage, and the other samples
+// have hom-ref hardcalls and no dosage.
+struct TinyVariant {
+  uintptr_t* genovec;
+  uintptr_t* patch_01_set;
+  uintptr_t* patch_10_set;
+  uintptr_t* dosage_present;
+  uintptr_t* dphase_present;
+  uintptr_t* md_present;
+  uintptr_t* mdp_present;
+  AlleleCode patch_01_vals[4];
+  AlleleCode patch_10_vals[8];
+  uint16_t dosage_main[4];
+  int16_t dphase_delta[4];
+  unsigned char md_cts[4];
+  AlleleCode md_codes[16];
+  uint16_t md_vals[16];
+  unsigned char mdp_cts[4];
+  AlleleCode mdp_codes[16];
+  int16_t mdp_delta[16];
+  PgenVariant pgv;
+};
+
+static void InitTiny(TinyVariant& tv) {
+  memset(&tv.pgv, 0, sizeof(PgenVariant));
+  uintptr_t** bufs[] = {&tv.genovec, &tv.patch_01_set, &tv.patch_10_set, &tv.dosage_present, &tv.dphase_present, &tv.md_present, &tv.mdp_present};
+  for (uintptr_t** bp : bufs) {
+    *bp = AllocWords(8);
+  }
+  tv.genovec[0] = 3;  // sample 0 missing, others hom-ref
+  SetBit(0, tv.dosage_present);
+  tv.dosage_main[0] = 16384;
+  PgenVariant& pgv = tv.pgv;
+  pgv.genovec = tv.genovec;
+  pgv.patch_01_set = tv.patch_01_set;
+  pgv.patch_01_vals = tv.patch_01_vals;
+  pgv.patch_10_set = tv.patch_10_set;
+  pgv.patch_10_vals = tv.patch_10_vals;
+  pgv.dosage_present = tv.dosage_present;
+  pgv.dosage_main = tv.dosage_main;
+  pgv.dosage_ct = 1;
+  pgv.dphase_present = tv.dphase_present;
+  pgv.dphase_delta = tv.dphase_delta;
+  pgv.multidosage_present = tv.md_present;
+  pgv.multidosage_cts = tv.md_cts;
+  pgv.multidosage_codes = tv.md_codes;
+  pgv.multidosage_vals = tv.md_vals;
+  pgv.multidphase_present = tv.mdp_present;
+  pgv.multidphase_cts = tv.mdp_cts;
+  pgv.multidphase_codes = tv.mdp_codes;
+  pgv.multidphase_delta = tv.mdp_delta;
+}
+
+static void FreeTiny(TinyVariant& tv) {
+  uintptr_t* bufs[] = {tv.genovec, tv.patch_01_set, tv.patch_10_set, tv.dosage_present, tv.dphase_present, tv.md_present, tv.mdp_present};
+  for (uintptr_t* p : bufs) {
+    free(p);
+  }
+}
+
+// Sample 0 gets one rare-alt dosage.
+static void TinyAddRare(TinyVariant& tv, uint32_t code, uint32_t val) {
+  SetBit(0, tv.md_present);
+  tv.md_cts[0] = 1;
+  tv.md_codes[0] = code;
+  tv.md_vals[0] = val;
+  tv.pgv.multidosage_sample_ct = 1;
+}
+
+// Sample 0 gets an explicit dosage-phase value, and optionally one rare-alt
+// dosage-phase value.
+static void TinyAddDphase(TinyVariant& tv, int32_t delta, uint32_t rare_code, int32_t rare_delta) {
+  SetBit(0, tv.dphase_present);
+  tv.dphase_delta[0] = delta;
+  tv.pgv.dphase_ct = 1;
+  if (rare_code) {
+    SetBit(0, tv.mdp_present);
+    tv.mdp_cts[0] = 1;
+    tv.mdp_codes[0] = rare_code;
+    tv.mdp_delta[0] = rare_delta;
+    tv.pgv.multidphase_sample_ct = 1;
+  }
+}
+
+// Writes tv as a single-variant file, then validates it.  If expected_substr
+// is nullptr, validation must succeed; otherwise it must fail with
+// kPglRetMalformedInput and an error message containing expected_substr.
+// If insert_hphase is set, a hardcall-phase track phasing sample 0 (which
+// must be the only het) is spliced into the record after writing, since the
+// writer won't produce some of the records under test.
+static void CheckTiny(const char* desc, TinyVariant& tv, uint32_t allele_ct, uint32_t insert_hphase, const char* expected_substr) {
+  const char* fname = "tmp_tiny.pgen";
+  const uintptr_t allele_idx_offsets[2] = {0, allele_ct};
+  STPgenWriter spgw;
+  unsigned char* alloc;
+  CHECK(!OpenWriter(fname, allele_idx_offsets, 1, 4, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent | kfPgenGlobalMultiallelicDosagePresent, &spgw, &alloc));
+  PglErr reterr = SpgwAppendMultiallelicGenovecDphase16(&tv.pgv, allele_ct, &spgw);
+  CHECK(!reterr);
+  CHECK(!SpgwFinish(&spgw));
+  CleanupSpgw(&spgw, &reterr);
+  free(alloc);
+  if (insert_hphase) {
+    std::vector<unsigned char> file = ReadFile(fname);
+    // single vblock; one 8-bit vrtype, then the record length
+    const uint32_t len_byte_ct = 1 + (file[11] & 3);
+    uint64_t fpos;
+    memcpy(&fpos, &file[12], 8);
+    unsigned char& vrtype = file[20];
+    // only a raw 1-byte main track is supported
+    CHECK(((vrtype & 0x1f) == 0) && (len_byte_ct == 1));
+    vrtype |= 0x10;
+    file[21] += 1;
+    // het_ct = 1: no explicit phasepresent, phaseinfo bit 0
+    file.insert(file.begin() + fpos + 1, 0);
+    FILE* ff = fopen(fname, "wb");
+    CHECK(ff && (fwrite(file.data(), 1, file.size(), ff) == file.size()));
+    fclose(ff);
+  }
+  char errstr[kPglErrstrBufBlen];
+  reterr = ValidateFile(fname, allele_idx_offsets, 1, 4, errstr);
+  if (!expected_substr) {
+    if (reterr) {
+      fprintf(stderr, "%s: unexpected validation failure: %s", desc, errstr);
+    }
+    CHECK(!reterr);
+  } else {
+    const int ok = (reterr == kPglRetMalformedInput) && strstr(errstr, expected_substr);
+    if (!ok) {
+      fprintf(stderr, "%s: expected failure containing \"%s\", got %d: %s\n", desc, expected_substr, S_CAST(int, reterr), errstr);
+    }
+    CHECK(ok);
+  }
+}
+
+static void ValidatorTinyTests() {
+  TinyVariant tv;
+  // Sanity: missing hardcall, rare-alt dosage.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  CheckTiny("valid baseline", tv, 3, 0, nullptr);
+  FreeTiny(tv);
+
+  // Rare-alt dosages exceeding the total alt dosage.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 16385);
+  CheckTiny("rare sum > total", tv, 3, 0, "sum to more than its total alt dosage");
+  FreeTiny(tv);
+
+  // Zero rare-alt dosage (zeros must be omitted).
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 0);
+  CheckTiny("zero rare dosage", tv, 3, 0, "rare-alt dosage is zero or greater than 2");
+  FreeTiny(tv);
+
+  // Rare-alt dosage for a sample with no dosage.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  ClearBit(0, tv.md_present);
+  SetBit(1, tv.md_present);
+  CheckTiny("rare dosage without dosage", tv, 3, 0, "which has no (non-missing) dosage");
+  FreeTiny(tv);
+
+  // Same, for a sample before one that has a dosage.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  ClearBit(0, tv.dosage_present);
+  SetBit(1, tv.dosage_present);
+  tv.dosage_main[0] = 0;  // sample 1, hom-ref
+  CheckTiny("rare dosage without dosage (before)", tv, 3, 0, "which has no (non-missing) dosage");
+  FreeTiny(tv);
+
+  // Hardcall 0/2 (sample 0 het, patch 01 -> alt2), total alt dosage 1.0.
+  // All of it on alt1 is inconsistent; all on alt2 is fine.
+  for (uint32_t on_alt2 = 0; on_alt2 != 2; ++on_alt2) {
+    InitTiny(tv);
+    tv.genovec[0] = 1;
+    SetBit(0, tv.patch_01_set);
+    tv.patch_01_vals[0] = 2;
+    tv.pgv.patch_01_ct = 1;
+    if (on_alt2) {
+      TinyAddRare(tv, 2, 16384);
+    }
+    CheckTiny(on_alt2? "0/2 hardcall, alt2 dosage" : "0/2 hardcall, alt1 dosage", tv, 3, 0, on_alt2? nullptr : "inconsistent with its (non-missing) hardcall");
+    FreeTiny(tv);
+  }
+  // Hardcall 2/3 (patch 10), total alt dosage 2.0: split 1.0/1.0 between
+  // alt2 and alt3 is consistent; all on alt1 isn't.
+  for (uint32_t split = 0; split != 2; ++split) {
+    InitTiny(tv);
+    tv.genovec[0] = 2;
+    SetBit(0, tv.patch_10_set);
+    tv.patch_10_vals[0] = 2;
+    tv.patch_10_vals[1] = 3;
+    tv.pgv.patch_10_ct = 1;
+    tv.dosage_main[0] = 32768;
+    if (split) {
+      SetBit(0, tv.md_present);
+      tv.md_cts[0] = 2;
+      tv.md_codes[0] = 2;
+      tv.md_codes[1] = 3;
+      tv.md_vals[0] = 16384;
+      tv.md_vals[1] = 16384;
+      tv.pgv.multidosage_sample_ct = 1;
+    }
+    CheckTiny(split? "2/3 hardcall, 2/3 dosage" : "2/3 hardcall, alt1 dosage", tv, 4, 0, split? nullptr : "inconsistent with its (non-missing) hardcall");
+    FreeTiny(tv);
+  }
+
+  // Phased rare-alt dosages.
+  // Valid: alt2 dosage 0.5, all on haplotype 1.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  TinyAddDphase(tv, 0, 2, 8192);
+  CheckTiny("valid phased rare alt", tv, 4, 0, nullptr);
+  FreeTiny(tv);
+  // Rare-alt dphase entry without a matching rare-alt dosage.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  TinyAddDphase(tv, 0, 3, 4096);
+  CheckTiny("dphase not a subset", tv, 4, 0, "has no corresponding rare-alt dosage");
+  FreeTiny(tv);
+  // Same, with the unmatched allele between two that have dosages.
+  InitTiny(tv);
+  SetBit(0, tv.md_present);
+  tv.md_cts[0] = 2;
+  tv.md_codes[0] = 2;
+  tv.md_codes[1] = 4;
+  tv.md_vals[0] = 4096;
+  tv.md_vals[1] = 4096;
+  tv.pgv.multidosage_sample_ct = 1;
+  TinyAddDphase(tv, 0, 3, 2048);
+  CheckTiny("dphase not a subset (interior)", tv, 5, 0, "has no corresponding rare-alt dosage");
+  FreeTiny(tv);
+  // Zero rare-alt delta (zeros must be omitted).
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  TinyAddDphase(tv, 0, 2, 0);
+  CheckTiny("zero rare delta", tv, 4, 0, "inconsistent with its dosage");
+  FreeTiny(tv);
+  // |rare delta| > rare dosage.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 4096);
+  TinyAddDphase(tv, 0, 2, 8192);
+  CheckTiny("rare delta too large", tv, 4, 0, "inconsistent with its dosage");
+  FreeTiny(tv);
+  // Haplotype 2 has no alt allele (total alt 1.0 = 1|0), but its alt2 share
+  // would be 0.5.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  TinyAddDphase(tv, 16384, 2, -8192);
+  CheckTiny("negative alt1 haplotype share", tv, 4, 0, "negative alt1 dosage on one haplotype");
+  FreeTiny(tv);
+  // Rare-alt dphase entry for a sample without explicit dosage phase.
+  InitTiny(tv);
+  TinyAddRare(tv, 2, 8192);
+  SetBit(1, tv.dosage_present);
+  tv.dosage_main[1] = 0;
+  tv.pgv.dosage_ct = 2;
+  TinyAddDphase(tv, 0, 0, 0);
+  ClearBit(0, tv.dphase_present);
+  SetBit(1, tv.dphase_present);
+  SetBit(0, tv.mdp_present);
+  tv.mdp_cts[0] = 1;
+  tv.mdp_codes[0] = 2;
+  tv.mdp_delta[0] = 4096;
+  tv.pgv.multidphase_sample_ct = 1;
+  CheckTiny("rare dphase without dphase", tv, 4, 0, "which has no (non-missing) explicit dosage-phase value");
+  FreeTiny(tv);
+
+  // Implicit dosage-phase: sample 0 is a 0/1 het with a dosage.  Phasing it
+  // (spliced in after writing) requires an explicit dosage-phase value when
+  // there are more than two alleles.
+  // The invalid case runs last, so that run_tests.sh can check that plink2
+  // --validate rejects tmp_tiny.pgen.
+  for (uint32_t explicit_dphase = 2; explicit_dphase--; ) {
+    InitTiny(tv);
+    tv.genovec[0] = 1 | (2 << 4) | (3 << 6);  // het, hom-ref, hom-alt1, missing
+    tv.dosage_main[0] = 16384;
+    if (explicit_dphase) {
+      TinyAddDphase(tv, 16384, 0, 0);
+    }
+    CheckTiny(explicit_dphase? "phased het, explicit dphase" : "phased het, no dphase", tv, 3, 1, explicit_dphase? nullptr : "no explicit dosage-phase value");
+    FreeTiny(tv);
+  }
+  const uintptr_t tiny_allele_idx_offsets[2] = {0, 3};
+  WritePvarPsam("tmp_tiny", tiny_allele_idx_offsets, 1, 4);
+}
+
 // Writes a file mixing biallelic records (existing API) and multiallelic
 // dosage records, then checks it.
 // combo_offset selects which (dosage form, dphase, hphase, rare density)
@@ -897,6 +1320,17 @@ static void RunFile(const char* fname, uint32_t sample_ct, uint32_t variant_ct, 
   }
   printf("%s: %u variants, %" PRIu64 " rare-alt dosage entries, %" PRIu64 " rare-alt dphase entries, %u unconditional-dosage records\n", fname, variant_ct, md_entry_ct, mdp_entry_ct, uncond_ct);
   ReadBack(fname, vds, is_multi, allele_idx_offsets.data(), sample_ct);
+  {
+    std::string prefix(fname);
+    prefix.resize(prefix.size() - 5);  // remove ".pgen"
+    WritePvarPsam(prefix.c_str(), allele_idx_offsets.data(), variant_ct, sample_ct);
+  }
+  char errstr[kPglErrstrBufBlen];
+  const PglErr validate_reterr = ValidateFile(fname, allele_idx_offsets.data(), variant_ct, sample_ct, errstr);
+  if (validate_reterr) {
+    fprintf(stderr, "%s: PgrValidate() failed: %s", fname, errstr);
+  }
+  CHECK(!validate_reterr);
   if (check_corrupt) {
     CheckCorruptValue(fname, vds, is_multi, record_ends, allele_idx_offsets.data(), sample_ct, 0);
     CheckCorruptValue(fname, vds, is_multi, record_ends, allele_idx_offsets.data(), sample_ct, 32769);
@@ -913,6 +1347,8 @@ int main() {
   // combos 24-35: dense rare-alt dosages
   RunFile("tmp_big.pgen", 70000, 6 * 12, 24, 0);
 
+  ValidatorTinyTests();
+
   // Error paths.
   {
     VariantData vd;
@@ -923,7 +1359,7 @@ int main() {
     unsigned char* alloc;
     // Nonempty rare-alt dosages without the opt-in flag.
     CHECK(!OpenWriter("tmp_noflag.pgen", allele_idx_offsets, 1, 300, kfPgenGlobalDosagePresent, &spgw, &alloc));
-    CHECK(SpgwAppendMultiallelicGenovecDphase16(&vd.pgv, 5, &spgw) == kPglRetVarRecordTooLarge);
+    CHECK(SpgwAppendMultiallelicGenovecDphase16(&vd.pgv, 5, &spgw) == kPglRetImproperFunctionCall);
     PglErr reterr = kPglRetSuccess;
     CleanupSpgw(&spgw, &reterr);
     free(alloc);
@@ -941,12 +1377,12 @@ int main() {
       offset += vd.md_cts[j];
     }
     std::swap(vd.md_codes[offset], vd.md_codes[offset + 1]);
-    CHECK(SpgwAppendMultiallelicGenovecDphase16(&vd.pgv, 5, &spgw) == kPglRetVarRecordTooLarge);
+    CHECK(SpgwAppendMultiallelicGenovecDphase16(&vd.pgv, 5, &spgw) == kPglRetMalformedInput);
     std::swap(vd.md_codes[offset], vd.md_codes[offset + 1]);
     // Code out of range.
     const AlleleCode saved = vd.md_codes[0];
     vd.md_codes[0] = 5;
-    CHECK(SpgwAppendMultiallelicGenovecDphase16(&vd.pgv, 5, &spgw) == kPglRetVarRecordTooLarge);
+    CHECK(SpgwAppendMultiallelicGenovecDphase16(&vd.pgv, 5, &spgw) == kPglRetMalformedInput);
     vd.md_codes[0] = saved;
     CleanupSpgw(&spgw, &reterr);
     free(alloc);
@@ -961,7 +1397,7 @@ int main() {
       PgenVariant pgv = vd3.pgv;
       pgv.dphase_ct = 0;
       pgv.multidphase_sample_ct = 0;
-      CHECK(SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw) == kPglRetVarRecordTooLarge);
+      CHECK(SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw) == kPglRetMalformedInput);
       // ...but it's fine once hardcall phase is dropped.
       pgv.phasepresent_ct = 0;
       CHECK(!SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw));
@@ -988,7 +1424,7 @@ int main() {
       CHECK(!SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw));
       SetBit(het_with_dosage, phasepresent);
       pgv.phasepresent_ct = het_without_dosage_ct + 1;
-      CHECK(SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw) == kPglRetVarRecordTooLarge);
+      CHECK(SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw) == kPglRetMalformedInput);
       free(phasepresent);
       CleanupSpgw(&spgw, &reterr);
       free(alloc);
