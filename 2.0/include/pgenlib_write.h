@@ -374,12 +374,12 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
 //     Nonempty ones require kfPgenGlobalMultiallelicDosagePresent to have
 //     been passed to the init function (otherwise this returns 1).
 // The file must have been initialized with nonzero phase_dosage_gflags.
-// Also returns 1 if the record would be too large, or if multidosage or
-// multidphase codes are out of range or not increasing within a sample.
-// Note that for multiallelic variants, a sample with a phased hardcall and a
-// dosage must also have an explicit dosage-phase value; the caller is
-// responsible for this, and for the other value constraints described in
-// pgenlib_misc.h.
+// Also returns 1 if the record would be too large, if multidosage or
+// multidphase codes are out of range or not increasing within a sample, or if
+// a sample has a dosage and a phased heterozygous hardcall but no explicit
+// dosage-phase value (implicit dosage-phase isn't defined for multiallelic
+// variants).  The caller is responsible for the other value constraints
+// described in pgenlib_misc.h.
 BoolErr PwcAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, STPgenWriter* spgwp) {

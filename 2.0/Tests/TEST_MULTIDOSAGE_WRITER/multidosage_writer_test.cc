@@ -111,6 +111,7 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
       has_dosage[s] = (RandBelow(40) == 0);
     }
   }
+  std::vector<uint32_t> is_het(sample_ct, 0);
   for (uint32_t s = 0; s != sample_ct; ++s) {
     pgv.genovec[s / kBitsPerWordD2] |= S_CAST(uintptr_t, cats[s]) << (2 * (s % kBitsPerWordD2));
     if ((cats[s] == 1) && RandBelow(3) == 0) {
@@ -129,8 +130,10 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
       vd.patch_10_vals.push_back(lo);
       vd.patch_10_vals.push_back(hi);
       het_ct += (lo != hi);
+      is_het[s] = (lo != hi);
     }
     het_ct += (cats[s] == 1);
+    is_het[s] |= (cats[s] == 1);
     if (RandBelow(2)) {
       SetBit(s, pgv.phaseinfo);
     }
@@ -150,7 +153,16 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
   std::vector<uint16_t> mdp_vals_u;
   std::vector<uint32_t> sample_dosage(sample_ct, 0);
   std::vector<uint16_t> dphase_bits;  // per dosage entry: 1 if explicit dphase
+  // No implicit dosage-phase for multiallelic variants: a phased het with a
+  // dosage needs an explicit dosage-phase value.  (All hets are phased when
+  // hphase is set.)
+  const uint32_t het_dosage_needs_dphase = hphase && het_ct;
   for (uint32_t s = 0; s != sample_ct; ++s) {
+    if (het_dosage_needs_dphase && (!dphase) && (is_het[s] || dosage_missing[s])) {
+      // Dropping the hets' dosages means the record can't use unconditional
+      // dosage, so missing (65535) entries must go too.
+      has_dosage[s] = 0;
+    }
     if (!has_dosage[s]) {
       continue;
     }
@@ -192,7 +204,7 @@ static void MakeVariant(uint32_t sample_ct, uint32_t allele_ct, uint32_t dosage_
     }
     // dosage phase
     uint32_t explicit_dphase = 0;
-    if (dphase && ((dosage_mode == 2) || RandBelow(2))) {
+    if (dphase && ((dosage_mode == 2) || (het_dosage_needs_dphase && is_het[s]) || RandBelow(2))) {
       explicit_dphase = 1;
       const int32_t lim = MINV(v, 32768 - v);
       const int32_t delta = lim? (S_CAST(int32_t, RandBelow(2 * lim + 1)) - lim) : 0;
@@ -938,6 +950,50 @@ int main() {
     vd.md_codes[0] = saved;
     CleanupSpgw(&spgw, &reterr);
     free(alloc);
+    // Phased het with a dosage but no dosage-phase value.
+    {
+      VariantData vd3;
+      MakeVariant(300, 5, 1, 1, 1, 1, vd3);
+      CHECK(vd3.pgv.phasepresent_ct && vd3.pgv.dphase_ct);
+      // up to 3 records are appended below (the failed attempts don't count)
+      const uintptr_t badphase_allele_idx_offsets[4] = {0, 5, 10, 15};
+      CHECK(!OpenWriter("tmp_badphase.pgen", badphase_allele_idx_offsets, 3, 300, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent | kfPgenGlobalMultiallelicDosagePresent, &spgw, &alloc));
+      PgenVariant pgv = vd3.pgv;
+      pgv.dphase_ct = 0;
+      pgv.multidphase_sample_ct = 0;
+      CHECK(SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw) == kPglRetVarRecordTooLarge);
+      // ...but it's fine once hardcall phase is dropped.
+      pgv.phasepresent_ct = 0;
+      CHECK(!SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw));
+      // Explicit phasepresent: phasing only the hets without dosages is fine;
+      // adding one het with a dosage isn't.
+      const std::vector<SampleData> sds = Decode(vd3.pgv, 300, 0, 0, 0);
+      uintptr_t* phasepresent = AllocWords(300);
+      uint32_t het_without_dosage_ct = 0;
+      uint32_t het_with_dosage = UINT32_MAX;
+      for (uint32_t s = 0; s != 300; ++s) {
+        if ((sds[s].a1 == UINT32_MAX) || (sds[s].a1 == sds[s].a2)) {
+          continue;
+        }
+        if (!IsSet(pgv.dosage_present, s)) {
+          SetBit(s, phasepresent);
+          ++het_without_dosage_ct;
+        } else {
+          het_with_dosage = s;
+        }
+      }
+      CHECK(het_without_dosage_ct && (het_with_dosage != UINT32_MAX));
+      pgv.phasepresent = phasepresent;
+      pgv.phasepresent_ct = het_without_dosage_ct;
+      CHECK(!SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw));
+      SetBit(het_with_dosage, phasepresent);
+      pgv.phasepresent_ct = het_without_dosage_ct + 1;
+      CHECK(SpgwAppendMultiallelicGenovecDphase16(&pgv, 5, &spgw) == kPglRetVarRecordTooLarge);
+      free(phasepresent);
+      CleanupSpgw(&spgw, &reterr);
+      free(alloc);
+      FreeVariant(vd3);
+    }
     // Empty rare-alt lists are fine without the flag.
     VariantData vd2;
     MakeVariant(300, 5, 1, 1, 1, 0, vd2);
