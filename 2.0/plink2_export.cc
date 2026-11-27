@@ -4118,46 +4118,6 @@ char* AppendVcfMultiallelicDsForcePhased(uint32_t allele_ct_m2, uint32_t hds_for
   return write_iter;
 }
 
-// Allocates the PgenVariant rare-alt dosage buffers needed by PgrGetMD() and
-// PgrGetMDp(), along with the md_u/md_d per-sample workspaces used by
-// MdCursorNext().  (Pointers are set to nullptr when md_allele_ct == 0.)
-BoolErr BigstackAllocMultidosage(uint32_t sample_ct, uint32_t md_allele_ct, uint32_t load_dphase, PgenVariant* pgvp, uint32_t** md_u_ptr, int32_t** md_d_ptr) {
-  pgvp->multidosage_present = nullptr;
-  pgvp->multidosage_cts = nullptr;
-  pgvp->multidosage_codes = nullptr;
-  pgvp->multidosage_vals = nullptr;
-  pgvp->multidphase_present = nullptr;
-  pgvp->multidphase_cts = nullptr;
-  pgvp->multidphase_codes = nullptr;
-  pgvp->multidphase_delta = nullptr;
-  pgvp->multidosage_sample_ct = 0;
-  pgvp->multidphase_sample_ct = 0;
-  *md_u_ptr = nullptr;
-  *md_d_ptr = nullptr;
-  if (!md_allele_ct) {
-    return 0;
-  }
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  const uintptr_t entry_ct = S_CAST(uintptr_t, sample_ct) * MINV(md_allele_ct - 2, 255);
-  if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->multidosage_present)) ||
-               bigstack_alloc_uc(sample_ct, &(pgvp->multidosage_cts)) ||
-               bigstack_alloc_ac(entry_ct, &(pgvp->multidosage_codes)) ||
-               bigstack_alloc_u16(entry_ct, &(pgvp->multidosage_vals)) ||
-               bigstack_alloc_u32(md_allele_ct - 1, md_u_ptr) ||
-               bigstack_alloc_i32(md_allele_ct - 1, md_d_ptr))) {
-    return 1;
-  }
-  if (load_dphase) {
-    if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->multidphase_present)) ||
-                 bigstack_alloc_uc(sample_ct, &(pgvp->multidphase_cts)) ||
-                 bigstack_alloc_ac(entry_ct, &(pgvp->multidphase_codes)) ||
-                 bigstack_alloc_i16(entry_ct, &(pgvp->multidphase_delta)))) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
 // u[] values on a 0..2 scale when diploid is set, 0..1 otherwise
 char* AppendMdDosages(const uint32_t* u, uint32_t alt_ct, uint32_t diploid, char* write_iter) {
   for (uint32_t uii = 0; uii != alt_ct; ++uii) {

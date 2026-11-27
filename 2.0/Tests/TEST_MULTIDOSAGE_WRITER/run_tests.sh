@@ -389,3 +389,20 @@ for ph in Q.glm.linear Q2.glm.linear B.glm.logistic.hybrid M.glm.multinomial.hyb
     awk -v ph=$ph 'BEGIN {OFS = "\t"} !/^#/ && ($3 != "v73") {print ph, $3, $0}' tmp_gl_condref.$ph >> tmp_gl_condref.txt
 done
 $GC tmp_gl_condref.txt tmp_gl_cond.Q.glm.linear tmp_gl_cond.Q2.glm.linear tmp_gl_cond.B.glm.logistic.hybrid tmp_gl_cond.M.glm.multinomial.hybrid
+
+# --make-rel/--make-grm-list/--pca on multiallelic dosages: each allele's row
+# holds its centered and scaled dosage.  CheckGrm() computes the relationship
+# matrix independently (all four 'cov'/'meanimpute' combinations), and
+# CheckPca() checks the PCs against the --make-rel output.
+$P --pfile tmp_small --freq --out tmp_rel_freq
+for m in "" "meanimpute" "cov" "cov meanimpute"; do
+    $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --make-grm-list $m --out tmp_rel_grm
+    ./tmp_multidosage_writer_test checkgrm tmp_small tmp_rel_freq.afreq tmp_rel_grm.grm $m
+done
+$P --pfile tmp_small --read-freq tmp_rel_freq.afreq --make-rel square --out tmp_rel_sq
+$P --pfile tmp_small --read-freq tmp_rel_freq.afreq --make-rel square meanimpute --out tmp_rel_sqmi
+# (allele-wts exercises the other variant-loading passes)
+$P --pfile tmp_small --read-freq tmp_rel_freq.afreq --pca 4 allele-wts --out tmp_rel_pca
+./tmp_multidosage_writer_test checkpca tmp_rel_sq.rel tmp_rel_pca.eigenvec tmp_rel_pca.eigenval
+$P --pfile tmp_small --read-freq tmp_rel_freq.afreq --pca 4 approx allele-wts --out tmp_rel_pcaa
+./tmp_multidosage_writer_test checkpca tmp_rel_sqmi.rel tmp_rel_pcaa.eigenvec tmp_rel_pcaa.eigenval approx

@@ -446,6 +446,11 @@ HEADER_INLINE BoolErr bigstack_end_alloc_dphase(uintptr_t ct, SDosage** dphase_a
 
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp);
 
+// Allocates the PgenVariant rare-alt dosage buffers needed by PgrGetMD() and
+// PgrGetMDp(), along with the md_u/md_d per-sample workspaces used by
+// MdCursorNext().  (Pointers are set to nullptr when md_allele_ct == 0.)
+BoolErr BigstackAllocMultidosage(uint32_t sample_ct, uint32_t md_allele_ct, uint32_t load_dphase, PgenVariant* pgvp, uint32_t** md_u_ptr, int32_t** md_d_ptr);
+
 // Largest allele count among multiallelic records with dosages in
 // variant_include (0 if there are none).  vrtypes == nullptr for fixed-width
 // storage, where every record has dosages if any does.
