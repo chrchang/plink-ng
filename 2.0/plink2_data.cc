@@ -7858,7 +7858,10 @@ static int32_t RemapAlleleVals(const uint32_t* read_codes, const int32_t* read_v
 // rare-alt lists are rebuilt from *md_srcp/*mdp_srcp into *md_dstp/*mdp_dstp.
 // remap[read allele index] is the write allele index, or kMissingAlleleCode
 // for a dropped allele (which must have no dosage).
-static BoolErr RemapMultiallelicDosages(const uintptr_t* dosage_present, const uintptr_t* dphase_present, const AlleleCode* remap, uint32_t sample_ct, uint32_t dosage_ct, uint32_t dphase_ct, const RareAltList* md_srcp, const RareAltList* mdp_srcp, Dosage* dosage_main, SDosage* dphase_delta, RareAltList* md_dstp, RareAltList* mdp_dstp) {
+// If remap_samples is non-null, only those samples are remapped; the others
+// keep their values.  Every rare-alt list entry must belong to a sample in
+// dosage_present (resp. dphase_present).
+static BoolErr RemapMultiallelicDosages(const uintptr_t* dosage_present, const uintptr_t* dphase_present, const uintptr_t* remap_samples, const AlleleCode* remap, uint32_t sample_ct, uint32_t dosage_ct, uint32_t dphase_ct, const RareAltList* md_srcp, const RareAltList* mdp_srcp, Dosage* dosage_main, SDosage* dphase_delta, RareAltList* md_dstp, RareAltList* mdp_dstp) {
   ZeroWArr(BitCtToWordCt(sample_ct), md_dstp->present);
   md_dstp->sample_ct = 0;
   md_dstp->entry_ct = 0;
@@ -7886,6 +7889,22 @@ static BoolErr RemapMultiallelicDosages(const uintptr_t* dosage_present, const u
     const AlleleCode* rare_codes;
     const uint16_t* rare_vals;
     uint32_t rare_ct = RareAltCursorGet(sample_idx, &md_cursor, &rare_codes, &rare_vals);
+    const uint32_t dphase_here = dphase_ct && IsSet(dphase_present, sample_idx);
+    if (remap_samples && (!IsSet(remap_samples, sample_idx))) {
+      // Copy the entries unchanged.
+      for (uint32_t pass = 0; pass != 1 + dphase_here; ++pass) {
+        if (pass) {
+          rare_ct = RareAltCursorGet(sample_idx, &mdp_cursor, &rare_codes, &rare_vals);
+          ++dphase_idx;
+        }
+        for (uint32_t uii = 0; uii != rare_ct; ++uii) {
+          write_codes[uii] = rare_codes[uii];
+          write_vals[uii] = rare_vals[uii];
+        }
+        RareAltAppend(sample_idx, write_codes, write_vals, rare_ct, pass? mdp_dstp : md_dstp);
+      }
+      continue;
+    }
     const int32_t main_dosage = dosage_main[dosage_idx];
     int32_t alt1_dosage = main_dosage;
     for (uint32_t uii = 0; uii != rare_ct; ++uii) {
@@ -7904,7 +7923,7 @@ static BoolErr RemapMultiallelicDosages(const uintptr_t* dosage_present, const u
     }
     dosage_main[dosage_idx] = kDosageMax - write_ref_dosage;
     RareAltAppend(sample_idx, write_codes, write_vals, write_ct, md_dstp);
-    if (dphase_ct && IsSet(dphase_present, sample_idx)) {
+    if (dphase_here) {
       // Deltas sum to zero over all alleles, so the alt-sum delta is minus
       // the ref delta.
       rare_ct = RareAltCursorGet(sample_idx, &mdp_cursor, &rare_codes, &rare_vals);
@@ -8790,7 +8809,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           }
           RareAltList* md_dst = (cur_md == &(md_bufs->lists[0]))? (&(md_bufs->lists[1])) : (&(md_bufs->lists[0]));
           RareAltList* mdp_dst = (cur_mdp == &(md_bufs->lists[2]))? (&(md_bufs->lists[3])) : (&(md_bufs->lists[2]));
-          if (unlikely(RemapMultiallelicDosages(write_dosagepresent, write_dphasepresent, md_remap, sample_ct, write_dosage_ct, write_dphase_ct, cur_md, cur_mdp, write_dosagevals, write_dphasedeltas, md_dst, mdp_dst))) {
+          if (unlikely(RemapMultiallelicDosages(write_dosagepresent, write_dphasepresent, nullptr, md_remap, sample_ct, write_dosage_ct, write_dphase_ct, cur_md, cur_mdp, write_dosagevals, write_dphasedeltas, md_dst, mdp_dst))) {
             new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
             goto MakePgenThread_err;
           }
@@ -9088,10 +9107,28 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
             goto MakePgenThread_err;
           }
         } else {
-          // multiallelic, no dosage for now
-          if (unlikely(cur_md && write_dosage_ct)) {
-            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetNotYetSupported);
-            goto MakePgenThread_err;
+          if (cur_md && write_dosage_ct) {
+            // Apply the same allele permutation to the --flip-subset samples'
+            // dosages; it's an error for one with a nonzero dosage on an
+            // allele without a complement.  Dosage-phase deltas are
+            // per-haplotype, so unlike the hardcall phase, they don't need to
+            // be adjusted when the allele order of a het changes.
+            // First drop the rare-alt entries of samples whose dosages were
+            // erased above.
+            FilterRareAlt(write_dosagepresent, sample_ct, cur_md);
+            if (cur_mdp) {
+              FilterRareAlt(write_dphase_ct? write_dphasepresent : nullptr, sample_ct, cur_mdp);
+            }
+            RareAltList* md_dst = (cur_md == &(md_bufs->lists[0]))? (&(md_bufs->lists[1])) : (&(md_bufs->lists[0]));
+            RareAltList* mdp_dst = (cur_mdp == &(md_bufs->lists[2]))? (&(md_bufs->lists[3])) : (&(md_bufs->lists[2]));
+            if (unlikely(RemapMultiallelicDosages(write_dosagepresent, write_dphasepresent, flip_subset_samples, cur_flip_subset_permute, sample_ct, write_dosage_ct, write_dphase_ct, cur_md, cur_mdp, write_dosagevals, write_dphasedeltas, md_dst, mdp_dst))) {
+              new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
+              goto MakePgenThread_err;
+            }
+            cur_md = md_dst;
+            if (write_dphase_ct) {
+              cur_mdp = mdp_dst;
+            }
           }
           if (unlikely(FlipSubsetMultiallelic(flip_subset_samples, cur_flip_subset_permute, sample_ct, is_hphase, write_genovec, &write_rare01_ct, write_patch_01_set, write_patch_01_vals, &write_rare10_ct, write_patch_10_set, write_patch_10_vals, write_phaseinfo, wide_codes_buf))) {
             new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);

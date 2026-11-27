@@ -110,3 +110,77 @@ mp_check tmp_small tmp_hc6 hct=1638 strip-dosage
 # search is slow with 255 alleles)
 $P --pfile tmp_big --threads 2 --hard-call-threshold 0.1 --make-pgen --out tmp_hcb
 mp_check tmp_big tmp_hcb hct=1638
+
+# --flip + --flip-subset on multiallelic dosages.  tmp_flip is tmp_small with
+# A/C/G/T/N alleles wherever there are at most 5 alleles (in several orders);
+# the 20- and 255-allele variants keep their non-SNP alleles, and are skipped
+# by 'permissive'.
+cp tmp_small.pgen tmp_flip.pgen
+cp tmp_small.psam tmp_flip.psam
+awk 'BEGIN {
+  FS = "\t"; OFS = "\t";
+  split("A,T C,G T,A G,C", s2, " ");
+  split("A,T,N N,G,C C,N,G T,A,N", s3, " ");
+  split("A,T,C,G C,A,G,T G,C,T,A T,G,A,C", s4, " ");
+  split("A,C,G,T,N N,T,G,C,A G,A,N,C,T C,G,A,T,N", s5, " ");
+}
+/^#/ {print; next}
+{
+  n = split($5, a, ",") + 1;
+  k = (int(vidx / 6) % 4) + 1;
+  ++vidx;
+  lab = "";
+  if (n == 2) lab = s2[k];
+  else if (n == 3) lab = s3[k];
+  else if (n == 4) lab = s4[k];
+  else if (n == 5) lab = s5[k];
+  if (lab != "") {
+    $4 = substr(lab, 1, 1);
+    $5 = substr(lab, 3);
+  }
+  print;
+}' tmp_small.pvar > tmp_flip.pvar
+awk '!/^#/ && (NR % 7) {print $3}' tmp_flip.pvar > tmp_flip_vars.txt
+awk 'NR == 1 || (NR % 2) {print $1}' tmp_flip.psam > tmp_flip_samples.txt
+awk '!/^#/ && (split($5, a, ",") >= 2) {print $3"\t"a[2]}' tmp_flip.pvar > tmp_flip_ref.txt
+FL="--flip tmp_flip_vars.txt permissive --flip-subset tmp_flip_samples.txt"
+FC="flip-vars=tmp_flip_vars.txt flip-samples=tmp_flip_samples.txt"
+$P --pfile tmp_flip $FL --make-pgen --out tmp_fl1
+mp_check tmp_flip tmp_fl1 $FC
+# sample subset + reorder + allele permutation, multithreaded and
+# single-threaded (MakePgenRobust())
+$P --pfile tmp_flip $FL --keep tmp_keep.txt --indiv-sort f tmp_order.txt --ref-allele force tmp_flip_ref.txt --make-pgen --out tmp_fl2
+mp_check tmp_flip tmp_fl2 $FC
+$P --pfile tmp_flip $FL --sort-vars --keep tmp_keep.txt --ref-allele force tmp_flip_ref.txt --make-pgen --out tmp_fl3
+mp_check tmp_flip tmp_fl3 $FC
+# hardcalls only: --flip-subset can turn 0/1 hets into rare-alt hets, which
+# previously overflowed the in-place patch buffers when no sample subsetting
+# was needed
+$P --pfile tmp_flip --make-pgen erase-dosage --out tmp_flipnd
+$P --pfile tmp_flipnd $FL --make-pgen --out tmp_fl0
+mp_check tmp_flipnd tmp_fl0 $FC
+# after --dosage-erase-threshold / --hard-call-threshold erasures
+$P --pfile tmp_flip $FL --hard-call-threshold 0.2 --dosage-erase-threshold 0.1 --make-pgen --out tmp_fl4
+mp_check tmp_flip tmp_fl4 hct=3276 erase=1638 $FC
+# after --set-mixed-mt-missing erasures
+cp tmp_flip.pgen tmp_flipmt.pgen
+cp tmp_flip.psam tmp_flipmt.psam
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "MT"; print}' tmp_flip.pvar > tmp_flipmt.pvar
+$P --pfile tmp_flipmt $FL --set-mixed-mt-missing --make-pgen --out tmp_fl5
+mp_check tmp_flipmt tmp_fl5 hets-missing $FC
+# tmp_flipfail: sample s0 has a missing hardcall, and dosages of 1 copy each
+# for REF and ALT1.  With alleles C/G/A, flipping s0 is fine (the A has no
+# complement, but s0 has no A dosage); with A/C/G, it's an error.
+echo "v0" > tmp_flipfail_vars.txt
+printf '#IID\ns0\n' > tmp_flipfail_samples.txt
+FFL="--flip tmp_flipfail_vars.txt --flip-subset tmp_flipfail_samples.txt"
+mv tmp_flipfail.pvar tmp_flipfail_orig.pvar
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$4 = "C"; $5 = "G,A"; print}' tmp_flipfail_orig.pvar > tmp_flipfail.pvar
+$P --pfile tmp_flipfail $FFL --make-pgen --out tmp_ff1
+mp_check tmp_flipfail tmp_ff1 flip-vars=tmp_flipfail_vars.txt flip-samples=tmp_flipfail_samples.txt
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$4 = "A"; $5 = "C,G"; print}' tmp_flipfail_orig.pvar > tmp_flipfail.pvar
+if $P --pfile tmp_flipfail $FFL --make-pgen --out tmp_ff2; then
+    echo "--flip-subset accepted a dosage on an allele without a complement"
+    exit 1
+fi
+grep -q "Cannot flip" tmp_ff2.log
