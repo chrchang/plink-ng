@@ -7900,7 +7900,9 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         if (is_mhc) {
           write_rare01_ct = read_rare01_ct;
           write_rare10_ct = read_rare10_ct;
-          if (!write_allele_permute) {
+          // Allele permutation and --flip-subset can increase the number of
+          // rare-alt patch entries, so they can't safely be applied in place.
+          if ((!write_allele_permute) && (!flip_subset_variants)) {
             write_patch_01_set = read_patch_01_set;
             write_patch_10_set = read_patch_10_set;
             write_patch_01_vals = read_patch_01_vals;
