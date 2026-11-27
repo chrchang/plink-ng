@@ -42,7 +42,7 @@ P="$1/plink2 $2 $3"
 C="./tmp_multidosage_writer_test compare"
 mp_check() {
     $P --pfile $2 --validate --out ${2}_v
-    $C $1 $2 $3
+    $C "$@"
 }
 awk 'NR > 1 && (NR % 3 != 0) {print $1}' tmp_small.psam > tmp_keep.txt
 awk '{a[NR] = $1} END {for (i = NR; i; --i) print a[i]}' tmp_keep.txt > tmp_order.txt
@@ -89,9 +89,24 @@ $P --pfile tmp_fixed --make-pgen --out tmp_mpf1
 mp_check tmp_fixed tmp_mpf1
 $P --pfile tmp_fixed --alt1-allele force tmp_fixed_alt1.txt --make-pgen --out tmp_mpf2
 mp_check tmp_fixed tmp_mpf2
-# not supported yet
-if $P --pfile tmp_small --hard-call-threshold 0.1 --make-pgen --out tmp_mpx; then
-    echo "--hard-call-threshold unexpectedly accepted multiallelic dosages"
-    exit 1
-fi
-grep -q "don't support multiallelic dosages yet" tmp_mpx.log
+
+# --hard-call-threshold, 'fill-missing-from-dosage', and
+# --dosage-erase-threshold on multiallelic dosages (thresholds passed to the
+# comparison in 16384ths of a copy: 0.1 -> 1638, 0.2 -> 3276).
+$P --pfile tmp_small --hard-call-threshold 0.1 --make-pgen --out tmp_hc1
+mp_check tmp_small tmp_hc1 hct=1638
+$P --pfile tmp_small --make-pgen fill-missing-from-dosage --out tmp_hc2
+mp_check tmp_small tmp_hc2 fill
+$P --pfile tmp_small --hard-call-threshold 0.1 --make-pgen fill-missing-from-dosage --out tmp_hc3
+mp_check tmp_small tmp_hc3 hct=1638 fill
+$P --pfile tmp_small --dosage-erase-threshold 0.2 --make-pgen --out tmp_hc4
+mp_check tmp_small tmp_hc4 erase=3276
+# (--dosage-erase-threshold can't exceed --hard-call-threshold)
+$P --pfile tmp_small --keep tmp_keep.txt --hard-call-threshold 0.2 --dosage-erase-threshold 0.1 --make-pgen fill-missing-from-dosage --out tmp_hc5
+mp_check tmp_small tmp_hc5 hct=3276 fill erase=1638
+$P --pfile tmp_small --hard-call-threshold 0.1 --make-pgen erase-dosage --out tmp_hc6
+mp_check tmp_small tmp_hc6 hct=1638 strip-dosage
+# (fill is left out here since the comparison's brute-force nearest-hardcall
+# search is slow with 255 alleles)
+$P --pfile tmp_big --threads 2 --hard-call-threshold 0.1 --make-pgen --out tmp_hcb
+mp_check tmp_big tmp_hcb hct=1638

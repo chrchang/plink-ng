@@ -1725,6 +1725,118 @@ static void DenseAlleleVals(const SampleData& sd, uint32_t allele_ct, std::vecto
   }
 }
 
+// Expected effect of --hard-call-threshold (hc_thresh >= 0, in 16384ths of a
+// copy), 'fill-missing-from-dosage', and --dosage-erase-threshold
+// (erase_thresh >= 0) on one sample, per the plink2_help.cc definitions.
+// Written independently of plink2's implementation; e.g. the nearest hardcall
+// is found by brute force over all genotypes.
+struct CallOps {
+  int32_t hc_thresh = -1;
+  uint32_t fill = 0;
+  int32_t erase_thresh = -1;
+};
+
+static void ApplyExpectedCallOps(const CallOps& ops, uint32_t allele_ct, SampleData& sd) {
+  if (!sd.has_dosage) {
+    return;
+  }
+  std::vector<int32_t> u;
+  std::vector<int32_t> d;
+  DenseAlleleVals(sd, allele_ct, u, d);
+  if (d.empty()) {
+    d.assign(allele_ct, 0);
+  }
+  uint32_t a1 = sd.a1;
+  uint32_t a2 = sd.a2;
+  if (ops.hc_thresh >= 0) {
+    int64_t dist_x2 = 0;
+    std::vector<uint32_t> copies;
+    for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+      const int32_t r = (u[aidx] + 8192) / 16384;
+      dist_x2 += abs(u[aidx] - 16384 * r);
+      for (int32_t k = 0; k != r; ++k) {
+        copies.push_back(aidx);
+      }
+    }
+    if ((dist_x2 <= 2 * ops.hc_thresh) && (copies.size() == 2)) {
+      a1 = copies[0];
+      a2 = copies[1];
+    } else {
+      a1 = UINT32_MAX;
+      a2 = UINT32_MAX;
+    }
+  }
+  if (ops.fill && (a1 == UINT32_MAX)) {
+    // squared distance * 16384^2, up to a constant: sum_i (16384 h_i)^2 -
+    // 2 * 16384 h_i u_i
+    int64_t best_score = INT64_MAX;
+    uint32_t best1 = 0;
+    uint32_t best2 = 0;
+    for (uint32_t c1 = 0; c1 != allele_ct; ++c1) {
+      for (uint32_t c2 = c1; c2 != allele_ct; ++c2) {
+        // only c1 and c2 have nonzero h
+        const int64_t score = (c1 == c2)? (4LL * 16384 * 16384 - 2LL * 32768 * u[c1]) : (2LL * 16384 * 16384 - 2LL * 16384 * (u[c1] + u[c2]));
+        if (score < best_score) {
+          best_score = score;
+          best1 = c1;
+          best2 = c2;
+        }
+      }
+    }
+    int64_t l1 = 0;
+    for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+      l1 += abs(u[aidx] - 16384 * S_CAST(int32_t, (aidx == best1) + (aidx == best2)));
+    }
+    if (l1 <= 16384) {
+      a1 = best1;
+      a2 = best2;
+    }
+  }
+  if ((a1 != sd.a1) || (a2 != sd.a2)) {
+    sd.a1 = a1;
+    sd.a2 = a2;
+    sd.phased = 0;
+    sd.phaseinfo = 0;
+    if (sd.has_dphase && (a1 != UINT32_MAX) && (a1 != a2)) {
+      const int32_t delta_diff = d[a2] - d[a1];
+      if (abs(delta_diff) > 16384) {
+        sd.phased = 1;
+        sd.phaseinfo = (delta_diff > 0);
+      }
+    }
+  }
+  if (ops.erase_thresh >= 0) {
+    int32_t erase;
+    if (!sd.has_dphase) {
+      int64_t dist_x2 = 0;
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        dist_x2 += abs(u[aidx] - 16384 * ((u[aidx] + 8192) / 16384));
+      }
+      erase = (dist_x2 <= 2 * ops.erase_thresh);
+    } else {
+      // haplotype dosages in 32768ths of a copy; distance in 16384ths is
+      // 0.25 * sum_i |hap_i - 32768 * round|
+      int64_t dist1 = 0;
+      int64_t dist2 = 0;
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        const int32_t hap1 = u[aidx] + d[aidx];
+        const int32_t hap2 = u[aidx] - d[aidx];
+        dist1 += abs(hap1 - 32768 * ((hap1 + 16384) / 32768));
+        dist2 += abs(hap2 - 32768 * ((hap2 + 16384) / 32768));
+      }
+      erase = (dist1 <= 2 * ops.erase_thresh) && (dist2 <= 2 * ops.erase_thresh);
+    }
+    if (erase) {
+      sd.has_dosage = 0;
+      sd.dosage = 0;
+      sd.md.clear();
+      sd.has_dphase = 0;
+      sd.dphase = 0;
+      sd.mdp.clear();
+    }
+  }
+}
+
 // Compares orig_prefix.{pgen,pvar,psam} and new_prefix.*, matching samples by
 // IID, variants by ID, and alleles by string.  Hardcalls, phase, dosages, and
 // dosage-phase values must agree (phaseinfo only when the variant's allele
@@ -1733,7 +1845,9 @@ static void DenseAlleleVals(const SampleData& sd, uint32_t allele_ct, std::vecto
 // If hets_missing is set, the original's heterozygous hardcalls (including
 // altx/alty) must be missing in the new fileset, with their dosages erased,
 // and all phase information must be gone (cf. --set-mixed-mt-missing).
-static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint32_t strip_phase, uint32_t strip_dosage, uint32_t hets_missing) {
+// ops: expected --hard-call-threshold etc. effects, applied to the original
+// (in its allele order) before comparing.
+static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint32_t strip_phase, uint32_t strip_dosage, uint32_t hets_missing, const CallOps& ops) {
   strip_phase |= hets_missing;
   PvarInfo orig_pi;
   PvarInfo new_pi;
@@ -1809,6 +1923,7 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
     for (uint32_t new_sidx = 0; new_sidx != new_sample_ct; ++new_sidx) {
       SampleData o = orig_sds[new_to_orig_sample[new_sidx]];
       const SampleData& n = new_sds[new_sidx];
+      ApplyExpectedCallOps(ops, orig_alleles.size(), o);
       if (hets_missing && (o.a1 != UINT32_MAX) && (o.a1 != o.a2)) {
         o.a1 = UINT32_MAX;
         o.a2 = UINT32_MAX;
@@ -1999,18 +2114,26 @@ static void CheckFixedWidth() {
 
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
-  // [hets-missing]": see
+  // [hets-missing] [hct=<thresh>] [fill] [erase=<thresh>]" (thresholds in
+  // 16384ths of a copy, as plink2 truncates them): see
   // CompareFilesets().
   if ((argc >= 4) && (!strcmp(argv[1], "compare"))) {
     uint32_t strip_phase = 0;
     uint32_t strip_dosage = 0;
     uint32_t hets_missing = 0;
+    CallOps ops;
     for (int argi = 4; argi < argc; ++argi) {
       strip_phase |= !strcmp(argv[argi], "strip-phase");
       strip_dosage |= !strcmp(argv[argi], "strip-dosage");
       hets_missing |= !strcmp(argv[argi], "hets-missing");
+      ops.fill |= !strcmp(argv[argi], "fill");
+      if (!strncmp(argv[argi], "hct=", 4)) {
+        ops.hc_thresh = atoi(&(argv[argi][4]));
+      } else if (!strncmp(argv[argi], "erase=", 6)) {
+        ops.erase_thresh = atoi(&(argv[argi][6]));
+      }
     }
-    return CompareFilesets(argv[2], argv[3], strip_phase, strip_dosage, hets_missing);
+    return CompareFilesets(argv[2], argv[3], strip_phase, strip_dosage, hets_missing, ops);
   }
   // 300 samples: 2-byte group starts for most allele counts.  70000 samples:
   // 3-byte group starts, and sample IDs past 2^16.
