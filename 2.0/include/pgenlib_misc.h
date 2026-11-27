@@ -461,6 +461,56 @@ HEADER_INLINE uint64_t Deltalist64MaxByteCt(uint32_t len, uint32_t idx_byte_ct) 
   return 5 + group_ct * idx_byte_ct + 2 * (group_ct - 1) + 9 * S_CAST(uint64_t, len - group_ct);
 }
 
+// VintBytect() for uint64_t values, which may not fit in a uintptr_t.
+HEADER_INLINE uint32_t Vint64Bytect(uint64_t ullii) {
+  if (ullii < 128) {
+    return 1;
+  }
+  return 1 + (bsru64(ullii) / 7);
+}
+
+// Incremental 64-bit deltalist encoder, for callers that generate indexes on
+// the fly: Deltalist64WriterInit() writes the length and reserves the group
+// fields; then Deltalist64WriterPush() must be called exactly len times with
+// strictly increasing indexes, after which write_iter points to the end of
+// the encoded list.
+typedef struct Deltalist64WriterStruct {
+  unsigned char* group_starts_iter;
+  unsigned char* group_byte_cts_iter;
+  unsigned char* write_iter;
+  unsigned char* group_vints_start;
+  uint64_t prev_idx;
+  uint32_t idx_byte_ct;
+  uint32_t list_idx;
+} Deltalist64Writer;
+
+HEADER_INLINE void Deltalist64WriterInit(uint32_t len, uint32_t idx_byte_ct, unsigned char* dst, Deltalist64Writer* dwp) {
+  dst = Vint32Append(len, dst);
+  const uint32_t group_ct = DivUp(len, kPglDifflistGroupSize);
+  dwp->group_starts_iter = dst;
+  dwp->group_byte_cts_iter = &(dst[group_ct * idx_byte_ct]);
+  dwp->write_iter = group_ct? &(dwp->group_byte_cts_iter[2 * (group_ct - 1)]) : dst;
+  dwp->group_vints_start = dwp->write_iter;
+  dwp->prev_idx = 0;
+  dwp->idx_byte_ct = idx_byte_ct;
+  dwp->list_idx = 0;
+}
+
+HEADER_INLINE void Deltalist64WriterPush(uint64_t cur_idx, Deltalist64Writer* dwp) {
+  if (!(dwp->list_idx % kPglDifflistGroupSize)) {
+    SubU64StoreMov(cur_idx, dwp->idx_byte_ct, &(dwp->group_starts_iter));
+    if (dwp->list_idx) {
+      // < 65536, since a group has at most 63 deltas of at most 9 bytes
+      SubU32StoreMov(dwp->write_iter - dwp->group_vints_start, 2, &(dwp->group_byte_cts_iter));
+    }
+    dwp->group_vints_start = dwp->write_iter;
+  } else {
+    dwp->write_iter = Vint64Append(cur_idx - dwp->prev_idx, dwp->write_iter);
+  }
+  dwp->prev_idx = cur_idx;
+  dwp->list_idx += 1;
+}
+
 // idxs must be strictly increasing; len must be < 2^31.  Returns a pointer to
 // the end of the written bytes.
 unsigned char* Deltalist64Append(const uint64_t* __restrict idxs, uint32_t len, uint32_t idx_byte_ct, unsigned char* __restrict dst);
@@ -754,7 +804,13 @@ FLAGSET_DEF_START()
   kfPgenGlobalHardcallPhasePresent = (1 << 3),
   kfPgenGlobalDosagePresent = (1 << 4),
   kfPgenGlobalDosagePhasePresent = (1 << 5),
-  kfPgenGlobalAllNonref = (1 << 6)
+  kfPgenGlobalAllNonref = (1 << 6),
+
+  // Writer-side opt-in: nonempty rare-alt dosage tracks (#5-6, #9-10) may be
+  // written.  This can greatly increase the write buffer size (it must hold
+  // sample_ct * min(allele_ct - 2, 255) entries per track), so it isn't
+  // implied by kfPgenGlobalDosagePresent plus a multiallelic allele count.
+  kfPgenGlobalMultiallelicDosagePresent = (1 << 7)
 FLAGSET_DEF_END(PgenGlobalFlags);
 
 // difflist/LD compression must not involve more than
@@ -776,6 +832,22 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 // multiallelic codes and/or phased dosage to use this struct.  (Biallelic
 // phased hardcalls and unphased dosages are simple enough for this to be
 // overkill, though.)
+//
+// Rare-alt (alt2, alt3, ...) dosages, for multiallelic variants:
+// - multidosage_present: samples with at least one nonzero rare-alt dosage;
+//   multidosage_sample_ct is its popcount.  Must be a subset of the samples
+//   with a (non-missing) dosage.
+// - multidosage_cts[i]: number of nonzero rare-alt dosages for the ith
+//   sample in multidosage_present, in [1, 255].
+// - multidosage_codes, multidosage_vals: concatenated over those samples, in
+//   sample order.  Within a sample, codes are allele indexes in
+//   [2, allele_ct - 1] in increasing order, and vals are in [1, 32768], in
+//   dosage_main's units, summing to at most the sample's dosage_main value
+//   (alt1 dosage is the remainder).
+// - multidphase_*: analogous, for nonzero rare-alt dosage-phase deltas
+//   (multidphase_delta has dphase_delta's units).  The <sample, code> pairs
+//   must be a subset of the multidosage ones, restricted to samples in
+//   dphase_present.
 typedef struct PgenVariantStruct {
   uintptr_t* genovec;
   uintptr_t* patch_01_set;

@@ -189,6 +189,13 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
 // For footer extensions, type_idx must be correct when this function is
 // called, but size and contents don't need to be filled until final flush.
 // Extension linked-lists must be ordered with lower type_idx first.
+//
+// To write nonempty rare-alt dosages (multiallelic dosage tracks #5-6/#9-10)
+// with SpgwAppendMultiallelicGenovecDphase16(), include
+// kfPgenGlobalMultiallelicDosagePresent in phase_dosage_gflags; this sizes
+// the write buffer for the worst case, which can be large when
+// allele_ct_upper_bound is.  (The multithreaded writer doesn't support
+// multiallelic dosage yet.)
 PglErr SpgwInitPhase1Ex(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
 
 HEADER_INLINE PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
@@ -346,6 +353,41 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
   }
   PgenWriterCommon* pwcp = &GET_PRIVATE(*spgwp, pwc);
   if (unlikely(PwcAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main, dphase_delta, dosage_ct, dphase_ct, pwcp))) {
+    return kPglRetVarRecordTooLarge;
+  }
+  return kPglRetSuccess;
+}
+
+// Writes a multiallelic variant (allele_ct > 2) with any combination of
+// multiallelic hardcalls, hardcall phase, dosages, rare-alt dosages,
+// dosage-phase, and rare-alt dosage-phase; see PgenVariant (pgenlib_misc.h)
+// for the representation.  Fields used:
+//   genovec, patch_{01,10}_{set,vals,ct}: as for PwcAppendMultiallelicSparse()
+//   phasepresent_ct: zero => no hardcall phase.  Otherwise phasepresent and
+//     phaseinfo are as for PwcAppendMultiallelicGenovecHphase(), and
+//     phasepresent may be nullptr iff all heterozygous calls are phased.
+//   dosage_{present,main,ct}, dphase_{present,delta,ct}: as for
+//     PwcAppendBiallelicGenovecDphase16() (dosage_present trailing bits MUST
+//     be zeroed out).  When dosage_ct is nonzero, the rare-alt dosage
+//     tracks are always written, even if empty.
+//   multidosage_*, multidphase_*: rare-alt dosages and dosage-phase deltas.
+//     Nonempty ones require kfPgenGlobalMultiallelicDosagePresent to have
+//     been passed to the init function (otherwise this returns 1).
+// The file must have been initialized with nonzero phase_dosage_gflags.
+// Also returns 1 if the record would be too large, or if multidosage or
+// multidphase codes are out of range or not increasing within a sample.
+// Note that for multiallelic variants, a sample with a phased hardcall and a
+// dosage must also have an explicit dosage-phase value; the caller is
+// responsible for this, and for the other value constraints described in
+// pgenlib_misc.h.
+BoolErr PwcAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, PgenWriterCommon* pwcp);
+
+HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, STPgenWriter* spgwp) {
+  if (unlikely(SpgwFlush(spgwp))) {
+    return kPglRetWriteFail;
+  }
+  PgenWriterCommon* pwcp = &GET_PRIVATE(*spgwp, pwc);
+  if (unlikely(PwcAppendMultiallelicGenovecDphase16(pgvp, allele_ct, pwcp))) {
     return kPglRetVarRecordTooLarge;
   }
   return kPglRetSuccess;

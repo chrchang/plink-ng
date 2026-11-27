@@ -3863,33 +3863,13 @@ BoolErr PglDosagesAreInvalid(const uintptr_t* __restrict dosage_present, const u
 
 unsigned char* Deltalist64Append(const uint64_t* __restrict idxs, uint32_t len, uint32_t idx_byte_ct, unsigned char* __restrict dst) {
   assert(len < 0x80000000U);
-  dst = Vint32Append(len, dst);
-  if (!len) {
-    return dst;
-  }
-  const uint32_t group_ct = DivUp(len, kPglDifflistGroupSize);
-  unsigned char* group_starts_iter = dst;
-  unsigned char* group_byte_cts_iter = &(dst[group_ct * idx_byte_ct]);
-  unsigned char* write_iter = &(group_byte_cts_iter[2 * (group_ct - 1)]);
-  unsigned char* group_vints_start = write_iter;
-  uint64_t prev_idx = 0;
+  Deltalist64Writer dw;
+  Deltalist64WriterInit(len, idx_byte_ct, dst, &dw);
   for (uint32_t list_idx = 0; list_idx != len; ++list_idx) {
-    const uint64_t cur_idx = idxs[list_idx];
-    if (!(list_idx % kPglDifflistGroupSize)) {
-      SubU64StoreMov(cur_idx, idx_byte_ct, &group_starts_iter);
-      if (list_idx) {
-        const uint32_t group_byte_ct = write_iter - group_vints_start;
-        assert(group_byte_ct < 65536);
-        SubU32StoreMov(group_byte_ct, 2, &group_byte_cts_iter);
-      }
-      group_vints_start = write_iter;
-    } else {
-      assert(cur_idx > prev_idx);
-      write_iter = Vint64Append(cur_idx - prev_idx, write_iter);
-    }
-    prev_idx = cur_idx;
+    assert((!list_idx) || (idxs[list_idx] > idxs[list_idx - 1]));
+    Deltalist64WriterPush(idxs[list_idx], &dw);
   }
-  return write_iter;
+  return dw.write_iter;
 }
 
 // Bounded varint read; values that don't fit in 63 bits are errors.

@@ -308,7 +308,22 @@ PglErr SpgwInitPhase1Ex(const char* __restrict fname, const uintptr_t* __restric
     max_vrec_len += (1 + dphase_gflag) * DivUp(sample_ct, 8);
     // aux4, aux8
     max_vrec_len += (2 + 2 * dphase_gflag) * S_CAST(uint64_t, sample_ct);
-    // todo: multiallelic dosage
+    if (max_alt_ct_p1 > 2) {
+      // aux5-6 (and aux9-10): rare-alt dosage tracks, always present for
+      // multiallelic variants with dosage data.
+      if (phase_dosage_gflags & kfPgenGlobalMultiallelicDosagePresent) {
+        // At most min(allele_ct - 2, 255) entries per sample.  Per entry:
+        // group-start or group-byte-count share (bounded by idx_byte_ct + 2),
+        // delta varint, and 2-byte value.
+        const uint64_t entry_ct = S_CAST(uint64_t, sample_ct) * MINV(max_alt_ct_p1 - 2, 255);
+        const uint64_t idx_end = S_CAST(uint64_t, sample_ct) << RareAltIdxBitCt(max_alt_ct_p1);
+        const uint32_t idx_byte_ct = Deltalist64IdxByteCt(idx_end);
+        max_vrec_len += (1 + dphase_gflag) * (5 + entry_ct * (idx_byte_ct + 2 + Vint64Bytect(idx_end) + 2));
+      } else {
+        // empty deltalists
+        max_vrec_len += 1 + dphase_gflag;
+      }
+    }
   }
 #ifdef __LP64__
   if (max_vrec_len >= kPglMaxBytesPerVariant) {
@@ -2120,6 +2135,132 @@ BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, c
     }
   }
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
+  return 0;
+}
+
+// Bytes needed for one rare-alt dosage track pair (#5-6 or #9-10): a 64-bit
+// deltalist of (sample_uidx << rare_alt_bit_ct) | (code - 2) indexes, then
+// entry_ct 16-bit values.  Returns UINT64_MAX if the codes are invalid (not
+// strictly increasing within a sample, or outside [2, allele_ct - 1]), since
+// the write buffer was sized assuming they aren't.
+static uint64_t MultidosageTracksByteCt(const uintptr_t* __restrict present, const unsigned char* __restrict cts, const AlleleCode* __restrict codes, uint32_t present_sample_ct, uint32_t entry_ct, uint32_t allele_ct, uint32_t idx_byte_ct) {
+  if (!entry_ct) {
+    return 1;
+  }
+  const uint32_t rare_alt_bit_ct = RareAltIdxBitCt(allele_ct);
+  const uint64_t group_ct = DivUp(entry_ct, kPglDifflistGroupSize);
+  uint64_t byte_ct = VintBytect(entry_ct) + group_ct * idx_byte_ct + 2 * (group_ct - 1) + 2 * S_CAST(uint64_t, entry_ct);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = present[0];
+  const AlleleCode* codes_iter = codes;
+  uint64_t prev_idx = 0;
+  uint32_t list_idx = 0;
+  for (uint32_t present_idx = 0; present_idx != present_sample_ct; ++present_idx) {
+    const uint64_t sample_base = S_CAST(uint64_t, BitIter1(present, &sample_uidx_base, &cur_bits)) << rare_alt_bit_ct;
+    const uint32_t cur_ct = cts[present_idx];
+    uint32_t prev_code = 1;
+    for (uint32_t uii = 0; uii != cur_ct; ++uii) {
+      const uint32_t cur_code = codes_iter[uii];
+      if (unlikely((cur_code <= prev_code) || (cur_code >= allele_ct))) {
+        return UINT64_MAX;
+      }
+      prev_code = cur_code;
+      const uint64_t cur_idx = sample_base | (cur_code - 2);
+      if (list_idx % kPglDifflistGroupSize) {
+        byte_ct += Vint64Bytect(cur_idx - prev_idx);
+      }
+      prev_idx = cur_idx;
+      ++list_idx;
+    }
+    codes_iter = &(codes_iter[cur_ct]);
+  }
+  if (unlikely(list_idx != entry_ct)) {
+    return UINT64_MAX;
+  }
+  return byte_ct;
+}
+
+// Appends one rare-alt dosage track pair (#5-6 or #9-10).  vals points to
+// entry_ct uint16s (dosages) or int16s (dosage-phase deltas).
+static BoolErr AppendMultidosageTracks(const uintptr_t* __restrict present, const unsigned char* __restrict cts, const AlleleCode* __restrict codes, const void* vals, uint32_t present_sample_ct, uint32_t allele_ct, PgenWriterCommon* pwcp, uint32_t* vrec_len_ptr) {
+  uint32_t entry_ct = 0;
+  for (uint32_t present_idx = 0; present_idx != present_sample_ct; ++present_idx) {
+    entry_ct += cts[present_idx];
+  }
+  if (entry_ct && unlikely(!(pwcp->phase_dosage_gflags & kfPgenGlobalMultiallelicDosagePresent))) {
+    // write buffer only has room for empty lists
+    return 1;
+  }
+  const uint64_t idx_end = S_CAST(uint64_t, pwcp->sample_ct) << RareAltIdxBitCt(allele_ct);
+  const uint32_t idx_byte_ct = Deltalist64IdxByteCt(idx_end);
+  const uint64_t byte_ct = MultidosageTracksByteCt(present, cts, codes, present_sample_ct, entry_ct, allele_ct, idx_byte_ct);
+  if (unlikely((byte_ct > kPglMaxBytesPerVariant) || CheckedVrecLenIncr(byte_ct, vrec_len_ptr))) {
+    return 1;
+  }
+  unsigned char* track_start = pwcp->fwrite_bufp;
+  Deltalist64Writer dw;
+  Deltalist64WriterInit(entry_ct, idx_byte_ct, track_start, &dw);
+  if (entry_ct) {
+    const uint32_t rare_alt_bit_ct = RareAltIdxBitCt(allele_ct);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = present[0];
+    const AlleleCode* codes_iter = codes;
+    for (uint32_t present_idx = 0; present_idx != present_sample_ct; ++present_idx) {
+      const uint64_t sample_base = S_CAST(uint64_t, BitIter1(present, &sample_uidx_base, &cur_bits)) << rare_alt_bit_ct;
+      const uint32_t cur_ct = cts[present_idx];
+      for (uint32_t uii = 0; uii != cur_ct; ++uii) {
+        Deltalist64WriterPush(sample_base | (codes_iter[uii] - 2), &dw);
+      }
+      codes_iter = &(codes_iter[cur_ct]);
+    }
+  }
+  pwcp->fwrite_bufp = memcpyua(dw.write_iter, vals, entry_ct * sizeof(int16_t));
+  assert(S_CAST(uint64_t, pwcp->fwrite_bufp - track_start) == byte_ct);
+  return 0;
+}
+
+static_assert(sizeof(AlleleCode) == 1, "PwcAppendMultiallelicGenovecDphase16() needs to be updated.");
+BoolErr PwcAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, PgenWriterCommon* pwcp) {
+  assert(allele_ct > 2);
+  // 8-bit vrtypes
+  assert(pwcp->phase_dosage_gflags);
+  const uint32_t vidx = pwcp->vidx;
+  const uintptr_t* genovec_hets;
+  unsigned char vrtype;
+  uint32_t het_ct;
+  uint32_t vrec_len;
+  if (unlikely(PwcAppendMultiallelicMain(pgvp->genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, allele_ct, pgvp->patch_01_ct, pgvp->patch_10_ct, vidx, pwcp, &genovec_hets, &het_ct, &vrtype, &vrec_len))) {
+    return 1;
+  }
+  unsigned char* vrtype_dest = &(DowncastToUc(pwcp->vrtype_buf)[vidx]);
+  *vrtype_dest = vrtype;
+  const uint32_t phasepresent_ct = pgvp->phasepresent_ct;
+  if (phasepresent_ct) {
+    if (unlikely(AppendHphase(genovec_hets, pgvp->phasepresent, pgvp->phaseinfo, het_ct, phasepresent_ct, pwcp, vrtype_dest, &vrec_len))) {
+      return 1;
+    }
+  }
+  const uint32_t dosage_ct = pgvp->dosage_ct;
+  if (dosage_ct) {
+    const uint32_t dphase_ct = pgvp->dphase_ct;
+    if (unlikely(AppendDosage16(pgvp->dosage_present, pgvp->dosage_main, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len) ||
+                 AppendMultidosageTracks(pgvp->multidosage_present, pgvp->multidosage_cts, pgvp->multidosage_codes, pgvp->multidosage_vals, pgvp->multidosage_sample_ct, allele_ct, pwcp, &vrec_len))) {
+      return 1;
+    }
+    if (dphase_ct) {
+      if (unlikely(AppendDphase16(pgvp->dosage_present, pgvp->dphase_present, pgvp->dphase_delta, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len) ||
+                   AppendMultidosageTracks(pgvp->multidphase_present, pgvp->multidphase_cts, pgvp->multidphase_codes, pgvp->multidphase_delta, pgvp->multidphase_sample_ct, allele_ct, pwcp, &vrec_len))) {
+        return 1;
+      }
+    } else {
+      assert(!pgvp->multidphase_sample_ct);
+    }
+  } else {
+    assert((!pgvp->multidosage_sample_ct) && (!pgvp->dphase_ct));
+  }
+  pwcp->vidx += 1;
+  const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
+  SubU32Store(vrec_len, vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * vrec_len_byte_ct]));
   return 0;
 }
 
