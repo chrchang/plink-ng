@@ -1184,6 +1184,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
   pgv.genovec = common->genovecs[tidx];
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
+  pgv.multidosage_present = nullptr;  // rare-alt dosages unsupported for now
   if (common->dosage_presents) {
     pgv.dosage_present = common->dosage_presents[tidx];
     pgv.dosage_main = common->dosage_mains[tidx];
@@ -3840,6 +3841,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
   pgv.genovec = common->genovecs[tidx];
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
+  pgv.multidosage_present = nullptr;  // rare-alt dosages unsupported for now
   if (common->dosage_presents) {
     pgv.dosage_present = common->dosage_presents[tidx];
     pgv.dosage_main = common->dosage_mains[tidx];

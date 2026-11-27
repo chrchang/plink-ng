@@ -107,6 +107,17 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     return 1;
   }
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  // Rare-alt dosage buffers aren't allocated yet.  PgrGetMD()/PgrGetMDp()
+  // return kPglRetNotYetSupported on multiallelic dosage records when these
+  // are null.
+  pgvp->multidosage_present = nullptr;
+  pgvp->multidosage_cts = nullptr;
+  pgvp->multidosage_codes = nullptr;
+  pgvp->multidosage_vals = nullptr;
+  pgvp->multidphase_present = nullptr;
+  pgvp->multidphase_cts = nullptr;
+  pgvp->multidphase_codes = nullptr;
+  pgvp->multidphase_delta = nullptr;
   if (multiallelic_needed) {
     if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->patch_01_set)) ||
                  bigstack_allocv_ac(sample_ct, &(pgvp->patch_01_vals)) ||

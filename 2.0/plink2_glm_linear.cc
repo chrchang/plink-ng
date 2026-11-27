@@ -323,6 +323,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   pgv.genovec = common->genovecs[tidx];
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
+  pgv.multidosage_present = nullptr;  // rare-alt dosages unsupported for now
   // bugfix (22 Jan 2025): this could be uninitialized when
   // PgrGetDifflistOrGenovec was used
   pgv.dosage_ct = 0;
@@ -2659,6 +2660,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
   pgv.genovec = common->genovecs[tidx];
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
+  pgv.multidosage_present = nullptr;  // rare-alt dosages unsupported for now
   pgv.dosage_ct = 0;
   if (common->dosage_presents) {
     pgv.dosage_present = common->dosage_presents[tidx];

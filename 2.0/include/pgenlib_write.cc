@@ -2219,6 +2219,36 @@ static BoolErr AppendMultidosageTracks(const uintptr_t* __restrict present, cons
   return 0;
 }
 
+// Implicit dosage-phase isn't defined for multiallelic variants, so every
+// sample with a dosage and a phased heterozygous hardcall must have an
+// explicit dosage-phase value.  Returns 1 if some sample violates this.
+// genovec_hets has 01 at every het, including altx/alty hets (see
+// PwcAppendMultiallelicMain()).  phasepresent is ignored when
+// phasepresent_ct == het_ct.
+static BoolErr PhasedHetDosageLacksDphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, uint32_t sample_ct, uint32_t het_ct, uint32_t phasepresent_ct, uint32_t dphase_ct) {
+  const Halfword* phasepresent_alias = (phasepresent_ct != het_ct)? DowncastKWToHW(phasepresent) : nullptr;
+  const Halfword* dosage_present_alias = DowncastKWToHW(dosage_present);
+  const Halfword* dphase_present_alias = dphase_ct? DowncastKWToHW(dphase_present) : nullptr;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  for (uint32_t widx = 0; widx <= word_ct_m1; ++widx) {
+    uintptr_t geno_word = genovec_hets[widx];
+    if (widx == word_ct_m1) {
+      geno_word = bzhi_max(geno_word, 2 * ModNz(sample_ct, kBitsPerWordD2));
+    }
+    uint32_t cur_bits = Pack01ToHalfword(geno_word) & dosage_present_alias[widx];
+    if (phasepresent_alias) {
+      cur_bits &= phasepresent_alias[widx];
+    }
+    if (dphase_present_alias) {
+      cur_bits &= ~S_CAST(uint32_t, dphase_present_alias[widx]);
+    }
+    if (cur_bits) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static_assert(sizeof(AlleleCode) == 1, "PwcAppendMultiallelicGenovecDphase16() needs to be updated.");
 BoolErr PwcAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t allele_ct, PgenWriterCommon* pwcp) {
   assert(allele_ct > 2);
@@ -2243,6 +2273,11 @@ BoolErr PwcAppendMultiallelicGenovecDphase16(const PgenVariant* pgvp, uint32_t a
   const uint32_t dosage_ct = pgvp->dosage_ct;
   if (dosage_ct) {
     const uint32_t dphase_ct = pgvp->dphase_ct;
+    if (phasepresent_ct && (dphase_ct != dosage_ct)) {
+      if (unlikely(PhasedHetDosageLacksDphase(genovec_hets, pgvp->phasepresent, pgvp->dosage_present, pgvp->dphase_present, pwcp->sample_ct, het_ct, phasepresent_ct, dphase_ct))) {
+        return 1;
+      }
+    }
     if (unlikely(AppendDosage16(pgvp->dosage_present, pgvp->dosage_main, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len) ||
                  AppendMultidosageTracks(pgvp->multidosage_present, pgvp->multidosage_cts, pgvp->multidosage_codes, pgvp->multidosage_vals, pgvp->multidosage_sample_ct, allele_ct, pwcp, &vrec_len))) {
       return 1;
