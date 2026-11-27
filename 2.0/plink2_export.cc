@@ -4118,6 +4118,352 @@ char* AppendVcfMultiallelicDsForcePhased(uint32_t allele_ct_m2, uint32_t hds_for
   return write_iter;
 }
 
+// Largest allele count among multiallelic records with dosages in
+// variant_include (0 if there are none).  vrtypes == nullptr for fixed-width
+// storage, where every record has dosages if any does.
+uint32_t MultiallelicDosageMaxAlleleCt(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const unsigned char* vrtypes, uint32_t variant_ct) {
+  if (!allele_idx_offsets) {
+    return 0;
+  }
+  uint32_t max_allele_ct = 0;
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+    if ((allele_ct > max_allele_ct) && (allele_ct > 2) && ((!vrtypes) || (vrtypes[variant_uidx] & 0x60))) {
+      max_allele_ct = allele_ct;
+    }
+  }
+  return max_allele_ct;
+}
+
+// Allocates the PgenVariant rare-alt dosage buffers needed by PgrGetMD() and
+// PgrGetMDp(), along with the md_u/md_d per-sample workspaces used by
+// MdCursorNext().  (Pointers are set to nullptr when md_allele_ct == 0.)
+BoolErr BigstackAllocMultidosage(uint32_t sample_ct, uint32_t md_allele_ct, uint32_t load_dphase, PgenVariant* pgvp, uint32_t** md_u_ptr, int32_t** md_d_ptr) {
+  pgvp->multidosage_present = nullptr;
+  pgvp->multidosage_cts = nullptr;
+  pgvp->multidosage_codes = nullptr;
+  pgvp->multidosage_vals = nullptr;
+  pgvp->multidphase_present = nullptr;
+  pgvp->multidphase_cts = nullptr;
+  pgvp->multidphase_codes = nullptr;
+  pgvp->multidphase_delta = nullptr;
+  pgvp->multidosage_sample_ct = 0;
+  pgvp->multidphase_sample_ct = 0;
+  *md_u_ptr = nullptr;
+  *md_d_ptr = nullptr;
+  if (!md_allele_ct) {
+    return 0;
+  }
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uintptr_t entry_ct = S_CAST(uintptr_t, sample_ct) * MINV(md_allele_ct - 2, 255);
+  if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->multidosage_present)) ||
+               bigstack_alloc_uc(sample_ct, &(pgvp->multidosage_cts)) ||
+               bigstack_alloc_ac(entry_ct, &(pgvp->multidosage_codes)) ||
+               bigstack_alloc_u16(entry_ct, &(pgvp->multidosage_vals)) ||
+               bigstack_alloc_u32(md_allele_ct - 1, md_u_ptr) ||
+               bigstack_alloc_i32(md_allele_ct - 1, md_d_ptr))) {
+    return 1;
+  }
+  if (load_dphase) {
+    if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->multidphase_present)) ||
+                 bigstack_alloc_uc(sample_ct, &(pgvp->multidphase_cts)) ||
+                 bigstack_alloc_ac(entry_ct, &(pgvp->multidphase_codes)) ||
+                 bigstack_alloc_i16(entry_ct, &(pgvp->multidphase_delta)))) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// Sample-by-sample traversal of a multiallelic record with dosages, shared by
+// VCF and BCF export.
+typedef struct MdCursorStruct {
+  const AlleleCode* patch_01_iter;
+  const AlleleCode* patch_10_iter;
+  const uint16_t* dosage_iter;
+  const int16_t* dphase_iter;
+  const unsigned char* md_cts_iter;
+  const AlleleCode* md_codes_iter;
+  const uint16_t* md_vals_iter;
+  const unsigned char* mdp_cts_iter;
+  const AlleleCode* mdp_codes_iter;
+  const int16_t* mdp_delta_iter;
+} MdCursor;
+
+typedef struct MdSampleStruct {
+  // hardcall alleles, ac0 <= ac1; both zero when is_missing is set
+  uint32_t ac0;
+  uint32_t ac1;
+  uint32_t is_missing;
+  uint32_t is_het;
+  // hardcall phase (heterozygous calls only).  When hc_phaseinfo is set, ac1
+  // is on the left haplotype.
+  uint32_t hc_phased;
+  uint32_t hc_phaseinfo;
+  // u[]/d[] were filled, from either a dosage or the hardcall
+  uint32_t has_vals;
+  uint32_t has_dosage;
+  // d[] holds per-allele haplotype differences (explicit dosage-phase, or a
+  // phased heterozygous hardcall without a dosage)
+  uint32_t hap_split;
+} MdSample;
+
+void MdCursorInit(const PgenVariant* pgvp, MdCursor* cp) {
+  cp->patch_01_iter = pgvp->patch_01_vals;
+  cp->patch_10_iter = pgvp->patch_10_vals;
+  cp->dosage_iter = pgvp->dosage_main;
+  cp->dphase_iter = pgvp->dphase_delta;
+  cp->md_cts_iter = pgvp->multidosage_cts;
+  cp->md_codes_iter = pgvp->multidosage_codes;
+  cp->md_vals_iter = pgvp->multidosage_vals;
+  cp->mdp_cts_iter = pgvp->multidphase_cts;
+  cp->mdp_codes_iter = pgvp->multidphase_codes;
+  cp->mdp_delta_iter = pgvp->multidphase_delta;
+}
+
+// Must be called on every sample in order.  u[i] and d[i] (i in
+// [0, allele_ct - 2]) are ALT(i+1)'s dosage and dosage-phase value (16384 =
+// one copy).  When hc_vals is set, a nonmissing hardcall without a dosage
+// fills them too.  Returns 1 on an out-of-range dosage or dosage-phase value.
+BoolErr MdCursorNext(const PgenVariant* pgvp, uint32_t sample_idx, uint32_t allele_ct, uint32_t hc_vals, MdCursor* cp, MdSample* sp, uint32_t* u, int32_t* d) {
+  const uint32_t geno = GetNyparrEntry(pgvp->genovec, sample_idx);
+  uint32_t ac0 = 0;
+  uint32_t ac1 = 0;
+  if (geno == 1) {
+    ac1 = 1;
+    if (pgvp->patch_01_ct && IsSet(pgvp->patch_01_set, sample_idx)) {
+      ac1 = *(cp->patch_01_iter)++;
+    }
+  } else if (geno == 2) {
+    ac0 = 1;
+    ac1 = 1;
+    if (pgvp->patch_10_ct && IsSet(pgvp->patch_10_set, sample_idx)) {
+      ac0 = cp->patch_10_iter[0];
+      ac1 = cp->patch_10_iter[1];
+      cp->patch_10_iter = &(cp->patch_10_iter[2]);
+    }
+  }
+  sp->ac0 = ac0;
+  sp->ac1 = ac1;
+  sp->is_missing = (geno == 3);
+  const uint32_t is_het = (ac0 != ac1);
+  sp->is_het = is_het;
+  sp->hc_phased = is_het && pgvp->phasepresent_ct && IsSet(pgvp->phasepresent, sample_idx);
+  sp->hc_phaseinfo = sp->hc_phased && IsSet(pgvp->phaseinfo, sample_idx);
+  sp->has_vals = 0;
+  sp->hap_split = 0;
+  const uint32_t alt_ct = allele_ct - 1;
+  const uint32_t has_dosage = pgvp->dosage_ct && IsSet(pgvp->dosage_present, sample_idx);
+  sp->has_dosage = has_dosage;
+  if (has_dosage) {
+    const uint32_t has_dphase = pgvp->dphase_ct && IsSet(pgvp->dphase_present, sample_idx);
+    ZeroU32Arr(alt_ct, u);
+    memset(d, 0, alt_ct * sizeof(int32_t));
+    uint32_t alt1_dosage = *(cp->dosage_iter)++;
+    if (alt1_dosage > kDosageMax) {
+      return 1;
+    }
+    if (pgvp->multidosage_sample_ct && IsSet(pgvp->multidosage_present, sample_idx)) {
+      const uint32_t entry_ct = *(cp->md_cts_iter)++;
+      for (uint32_t uii = 0; uii != entry_ct; ++uii) {
+        const uint32_t code = *(cp->md_codes_iter)++;
+        const uint32_t val = *(cp->md_vals_iter)++;
+        if ((code < 2) || (code >= allele_ct) || (val > alt1_dosage)) {
+          return 1;
+        }
+        u[code - 1] = val;
+        alt1_dosage -= val;
+      }
+    }
+    u[0] = alt1_dosage;
+    if (has_dphase) {
+      int32_t alt1_dphase = *(cp->dphase_iter)++;
+      if (pgvp->multidphase_sample_ct && IsSet(pgvp->multidphase_present, sample_idx)) {
+        const uint32_t entry_ct = *(cp->mdp_cts_iter)++;
+        for (uint32_t uii = 0; uii != entry_ct; ++uii) {
+          const uint32_t code = *(cp->mdp_codes_iter)++;
+          const int32_t val = *(cp->mdp_delta_iter)++;
+          if ((code < 2) || (code >= allele_ct)) {
+            return 1;
+          }
+          d[code - 1] = val;
+          alt1_dphase -= val;
+        }
+      }
+      d[0] = alt1_dphase;
+      // both haplotype dosages must be in [0, 1]
+      for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+        const int32_t cur_u = u[uii];
+        const int32_t cur_d = d[uii];
+        if ((cur_d > cur_u) || (-cur_d > cur_u) || (cur_u + cur_d > S_CAST(int32_t, kDosageMax)) || (cur_u - cur_d > S_CAST(int32_t, kDosageMax))) {
+          return 1;
+        }
+      }
+      sp->hap_split = 1;
+    }
+    sp->has_vals = 1;
+  } else if (hc_vals && (geno != 3)) {
+    ZeroU32Arr(alt_ct, u);
+    memset(d, 0, alt_ct * sizeof(int32_t));
+    if (ac0) {
+      u[ac0 - 1] += kDosageMid;
+    }
+    if (ac1) {
+      u[ac1 - 1] += kDosageMid;
+    }
+    if (sp->hc_phased) {
+      const uint32_t ac_left = sp->hc_phaseinfo? ac1 : ac0;
+      const uint32_t ac_right = ac0 + ac1 - ac_left;
+      if (ac_left) {
+        d[ac_left - 1] = kDosageMid;
+      }
+      if (ac_right) {
+        d[ac_right - 1] = -kDosageMid;
+      }
+      sp->hap_split = 1;
+    }
+    sp->has_vals = 1;
+  }
+  return 0;
+}
+
+// u[] values on a 0..2 scale when diploid is set, 0..1 otherwise
+char* AppendMdDosages(const uint32_t* u, uint32_t alt_ct, uint32_t diploid, char* write_iter) {
+  for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+    if (uii) {
+      *write_iter++ = ',';
+    }
+    if (diploid) {
+      write_iter = PrintSmallDosage(u[uii], write_iter);
+    } else {
+      write_iter = PrintHaploidNonintDosage(u[uii], write_iter);
+    }
+  }
+  return write_iter;
+}
+
+// one haplotype's dosages: (u + d) / 2 for the left haplotype, (u - d) / 2
+// for the right
+char* AppendMdHapDosages(const uint32_t* u, const int32_t* d, uint32_t alt_ct, uint32_t is_right, char* write_iter) {
+  for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+    if (uii) {
+      *write_iter++ = ',';
+    }
+    const int32_t cur_d = is_right? (-d[uii]) : d[uii];
+    write_iter = PrintHaploidNonintDosage(S_CAST(int32_t, u[uii]) + cur_d, write_iter);
+  }
+  return write_iter;
+}
+
+// Writes the rest of the FORMAT column, and every sample column, of a
+// multiallelic record with dosages (pgvp->dosage_ct must be positive).
+// Rendering follows the biallelic case:
+// - GT is the hardcall, rendered as haploid (one allele) when it's
+//   homozygous or missing, the chromosome is haploid, and the sample isn't a
+//   chrX nonmale.
+// - DS has one entry per ALT allele, on the same scale as GT's ploidy.
+//   Samples without a dosage only get DS under {H}DS-force, from the
+//   hardcall.
+// - HDS has the left haplotype's ALT dosages followed by the right
+//   haplotype's.  It's written for samples with explicit dosage-phase (and,
+//   under HDS-force, for phased heterozygous hardcalls without a dosage), and
+//   otherwise only under HDS-force, with equal haplotype dosages (one
+//   haplotype when GT is haploid, or the sample is a het-haploid that isn't a
+//   chrX nonmale).
+BoolErr AppendVcfMultiallelicDosageRecord(const PgenVariant* pgvp, const uintptr_t* sex_male_collapsed, uint32_t sample_ct, uint32_t allele_ct, uint32_t is_x, uint32_t is_haploid, uint32_t ds_only, uint32_t ds_force, uint32_t write_hds, uint32_t hds_force, uintptr_t* prev_phased, uint32_t* u, int32_t* d, char** write_iter_ptr) {
+  char* write_iter = *write_iter_ptr;
+  const uint32_t write_hds_field = write_hds && (hds_force || pgvp->dphase_ct);
+  if (ds_only) {
+    write_iter = strcpya_k(write_iter, "\tDS");
+  } else {
+    write_iter = strcpya_k(write_iter, ":DS");
+    if (write_hds_field) {
+      write_iter = strcpya_k(write_iter, ":HDS");
+    }
+  }
+  const uint32_t alt_ct = allele_ct - 1;
+  const char ds_prechar = ds_only? '\t' : ':';
+  MdCursor cursor;
+  MdCursorInit(pgvp, &cursor);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    MdSample s;
+    if (unlikely(MdCursorNext(pgvp, sample_idx, allele_ct, ds_force, &cursor, &s, u, d))) {
+      return 1;
+    }
+    const uint32_t diploid_chr_sample = (!is_haploid) || (is_x && (!IsSet(sex_male_collapsed, sample_idx)));
+    const uint32_t diploid_render = diploid_chr_sample || s.is_het;
+    if (!ds_only) {
+      *write_iter++ = '\t';
+      if (prev_phased && s.is_het) {
+        if (s.hc_phased) {
+          SetBit(sample_idx, prev_phased);
+        } else {
+          ClearBit(sample_idx, prev_phased);
+        }
+      }
+      const char sep = (prev_phased && IsSet(prev_phased, sample_idx))? '|' : '/';
+      if (s.is_missing) {
+        *write_iter++ = '.';
+        if (diploid_render) {
+          *write_iter++ = sep;
+          *write_iter++ = '.';
+        }
+      } else {
+        uint32_t ac_left = s.ac0;
+        uint32_t ac_right = s.ac1;
+        if (s.hc_phaseinfo) {
+          ac_left = s.ac1;
+          ac_right = s.ac0;
+        }
+        write_iter = u32toa(ac_left, write_iter);
+        if (diploid_render) {
+          *write_iter++ = sep;
+          write_iter = u32toa(ac_right, write_iter);
+        }
+      }
+    }
+    if (!s.has_vals) {
+      if (ds_force) {
+        // missing hardcall, no dosage
+        *write_iter++ = ds_prechar;
+        *write_iter++ = '.';
+        if (hds_force) {
+          if (diploid_chr_sample) {
+            write_iter = strcpya_k(write_iter, ":.,.");
+          } else {
+            write_iter = strcpya_k(write_iter, ":.");
+          }
+        }
+      }
+      continue;
+    }
+    *write_iter++ = ds_prechar;
+    write_iter = AppendMdDosages(u, alt_ct, diploid_render, write_iter);
+    if (!write_hds_field) {
+      continue;
+    }
+    if (s.hap_split && (s.has_dosage || hds_force)) {
+      *write_iter++ = ':';
+      write_iter = AppendMdHapDosages(u, d, alt_ct, 0, write_iter);
+      *write_iter++ = ',';
+      write_iter = AppendMdHapDosages(u, d, alt_ct, 1, write_iter);
+    } else if (hds_force) {
+      // unphased: each haplotype gets half the dosage
+      *write_iter++ = ':';
+      write_iter = AppendMdDosages(u, alt_ct, 0, write_iter);
+      if (diploid_chr_sample) {
+        *write_iter++ = ',';
+        write_iter = AppendMdDosages(u, alt_ct, 0, write_iter);
+      }
+    }
+  }
+  *write_iter_ptr = write_iter;
+  return 0;
+}
+
 PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const uint32_t* contig_lens, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, uint32_t bgz_clvl, ExportfFlags exportf_flags, VcfExportMode vcf_mode, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
@@ -4516,6 +4862,16 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
       }
     }
+    // Multiallelic records with dosages: DS/HDS are written by
+    // AppendVcfMultiallelicDosageRecord(); GP isn't supported.
+    const unsigned char* vrtypes = pgfip->vrtypes;
+    const uint32_t md_allele_ct = (write_some_dosage && (pgfip->gflags & kfPgenGlobalDosagePresent))? MultiallelicDosageMaxAlleleCt(variant_include, allele_idx_offsets, vrtypes, variant_ct) : 0;
+    uint32_t* md_u;
+    int32_t* md_d;
+    if (unlikely(BigstackAllocMultidosage(sample_ct, write_ds? md_allele_ct : 0, load_dphase, &pgv, &md_u, &md_d))) {
+      goto ExportVcf_ret_NOMEM;
+    }
+    uint32_t gp_md_skip_ct = 0;
 
     char* pvar_reload_line_iter = nullptr;
     uint32_t info_col_idx = 0;
@@ -5288,7 +5644,6 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
       } else {
         // multiallelic cases
-        // multiallelic dosage not supported yet
         // don't bother supporting multiallelic GP export when dosages present:
         // no clean way to handle e.g. dosage(A) = dosage(C) = dosage(G) =
         // dosage(T)=0.5
@@ -5300,11 +5655,40 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           reterr = kPglRetNotYetSupported;
           goto ExportVcf_ret_1;
         }
-        if (!some_phased) {
-          reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
-          if (unlikely(reterr)) {
+        uint32_t md_loaded = 0;
+        if (md_allele_ct && ((!vrtypes) || (vrtypes[variant_uidx] & 0x60))) {
+          if (!write_ds) {
+            ++gp_md_skip_ct;
+          } else {
+            if (some_phased) {
+              reterr = PgrGetMDp(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+            } else {
+              reterr = PgrGetMD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+              // PgrGetMD() doesn't touch the phase fields
+              pgv.phasepresent_ct = 0;
+              pgv.dphase_ct = 0;
+              pgv.multidphase_sample_ct = 0;
+            }
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportVcf_ret_1;
+            }
+            md_loaded = 1;
+          }
+        }
+        if (md_loaded && pgv.dosage_ct) {
+          if (unlikely(AppendVcfMultiallelicDosageRecord(&pgv, sex_male_collapsed, sample_ct, allele_ct, is_x, is_haploid, ds_only, ds_force, write_hds, hds_force, prev_phased, md_u, md_d, &write_iter))) {
+            reterr = kPglRetMalformedInput;
             PgenErrPrintNV(reterr, variant_uidx);
             goto ExportVcf_ret_1;
+          }
+        } else if (!some_phased) {
+          if (!md_loaded) {
+            reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportVcf_ret_1;
+            }
           }
           if (!ds_force) {
             if (!is_haploid) {
@@ -5567,10 +5951,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           }
         } else {
           // multiallelic, phased
-          reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
-          if (unlikely(reterr)) {
-            PgenErrPrintNV(reterr, variant_uidx);
-            goto ExportVcf_ret_1;
+          if (!md_loaded) {
+            reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportVcf_ret_1;
+            }
           }
           if (!pgv.patch_01_ct) {
             ZeroWArr(sample_ctl, pgv.patch_01_set);
@@ -6049,6 +6435,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     }
     fputs("\b\b", stdout);
     logputs("done.\n");
+    if (gp_md_skip_ct) {
+      logerrprintfww("Warning: GP field not exported for %u multiallelic variant%s with dosages.  (Use vcf-dosage=DS or HDS instead.)\n", gp_md_skip_ct, (gp_md_skip_ct == 1)? "" : "s");
+    }
     if (invalid_allele_code_seen) {
       logerrputs("Warning: At least one VCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");
     }
@@ -7402,6 +7791,112 @@ void FillBcfMultiallelicHdsForce(const PgenVariant* pgvp, const uintptr_t* __res
   }
 }
 
+// BCF counterpart of AppendVcfMultiallelicDosageRecord(): fills the DS
+// vectors (alt_ct floats per sample) at ds_start, and, when hds_start is
+// non-null, the HDS vectors (hds_max_ploidy * alt_ct floats per sample).
+// Entries that AppendVcfMultiallelicDosageRecord() would omit are
+// END_OF_VECTOR; as in FillBcfMultiallelicDsForce(), {H}DS-force renders a
+// missing hardcall as MISSING (one value per haplotype for HDS), except for
+// chrY females.
+BoolErr FillBcfMultiallelicDosage(const PgenVariant* pgvp, const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_female, uint32_t sample_ct, uint32_t allele_ct, uint32_t is_x, uint32_t is_y, uint32_t is_haploid, uint32_t ds_force, uint32_t hds_force, uint32_t hds_max_ploidy, uint32_t* __restrict u, int32_t* __restrict d, unsigned char* ds_start, unsigned char* hds_start) {
+  const uint32_t alt_ct = allele_ct - 1;
+  const uint32_t missing_fbits = 0x7f800001;
+  const uint32_t end_of_vector = 0x7f800002;
+  const uint32_t hds_stride = alt_ct * hds_max_ploidy;
+  MdCursor cursor;
+  MdCursorInit(pgvp, &cursor);
+  unsigned char* ds_iter = ds_start;
+  unsigned char* hds_iter = hds_start;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    MdSample s;
+    if (unlikely(MdCursorNext(pgvp, sample_idx, allele_ct, ds_force, &cursor, &s, u, d))) {
+      return 1;
+    }
+    const uint32_t diploid_chr_sample = (!is_haploid) || (is_x && (!IsSet(sex_male, sample_idx)));
+    const uint32_t diploid_render = diploid_chr_sample || s.is_het;
+    const uint32_t missing_ok = !(is_y && IsSet(sex_female, sample_idx));
+    if (s.has_vals) {
+      const float scale = diploid_render? S_CAST(float, kRecipDosageMid) : S_CAST(float, kRecipDosageMax);
+      for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+        const float cur_f = S_CAST(float, u[uii]) * scale;
+        CopyToUnalignedOffsetF(ds_iter, &cur_f, uii);
+      }
+    } else {
+      const uint32_t first_bits = (ds_force && missing_ok)? missing_fbits : end_of_vector;
+      CopyToUnalignedU32(ds_iter, &first_bits);
+      for (uint32_t uii = 1; uii != alt_ct; ++uii) {
+        CopyToUnalignedOffsetU32(ds_iter, &end_of_vector, uii);
+      }
+    }
+    ds_iter = &(ds_iter[alt_ct * sizeof(int32_t)]);
+    if (!hds_iter) {
+      continue;
+    }
+    uint32_t filled_ct = 0;
+    if (s.has_vals) {
+      if (s.hap_split && (s.has_dosage || hds_force)) {
+        for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+          const float left_f = S_CAST(float, S_CAST(int32_t, u[uii]) + d[uii]) * S_CAST(float, kRecipDosageMax);
+          const float right_f = S_CAST(float, S_CAST(int32_t, u[uii]) - d[uii]) * S_CAST(float, kRecipDosageMax);
+          CopyToUnalignedOffsetF(hds_iter, &left_f, uii);
+          CopyToUnalignedOffsetF(hds_iter, &right_f, alt_ct + uii);
+        }
+        filled_ct = 2 * alt_ct;
+      } else if (hds_force) {
+        const uint32_t hap_ct = 1 + diploid_chr_sample;
+        for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+          const float cur_f = S_CAST(float, u[uii]) * S_CAST(float, kRecipDosageMax);
+          for (uint32_t hap_idx = 0; hap_idx != hap_ct; ++hap_idx) {
+            CopyToUnalignedOffsetF(hds_iter, &cur_f, hap_idx * alt_ct + uii);
+          }
+        }
+        filled_ct = hap_ct * alt_ct;
+      }
+    } else if (hds_force && missing_ok) {
+      CopyToUnalignedU32(hds_iter, &missing_fbits);
+      filled_ct = 1;
+      if (diploid_chr_sample) {
+        CopyToUnalignedOffsetU32(hds_iter, &missing_fbits, 1);
+        filled_ct = 2;
+      }
+    }
+    for (uint32_t uii = filled_ct; uii < hds_stride; ++uii) {
+      CopyToUnalignedOffsetU32(hds_iter, &end_of_vector, uii);
+    }
+    hds_iter = &(hds_iter[hds_stride * sizeof(int32_t)]);
+  }
+  return 0;
+}
+
+// Appends the DS (and, when needed, HDS) FORMAT fields of a multiallelic
+// record with dosages.
+BoolErr AppendBcfMultiallelicDosageFields(const PgenVariant* pgvp, const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_female, uint32_t sample_ct, uint32_t allele_ct, uint32_t is_x, uint32_t is_y, uint32_t is_haploid, uint32_t ds_force, uint32_t write_hds, uint32_t hds_force, uint32_t dosage_key_idx, uint32_t hds_key_idx, uint32_t* __restrict u, int32_t* __restrict d, uint32_t* n_fmt_ptr, char** write_iter_ptr) {
+  const uint32_t alt_ct = allele_ct - 1;
+  char* write_iter = AppendBcfTypedInt(dosage_key_idx, *write_iter_ptr);
+  write_iter = AppendBcfVecType(5, alt_ct, write_iter);
+  unsigned char* ds_start = CToUc(write_iter);
+  write_iter = &(write_iter[S_CAST(uintptr_t, sample_ct) * alt_ct * sizeof(int32_t)]);
+  uint32_t n_fmt = *n_fmt_ptr + 1;
+  unsigned char* hds_start = nullptr;
+  uint32_t hds_max_ploidy = 1;
+  if (write_hds && (hds_force || pgvp->dphase_ct)) {
+    ++n_fmt;
+    if ((!is_haploid) || is_x || pgvp->dphase_ct || (hds_force && pgvp->phasepresent_ct)) {
+      hds_max_ploidy = 2;
+    }
+    write_iter = AppendBcfTypedInt(hds_key_idx, write_iter);
+    write_iter = AppendBcfVecType(5, hds_max_ploidy * alt_ct, write_iter);
+    hds_start = CToUc(write_iter);
+    write_iter = &(write_iter[S_CAST(uintptr_t, sample_ct) * hds_max_ploidy * alt_ct * sizeof(int32_t)]);
+  }
+  if (unlikely(FillBcfMultiallelicDosage(pgvp, sex_male, sex_female, sample_ct, allele_ct, is_x, is_y, is_haploid, ds_force, hds_force, hds_max_ploidy, u, d, ds_start, hds_start))) {
+    return 1;
+  }
+  *n_fmt_ptr = n_fmt;
+  *write_iter_ptr = write_iter;
+  return 0;
+}
+
 void MakeRlenWarningStr(const char* variant_id) {
   char* err_write_iter = strcpya_k(g_logbuf, "Warning: Unexpected INFO/END value for variant");
   // 50 chars + strlen(variant_id), split into two lines if >79
@@ -8076,6 +8571,15 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
       }
     }
+    // See ExportVcf().
+    const unsigned char* vrtypes = pgfip->vrtypes;
+    const uint32_t md_allele_ct = (write_some_dosage && (pgfip->gflags & kfPgenGlobalDosagePresent))? MultiallelicDosageMaxAlleleCt(variant_include, allele_idx_offsets, vrtypes, variant_ct) : 0;
+    uint32_t* md_u;
+    int32_t* md_d;
+    if (unlikely(BigstackAllocMultidosage(sample_ct, write_ds? md_allele_ct : 0, load_dphase, &pgv, &md_u, &md_d))) {
+      goto ExportBcf_ret_NOMEM;
+    }
+    uint32_t gp_md_skip_ct = 0;
     const uint32_t fif_key_ctl = BitCtToWordCt(fif_key_ct);
     uintptr_t* fif_seen;
     if (unlikely(bigstack_alloc_w(fif_key_ctl, &fif_seen))) {
@@ -9056,18 +9560,40 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
       } else {
         // multiallelic cases
-        // multiallelic dosage not supported yet
         if (ref_allele_idx || (alt1_allele_idx != 1)) {
           logputs("\n");
           logerrputs("Error: BCF-export multiallelic rotation is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto ExportBcf_ret_1;
         }
+        uint32_t md_loaded = 0;
+        if (md_allele_ct && ((!vrtypes) || (vrtypes[variant_uidx] & 0x60))) {
+          if (!write_ds) {
+            ++gp_md_skip_ct;
+          } else {
+            if (some_phased) {
+              reterr = PgrGetMDp(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+            } else {
+              reterr = PgrGetMD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+              // PgrGetMD() doesn't touch the phase fields
+              pgv.phasepresent_ct = 0;
+              pgv.dphase_ct = 0;
+              pgv.multidphase_sample_ct = 0;
+            }
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportBcf_ret_1;
+            }
+            md_loaded = 1;
+          }
+        }
         if (!some_phased) {
-          reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
-          if (unlikely(reterr)) {
-            PgenErrPrintNV(reterr, variant_uidx);
-            goto ExportBcf_ret_1;
+          if (!md_loaded) {
+            reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportBcf_ret_1;
+            }
           }
           if (!ds_only) {
             if (allele_ct <= 63) {
@@ -9130,9 +9656,13 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               }
             }
           }
-          // yes, this will need to be reworked when proper multiallelic dosage
-          // support is added
-          if (ds_force) {
+          if (md_loaded && pgv.dosage_ct) {
+            if (unlikely(AppendBcfMultiallelicDosageFields(&pgv, sex_male_collapsed, sex_female_collapsed, sample_ct, allele_ct, is_x, is_y, is_haploid, ds_force, write_hds, hds_force, dosage_key_idx, hds_key_idx, md_u, md_d, &n_fmt, &write_iter))) {
+              reterr = kPglRetMalformedInput;
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportBcf_ret_1;
+            }
+          } else if (ds_force) {
             ++n_fmt;
             write_iter = AppendBcfTypedInt(dosage_key_idx, write_iter);
             const uint32_t alt_allele_ct = allele_ct - 1;
@@ -9157,10 +9687,12 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           }
         } else {
           // multiallelic phased
-          reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
-          if (unlikely(reterr)) {
-            PgenErrPrintNV(reterr, variant_uidx);
-            goto ExportBcf_ret_1;
+          if (!md_loaded) {
+            reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportBcf_ret_1;
+            }
           }
           if (!pgv.patch_01_ct) {
             ZeroWArr(sample_ctl, pgv.patch_01_set);
@@ -9227,9 +9759,13 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               }
             }
           }
-          // yes, this will need to be reworked when proper multiallelic dosage
-          // support is added
-          if (ds_force) {
+          if (md_loaded && pgv.dosage_ct) {
+            if (unlikely(AppendBcfMultiallelicDosageFields(&pgv, sex_male_collapsed, sex_female_collapsed, sample_ct, allele_ct, is_x, is_y, is_haploid, ds_force, write_hds, hds_force, dosage_key_idx, hds_key_idx, md_u, md_d, &n_fmt, &write_iter))) {
+              reterr = kPglRetMalformedInput;
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto ExportBcf_ret_1;
+            }
+          } else if (ds_force) {
             ++n_fmt;
             write_iter = AppendBcfTypedInt(dosage_key_idx, write_iter);
             const uint32_t alt_allele_ct = allele_ct - 1;
@@ -9291,6 +9827,9 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       logputs_silent("BCF export done.\n");
     } else {
       logputs("done.\n");
+    }
+    if (gp_md_skip_ct) {
+      logerrprintfww("Warning: GP field not exported for %u multiallelic variant%s with dosages.  (Use vcf-dosage=DS or HDS instead.)\n", gp_md_skip_ct, (gp_md_skip_ct == 1)? "" : "s");
     }
     if (invalid_allele_code_seen) {
       logerrputs("Warning: At least one BCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");

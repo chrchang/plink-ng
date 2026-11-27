@@ -9,14 +9,19 @@
 // against the source data, and checks that
 // PgrValidate() accepts the files.  Finally, PgrValidate() is run on small
 // hand-built records that each violate one multiallelic-dosage rule.
+// Other modes check plink2 output (see main()).
 
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <zlib.h>
+
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <fstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -2831,6 +2836,542 @@ static void WriteFlipFail() {
   WritePvarPsam("tmp_flipfail", allele_idx_offsets, 1, 4);
 }
 
+// ***** "checkexport" mode: --export vcf/bcf of multiallelic dosage records *****
+
+// One FORMAT field of one sample.  For BCF, trailing END_OF_VECTOR values are
+// dropped, and an all-END_OF_VECTOR vector counts as absent.
+struct ExportField {
+  bool present = false;
+  std::vector<double> vals;  // NaN = missing ('.')
+};
+
+struct ExportSample {
+  std::vector<int32_t> gt;  // -1 = missing allele; empty = absent
+  bool gt_phased = false;
+  ExportField ds;
+  ExportField hds;
+};
+
+struct ExportRecord {
+  std::string id;
+  bool has_gt_field = false;
+  bool has_ds_field = false;
+  bool has_hds_field = false;
+  std::vector<ExportSample> samples;
+};
+
+static void ParseVcfField(const std::string& text, ExportField& field) {
+  field.present = true;
+  size_t start = 0;
+  while (1) {
+    const size_t pos = text.find(',', start);
+    const std::string tok = text.substr(start, (pos == std::string::npos)? std::string::npos : (pos - start));
+    field.vals.push_back((tok == ".")? NAN : strtod(tok.c_str(), nullptr));
+    if (pos == std::string::npos) {
+      return;
+    }
+    start = pos + 1;
+  }
+}
+
+static int ReadExportVcf(const char* fname, std::vector<std::string>& sample_ids, std::vector<ExportRecord>& records) {
+  std::ifstream ifs(fname);
+  if (!ifs) {
+    return 1;
+  }
+  std::string line;
+  while (std::getline(ifs, line)) {
+    if ((line.size() >= 2) && (line[0] == '#') && (line[1] == '#')) {
+      continue;
+    }
+    const std::vector<std::string> toks = SplitTabs(line);
+    if (line[0] == '#') {
+      sample_ids.assign(toks.begin() + 9, toks.end());
+      continue;
+    }
+    ExportRecord rec;
+    rec.id = toks[2];
+    std::vector<std::string> keys;
+    {
+      size_t start = 0;
+      while (1) {
+        const size_t pos = toks[8].find(':', start);
+        keys.push_back(toks[8].substr(start, (pos == std::string::npos)? std::string::npos : (pos - start)));
+        if (pos == std::string::npos) {
+          break;
+        }
+        start = pos + 1;
+      }
+    }
+    for (const std::string& key : keys) {
+      rec.has_gt_field |= (key == "GT");
+      rec.has_ds_field |= (key == "DS");
+      rec.has_hds_field |= (key == "HDS");
+    }
+    for (size_t col = 9; col != toks.size(); ++col) {
+      ExportSample es;
+      size_t start = 0;
+      for (size_t kidx = 0; kidx != keys.size(); ++kidx) {
+        if (start > toks[col].size()) {
+          break;
+        }
+        const size_t pos = toks[col].find(':', start);
+        const std::string tok = toks[col].substr(start, (pos == std::string::npos)? std::string::npos : (pos - start));
+        start = (pos == std::string::npos)? (toks[col].size() + 1) : (pos + 1);
+        if (keys[kidx] == "GT") {
+          es.gt_phased = (tok.find('|') != std::string::npos);
+          size_t gstart = 0;
+          while (1) {
+            const size_t gpos = tok.find_first_of("/|", gstart);
+            const std::string allele = tok.substr(gstart, (gpos == std::string::npos)? std::string::npos : (gpos - gstart));
+            es.gt.push_back((allele == ".")? -1 : atoi(allele.c_str()));
+            if (gpos == std::string::npos) {
+              break;
+            }
+            gstart = gpos + 1;
+          }
+        } else if (keys[kidx] == "DS") {
+          ParseVcfField(tok, es.ds);
+        } else if (keys[kidx] == "HDS") {
+          ParseVcfField(tok, es.hds);
+        }
+      }
+      rec.samples.push_back(es);
+    }
+    records.push_back(rec);
+  }
+  return 0;
+}
+
+// Reads a BCF typed-value descriptor; returns the type, and sets *len_ptr.
+static uint32_t BcfTypeDesc(const unsigned char** iter_ptr, uint32_t* len_ptr) {
+  const unsigned char* iter = *iter_ptr;
+  const uint32_t type = iter[0] & 15;
+  uint32_t len = iter[0] >> 4;
+  ++iter;
+  if (len == 15) {
+    const uint32_t len_type = iter[0] & 15;
+    ++iter;
+    if (len_type == 1) {
+      len = iter[0];
+      iter += 1;
+    } else if (len_type == 2) {
+      uint16_t v;
+      memcpy(&v, iter, 2);
+      len = v;
+      iter += 2;
+    } else {
+      int32_t v;
+      memcpy(&v, iter, 4);
+      len = v;
+      iter += 4;
+    }
+  }
+  *iter_ptr = iter;
+  *len_ptr = len;
+  return type;
+}
+
+static int64_t BcfReadInt(const unsigned char** iter_ptr, uint32_t type) {
+  const unsigned char* iter = *iter_ptr;
+  int64_t val;
+  if (type == 1) {
+    val = S_CAST(int8_t, iter[0]);
+    *iter_ptr = &(iter[1]);
+  } else if (type == 2) {
+    int16_t v;
+    memcpy(&v, iter, 2);
+    val = v;
+    *iter_ptr = &(iter[2]);
+  } else {
+    int32_t v;
+    memcpy(&v, iter, 4);
+    val = v;
+    *iter_ptr = &(iter[4]);
+  }
+  return val;
+}
+
+static int ReadExportBcf(const char* fname, std::vector<std::string>& sample_ids, std::vector<ExportRecord>& records) {
+  gzFile gz = gzopen(fname, "rb");
+  if (!gz) {
+    return 1;
+  }
+  char magic[5];
+  uint32_t l_text;
+  if ((gzread(gz, magic, 5) != 5) || memcmp(magic, "BCF\2\2", 5) || (gzread(gz, &l_text, 4) != 4)) {
+    gzclose(gz);
+    return 1;
+  }
+  std::string text(l_text, '\0');
+  if (gzread(gz, &(text[0]), l_text) != S_CAST(int, l_text)) {
+    gzclose(gz);
+    return 1;
+  }
+  // string dictionary: FILTER/INFO/FORMAT IDs (plink2 always writes IDX=)
+  std::vector<std::string> dict;
+  {
+    size_t start = 0;
+    while (start < text.size()) {
+      size_t eol = text.find('\n', start);
+      if (eol == std::string::npos) {
+        eol = text.size();
+      }
+      const std::string line = text.substr(start, eol - start);
+      start = eol + 1;
+      if (!line.compare(0, 6, "#CHROM")) {
+        const std::vector<std::string> toks = SplitTabs(line);
+        sample_ids.assign(toks.begin() + 9, toks.end());
+        continue;
+      }
+      if (line.compare(0, 9, "##FILTER=") && line.compare(0, 7, "##INFO=") && line.compare(0, 9, "##FORMAT=")) {
+        continue;
+      }
+      const size_t id_pos = line.find("ID=");
+      const size_t idx_pos = line.find(",IDX=");
+      if ((id_pos == std::string::npos) || (idx_pos == std::string::npos)) {
+        gzclose(gz);
+        return 1;
+      }
+      const std::string id = line.substr(id_pos + 3, line.find_first_of(",>", id_pos) - id_pos - 3);
+      const uint32_t idx = atoi(line.c_str() + idx_pos + 5);
+      if (dict.size() <= idx) {
+        dict.resize(idx + 1);
+      }
+      dict[idx] = id;
+    }
+  }
+  while (1) {
+    uint32_t lens[2];
+    const int rlen = gzread(gz, lens, 8);
+    if (rlen == 0) {
+      break;
+    }
+    if (rlen != 8) {
+      gzclose(gz);
+      return 1;
+    }
+    std::vector<unsigned char> buf(S_CAST(size_t, lens[0]) + lens[1]);
+    if (gzread(gz, buf.data(), buf.size()) != S_CAST(int, buf.size())) {
+      gzclose(gz);
+      return 1;
+    }
+    ExportRecord rec;
+    uint32_t n_fmt_sample;
+    memcpy(&n_fmt_sample, &(buf[20]), 4);
+    const uint32_t sample_ct = n_fmt_sample & 0xffffff;
+    const uint32_t fmt_ct = n_fmt_sample >> 24;
+    const unsigned char* iter = &(buf[24]);
+    uint32_t len;
+    BcfTypeDesc(&iter, &len);
+    rec.id.assign(R_CAST(const char*, iter), len);
+    rec.samples.resize(sample_ct);
+    iter = &(buf[lens[0]]);
+    for (uint32_t fmt_idx = 0; fmt_idx != fmt_ct; ++fmt_idx) {
+      uint32_t key_len;
+      const uint32_t key_type = BcfTypeDesc(&iter, &key_len);
+      const std::string key = dict[BcfReadInt(&iter, key_type)];
+      const uint32_t type = BcfTypeDesc(&iter, &len);
+      const uint32_t is_gt = (key == "GT");
+      rec.has_gt_field |= is_gt;
+      rec.has_ds_field |= (key == "DS");
+      rec.has_hds_field |= (key == "HDS");
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        ExportSample& es = rec.samples[sample_idx];
+        if (is_gt) {
+          for (uint32_t uii = 0; uii != len; ++uii) {
+            const int64_t v = BcfReadInt(&iter, type);
+            if (((type == 1) && (v == -127)) || ((type == 2) && (v == -32767))) {
+              continue;  // END_OF_VECTOR
+            }
+            es.gt.push_back((v >> 1) - 1);
+            if (uii && (v & 1)) {
+              es.gt_phased = true;
+            }
+          }
+          continue;
+        }
+        ExportField* fieldp = (key == "DS")? (&es.ds) : ((key == "HDS")? (&es.hds) : nullptr);
+        std::vector<double> vals;
+        for (uint32_t uii = 0; uii != len; ++uii) {
+          uint32_t bits;
+          memcpy(&bits, iter, 4);
+          iter += 4;
+          if (type != 5) {
+            continue;
+          }
+          if (bits == 0x7f800002) {
+            vals.push_back(INFINITY);  // END_OF_VECTOR placeholder
+          } else if (bits == 0x7f800001) {
+            vals.push_back(NAN);
+          } else {
+            float f;
+            memcpy(&f, &bits, 4);
+            vals.push_back(f);
+          }
+        }
+        while ((!vals.empty()) && (vals.back() == INFINITY)) {
+          vals.pop_back();
+        }
+        if (fieldp && (!vals.empty())) {
+          fieldp->present = true;
+          fieldp->vals = vals;
+        }
+      }
+    }
+    records.push_back(rec);
+  }
+  gzclose(gz);
+  return 0;
+}
+
+// Checks the multiallelic records with dosages (among the exported samples)
+// of a plink2 --export vcf/bcf vcf-dosage=<mode> output against the source
+// fileset, per the rendering rules in plink2's
+// AppendVcfMultiallelicDosageRecord() comment, written independently: values
+// must round to the source's 16384ths (diploid) or 32768ths (haploid)
+// exactly.  Homozygous calls' phase separators aren't checked.
+static int CheckExport(const char* prefix, const char* out_fname, const char* mode) {
+  const uint32_t ds_only = !strcmp(mode, "DS-only");
+  const uint32_t ds_force = ds_only || (!strcmp(mode, "DS-force")) || (!strcmp(mode, "HDS-force"));
+  const uint32_t write_hds = !strncmp(mode, "HDS", 3);
+  const uint32_t hds_force = !strcmp(mode, "HDS-force");
+  const size_t fname_slen = strlen(out_fname);
+  const uint32_t is_bcf = (fname_slen > 4) && (!strcmp(&(out_fname[fname_slen - 4]), ".bcf"));
+  PvarInfo pi;
+  if (ReadPvar(prefix, pi)) {
+    fprintf(stderr, "checkexport: failed to read .pvar\n");
+    return 1;
+  }
+  std::vector<std::string> chroms;
+  for (const std::string& line : ReadLines(std::string(prefix) + ".pvar")) {
+    if (line[0] != '#') {
+      chroms.push_back(line.substr(0, line.find('\t')));
+    }
+  }
+  const std::vector<std::string> iids = ReadPsamIids(prefix);
+  std::vector<uint32_t> sexes(iids.size(), 0);
+  {
+    int sex_col = -1;
+    size_t sample_idx = 0;
+    for (const std::string& line : ReadLines(std::string(prefix) + ".psam")) {
+      const std::vector<std::string> toks = SplitTabs(line);
+      if (line[0] == '#') {
+        for (size_t i = 0; i != toks.size(); ++i) {
+          if (toks[i] == "SEX") {
+            sex_col = i;
+          }
+        }
+        continue;
+      }
+      if (sex_col >= 0) {
+        sexes[sample_idx] = atoi(toks[sex_col].c_str());
+      }
+      ++sample_idx;
+    }
+  }
+  std::vector<std::string> out_ids;
+  std::vector<ExportRecord> records;
+  if (is_bcf? ReadExportBcf(out_fname, out_ids, records) : ReadExportVcf(out_fname, out_ids, records)) {
+    fprintf(stderr, "checkexport: failed to read %s\n", out_fname);
+    return 1;
+  }
+  std::vector<uint32_t> out_to_src(out_ids.size());
+  for (size_t out_idx = 0; out_idx != out_ids.size(); ++out_idx) {
+    const size_t src_idx = std::find(iids.begin(), iids.end(), out_ids[out_idx]) - iids.begin();
+    if (src_idx == iids.size()) {
+      fprintf(stderr, "checkexport: sample %s not in source\n", out_ids[out_idx].c_str());
+      return 1;
+    }
+    out_to_src[out_idx] = src_idx;
+  }
+  const uint32_t sample_ct = iids.size();
+  const uint32_t variant_ct = pi.ids.size();
+  if (records.size() != variant_ct) {
+    fprintf(stderr, "checkexport: %zu records, expected %u\n", records.size(), variant_ct);
+    return 1;
+  }
+  Reader r;
+  if (OpenReader((std::string(prefix) + ".pgen").c_str(), pi.allele_idx_offsets.data(), variant_ct, sample_ct, r)) {
+    return 1;
+  }
+  ReaderBufs rb;
+  InitReaderBufs(sample_ct, 255, rb);
+  PgrSampleSubsetIndex pssi;
+  PgrClearSampleSubsetIndex(&r.pgr, &pssi);
+  uint64_t mismatch_ct = 0;
+  uint32_t checked_record_ct = 0;
+  uint64_t checked_value_ct = 0;
+  // returns true if field matches expected (empty expected = absent; NaN
+  // entries = missing), where val / scale must round to exp
+  auto field_ok = [&](const ExportField& field, const std::vector<int64_t>& exp, const std::vector<double>& scales) {
+    if (exp.empty()) {
+      return !field.present;
+    }
+    if ((!field.present) || (field.vals.size() != exp.size())) {
+      return false;
+    }
+    for (size_t i = 0; i != exp.size(); ++i) {
+      if (exp[i] == INT64_MIN) {
+        if (!std::isnan(field.vals[i])) {
+          return false;
+        }
+        continue;
+      }
+      if (std::isnan(field.vals[i]) || (std::llround(field.vals[i] * scales[i]) != exp[i])) {
+        return false;
+      }
+      ++checked_value_ct;
+    }
+    return true;
+  };
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    const ExportRecord& rec = records[vidx];
+    if (rec.id != pi.ids[vidx]) {
+      fprintf(stderr, "checkexport: record %u has ID %s, expected %s\n", vidx, rec.id.c_str(), pi.ids[vidx].c_str());
+      return 1;
+    }
+    const uint32_t allele_ct = pi.allele_idx_offsets[vidx + 1] - pi.allele_idx_offsets[vidx];
+    if (allele_ct <= 2) {
+      continue;
+    }
+    PgenVariant& pgv = rb.pgv;
+    if (PgrGetMDp(nullptr, pssi, sample_ct, vidx, &r.pgr, &pgv)) {
+      fprintf(stderr, "checkexport: read error\n");
+      return 1;
+    }
+    const std::vector<SampleData> sds = Decode(pgv, sample_ct, 1, 1, 1);
+    bool any_dosage = false;
+    bool any_dphase = false;
+    for (const uint32_t src_idx : out_to_src) {
+      any_dosage |= (sds[src_idx].has_dosage != 0);
+      any_dphase |= (sds[src_idx].has_dphase != 0);
+    }
+    if (!any_dosage) {
+      continue;
+    }
+    ++checked_record_ct;
+    const std::string& chrom = chroms[vidx];
+    const uint32_t is_x = (chrom == "X") || (chrom == "chrX") || (chrom == "23");
+    const uint32_t is_y = (chrom == "Y") || (chrom == "chrY") || (chrom == "24");
+    const uint32_t is_mt = (chrom == "MT") || (chrom == "chrM") || (chrom == "26");
+    const uint32_t is_haploid = is_x || is_y || is_mt;
+    const uint32_t alt_ct = allele_ct - 1;
+    const bool hds_field_expected = write_hds && (hds_force || any_dphase);
+    if ((rec.has_gt_field == (ds_only != 0)) || (!rec.has_ds_field) || (rec.has_hds_field != hds_field_expected)) {
+      if (mismatch_ct++ < 10) {
+        fprintf(stderr, "checkexport: variant %s has unexpected FORMAT fields\n", rec.id.c_str());
+      }
+      continue;
+    }
+    for (size_t out_idx = 0; out_idx != out_to_src.size(); ++out_idx) {
+      const uint32_t src_idx = out_to_src[out_idx];
+      const SampleData& sd = sds[src_idx];
+      const ExportSample& es = rec.samples[out_idx];
+      const uint32_t is_missing = (sd.a1 == UINT32_MAX);
+      const uint32_t is_het = (!is_missing) && (sd.a1 != sd.a2);
+      const uint32_t is_male = (sexes[src_idx] == 1);
+      const uint32_t female_y = is_y && (sexes[src_idx] == 2);
+      const uint32_t diploid_chr = (!is_haploid) || (is_x && (!is_male));
+      const uint32_t diploid_render = diploid_chr || is_het;
+      // per-allele dosages (16384 = 1 copy) and dosage-phase values, indexed
+      // by allele; u empty if no values
+      std::vector<int32_t> u;
+      std::vector<int32_t> d;
+      DenseAlleleVals(sd, allele_ct, u, d);
+      bool hap_split = !d.empty();
+      if ((!sd.has_dosage) && ds_force && (!is_missing)) {
+        u.assign(allele_ct, 0);
+        u[sd.a1] += 16384;
+        u[sd.a2] += 16384;
+        if (sd.phased && is_het) {
+          d.assign(allele_ct, 0);
+          const uint32_t left = sd.phaseinfo? sd.a2 : sd.a1;
+          const uint32_t right = sd.a1 + sd.a2 - left;
+          d[left] = 16384;
+          d[right] = -16384;
+          hap_split = hds_force;
+        }
+      }
+      bool ok = true;
+      // GT
+      if (!ds_only) {
+        std::vector<int32_t> exp_gt;
+        if (is_missing) {
+          exp_gt.assign(diploid_render? 2 : 1, -1);
+        } else if (!diploid_render) {
+          exp_gt.push_back(sd.a1);
+        } else if (sd.phased && is_het && sd.phaseinfo) {
+          exp_gt = {S_CAST(int32_t, sd.a2), S_CAST(int32_t, sd.a1)};
+        } else {
+          exp_gt = {S_CAST(int32_t, sd.a1), S_CAST(int32_t, sd.a2)};
+        }
+        // BCF renders chrY female missing calls as END_OF_VECTOR
+        const bool gt_absent_ok = is_bcf && female_y && is_missing;
+        if ((es.gt != exp_gt) && (!(gt_absent_ok && es.gt.empty()))) {
+          ok = false;
+        }
+        if (is_het && (es.gt_phased != (sd.phased != 0))) {
+          ok = false;
+        }
+      }
+      // DS
+      std::vector<int64_t> exp_ds;
+      std::vector<double> ds_scales;
+      if (!u.empty()) {
+        for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+          exp_ds.push_back(u[aidx]);
+          ds_scales.push_back(diploid_render? 16384.0 : 32768.0);
+        }
+      } else if (ds_force && (!(is_bcf && female_y))) {
+        exp_ds.push_back(INT64_MIN);
+        ds_scales.push_back(1.0);
+      }
+      ok = ok && field_ok(es.ds, exp_ds, ds_scales);
+      // HDS
+      std::vector<int64_t> exp_hds;
+      if (hds_field_expected) {
+        if (!u.empty()) {
+          if (hap_split) {
+            for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+              exp_hds.push_back(u[aidx] + d[aidx]);
+            }
+            for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+              exp_hds.push_back(u[aidx] - d[aidx]);
+            }
+          } else if (hds_force) {
+            for (uint32_t hap_idx = 0; hap_idx != (diploid_chr? 2 : 1); ++hap_idx) {
+              for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+                exp_hds.push_back(u[aidx]);
+              }
+            }
+          }
+        } else if (hds_force && (!(is_bcf && female_y))) {
+          exp_hds.assign(diploid_chr? 2 : 1, INT64_MIN);
+        }
+        ok = ok && field_ok(es.hds, exp_hds, std::vector<double>(exp_hds.size(), 32768.0));
+      } else {
+        ok = ok && (!es.hds.present);
+      }
+      if ((!ok) && (mismatch_ct++ < 10)) {
+        fprintf(stderr, "checkexport: variant %s sample %s mismatch (alt_ct %u, hardcall %d/%d, phased %u, dosage %u, dphase %u)\n", rec.id.c_str(), iids[src_idx].c_str(), alt_ct, S_CAST(int32_t, sd.a1), S_CAST(int32_t, sd.a2), sd.phased, sd.has_dosage, sd.has_dphase);
+      }
+    }
+  }
+  FreeReaderBufs(rb);
+  CloseReader(r);
+  if (mismatch_ct) {
+    fprintf(stderr, "checkexport: %" PRIu64 " mismatch(es)\n", mismatch_ct);
+    return 1;
+  }
+  if (!checked_record_ct) {
+    fprintf(stderr, "checkexport: no multiallelic dosage records checked\n");
+    return 1;
+  }
+  printf("checkexport: %u records, %" PRIu64 " values ok\n", checked_record_ct, checked_value_ct);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
   // [hets-missing [keep-dosage] [hm-samples=<IID file>]] [hct=<thresh>] [fill]
@@ -2841,6 +3382,11 @@ int main(int argc, char** argv) {
   // are ignored): see CompareFilesets().
   // "comparejoin <orig prefix> <new prefix> [strip-phase]": see
   // CompareJoin().
+  // "checkexport <source prefix> <.vcf or .bcf> <vcf-dosage mode>": see
+  // CheckExport().
+  if ((argc == 5) && (!strcmp(argv[1], "checkexport"))) {
+    return CheckExport(argv[2], argv[3], argv[4]);
+  }
   if ((argc >= 4) && (!strcmp(argv[1], "comparejoin"))) {
     return CompareJoin(argv[2], argv[3], (argc >= 5) && (!strcmp(argv[4], "strip-phase")));
   }

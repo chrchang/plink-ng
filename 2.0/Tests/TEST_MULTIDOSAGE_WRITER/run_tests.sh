@@ -10,7 +10,7 @@
 set -exo pipefail
 
 INC=../../include
-${CXX:-c++} -std=c++17 -O1 -g -I$INC -o tmp_multidosage_writer_test multidosage_writer_test.cc $INC/pgenlib_read.cc $INC/pgenlib_write.cc $INC/pgenlib_misc.cc $INC/plink2_base.cc $INC/plink2_bits.cc $INC/plink2_simd.cc
+${CXX:-c++} -std=c++17 -O1 -g -I$INC -o tmp_multidosage_writer_test multidosage_writer_test.cc $INC/pgenlib_read.cc $INC/pgenlib_write.cc $INC/pgenlib_misc.cc $INC/plink2_base.cc $INC/plink2_bits.cc $INC/plink2_simd.cc -lz
 ./tmp_multidosage_writer_test
 
 # plink2 --validate end to end (the validator workspace is sized in plink2.cc):
@@ -278,3 +278,62 @@ mp_check tmp_ndmt tmp_kd7 hets-missing keep-dosage
 # multithreaded writer with sample subsetting
 $P --pfile tmp_mt --threads 2 --keep tmp_keep.txt --set-mixed-mt-missing keep-dosage --make-pgen --out tmp_kd8
 mp_check tmp_mt tmp_kd8 hets-missing keep-dosage
+
+# --export vcf/bcf on multiallelic dosages: DS has one entry per ALT allele,
+# and HDS lists the left haplotype's ALT dosages followed by the right's.
+# Checked against the source by CheckExport() (BCF output too), on autosomes,
+# chrX (males haploid), chrY with females, and MT.
+CE="./tmp_multidosage_writer_test checkexport"
+for f in tmp_small tmp_x tmp_ys tmp_mt; do
+    for m in DS HDS DS-force HDS-force; do
+        $P --pfile $f --export vcf bcf vcf-dosage=$m --out tmp_ex_${f}_$m
+        $CE $f tmp_ex_${f}_$m.vcf $m
+        $CE $f tmp_ex_${f}_$m.bcf $m
+    done
+done
+$P --pfile tmp_small --export vcf bcf vcf-dosage=DS-only --out tmp_ex_ds_only
+$CE tmp_small tmp_ex_ds_only.vcf DS-only
+$CE tmp_small tmp_ex_ds_only.bcf DS-only
+# sample subset (the checker matches samples by ID), and fixed-width input
+$P --pfile tmp_x --keep tmp_keep.txt --export vcf bcf vcf-dosage=HDS --out tmp_ex_keep
+$CE tmp_x tmp_ex_keep.vcf HDS
+$CE tmp_x tmp_ex_keep.bcf HDS
+$P --pfile tmp_fixed --export vcf bcf vcf-dosage=HDS-force --out tmp_ex_fixed
+$CE tmp_fixed tmp_ex_fixed.vcf HDS-force
+$CE tmp_fixed tmp_ex_fixed.bcf HDS-force
+# GP isn't supported for multiallelic dosage records
+$P --pfile tmp_small --export vcf vcf-dosage=GP --out tmp_ex_gp
+grep -q "GP field not exported for 180 multiallelic variants with dosages" tmp_ex_gp.log
+# 'A-transpose' with ALT2 counted (PgrGet1D()): must match the second DS
+# entry of the DS-force VCF (3 vs. up to 5 decimal places)
+awk 'BEGIN {OFS = "\t"} !/^#/ && (split($5, a, ",") >= 2) {print $3, a[2]}' tmp_small.pvar > tmp_ex_alt2.txt
+$P --pfile tmp_small --export A-transpose --export-allele tmp_ex_alt2.txt --out tmp_ex_alt2
+awk 'BEGIN {FS = "\t"}
+FNR == 1 {++file_idx}
+file_idx == 1 && !/^#/ && (split($5, a, ",") >= 2) {
+  for (i = 10; i <= NF; ++i) {
+    split($i, f, ":");
+    if (f[2] == ".") {
+      ds[$3, i - 9] = "NA";
+    } else {
+      split(f[2], v, ",");
+      ds[$3, i - 9] = v[2];
+    }
+  }
+  next;
+}
+file_idx == 2 && FNR > 1 && (($2, 1) in ds) {
+  for (i = 7; i <= NF; ++i) {
+    e = ds[$2, i - 6];
+    ++ct;
+    if ((e == "NA") != ($i == "NA")) {
+      ++bad;
+    } else if ((e != "NA") && ((e - $i > 0.0006) || ($i - e > 0.0006))) {
+      ++bad;
+    }
+  }
+}
+END {
+  print ct " A-transpose values, " (bad + 0) " mismatches";
+  exit (bad || (ct != 180 * 300));
+}' tmp_ex_tmp_small_DS-force.vcf tmp_ex_alt2.traw
