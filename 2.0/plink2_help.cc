@@ -3362,9 +3362,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Make --make-[b]pgen/--make-bed set non-MT heterozygous haploid hardcalls,\n"
 "    and all female chrY calls, to missing.\n"
 "    By default, all associated dosages are also erased; use 'keep-dosage' to\n"
-"    keep them all.\n"
+"    keep them (except for female chrY calls).\n"
 "  --set-mixed-mt-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set\n"
 "                                           mixed MT hardcalls to missing.\n"
+"  With 'keep-dosage', a cleared heterozygous hardcall without a dosage gets\n"
+"  one equal to the hardcall (i.e. one copy of each of its alleles).  Either\n"
+"  way, dosage-phase information for the affected samples is erased.\n"
                );
     HelpPrint("set-me-missing\0", &help_ctrl, 0,
 "  --set-me-missing        : Make --make-[b]pgen/--make-bed set Mendel errors\n"

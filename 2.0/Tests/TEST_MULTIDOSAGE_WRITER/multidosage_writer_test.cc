@@ -1746,6 +1746,10 @@ struct CallOps {
   // multiallelic split: original alleles absent from the new variant are
   // lumped with REF
   uint32_t split = 0;
+  // modify hets_missing (see CompareFilesets())
+  uint32_t keep_dosage = 0;
+  uint32_t hm_restricted = 0;
+  std::set<std::string> hm_samples;
 };
 
 // Returns the strand-flipped allele, or the empty string if allele isn't one
@@ -1876,11 +1880,16 @@ static void ApplyExpectedCallOps(const CallOps& ops, uint32_t allele_ct, SampleD
 // phase information; if strip_dosage is set, no dosages.
 // If hets_missing is set, the original's heterozygous hardcalls (including
 // altx/alty) must be missing in the new fileset, with their dosages erased,
-// and all phase information must be gone (cf. --set-mixed-mt-missing).
+// and all phase information must be gone (cf. --set-mixed-mt-missing).  With
+// ops.keep_dosage, the dosages are kept instead, and cleared hardcalls
+// without a dosage get one equal to the hardcall ('keep-dosage').  With
+// ops.hm_restricted, only the samples in ops.hm_samples are affected (and
+// lose their phase information); cf. --set-invalid-haploid-missing on chrX
+// males.
 // ops: expected --hard-call-threshold etc. effects, applied to the original
 // (in its allele order) before comparing.
 static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint32_t strip_phase, uint32_t strip_dosage, uint32_t hets_missing, const CallOps& ops) {
-  strip_phase |= hets_missing;
+  strip_phase |= hets_missing && (!ops.hm_restricted);
   PvarInfo orig_pi;
   PvarInfo new_pi;
   if (ReadPvar(orig_prefix, orig_pi) || ReadPvar(new_prefix, new_pi)) {
@@ -1981,13 +1990,29 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
       const SampleData& n = new_sds[new_sidx];
       const std::vector<uint32_t>& allele_map = ((!orig_to_new_flipped.empty()) && ops.flip_samples.count(new_iids[new_sidx]))? orig_to_new_flipped : orig_to_new;
       ApplyExpectedCallOps(ops, orig_alleles.size(), o);
-      if (hets_missing && (o.a1 != UINT32_MAX) && (o.a1 != o.a2)) {
-        o.a1 = UINT32_MAX;
-        o.a2 = UINT32_MAX;
-        o.has_dosage = 0;
+      if (hets_missing && ((!ops.hm_restricted) || ops.hm_samples.count(new_iids[new_sidx]))) {
+        o.phased = 0;
+        o.phaseinfo = 0;
         o.has_dphase = 0;
-        o.md.clear();
+        o.dphase = 0;
         o.mdp.clear();
+        if ((o.a1 != UINT32_MAX) && (o.a1 != o.a2)) {
+          if (!ops.keep_dosage) {
+            o.has_dosage = 0;
+            o.dosage = 0;
+            o.md.clear();
+          } else if (!o.has_dosage) {
+            o.has_dosage = 1;
+            o.dosage = 16384 * ((o.a1 != 0) + 1);
+            for (uint32_t allele_idx : {o.a1, o.a2}) {
+              if (allele_idx >= 2) {
+                o.md.emplace_back(allele_idx, 16384);
+              }
+            }
+          }
+          o.a1 = UINT32_MAX;
+          o.a2 = UINT32_MAX;
+        }
       }
       // hardcalls, as unordered new-space allele pairs
       uint32_t expected_a1 = UINT32_MAX;
@@ -2808,7 +2833,8 @@ static void WriteFlipFail() {
 
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
-  // [hets-missing] [hct=<thresh>] [fill] [erase=<thresh>]
+  // [hets-missing [keep-dosage] [hm-samples=<IID file>]] [hct=<thresh>] [fill]
+  // [erase=<thresh>]
   // [flip-vars=<variant ID file> flip-samples=<IID file>] [split]"
   // (thresholds in
   // 16384ths of a copy, as plink2 truncates them; '#' lines in the ID files
@@ -2827,6 +2853,15 @@ int main(int argc, char** argv) {
       strip_phase |= !strcmp(argv[argi], "strip-phase");
       strip_dosage |= !strcmp(argv[argi], "strip-dosage");
       hets_missing |= !strcmp(argv[argi], "hets-missing");
+      ops.keep_dosage |= !strcmp(argv[argi], "keep-dosage");
+      if (!strncmp(argv[argi], "hm-samples=", 11)) {
+        ops.hm_restricted = 1;
+        for (const std::string& line : ReadLines(&(argv[argi][11]))) {
+          if ((!line.empty()) && (line[0] != '#')) {
+            ops.hm_samples.insert(line);
+          }
+        }
+      }
       ops.fill |= !strcmp(argv[argi], "fill");
       ops.split |= !strcmp(argv[argi], "split");
       if (!strncmp(argv[argi], "hct=", 4)) {

@@ -7951,6 +7951,77 @@ static BoolErr RemapMultiallelicDosages(const uintptr_t* dosage_present, const u
   return 0;
 }
 
+// 'keep-dosage' (--set-invalid-haploid-missing/--set-mixed-mt-missing) for a
+// multiallelic record: sets the heterozygous hardcalls (including altx/alty)
+// of the samples in sample_mask (nullptr = all) to missing.  Those samples
+// keep their dosages, and the ones without a dosage get one equal to the
+// cleared hardcall (one copy of each of its alleles).  The rare-alt dosage
+// entries are rebuilt from *md_srcp (whose samples must all be in
+// dosage_present) into *md_dstp, and the new patch arrays are written to
+// md_bufsp's buffers (with *patch_..._ptr updated to point at them).
+static void MultiallelicHetMissingKeepdosage(const uintptr_t* sample_mask, const RareAltList* md_srcp, uint32_t sample_ct, MakeMultidosageBufs* md_bufsp, uintptr_t* genovec, uintptr_t** patch_01_set_ptr, AlleleCode** patch_01_vals_ptr, uintptr_t** patch_10_set_ptr, AlleleCode** patch_10_vals_ptr, uint32_t* patch_01_ct_ptr, uint32_t* patch_10_ct_ptr, uintptr_t* dosage_present, Dosage* dosage_main, uint32_t* dosage_ct_ptr, RareAltList* md_dstp) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  AlleleCode* wide_codes = md_bufsp->wide_codes;
+  PglMultiallelicSparseToDense(genovec, *patch_01_set_ptr, *patch_01_vals_ptr, *patch_10_set_ptr, *patch_10_vals_ptr, nullptr, sample_ct, *patch_01_ct_ptr, *patch_10_ct_ptr, nullptr, wide_codes);
+  // new dosage_main values are staged in offsets[]
+  uint32_t* new_dosage_main = md_bufsp->offsets;
+  uintptr_t* new_dosage_present = md_bufsp->bitvec_tmp;
+  ZeroWArr(sample_ctl, new_dosage_present);
+  ZeroWArr(sample_ctl, md_dstp->present);
+  md_dstp->sample_ct = 0;
+  md_dstp->entry_ct = 0;
+  RareAltCursor md_cursor;
+  RareAltCursorInit(md_srcp, &md_cursor);
+  const uint32_t dosage_ct = *dosage_ct_ptr;
+  uint32_t dosage_idx = 0;
+  uint32_t new_dosage_ct = 0;
+  // one sample's entries: up to 255 rare alts
+  uint32_t entry_codes[256];
+  int32_t entry_vals[256];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    AlleleCode* cur_codes = &(wide_codes[2 * sample_idx]);
+    const uint32_t is_het = (cur_codes[0] != cur_codes[1]) && (cur_codes[0] != kMissingAlleleCode) && ((!sample_mask) || IsSet(sample_mask, sample_idx));
+    if (dosage_ct && IsSet(dosage_present, sample_idx)) {
+      const AlleleCode* rare_codes;
+      const uint16_t* rare_vals;
+      const uint32_t rare_ct = RareAltCursorGet(sample_idx, &md_cursor, &rare_codes, &rare_vals);
+      for (uint32_t uii = 0; uii != rare_ct; ++uii) {
+        entry_codes[uii] = rare_codes[uii];
+        entry_vals[uii] = rare_vals[uii];
+      }
+      SetBit(sample_idx, new_dosage_present);
+      new_dosage_main[new_dosage_ct++] = dosage_main[dosage_idx++];
+      RareAltAppend(sample_idx, entry_codes, entry_vals, rare_ct, md_dstp);
+    } else if (is_het) {
+      // cur_codes[1] > cur_codes[0] >= 0
+      uint32_t entry_ct = 0;
+      for (uint32_t uii = 0; uii != 2; ++uii) {
+        if (cur_codes[uii] >= 2) {
+          entry_codes[entry_ct] = cur_codes[uii];
+          entry_vals[entry_ct++] = kDosageMid;
+        }
+      }
+      SetBit(sample_idx, new_dosage_present);
+      new_dosage_main[new_dosage_ct++] = kDosageMid * (1 + (cur_codes[0] != 0));
+      RareAltAppend(sample_idx, entry_codes, entry_vals, entry_ct, md_dstp);
+    }
+    if (is_het) {
+      cur_codes[0] = kMissingAlleleCode;
+      cur_codes[1] = kMissingAlleleCode;
+    }
+  }
+  memcpy(dosage_present, new_dosage_present, sample_ctl * sizeof(intptr_t));
+  for (uint32_t uii = 0; uii != new_dosage_ct; ++uii) {
+    dosage_main[uii] = new_dosage_main[uii];
+  }
+  *dosage_ct_ptr = new_dosage_ct;
+  *patch_01_set_ptr = md_bufsp->patch_01_set;
+  *patch_01_vals_ptr = md_bufsp->patch_01_vals;
+  *patch_10_set_ptr = md_bufsp->patch_10_set;
+  *patch_10_vals_ptr = md_bufsp->patch_10_vals;
+  PglMultiallelicDenseToSparse(wide_codes, sample_ct, genovec, *patch_01_set_ptr, *patch_01_vals_ptr, *patch_10_set_ptr, *patch_10_vals_ptr, patch_01_ct_ptr, patch_10_ct_ptr);
+}
+
 // Erases the dosages and dosage-phase values of samples whose hardcalls went
 // from nonmissing (in old_genovec) to missing (in new_genovec).
 static void EraseNewlyMissingDosages(const uintptr_t* old_genovec, const uintptr_t* new_genovec, uint32_t sample_ct, uintptr_t* erase_buf, uint32_t* dosage_ct_ptr, uintptr_t* dosage_present, Dosage* dosage_main, uint32_t* dphase_ct_ptr, uintptr_t* dphase_present, SDosage* dphase_delta) {
@@ -8253,7 +8324,11 @@ static void ApplyMultiallelicDosageCallOps(const RareAltList* mdp, const RareAlt
 // With multiallelic split (write_variant_ct > variant_ct), split variants are
 // passed to MakePgenThread() as biallelic records, so only the unsplit ones
 // count.
-static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const uint32_t* new_variant_idx_to_old, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const unsigned char* vrtypes, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t dphase_present, uintptr_t* max_variant_raw_word_ct_ptr, uint64_t* max_vblock_raw_word_ct_ptr) {
+// If all_multiallelic is set ('keep-dosage', which can add dosages to
+// hardcall-only records), every multiallelic record counts toward the
+// returned allele count; the raw sizes still only cover records with
+// dosages.
+static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const uint32_t* new_variant_idx_to_old, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const unsigned char* vrtypes, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t read_dosage_present, uint32_t dphase_present, uint32_t all_multiallelic, uintptr_t* max_variant_raw_word_ct_ptr, uint64_t* max_vblock_raw_word_ct_ptr) {
   uint32_t max_allele_ct = 0;
   uintptr_t max_variant_raw_word_ct = 0;
   uint64_t max_vblock_raw_word_ct = 0;
@@ -8276,7 +8351,8 @@ static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const 
     }
     // vrtypes == nullptr for fixed-width storage, where every record has
     // dosages if any does.
-    if (vrtypes && (!(vrtypes[variant_uidx] & 0x60))) {
+    const uint32_t read_dosage = read_dosage_present && ((!vrtypes) || (vrtypes[variant_uidx] & 0x60));
+    if ((!read_dosage) && (!all_multiallelic)) {
       continue;
     }
     const uint32_t cur_max = MAXV(read_allele_ct, write_allele_ct);
@@ -8286,7 +8362,7 @@ static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const 
     if (cur_max > max_allele_ct) {
       max_allele_ct = cur_max;
     }
-    if (read_allele_ct > 2) {
+    if (read_dosage && (read_allele_ct > 2)) {
       const uintptr_t cur_raw_word_ct = PgrGetRawRareAltMaxWordCt(raw_sample_ct, read_allele_ct) * (1 + dphase_present);
       if (cur_raw_word_ct > max_variant_raw_word_ct) {
         max_variant_raw_word_ct = cur_raw_word_ct;
@@ -8307,8 +8383,8 @@ static uint32_t ScanMultiallelicDosages(const uintptr_t* variant_include, const 
 // --make-pgen check.  Sets *max_md_allele_ct_ptr to the largest allele count
 // among multiallelic dosage records (0 if none), and in that case adds
 // kfPgenGlobalMultiallelicDosagePresent to the read and write flags.
-// Prints an error and returns kPglRetNotYetSupported for operations that
-// don't support multiallelic dosages yet ('keep-dosage' modifiers).
+// With 'keep-dosage', every multiallelic record is treated as a possible
+// multiallelic dosage record.
 // (Variant-join is handled by MakePgenJoin() instead.)
 static PglErr PrepareMakePgenMultidosage(const uintptr_t* variant_include, const uint32_t* new_variant_idx_to_old, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const unsigned char* vrtypes, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t write_variant_ct, const MakeCommon* mcp, PgenGlobalFlags* read_gflags_ptr, PgenGlobalFlags* write_gflags_ptr, uint32_t* max_md_allele_ct_ptr, uintptr_t* max_variant_raw_word_ct_ptr, uint64_t* max_vblock_raw_word_ct_ptr) {
   *max_md_allele_ct_ptr = 0;
@@ -8321,23 +8397,21 @@ static PglErr PrepareMakePgenMultidosage(const uintptr_t* variant_include, const
   if ((!((read_gflags | write_gflags) & kfPgenGlobalDosagePresent)) || ((!allele_idx_offsets) && (!write_allele_idx_offsets))) {
     return kPglRetSuccess;
   }
-  // These require multiallelic semantics that haven't been defined, or code
-  // paths that don't handle rare-alt dosages; they were previously blocked
-  // whenever multiallelic variants and dosages were both present.
   assert(variant_ct <= write_variant_ct);
-  if (mcp->plink2_write_flags & (kfPlink2WriteSetInvalidHaploidMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
-    logerrputs("Error: Multiallelic dosages aren't supported yet by 'keep-dosage' modifiers.\n");
-    return kPglRetNotYetSupported;
-  }
-  // Only read-side dosages can produce multiallelic dosage records here.
-  if (!(read_gflags & kfPgenGlobalDosagePresent)) {
+  const uint32_t keep_dosage = !!(mcp->plink2_write_flags & (kfPlink2WriteSetInvalidHaploidMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage));
+  const uint32_t read_dosage_present = !!(read_gflags & kfPgenGlobalDosagePresent);
+  // Otherwise, only read-side dosages can produce multiallelic dosage records
+  // here.
+  if ((!read_dosage_present) && (!keep_dosage)) {
     return kPglRetSuccess;
   }
-  const uint32_t max_md_allele_ct = ScanMultiallelicDosages(variant_include, new_variant_idx_to_old, allele_idx_offsets, write_allele_idx_offsets, vrtypes, raw_sample_ct, variant_ct, write_variant_ct, (read_gflags / kfPgenGlobalDosagePhasePresent) & 1, max_variant_raw_word_ct_ptr, max_vblock_raw_word_ct_ptr);
+  const uint32_t max_md_allele_ct = ScanMultiallelicDosages(variant_include, new_variant_idx_to_old, allele_idx_offsets, write_allele_idx_offsets, vrtypes, raw_sample_ct, variant_ct, write_variant_ct, read_dosage_present, (read_gflags / kfPgenGlobalDosagePhasePresent) & 1, keep_dosage, max_variant_raw_word_ct_ptr, max_vblock_raw_word_ct_ptr);
   if (!max_md_allele_ct) {
     return kPglRetSuccess;
   }
-  *read_gflags_ptr |= kfPgenGlobalMultiallelicDosagePresent;
+  if (read_dosage_present) {
+    *read_gflags_ptr |= kfPgenGlobalMultiallelicDosagePresent;
+  }
   if (write_gflags & kfPgenGlobalDosagePresent) {
     *write_gflags_ptr |= kfPgenGlobalMultiallelicDosagePresent;
   }
@@ -9000,12 +9074,52 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       // For multiallelic dosage records, the hardcall-erasing operations below
       // don't erase the dosages of altx/alty hets they set to missing; that's
       // handled afterward, by comparing against a genovec snapshot.
-      // ('keep-dosage' modifiers are rejected up front in this case.)
-      const uint32_t md_erase_check = cur_md && write_dosage_ct && ((set_invalid_haploid_missing && is_haploid_nonmt) || (set_mixed_mt_missing && is_mt));
+      // Multiallelic 'keep-dosage' is handled separately, since the biallelic
+      // helpers would attribute new dosages to ALT1.
+      const uint32_t md_keep_dosage = (write_allele_ct > 2) && ((set_invalid_haploid_missing_keep_dosage && is_haploid_nonmt) || (set_mixed_mt_missing_keep_dosage && is_mt));
+      const uint32_t md_erase_check = (!md_keep_dosage) && cur_md && write_dosage_ct && ((set_invalid_haploid_missing && is_haploid_nonmt) || (set_mixed_mt_missing && is_mt));
       if (md_erase_check) {
         memcpy(md_bufs->genovec_snapshot, write_genovec, sample_ctl2 * sizeof(intptr_t));
       }
-      if (set_invalid_haploid_missing && is_haploid_nonmt) {
+      if (md_keep_dosage) {
+        // As in the biallelic case, the affected samples lose their
+        // dosage-phase values.
+        if (is_x) {
+          EraseMaleDphases(sex_male_collapsed, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
+        } else {
+          write_dphase_ct = 0;
+        }
+        RareAltList empty_list;
+        memset(&empty_list, 0, sizeof(RareAltList));
+        if (cur_md) {
+          FilterRareAlt(write_dosagepresent, sample_ct, cur_md);
+        }
+        RareAltList* md_dst = (cur_md == &(md_bufs->lists[0]))? (&(md_bufs->lists[1])) : (&(md_bufs->lists[0]));
+        MultiallelicHetMissingKeepdosage(is_x? sex_male_collapsed : nullptr, cur_md? cur_md : (&empty_list), sample_ct, md_bufs, write_genovec, &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals, &write_rare01_ct, &write_rare10_ct, write_dosagepresent, write_dosagevals, &write_dosage_ct, md_dst);
+        cur_md = md_dst;
+        if (is_x) {
+          if (is_hphase && cur_write_phasepresent) {
+            if (!write_rare10_ct) {
+              MaskGenoarrHetsUnsafe(write_genovec, sample_ctl2, cur_write_phasepresent);
+            } else {
+              MaskGenoarrHetsMultiallelicUnsafe(write_genovec, write_patch_10_set, write_patch_10_vals, sample_ctl2, cur_write_phasepresent);
+            }
+            is_hphase = !AllWordsAreZero(write_phasepresent, sample_ctl);
+          }
+        } else {
+          if (is_y) {
+            // all female chrY calls to missing, dosages included
+            InterleavedSetMissingCleardosage(sex_female_collapsed, sex_female_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            if (write_rare01_ct) {
+              ClearGenoarrMissing1bit8Unsafe(write_genovec, &write_rare01_ct, write_patch_01_set, write_patch_01_vals);
+            }
+            if (write_rare10_ct) {
+              ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+            }
+          }
+          is_hphase = 0;
+        }
+      } else if (set_invalid_haploid_missing && is_haploid_nonmt) {
         if (is_x) {
           EraseMaleDphases(sex_male_collapsed, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
           if (!set_invalid_haploid_missing_keep_dosage) {
@@ -9044,10 +9158,18 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           if (!set_invalid_haploid_missing_keep_dosage) {
             SetHetMissingCleardosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
           } else {
+            // bugfix: SetHetMissingKeepdosage() requires trailing genovec entries
+            // to be zero (otherwise they can yield dosages past the last sample)
+            ZeroTrailingNyps(sample_ct, write_genovec);
             SetHetMissingKeepdosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
           }
           if (is_y) {
             InterleavedSetMissingCleardosage(sex_female_collapsed, sex_female_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            // bugfix: drop the patch entries of female altx/altx calls that
+            // were just set to missing
+            if (write_rare10_ct) {
+              ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+            }
           }
           is_hphase = 0;
           write_rare01_ct = 0;
@@ -9062,6 +9184,9 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           // all hets to missing
           SetHetMissingCleardosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
         } else {
+          // bugfix: SetHetMissingKeepdosage() requires trailing genovec entries
+          // to be zero (otherwise they can yield dosages past the last sample)
+          ZeroTrailingNyps(sample_ct, write_genovec);
           SetHetMissingKeepdosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
         }
         is_hphase = 0;
@@ -9186,7 +9311,11 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         memset(&pgv, 0, sizeof(PgenVariant));
         if (cur_md) {
           FilterRareAlt(write_dosagepresent, sample_ct, cur_md);
-          FilterRareAlt(write_dphase_ct? write_dphasepresent : nullptr, sample_ct, cur_mdp);
+          // (cur_mdp is null when 'keep-dosage' gave a hardcall-only record
+          // its dosages)
+          if (cur_mdp) {
+            FilterRareAlt(write_dphase_ct? write_dphasepresent : nullptr, sample_ct, cur_mdp);
+          }
           pgv.multidosage_present = cur_md->present;
           pgv.multidosage_cts = cur_md->cts;
           pgv.multidosage_codes = cur_md->codes;
