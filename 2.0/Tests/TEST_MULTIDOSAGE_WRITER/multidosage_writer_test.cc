@@ -3372,6 +3372,235 @@ static int CheckExport(const char* prefix, const char* out_fname, const char* mo
   return 0;
 }
 
+// ***** "checkgrm" mode: --make-grm-list on multiallelic dosages *****
+
+// Checks a plink2 --make-grm-list ['cov'] ['meanimpute'] output against a
+// relationship matrix computed independently from the source fileset, with
+// allele frequencies from the given .afreq file.  Each variant contributes one
+// row per allele, (<allele dosage> - 2 * <freq>) / sqrt(2 * <variance>)
+// (variance = \sum_a f_a (1 - f_a); just / sqrt(2) with 'cov'), with dosages
+// where present and hardcalls elsewhere, and 0 for missing calls; for
+// biallelic variants, this is equivalent to the usual single row.  Each
+// pair's sum is divided by the number of variants where neither sample is
+// missing (the total variant count with 'meanimpute'), which is also checked
+// against the N column.  (Zero-variance variants contribute 0.)
+static int CheckGrm(const char* prefix, const char* afreq_fname, const char* grm_fname, uint32_t is_cov, uint32_t meanimpute) {
+  PvarInfo pi;
+  if (ReadPvar(prefix, pi)) {
+    fprintf(stderr, "checkgrm: failed to read .pvar\n");
+    return 1;
+  }
+  const std::vector<std::string> iids = ReadPsamIids(prefix);
+  const uint32_t sample_ct = iids.size();
+  const uint32_t variant_ct = pi.ids.size();
+  // per-variant allele frequencies
+  std::vector<std::vector<double>> freqs(variant_ct);
+  {
+    int id_col = -1;
+    int freq_col = -1;
+    uint32_t vidx = 0;
+    for (const std::string& line : ReadLines(afreq_fname)) {
+      const std::vector<std::string> toks = SplitTabs(line);
+      if (line[0] == '#') {
+        for (size_t i = 0; i != toks.size(); ++i) {
+          if (toks[i] == "ID") {
+            id_col = i;
+          } else if (toks[i] == "ALT_FREQS") {
+            freq_col = i;
+          }
+        }
+        continue;
+      }
+      if ((id_col < 0) || (freq_col < 0) || (vidx == variant_ct) || (toks[id_col] != pi.ids[vidx])) {
+        fprintf(stderr, "checkgrm: unexpected .afreq contents\n");
+        return 1;
+      }
+      std::vector<double>& cur_freqs = freqs[vidx];
+      cur_freqs.push_back(1.0);
+      size_t start = 0;
+      const std::string& tok = toks[freq_col];
+      while (1) {
+        const size_t pos = tok.find(',', start);
+        const double ff = strtod(tok.substr(start, (pos == std::string::npos)? std::string::npos : (pos - start)).c_str(), nullptr);
+        cur_freqs.push_back(ff);
+        cur_freqs[0] -= ff;
+        if (pos == std::string::npos) {
+          break;
+        }
+        start = pos + 1;
+      }
+      ++vidx;
+    }
+    if (vidx != variant_ct) {
+      fprintf(stderr, "checkgrm: .afreq has too few variants\n");
+      return 1;
+    }
+  }
+  Reader r;
+  if (OpenReader((std::string(prefix) + ".pgen").c_str(), pi.allele_idx_offsets.data(), variant_ct, sample_ct, r)) {
+    return 1;
+  }
+  ReaderBufs rb;
+  InitReaderBufs(sample_ct, 255, rb);
+  PgrSampleSubsetIndex pssi;
+  PgrClearSampleSubsetIndex(&r.pgr, &pssi);
+  std::vector<double> grm(S_CAST(size_t, sample_ct) * sample_ct, 0.0);
+  std::vector<uint32_t> nm_cts(S_CAST(size_t, sample_ct) * sample_ct, 0);
+  std::vector<double> z;
+  std::vector<uint32_t> nm(sample_ct);
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    const uint32_t allele_ct = pi.allele_idx_offsets[vidx + 1] - pi.allele_idx_offsets[vidx];
+    if (PgrGetMDp(nullptr, pssi, sample_ct, vidx, &r.pgr, &rb.pgv)) {
+      fprintf(stderr, "checkgrm: read error\n");
+      return 1;
+    }
+    const std::vector<SampleData> sds = Decode(rb.pgv, sample_ct, 0, 0, 1);
+    const std::vector<double>& cur_freqs = freqs[vidx];
+    double variance = 0.0;
+    for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+      variance += cur_freqs[aidx] * (1.0 - cur_freqs[aidx]);
+    }
+    const uint32_t degen = (!is_cov) && (!(variance > 1e-15));
+    const double inv_stdev = is_cov? (1.0 / sqrt(2.0)) : (1.0 / sqrt(2.0 * variance));
+    // z[aidx * sample_ct + sample_idx]
+    z.assign(S_CAST(size_t, allele_ct) * sample_ct, 0.0);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const SampleData& sd = sds[sample_idx];
+      std::vector<int32_t> u;
+      std::vector<int32_t> d;
+      DenseAlleleVals(sd, allele_ct, u, d);
+      if (u.empty() && (sd.a1 != UINT32_MAX)) {
+        u.assign(allele_ct, 0);
+        u[sd.a1] += 16384;
+        u[sd.a2] += 16384;
+      }
+      nm[sample_idx] = !u.empty();
+      if (u.empty() || degen) {
+        continue;
+      }
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        z[aidx * sample_ct + sample_idx] = (u[aidx] / 16384.0 - 2 * cur_freqs[aidx]) * inv_stdev;
+      }
+    }
+    for (uint32_t s1 = 0; s1 != sample_ct; ++s1) {
+      for (uint32_t s2 = 0; s2 <= s1; ++s2) {
+        nm_cts[s1 * sample_ct + s2] += nm[s1] && nm[s2];
+        double dotprod = 0.0;
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          dotprod += z[aidx * sample_ct + s1] * z[aidx * sample_ct + s2];
+        }
+        grm[s1 * sample_ct + s2] += dotprod;
+      }
+    }
+  }
+  FreeReaderBufs(rb);
+  CloseReader(r);
+  uint64_t mismatch_ct = 0;
+  uint64_t entry_ct = 0;
+  for (const std::string& line : ReadLines(grm_fname)) {
+    const std::vector<std::string> toks = SplitTabs(line);
+    if (toks.size() != 4) {
+      fprintf(stderr, "checkgrm: unexpected .grm line\n");
+      return 1;
+    }
+    const uint32_t s1 = atoi(toks[0].c_str()) - 1;
+    const uint32_t s2 = atoi(toks[1].c_str()) - 1;
+    const uint32_t obs_ct = atoi(toks[2].c_str());
+    const double val = strtod(toks[3].c_str(), nullptr);
+    const uint32_t expected_ct = meanimpute? variant_ct : nm_cts[s1 * sample_ct + s2];
+    const double expected_val = grm[s1 * sample_ct + s2] / expected_ct;
+    ++entry_ct;
+    // values are printed with 6 significant digits
+    if ((obs_ct != expected_ct) || (fabs(val - expected_val) > 1e-5 * (1.0 + fabs(expected_val)))) {
+      if (mismatch_ct++ < 10) {
+        fprintf(stderr, "checkgrm: entry (%u, %u): %u %g, expected %u %g\n", s1 + 1, s2 + 1, obs_ct, val, expected_ct, expected_val);
+      }
+    }
+  }
+  if (entry_ct != (S_CAST(uint64_t, sample_ct) * (sample_ct + 1)) / 2) {
+    fprintf(stderr, "checkgrm: %" PRIu64 " entries, expected %u\n", entry_ct, (sample_ct * (sample_ct + 1)) / 2);
+    return 1;
+  }
+  if (mismatch_ct) {
+    fprintf(stderr, "checkgrm: %" PRIu64 " mismatch(es)\n", mismatch_ct);
+    return 1;
+  }
+  printf("checkgrm: %" PRIu64 " entries ok\n", entry_ct);
+  return 0;
+}
+
+// ***** "checkpca" mode: --pca against a (checked) --make-rel square matrix *****
+
+// Exact --pca eigenvectors must be unit eigenvectors of the default
+// --make-rel matrix with the reported eigenvalues (to output precision).
+// 'approx' eigenvectors are only checked against the 'meanimpute' matrix
+// loosely: each one's Rayleigh quotient must be within 2% of its reported
+// eigenvalue.
+static int CheckPca(const char* rel_fname, const char* eigenvec_fname, const char* eigenval_fname, uint32_t approx) {
+  std::vector<std::vector<double>> grm;
+  for (const std::string& line : ReadLines(rel_fname)) {
+    std::vector<double> row;
+    for (const std::string& tok : SplitTabs(line)) {
+      row.push_back(strtod(tok.c_str(), nullptr));
+    }
+    grm.push_back(row);
+  }
+  std::vector<double> eigvals;
+  for (const std::string& line : ReadLines(eigenval_fname)) {
+    eigvals.push_back(strtod(line.c_str(), nullptr));
+  }
+  const uint32_t sample_ct = grm.size();
+  const uint32_t pc_ct = eigvals.size();
+  std::vector<std::vector<double>> vecs(pc_ct);
+  for (const std::string& line : ReadLines(eigenvec_fname)) {
+    if (line[0] == '#') {
+      continue;
+    }
+    const std::vector<std::string> toks = SplitTabs(line);
+    if (toks.size() != pc_ct + 1) {
+      fprintf(stderr, "checkpca: unexpected .eigenvec line\n");
+      return 1;
+    }
+    for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+      vecs[pc_idx].push_back(strtod(toks[pc_idx + 1].c_str(), nullptr));
+    }
+  }
+  if ((!pc_ct) || (vecs[0].size() != sample_ct)) {
+    fprintf(stderr, "checkpca: dimension mismatch\n");
+    return 1;
+  }
+  int fail = 0;
+  for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+    const std::vector<double>& v = vecs[pc_idx];
+    double ssq = 0.0;
+    double quad = 0.0;
+    double max_resid = 0.0;
+    for (uint32_t s1 = 0; s1 != sample_ct; ++s1) {
+      double gv = 0.0;
+      for (uint32_t s2 = 0; s2 != sample_ct; ++s2) {
+        gv += grm[s1][s2] * v[s2];
+      }
+      ssq += v[s1] * v[s1];
+      quad += v[s1] * gv;
+      max_resid = std::max(max_resid, fabs(gv - eigvals[pc_idx] * v[s1]));
+    }
+    const double rayleigh = quad / ssq;
+    if (approx) {
+      if (fabs(rayleigh - eigvals[pc_idx]) > 0.02 * eigvals[pc_idx]) {
+        fprintf(stderr, "checkpca: PC%u Rayleigh quotient %g, eigenvalue %g\n", pc_idx + 1, rayleigh, eigvals[pc_idx]);
+        fail = 1;
+      }
+    } else if ((fabs(ssq - 1.0) > 1e-5) || (max_resid > 1e-4)) {
+      fprintf(stderr, "checkpca: PC%u: squared norm %g, max |Gv - lambda v| %g\n", pc_idx + 1, ssq, max_resid);
+      fail = 1;
+    }
+  }
+  if (!fail) {
+    printf("checkpca: %u PCs ok\n", pc_ct);
+  }
+  return fail;
+}
+
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
   // [hets-missing [keep-dosage] [hm-samples=<IID file>]] [hct=<thresh>] [fill]
@@ -3386,6 +3615,22 @@ int main(int argc, char** argv) {
   // CheckExport().
   if ((argc == 5) && (!strcmp(argv[1], "checkexport"))) {
     return CheckExport(argv[2], argv[3], argv[4]);
+  }
+  // "checkgrm <source prefix> <.afreq> <.grm> [cov] [meanimpute]": see
+  // CheckGrm().
+  if ((argc >= 5) && (!strcmp(argv[1], "checkgrm"))) {
+    uint32_t is_cov = 0;
+    uint32_t meanimpute = 0;
+    for (int argi = 5; argi < argc; ++argi) {
+      is_cov |= !strcmp(argv[argi], "cov");
+      meanimpute |= !strcmp(argv[argi], "meanimpute");
+    }
+    return CheckGrm(argv[2], argv[3], argv[4], is_cov, meanimpute);
+  }
+  // "checkpca <.rel (square)> <.eigenvec> <.eigenval> [approx]": see
+  // CheckPca().
+  if ((argc >= 5) && (!strcmp(argv[1], "checkpca"))) {
+    return CheckPca(argv[2], argv[3], argv[4], (argc >= 6) && (!strcmp(argv[5], "approx")));
   }
   if ((argc >= 4) && (!strcmp(argv[1], "comparejoin"))) {
     return CompareJoin(argv[2], argv[3], (argc >= 5) && (!strcmp(argv[4], "strip-phase")));
