@@ -708,6 +708,13 @@ hard-call.  Therefore, when no explicit dosage-phase is stored for a biallelic
 variant in this scenario, the dosage is considered implicitly phased in this
 manner.  This can save a significant amount of disk space.
 
+Implicit dosage-phase is not defined for variants with more than two alleles,
+since the phased hard-call no longer determines how each ALT allele's dosage
+is split between the haplotypes.  Instead, when the variant has more than two
+alleles, every sample with both a dosage and a heterozygous hard-call (including
+an ALT$x$/ALT$y$ hard-call) whose phase is stored must also have an explicit
+dosage-phase value in track \#8, described below.
+
 Of course, not all dosage-phase information is of this convenient form.  To
 cover the other bases...
 
