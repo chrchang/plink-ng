@@ -5,11 +5,25 @@
 # everything after the first '.' in its filename (e.g. "Q.glm.linear").  Rows
 # are matched on (suffix, ID, A1, occurrence index); every reference row of a
 # suffix present among the outputs must be matched.  Numeric columns must
-# agree to a relative 1e-4.
+# agree to a relative 1e-4 (odds ratios on the log scale).
 function absf(x) { return (x < 0)? -x : x }
 function close_enough(x, y) {
-  if ((x == "NA") || (y == "NA")) return (x == y);
+  if ((x "") == (y "")) return 1;
+  if ((x == "NA") || (y == "NA")) return 0;
   return absf(x - y) <= 1e-4 * (absf(x) + absf(y)) + 1e-6;
+}
+# log10 of a positive number, computed from its text, since odds ratios can
+# exceed double range (e.g. 5e+828 under separation, which awk turns into inf;
+# inf - inf is NaN, which awks compare inconsistently).
+function text_log10(x,    parts, n) {
+  n = split(tolower(x), parts, "e");
+  return ((n == 2)? (parts[2] + 0) : 0) + log(parts[1] + 0) / log(10);
+}
+function or_close_enough(x, y) {
+  if ((x "") == (y "")) return 1;
+  if ((x == "NA") || (y == "NA") || (x + 0 <= 0) || (y + 0 <= 0)) return close_enough(x, y);
+  # same relative tolerance as close_enough(), on the log scale
+  return absf(text_log10(x) - text_log10(y)) <= 1e-4;
 }
 BEGIN {
   FS = "\t";
@@ -41,7 +55,7 @@ file_idx == 1 {
   split(ref[key], r, "\t");
   for (n = 1; n <= name_ct; ++n) {
     c = col[sfx, names[n]];
-    if (c && (!close_enough($c, r[c]))) {
+    if (c && (!((names[n] == "OR")? or_close_enough($c, r[c]) : close_enough($c, r[c])))) {
       if (bad++ < 10) print "mismatch: " sfx " " $3 " " $col[sfx, "A1"] " " names[n] ": " $c " vs. " r[c] > "/dev/stderr";
     }
   }
