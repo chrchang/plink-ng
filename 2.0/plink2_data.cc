@@ -8169,6 +8169,11 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           }
           if (is_y) {
             InterleavedSetMissingCleardosage(sex_female_collapsed, sex_female_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            // bugfix: drop the patch entries of female altx/altx calls that
+            // were just set to missing
+            if (write_rare10_ct) {
+              ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+            }
           }
           is_hphase = 0;
           write_rare01_ct = 0;
