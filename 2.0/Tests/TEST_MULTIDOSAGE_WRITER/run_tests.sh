@@ -456,3 +456,54 @@ for sp in "" "single-prec"; do
     $P --pfile tmp_small --max-alleles 20 --read-freq tmp_sc_freq.afreq --variant-score tmp_sc_vw.txt $sp cols=+altfreq,+nmiss --out tmp_sc_vs
     awk -f vscore_compare.awk tmp_sc_vw.txt tmp_sc_ds.vcf tmp_sc_vs.vscore
 done
+
+# --r2-[un]phased and --ld on multiallelic dosages: the major allele's dosage
+# and dosage-phase vs. the rest, compared against the corresponding split
+# variants (see ld_reference.sh), on autosomes, chrX, and MT.
+mat_compare() {
+    # all-pairs r^2 matrices; nan must match nan
+    awk 'function absf(x) { return (x < 0)? -x : x }
+         FNR == NR { for (i = 1; i <= NF; ++i) v[FNR, i] = $i; rows = FNR; next }
+         { for (i = 1; i <= NF; ++i) { ++n; x = v[FNR, i]; y = $i;
+             if (((x == "nan") != (y == "nan")) || ((x != "nan") && (absf(x - y) > 1e-6 + 1e-4 * absf(x)))) ++bad } }
+         END { print n " r^2 entries, " (bad + 0) " mismatches"; exit (bad || (n != rows * rows) || (!n)) }' "$1" "$2"
+}
+for f in tmp_small tmp_x tmp_mt; do
+    ./ld_reference.sh "$P" $f tmp_ld_$f
+    for m in unphased phased; do
+        $P --pfile tmp_ld_${f}_perm --r2-$m square --out tmp_ld_${f}_m
+        $P --pfile tmp_ld_${f}_split --extract tmp_ld_${f}_split_ext.txt --r2-$m square --out tmp_ld_${f}_s
+        mat_compare tmp_ld_${f}_m.$m.vcor2 tmp_ld_${f}_s.$m.vcor2
+    done
+done
+# Unpermuted (93 multiallelic variants have REF as the major allele): same
+# matrices.
+for m in unphased phased; do
+    $P --pfile tmp_small --max-alleles 5 --r2-$m square --out tmp_ld_orig
+    mat_compare tmp_ld_orig.$m.vcor2 tmp_ld_tmp_small_m.$m.vcor2
+done
+# --ld on pairs of multiallelic variants: r^2, |D'|, sample count, and the
+# haplotype frequencies (as a set, since a split variant's major allele can be
+# "the rest" when frequencies are close to 0.5).
+ld_summary() {
+    sed -n '/^--ld /,$p' $1 | awk '/valid samples/ {s = $1} /r\^2 =/ {r = $3 " " $6}
+      /^ *MAJOR  [0-9]/ || /^ *MINOR  [0-9]/ {f[++n] = $2; f[++n] = $3}
+      END {for (i = 1; i <= n; ++i) for (j = i + 1; j <= n; ++j) if (f[j] < f[i]) {t = f[i]; f[i] = f[j]; f[j] = t}
+           printf("%s %s", s, r); for (i = 1; i <= n; ++i) printf(" %s", f[i]); printf("\n")}'
+}
+for pair in "v72 v73" "v84 v85" "v96 v97" "v73 v97" "v102 v103" "v1 v2"; do
+    set -- $pair
+    id1=$(awk -v v=$1 'FNR == NR {if (!/^#/) {++k; if ($3 == v) idx = k}; next} FNR == idx' tmp_ld_tmp_small_perm.pvar tmp_ld_tmp_small_split_ext.txt)
+    id2=$(awk -v v=$2 'FNR == NR {if (!/^#/) {++k; if ($3 == v) idx = k}; next} FNR == idx' tmp_ld_tmp_small_perm.pvar tmp_ld_tmp_small_split_ext.txt)
+    $P --pfile tmp_ld_tmp_small_perm --ld $1 $2 --out tmp_ld_pair_m
+    $P --pfile tmp_ld_tmp_small_split --ld $id1 $id2 --out tmp_ld_pair_s
+    test "$(ld_summary tmp_ld_pair_m.log)" == "$(ld_summary tmp_ld_pair_s.log)"
+done
+# --indep-pairwise uses hardcalls (dosages only affect allele frequencies):
+# with shared frequencies, dosages must make no difference.
+$P --pfile tmp_small --freq --out tmp_ld_ipf
+$P --pfile tmp_small --make-pgen erase-dosage --out tmp_ld_nd
+$P --pfile tmp_small --read-freq tmp_ld_ipf.afreq --indep-pairwise 50 5 0.01 --out tmp_ld_ip
+$P --pfile tmp_ld_nd --read-freq tmp_ld_ipf.afreq --indep-pairwise 50 5 0.01 --out tmp_ld_ipnd
+cmp tmp_ld_ip.prune.in tmp_ld_ipnd.prune.in
+cmp tmp_ld_ip.prune.out tmp_ld_ipnd.prune.out
