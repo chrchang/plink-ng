@@ -3,8 +3,10 @@
 // from random but valid data, and checks each record's type byte and that the
 // record ends with independently computed bytes for tracks #5-10 (parsing the
 // header by hand).  Then reads the files back with PgrGetMDp(), PgrGetMD(),
-// PgrGetDp(), PgrGet1D(), PgrGetInv1D(), and PgrGetInv1Dp(), with and without
-// sample subsetting, and compares against the source data, and checks that
+// PgrGetDp(), PgrGet1D(), PgrGetInv1D(), PgrGetInv1Dp(), PgrGetMDCounts(), and
+// PgrGetDCounts(),
+// with and without sample subsetting, and with PgrGetRaw(), and compares
+// against the source data, and checks that
 // PgrValidate() accepts the files.  Finally, PgrValidate() is run on small
 // hand-built records that each violate one multiallelic-dosage rule.
 
@@ -698,6 +700,233 @@ static std::vector<SampleData> SubsetSamples(const std::vector<SampleData>& full
   return out;
 }
 
+// Checks PgrGetMDCounts() against values computed from the source data.
+static void CheckMDCounts(Reader& r, const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t subset_ct, uint32_t vidx, uint32_t allele_ct, const std::vector<SampleData>& full) {
+  std::vector<uint64_t> expected_sums(allele_ct, 0);
+  std::vector<uint64_t> ssqs[2] = {std::vector<uint64_t>(allele_ct, 0), std::vector<uint64_t>(allele_ct, 0)};
+  STD_ARRAY_DECL(uint32_t, 4, expected_genocounts);
+  STD_ARRAY_FILL0(expected_genocounts);
+  uint32_t expected_het_ct = 0;
+  uint32_t nm_ct = 0;
+  uint32_t extra_phased_het_ct = 0;
+  for (const SampleData& sd : full) {
+    const uint32_t hc_missing = (sd.a1 == UINT32_MAX);
+    if (hc_missing) {
+      expected_genocounts[3] += 1;
+    } else {
+      expected_genocounts[(sd.a1 != 0) + (sd.a2 != 0)] += 1;
+      expected_het_ct += (sd.a1 != sd.a2);
+    }
+    if (sd.has_dosage) {
+      std::vector<int64_t> u(allele_ct, 0);
+      std::vector<int64_t> d(allele_ct, 0);
+      u[0] = 32768 - sd.dosage;
+      u[1] = sd.dosage;
+      for (const auto& pr : sd.md) {
+        u[pr.first] = pr.second;
+        u[1] -= pr.second;
+      }
+      if (sd.has_dphase) {
+        d[0] = -sd.dphase;
+        d[1] = sd.dphase;
+        for (const auto& pr : sd.mdp) {
+          d[pr.first] = pr.second;
+          d[1] -= pr.second;
+        }
+      }
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        expected_sums[aidx] += u[aidx];
+        ssqs[0][aidx] += u[aidx] * u[aidx];
+        ssqs[1][aidx] += u[aidx] * u[aidx] + d[aidx] * d[aidx];
+      }
+      ++nm_ct;
+    } else if (!hc_missing) {
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        const uint64_t cur_dosage = 16384 * ((sd.a1 == aidx) + (sd.a2 == aidx));
+        expected_sums[aidx] += cur_dosage;
+        ssqs[0][aidx] += cur_dosage * cur_dosage;
+        ssqs[1][aidx] += cur_dosage * cur_dosage;
+      }
+      extra_phased_het_ct += sd.phased;
+      ++nm_ct;
+    }
+  }
+  for (uint32_t is_minimac3_r2 = 0; is_minimac3_r2 != 2; ++is_minimac3_r2) {
+    STD_ARRAY_DECL(uint32_t, 4, genocounts);
+    std::vector<uint64_t> all_dosages(allele_ct);
+    uint32_t het_ct = 0;
+    double imp_r2 = 0.0;
+    double* imp_r2_ptr = (allele_ct > 2)? (&imp_r2) : nullptr;
+    const PglErr reterr = PgrGetMDCounts(sample_include, sample_include_interleaved_vec, pssi, subset_ct, vidx, is_minimac3_r2, &r.pgr, imp_r2_ptr, &het_ct, genocounts, all_dosages.data());
+    CHECK(!reterr);
+    if (reterr) {
+      return;
+    }
+    int ok = (all_dosages == expected_sums) && (het_ct == expected_het_ct);
+    for (uint32_t uii = 0; uii != 4; ++uii) {
+      ok = ok && (genocounts[uii] == expected_genocounts[uii]);
+    }
+    if (imp_r2_ptr) {
+      double expected_r2 = MultiallelicDiploidMinimac3R2(expected_sums.data(), ssqs[is_minimac3_r2].data(), nm_ct, allele_ct, is_minimac3_r2? extra_phased_het_ct : 0);
+      if (!is_minimac3_r2) {
+        expected_r2 *= 2;
+      }
+      // NaN when there are no nonmissing samples
+      ok = ok && ((imp_r2 == expected_r2) || ((imp_r2 != imp_r2) && (expected_r2 != expected_r2)));
+    }
+    if ((!ok) && (g_mismatch_msg_ct++ < 10)) {
+      fprintf(stderr, "PgrGetMDCounts mismatch: variant %u (allele_ct %u, minimac3 %u): dosage[0] %" PRIu64 " vs %" PRIu64 ", het %u vs %u, r2 %g vs %g\n", vidx, allele_ct, is_minimac3_r2, all_dosages[0], expected_sums[0], het_ct, expected_het_ct, imp_r2, imp_r2_ptr? MultiallelicDiploidMinimac3R2(expected_sums.data(), ssqs[is_minimac3_r2].data(), nm_ct, allele_ct, is_minimac3_r2? extra_phased_het_ct : 0) : 0.0);
+    }
+    CHECK(ok);
+  }
+}
+
+// Checks PgrGetDCounts()'s ref vs. nonref collapse of a multiallelic
+// variant, and that it refuses to compute imputation-r2 there.
+static void CheckDCountsCollapse(Reader& r, const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t subset_ct, uint32_t vidx, const std::vector<SampleData>& full) {
+  uint64_t expected_dosages[2] = {0, 0};
+  STD_ARRAY_DECL(uint32_t, 4, expected_genocounts);
+  STD_ARRAY_FILL0(expected_genocounts);
+  for (const SampleData& sd : full) {
+    const uint32_t hc_missing = (sd.a1 == UINT32_MAX);
+    const uint32_t nonref_ct = hc_missing? 0 : ((sd.a1 != 0) + (sd.a2 != 0));
+    expected_genocounts[hc_missing? 3 : nonref_ct] += 1;
+    if (sd.has_dosage) {
+      expected_dosages[0] += 32768 - sd.dosage;
+      expected_dosages[1] += sd.dosage;
+    } else if (!hc_missing) {
+      expected_dosages[0] += 16384 * (2 - nonref_ct);
+      expected_dosages[1] += 16384 * nonref_ct;
+    }
+  }
+  for (uint32_t is_minimac3_r2 = 0; is_minimac3_r2 != 2; ++is_minimac3_r2) {
+    STD_ARRAY_DECL(uint32_t, 4, genocounts);
+    uint64_t dosages[2];
+    const PglErr reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, pssi, subset_ct, vidx, is_minimac3_r2, &r.pgr, nullptr, genocounts, dosages);
+    CHECK(!reterr);
+    if (reterr) {
+      return;
+    }
+    int ok = (dosages[0] == expected_dosages[0]) && (dosages[1] == expected_dosages[1]);
+    for (uint32_t uii = 0; uii != 4; ++uii) {
+      ok = ok && (genocounts[uii] == expected_genocounts[uii]);
+    }
+    if ((!ok) && (g_mismatch_msg_ct++ < 10)) {
+      fprintf(stderr, "PgrGetDCounts mismatch: variant %u: dosages %" PRIu64 "/%" PRIu64 " vs %" PRIu64 "/%" PRIu64 "\n", vidx, dosages[0], dosages[1], expected_dosages[0], expected_dosages[1]);
+    }
+    CHECK(ok);
+    double imp_r2;
+    CHECK(PgrGetDCounts(sample_include, sample_include_interleaved_vec, pssi, subset_ct, vidx, is_minimac3_r2, &r.pgr, &imp_r2, genocounts, dosages) == kPglRetImproperFunctionCall);
+  }
+}
+
+// Decodes one rare-alt track pair in PgrGetRaw() format; returns the end.
+static const uintptr_t* DecodeRawRareAlt(const uintptr_t* iter, uint32_t raw_sample_ct, uintptr_t** present_ptr, unsigned char** cts_ptr, AlleleCode** codes_ptr, uint16_t** vals_ptr, uint32_t* sample_ct_ptr) {
+  const uintptr_t entry_ct = iter[0];
+  iter = &(iter[kWordsPerVec]);
+  *present_ptr = const_cast<uintptr_t*>(iter);
+  *sample_ct_ptr = PopcountWords(iter, BitCtToWordCt(raw_sample_ct));
+  iter = &(iter[BitCtToAlignedWordCt(raw_sample_ct)]);
+  *codes_ptr = R_CAST(AlleleCode*, const_cast<uintptr_t*>(iter));
+  iter = &(iter[kWordsPerVec * DivUp(entry_ct, kBytesPerVec)]);
+  *vals_ptr = R_CAST(uint16_t*, const_cast<uintptr_t*>(iter));
+  iter = &(iter[kWordsPerVec * DivUp(2 * entry_ct, kBytesPerVec)]);
+  *cts_ptr = R_CAST(unsigned char*, const_cast<uintptr_t*>(iter));
+  return &(iter[kWordsPerVec * DivUp(*sample_ct_ptr, kBytesPerVec)]);
+}
+
+// Loads every variant with PgrGetRaw() and compares the decoded raw record
+// (minus hardcall phase) against the source data.
+static void CheckGetRaw(Reader& r, const std::vector<VariantData>& vds, const std::vector<uint32_t>& is_multi, uint32_t sample_ct) {
+  const PgenGlobalFlags all_gflags = kfPgenGlobalMultiallelicHardcallFound | kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
+  const uintptr_t buf_word_ct = 64 + 16 * BitCtToAlignedWordCt(sample_ct) + kWordsPerVec * DivUp(16 * sample_ct, kBytesPerVec) + 2 * PgrGetRawRareAltMaxWordCt(sample_ct, 255);
+  uintptr_t* buf = AllocWords(buf_word_ct * kBitsPerWord);
+  const uint32_t raw_sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  for (uint32_t vidx = 0; vidx != vds.size(); ++vidx) {
+    const VariantData& vd = vds[vidx];
+    const uint32_t multi_dosage = is_multi[vidx] && vd.pgv.dosage_ct;
+    if (multi_dosage) {
+      uintptr_t* loadbuf_iter = buf;
+      CHECK(PgrGetRaw(vidx, all_gflags, &r.pgr, &loadbuf_iter, nullptr) == kPglRetNotYetSupported);
+    }
+    uintptr_t* loadbuf_iter = buf;
+    unsigned char loaded_vrtype = 0;
+    PglErr reterr = PgrGetRaw(vidx, all_gflags | kfPgenGlobalMultiallelicDosagePresent, &r.pgr, &loadbuf_iter, &loaded_vrtype);
+    CHECK(!reterr);
+    if (reterr) {
+      continue;
+    }
+    CHECK(S_CAST(uintptr_t, loadbuf_iter - buf) <= buf_word_ct);
+    PgenVariant pgv;
+    memset(&pgv, 0, sizeof(PgenVariant));
+    const uintptr_t* iter = buf;
+    pgv.genovec = buf;
+    iter = &(iter[NypCtToAlignedWordCt(sample_ct)]);
+    if (loaded_vrtype & 8) {
+      pgv.patch_01_ct = iter[0];
+      pgv.patch_10_ct = iter[1];
+      iter = &(iter[RoundUpPow2(2, kWordsPerVec)]);
+      if (pgv.patch_01_ct) {
+        pgv.patch_01_set = const_cast<uintptr_t*>(iter);
+        iter = &(iter[raw_sample_ctl]);
+        pgv.patch_01_vals = R_CAST(AlleleCode*, const_cast<uintptr_t*>(iter));
+        iter = &(iter[RoundUpPow2(raw_sample_ctl + DivUp(pgv.patch_01_ct, kBytesPerWord), kWordsPerVec) - raw_sample_ctl]);
+      }
+      if (pgv.patch_10_ct) {
+        pgv.patch_10_set = const_cast<uintptr_t*>(iter);
+        iter = &(iter[raw_sample_ctl]);
+        pgv.patch_10_vals = R_CAST(AlleleCode*, const_cast<uintptr_t*>(iter));
+        iter = &(iter[RoundUpPow2(raw_sample_ctl + DivUp(2 * pgv.patch_10_ct, kBytesPerWord), kWordsPerVec) - raw_sample_ctl]);
+      }
+    }
+    if (loaded_vrtype & 0x10) {
+      const uint32_t het_ct = S_CAST(uint32_t, iter[0]);
+#ifdef __LP64__
+      const uint32_t explicit_phasepresent_ct = iter[0] >> 32;
+#else
+      const uint32_t explicit_phasepresent_ct = iter[1];
+#endif
+      const uint32_t phaseraw_word_ct = (8 / kBytesPerWord) + 1 + (het_ct / kBitsPerWord) + DivUp(explicit_phasepresent_ct, kBitsPerWord);
+      iter = &(iter[RoundUpPow2(phaseraw_word_ct, kWordsPerVec)]);
+    }
+    if (loaded_vrtype & 0x60) {
+      pgv.dosage_present = const_cast<uintptr_t*>(iter);
+      pgv.dosage_ct = PopcountWords(iter, raw_sample_ctl);
+      pgv.dosage_main = R_CAST(uint16_t*, const_cast<uintptr_t*>(&(iter[raw_sample_ctaw])));
+      iter = &(iter[raw_sample_ctaw + kWordsPerVec * DivUp(pgv.dosage_ct, kBytesPerVec / 2)]);
+      if (loaded_vrtype & 0x80) {
+        pgv.dphase_present = const_cast<uintptr_t*>(iter);
+        pgv.dphase_ct = PopcountWords(iter, raw_sample_ctl);
+        pgv.dphase_delta = R_CAST(int16_t*, const_cast<uintptr_t*>(&(iter[raw_sample_ctaw])));
+        iter = &(iter[raw_sample_ctaw + kWordsPerVec * DivUp(pgv.dphase_ct, kBytesPerVec / 2)]);
+      }
+      if (vd.allele_ct > 2) {
+        iter = DecodeRawRareAlt(iter, sample_ct, &pgv.multidosage_present, &pgv.multidosage_cts, &pgv.multidosage_codes, &pgv.multidosage_vals, &pgv.multidosage_sample_ct);
+        if (loaded_vrtype & 0x80) {
+          uint16_t* deltas;
+          iter = DecodeRawRareAlt(iter, sample_ct, &pgv.multidphase_present, &pgv.multidphase_cts, &pgv.multidphase_codes, &deltas, &pgv.multidphase_sample_ct);
+          pgv.multidphase_delta = R_CAST(int16_t*, deltas);
+        }
+      }
+    }
+    CHECK(iter == loadbuf_iter);
+    PgenVariant src = vd.pgv;
+    if (!is_multi[vidx]) {
+      src.patch_01_ct = 0;
+      src.patch_10_ct = 0;
+      src.phasepresent_ct = 0;
+      src.dphase_ct = 0;
+      src.multidosage_sample_ct = 0;
+      src.multidphase_sample_ct = 0;
+    }
+    const uint32_t expected_vrtype = ((src.patch_01_ct || src.patch_10_ct)? 8 : 0) | (src.phasepresent_ct? 0x10 : 0) | (src.dosage_ct? 0x60 : 0) | (src.dphase_ct? 0x80 : 0);
+    CHECK(loaded_vrtype == expected_vrtype);
+    CheckSamples(Decode(src, sample_ct, 0, 1, 1), Decode(pgv, sample_ct, 0, 1, 1), "PgrGetRaw", vidx);
+  }
+  free(buf);
+}
+
 // Reads every variant back, with sample_include == nullptr (all samples) or a
 // subset, and compares against the source data.
 static void ReadBackPass(Reader& r, const std::vector<VariantData>& vds, const std::vector<uint32_t>& is_multi, uint32_t sample_ct, const uintptr_t* sample_include, uint32_t subset_ct, const uint32_t* cumulative_popcounts, ReaderBufs& rb) {
@@ -709,6 +938,12 @@ static void ReadBackPass(Reader& r, const std::vector<VariantData>& vds, const s
   }
   PgenVariant& out = rb.pgv;
   const uint32_t variant_ct = vds.size();
+  uintptr_t* sample_include_interleaved_vec = nullptr;
+  if (sample_include) {
+    const uint32_t raw_sample_ctv = BitCtToVecCt(sample_ct);
+    sample_include_interleaved_vec = AllocWords(raw_sample_ctv * kBitsPerVec);
+    FillInterleavedMaskVec(sample_include, raw_sample_ctv, sample_include_interleaved_vec);
+  }
   std::vector<SampleData> expected;
   std::vector<SampleData> actual;
   for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
@@ -726,9 +961,14 @@ static void ReadBackPass(Reader& r, const std::vector<VariantData>& vds, const s
       src.multidphase_sample_ct = 0;
       CHECK(!PgrGetMDp(sample_include, pssi, subset_ct, vidx, &r.pgr, &out));
       CheckSamples(SubsetSamples(Decode(src, sample_ct, 1, 1, 1), sample_include), Decode(out, subset_ct, 1, 1, 1), "biallelic PgrGetMDp", vidx);
+      CheckMDCounts(r, sample_include, sample_include_interleaved_vec, pssi, subset_ct, vidx, 2, SubsetSamples(Decode(src, sample_ct, 1, 1, 1), sample_include));
       continue;
     }
     const std::vector<SampleData> full = SubsetSamples(Decode(vd.pgv, sample_ct, 1, 1, 1), sample_include);
+    CheckMDCounts(r, sample_include, sample_include_interleaved_vec, pssi, subset_ct, vidx, allele_ct, full);
+    if (vd.pgv.dosage_ct) {
+      CheckDCountsCollapse(r, sample_include, sample_include_interleaved_vec, pssi, subset_ct, vidx, full);
+    }
     // PgrGetMDp(): everything
     PglErr reterr = PgrGetMDp(sample_include, pssi, subset_ct, vidx, &r.pgr, &out);
     CHECK(!reterr);
@@ -809,6 +1049,7 @@ static void ReadBackPass(Reader& r, const std::vector<VariantData>& vds, const s
       }
     }
   }
+  free(sample_include_interleaved_vec);
 }
 
 static void ReadBack(const char* fname, const std::vector<VariantData>& vds, const std::vector<uint32_t>& is_multi, const uintptr_t* allele_idx_offsets, uint32_t sample_ct) {
@@ -822,6 +1063,7 @@ static void ReadBack(const char* fname, const std::vector<VariantData>& vds, con
   ReaderBufs rb;
   InitReaderBufs(sample_ct, 255, rb);
   ReadBackPass(r, vds, is_multi, sample_ct, nullptr, sample_ct, nullptr, rb);
+  CheckGetRaw(r, vds, is_multi, sample_ct);
   // Random subset of about 3/4 of the samples (so that subsetted dosage
   // lists stay nonempty), with the first and last samples excluded.
   uintptr_t* sample_include = AllocWords(sample_ct);
@@ -1324,6 +1566,23 @@ static void RunFile(const char* fname, uint32_t sample_ct, uint32_t variant_ct, 
     std::string prefix(fname);
     prefix.resize(prefix.size() - 5);  // remove ".pgen"
     WritePvarPsam(prefix.c_str(), allele_idx_offsets.data(), variant_ct, sample_ct);
+    // Expected per-variant count of samples with a dosage or nonmissing
+    // hardcall, for run_tests.sh to compare against plink2 --missing/--freq.
+    FILE* ff = fopen((prefix + "_expected_nm.txt").c_str(), "w");
+    CHECK(ff);
+    for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+      PgenVariant src = vds[vidx].pgv;
+      if (!is_multi[vidx]) {
+        src.patch_01_ct = 0;
+        src.patch_10_ct = 0;
+      }
+      uint32_t nm_ct = 0;
+      for (const SampleData& sd : Decode(src, sample_ct, 0, 0, 0)) {
+        nm_ct += sd.has_dosage || (sd.a1 != UINT32_MAX);
+      }
+      fprintf(ff, "v%u\t%u\n", vidx, nm_ct);
+    }
+    fclose(ff);
   }
   char errstr[kPglErrstrBufBlen];
   const PglErr validate_reterr = ValidateFile(fname, allele_idx_offsets.data(), variant_ct, sample_ct, errstr);

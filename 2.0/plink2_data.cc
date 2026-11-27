@@ -2868,12 +2868,16 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
           }
         } else {
           // multiallelic cases
+          // Nonzero when all_dosages[] covers the samples that missing-dosage
+          // counts are relative to.
+          uint32_t md_counts_sample_ct = 0;
           if (!is_x_or_y) {
             const PglErr reterr = PgrGetMDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
             if (unlikely(reterr)) {
               new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
               goto LoadAlleleAndGenoCountsThread_err;
             }
+            md_counts_sample_ct = sample_ct;
             if (allele_presents_bytearr) {
               for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
                 if (all_dosages[aidx]) {
@@ -2903,6 +2907,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
                 goto LoadAlleleAndGenoCountsThread_err;
               }
+              md_counts_sample_ct = chry_missingstat_sample_ct;
               if (imp_r2_vals && (!is_minimac3_r2)) {
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
@@ -3065,8 +3070,17 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
           }
           if (variant_missing_dosage_cts) {
-            // multiallelic dosage not supported yet
-            variant_missing_dosage_cts[variant_uidx] = genocounts[3];
+            uint32_t missing_dosage_ct = genocounts[3];
+            if (md_counts_sample_ct) {
+              // Each nonmissing sample contributes kDosageMax in total.  (For
+              // hardcall-only records, this equals genocounts[3].)
+              uint64_t dosage_tot = 0;
+              for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
+                dosage_tot += all_dosages[aidx];
+              }
+              missing_dosage_ct = md_counts_sample_ct - (dosage_tot / kDosageMax);
+            }
+            variant_missing_dosage_cts[variant_uidx] = missing_dosage_ct;
           }
         }
         if (raw_geno_cts && (!is_y)) {
