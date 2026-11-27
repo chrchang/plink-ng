@@ -3601,6 +3601,190 @@ static int CheckPca(const char* rel_fname, const char* eigenvec_fname, const cha
   return fail;
 }
 
+// ***** "writedups" mode: duplicate-ID multiallelic dosage records *****
+
+// Writes <out prefix>.{pgen,pvar,psam}: pairs of records with the same .pvar
+// line, copied from multiallelic dosage records of <source prefix>.
+// * The first 4 variants with rare-alt dosages are written twice, unchanged.
+// * The next one with rare-alt dosages is written once unchanged, and once
+//   with one rare-alt dosage reduced by 1/16384 (ALT1 absorbing it, so that
+//   only the rare-alt dosage track differs).
+// * The next one with rare-alt dosage-phase values is written once unchanged,
+//   and once with one rare-alt dosage-phase value shifted by 1 (ALT1's value
+//   absorbing it, so that only the rare-alt dosage-phase track differs).
+// The IDs of the last two are written to <out prefix>_mismatch.txt.
+static int WriteDups(const char* src_prefix, const char* out_prefix) {
+  PvarInfo pi;
+  if (ReadPvar(src_prefix, pi)) {
+    fprintf(stderr, "writedups: failed to read .pvar\n");
+    return 1;
+  }
+  std::vector<std::string> pvar_header;
+  std::vector<std::string> pvar_lines;
+  for (const std::string& line : ReadLines(std::string(src_prefix) + ".pvar")) {
+    if (line[0] == '#') {
+      pvar_header.push_back(line);
+    } else {
+      pvar_lines.push_back(line);
+    }
+  }
+  const std::vector<std::string> iids = ReadPsamIids(src_prefix);
+  const uint32_t sample_ct = iids.size();
+  const uint32_t variant_ct = pi.ids.size();
+  Reader r;
+  if (OpenReader((std::string(src_prefix) + ".pgen").c_str(), pi.allele_idx_offsets.data(), variant_ct, sample_ct, r)) {
+    return 1;
+  }
+  ReaderBufs rb;
+  InitReaderBufs(sample_ct, 255, rb);
+  PgrSampleSubsetIndex pssi;
+  PgrClearSampleSubsetIndex(&r.pgr, &pssi);
+  // choose variants (with at most 20 alleles)
+  std::vector<uint32_t> same_vidxs;
+  uint32_t md_vidx = UINT32_MAX;
+  uint32_t mdp_vidx = UINT32_MAX;
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    const uint32_t allele_ct = pi.allele_idx_offsets[vidx + 1] - pi.allele_idx_offsets[vidx];
+    if ((allele_ct <= 2) || (allele_ct > 20)) {
+      continue;
+    }
+    if (PgrGetMDp(nullptr, pssi, sample_ct, vidx, &r.pgr, &rb.pgv)) {
+      fprintf(stderr, "writedups: read error\n");
+      return 1;
+    }
+    if (!rb.pgv.multidosage_sample_ct) {
+      continue;
+    }
+    if (same_vidxs.size() < 4) {
+      same_vidxs.push_back(vidx);
+    } else if (md_vidx == UINT32_MAX) {
+      md_vidx = vidx;
+    } else if ((mdp_vidx == UINT32_MAX) && rb.pgv.multidphase_sample_ct) {
+      mdp_vidx = vidx;
+      break;
+    }
+  }
+  if (mdp_vidx == UINT32_MAX) {
+    fprintf(stderr, "writedups: not enough suitable variants\n");
+    return 1;
+  }
+  std::vector<uint32_t> src_vidxs;
+  for (const uint32_t vidx : same_vidxs) {
+    src_vidxs.push_back(vidx);
+  }
+  src_vidxs.push_back(md_vidx);
+  src_vidxs.push_back(mdp_vidx);
+  std::vector<uintptr_t> out_allele_idx_offsets(1, 0);
+  for (const uint32_t vidx : src_vidxs) {
+    const uint32_t allele_ct = pi.allele_idx_offsets[vidx + 1] - pi.allele_idx_offsets[vidx];
+    for (uint32_t copy_idx = 0; copy_idx != 2; ++copy_idx) {
+      out_allele_idx_offsets.push_back(out_allele_idx_offsets.back() + allele_ct);
+    }
+  }
+  STPgenWriter spgw;
+  unsigned char* alloc;
+  const uint32_t out_variant_ct = 2 * src_vidxs.size();
+  if (OpenWriter((std::string(out_prefix) + ".pgen").c_str(), out_allele_idx_offsets.data(), out_variant_ct, sample_ct, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent | kfPgenGlobalMultiallelicDosagePresent, &spgw, &alloc)) {
+    fprintf(stderr, "writedups: failed to open writer\n");
+    return 1;
+  }
+  for (size_t idx = 0; idx != src_vidxs.size(); ++idx) {
+    const uint32_t vidx = src_vidxs[idx];
+    const uint32_t allele_ct = pi.allele_idx_offsets[vidx + 1] - pi.allele_idx_offsets[vidx];
+    PgenVariant& pgv = rb.pgv;
+    if (PgrGetMDp(nullptr, pssi, sample_ct, vidx, &r.pgr, &pgv) || SpgwAppendMultiallelicGenovecDphase16(&pgv, allele_ct, &spgw)) {
+      fprintf(stderr, "writedups: failed to copy variant %u\n", vidx);
+      return 1;
+    }
+    if (vidx == md_vidx) {
+      // Reduce one rare-alt dosage of a sample without dosage-phase by 1.
+      // (The writer rejects records that violate a consistency rule; try
+      // entries until one is accepted.)
+      uint32_t entry_idx = 0;
+      uint32_t done = 0;
+      uintptr_t sample_idx_base = 0;
+      uintptr_t cur_bits = pgv.multidosage_present[0];
+      for (uint32_t md_sample_idx = 0; (md_sample_idx != pgv.multidosage_sample_ct) && (!done); ++md_sample_idx) {
+        const uint32_t sample_idx = BitIter1(pgv.multidosage_present, &sample_idx_base, &cur_bits);
+        const uint32_t cur_ct = pgv.multidosage_cts[md_sample_idx];
+        const uint32_t has_dphase = pgv.dphase_ct && IsSet(pgv.dphase_present, sample_idx);
+        for (uint32_t uii = 0; (uii != cur_ct) && (!done); ++uii, ++entry_idx) {
+          if (has_dphase || (pgv.multidosage_vals[entry_idx] < 2)) {
+            continue;
+          }
+          pgv.multidosage_vals[entry_idx] -= 1;
+          if (!SpgwAppendMultiallelicGenovecDphase16(&pgv, allele_ct, &spgw)) {
+            done = 1;
+          } else {
+            pgv.multidosage_vals[entry_idx] += 1;
+          }
+        }
+      }
+      if (!done) {
+        fprintf(stderr, "writedups: no usable rare-alt dosage to modify\n");
+        return 1;
+      }
+    } else if (vidx == mdp_vidx) {
+      // Shift one rare-alt dosage-phase value by 1, toward zero if that keeps
+      // it nonzero (ALT1's implied value absorbs the change).
+      uint32_t done = 0;
+      uint32_t entry_ct = 0;
+      for (uint32_t uii = 0; uii != pgv.multidphase_sample_ct; ++uii) {
+        entry_ct += pgv.multidphase_cts[uii];
+      }
+      for (uint32_t entry_idx = 0; (entry_idx != entry_ct) && (!done); ++entry_idx) {
+        const int32_t orig = pgv.multidphase_delta[entry_idx];
+        for (int32_t incr = -1; (incr <= 1) && (!done); incr += 2) {
+          const int32_t cur = orig + incr;
+          if (!cur) {
+            continue;
+          }
+          pgv.multidphase_delta[entry_idx] = cur;
+          if (!SpgwAppendMultiallelicGenovecDphase16(&pgv, allele_ct, &spgw)) {
+            done = 1;
+          } else {
+            pgv.multidphase_delta[entry_idx] = orig;
+          }
+        }
+      }
+      if (!done) {
+        fprintf(stderr, "writedups: no usable rare-alt dosage-phase value to modify\n");
+        return 1;
+      }
+    } else if (SpgwAppendMultiallelicGenovecDphase16(&pgv, allele_ct, &spgw)) {
+      fprintf(stderr, "writedups: failed to copy variant %u\n", vidx);
+      return 1;
+    }
+  }
+  PglErr reterr = SpgwFinish(&spgw);
+  CleanupSpgw(&spgw, &reterr);
+  free(alloc);
+  FreeReaderBufs(rb);
+  CloseReader(r);
+  if (reterr) {
+    fprintf(stderr, "writedups: write error\n");
+    return 1;
+  }
+  FILE* ff = fopen((std::string(out_prefix) + ".pvar").c_str(), "w");
+  for (const std::string& line : pvar_header) {
+    fprintf(ff, "%s\n", line.c_str());
+  }
+  for (const uint32_t vidx : src_vidxs) {
+    fprintf(ff, "%s\n%s\n", pvar_lines[vidx].c_str(), pvar_lines[vidx].c_str());
+  }
+  fclose(ff);
+  ff = fopen((std::string(out_prefix) + ".psam").c_str(), "w");
+  for (const std::string& line : ReadLines(std::string(src_prefix) + ".psam")) {
+    fprintf(ff, "%s\n", line.c_str());
+  }
+  fclose(ff);
+  ff = fopen((std::string(out_prefix) + "_mismatch.txt").c_str(), "w");
+  fprintf(ff, "%s\n%s\n", pi.ids[md_vidx].c_str(), pi.ids[mdp_vidx].c_str());
+  fclose(ff);
+  printf("writedups: %u records\n", out_variant_ct);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
   // [hets-missing [keep-dosage] [hm-samples=<IID file>]] [hct=<thresh>] [fill]
@@ -3626,6 +3810,10 @@ int main(int argc, char** argv) {
       meanimpute |= !strcmp(argv[argi], "meanimpute");
     }
     return CheckGrm(argv[2], argv[3], argv[4], is_cov, meanimpute);
+  }
+  // "writedups <source prefix> <out prefix>": see WriteDups().
+  if ((argc == 4) && (!strcmp(argv[1], "writedups"))) {
+    return WriteDups(argv[2], argv[3]);
   }
   // "checkpca <.rel (square)> <.eigenvec> <.eigenval> [approx]": see
   // CheckPca().

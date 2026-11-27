@@ -8737,6 +8737,84 @@ typedef struct SdiffCountsStruct {
   uint32_t diff_ct; // never includes halfmiss
 } SdiffCounts;
 
+// --sample-diff on multiallelic records with dosages: fills
+// dense_dosages[sample_idx * allele_ct + allele_idx] with allele dosages
+// (16384 = 1 copy; hardcalls for samples without a dosage), or sets
+// dense_dosages[sample_idx * allele_ct] to kDosageMissing when the sample has
+// neither.  u_buf/d_buf: allele_ct - 1 entries each.
+static BoolErr SdiffFillMultiallelicDosages(const PgenVariant* pgvp, uint32_t sample_ct, uint32_t allele_ct, uint32_t* u_buf, int32_t* d_buf, Dosage* dense_dosages) {
+  MdCursor cursor;
+  MdCursorInit(pgvp, &cursor);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    MdSample s;
+    if (unlikely(MdCursorNext(pgvp, sample_idx, allele_ct, 1, &cursor, &s, u_buf, d_buf))) {
+      return 1;
+    }
+    Dosage* row = &(dense_dosages[sample_idx * S_CAST(uintptr_t, allele_ct)]);
+    if (!s.has_vals) {
+      row[0] = kDosageMissing;
+      continue;
+    }
+    uint32_t alt_sum = 0;
+    for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+      const uint32_t cur_u = u_buf[allele_idx - 1];
+      row[allele_idx] = cur_u;
+      alt_sum += cur_u;
+    }
+    row[0] = kDosageMax - alt_sum;
+  }
+  return 0;
+}
+
+// Largest per-allele dosage difference (REF included); both rows must be
+// nonmissing.
+static uint32_t SdiffMaxDosageDiff(const Dosage* row1, const Dosage* row2, uint32_t allele_ct) {
+  uint32_t max_diff = 0;
+  for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+    const uint32_t cur_diff = abs_i32(S_CAST(int32_t, row1[allele_idx]) - S_CAST(int32_t, row2[allele_idx]));
+    if (cur_diff > max_diff) {
+      max_diff = cur_diff;
+    }
+  }
+  return max_diff;
+}
+
+// One DS value per ALT allele, comma-separated ('.' if missing).
+static char* AppendSdiffMultiallelicDs(const Dosage* row, uint32_t allele_ct, uint32_t is_diploid, char* write_iter) {
+  if (row[0] == kDosageMissing) {
+    *write_iter++ = '.';
+    return write_iter;
+  }
+  for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+    if (allele_idx != 1) {
+      *write_iter++ = ',';
+    }
+    if (is_diploid) {
+      write_iter = PrintSmallDosage(row[allele_idx], write_iter);
+    } else {
+      write_iter = PrintHaploidDosage(row[allele_idx], write_iter);
+    }
+  }
+  return write_iter;
+}
+
+// IBS update from hardcall allele codes, for a pair of diploid calls whose
+// dosages are both nonmissing.
+static void SdiffMultiallelicIbsUpdate(const AlleleCode* allele_code_buf, uint32_t sample_idx1, uint32_t sample_idx2, SdiffCounts* cur_counts) {
+  const AlleleCode ac11 = allele_code_buf[2 * sample_idx1];
+  const AlleleCode ac12 = allele_code_buf[2 * sample_idx1 + 1];
+  const AlleleCode ac21 = allele_code_buf[2 * sample_idx2];
+  const AlleleCode ac22 = allele_code_buf[2 * sample_idx2 + 1];
+  if ((ac11 == ac21) && (ac12 == ac22)) {
+    return;
+  }
+  if ((ac11 == kMissingAlleleCode) || (ac21 == kMissingAlleleCode)) {
+    cur_counts->ibsmiss_ct += 1;
+    return;
+  }
+  cur_counts->ibsx_cts[(ac11 == ac21) || (ac11 == ac22) || (ac12 == ac21) || (ac12 == ac22)] += 1;
+}
+
 // Simplest case.  May multithread this, add biallelic hardcall and other
 // optimizations, etc. later.
 PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, const uint32_t* __restrict id_pairs, const uintptr_t* __restrict pair_sex_male, const uintptr_t* __restrict variant_include, const ChrInfo* cip, const uintptr_t* __restrict allele_idx_offsets, const SdiffInfo* sdip, uint32_t sample_ct, uint32_t variant_ct, uintptr_t id_pair_ct, PgenReader* simple_pgrp, SdiffCounts* sdiff_counts) {
@@ -8758,11 +8836,27 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
       goto SdiffCountsOnly_ret_NOMEM;
     }
     Dosage* dosage_buf = nullptr;
+    // multiallelic records with dosages: rare-alt dosage buffers, and
+    // per-sample allele dosages (see SdiffFillMultiallelicDosages())
+    uint32_t md_allele_ct = 0;
+    uint32_t* md_u = nullptr;
+    int32_t* md_d = nullptr;
+    Dosage* md_dense = nullptr;
     if (dosage_needed) {
-      // todo: multidosage
-      if (unlikely(bigstack_alloc_dosage(sample_ct, &dosage_buf))) {
+      md_allele_ct = MultiallelicDosageMaxAlleleCt(variant_include, allele_idx_offsets, PgrGetVrtypes(simple_pgrp), variant_ct);
+      if (unlikely(bigstack_alloc_dosage(sample_ct, &dosage_buf) ||
+                   BigstackAllocMultidosage(sample_ct, md_allele_ct, 0, &pgv, &md_u, &md_d))) {
         goto SdiffCountsOnly_ret_NOMEM;
       }
+      if (md_allele_ct) {
+        if (unlikely(bigstack_alloc_dosage(S_CAST(uintptr_t, sample_ct) * md_allele_ct, &md_dense))) {
+          goto SdiffCountsOnly_ret_NOMEM;
+        }
+      }
+      // PgrGetMD() doesn't touch these
+      pgv.phasepresent_ct = 0;
+      pgv.dphase_ct = 0;
+      pgv.multidphase_sample_ct = 0;
     }
     AlleleCode* allele_code_buf = nullptr;
     if (allele_idx_offsets != nullptr) {
@@ -8773,6 +8867,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
     pgv.patch_01_ct = 0;
     pgv.patch_10_ct = 0;
     pgv.dosage_ct = 0;
+    pgv.multidosage_sample_ct = 0;
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     uintptr_t variant_uidx_base = 0;
@@ -8816,8 +8911,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
         } else {
           reterr = PgrGetMD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         }
-        if ((!pgv.patch_01_ct) && (!pgv.patch_10_ct)) {
-          // todo: also check for multidosage
+        if ((!pgv.patch_01_ct) && (!pgv.patch_10_ct) && (!pgv.multidosage_sample_ct)) {
           allele_ct = 2;
         }
       }
@@ -9117,8 +9211,49 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
             }
           }
         } else {
-          // multiallelic-dosage; todo
-          exit(S_CAST(int32_t, kPglRetInternalError));
+          // multiallelic, dosages present.  A pair differs when some allele's
+          // dosage differs by more than the tolerance.
+          if (unlikely(SdiffFillMultiallelicDosages(&pgv, sample_ct, allele_ct, md_u, md_d, md_dense))) {
+            reterr = kPglRetMalformedInput;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto SdiffCountsOnly_ret_1;
+          }
+          if (ibs_needed) {
+            PglMultiallelicSparseToDenseMiss(&pgv, sample_ct, allele_code_buf);
+          }
+          for (uintptr_t pair_idx = 0; pair_idx != id_pair_ct; ++pair_idx) {
+            // (pair_sex_male may be nullptr when chrX/chrY are absent)
+            const uint32_t is_male = (is_x || is_y) && IsSet(pair_sex_male, pair_idx);
+            if (is_y && (!is_male)) {
+              continue;
+            }
+            const uint32_t sample_idx1 = id_pairs[2 * pair_idx];
+            const uint32_t sample_idx2 = id_pairs[2 * pair_idx + 1];
+            const Dosage* row1 = &(md_dense[sample_idx1 * S_CAST(uintptr_t, allele_ct)]);
+            const Dosage* row2 = &(md_dense[sample_idx2 * S_CAST(uintptr_t, allele_ct)]);
+            const uint32_t is_diploid_pair = is_autosomal_diploid || (is_x && (!is_male));
+            SdiffCounts* cur_counts = &(sdiff_counts[pair_idx]);
+            if (row1[0] == kDosageMissing) {
+              cur_counts->ibsmiss_ct += is_diploid_pair;
+              if (row2[0] == kDosageMissing) {
+                cur_counts->missing_ct += 1;
+              } else {
+                cur_counts->halfmiss_ct += 1;
+              }
+              continue;
+            }
+            if (row2[0] == kDosageMissing) {
+              cur_counts->halfmiss_ct += 1;
+              cur_counts->ibsmiss_ct += is_diploid_pair;
+              continue;
+            }
+            if (SdiffMaxDosageDiff(row1, row2, allele_ct) > (is_diploid_pair? dosage_dip_tol : dosage_hap_tol)) {
+              cur_counts->diff_ct += 1;
+            }
+            if (ibs_needed && is_diploid_pair) {
+              SdiffMultiallelicIbsUpdate(allele_code_buf, sample_idx1, sample_idx2, cur_counts);
+            }
+          }
         }
       }
     }
@@ -9389,11 +9524,27 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       goto SdiffMainBatch_ret_NOMEM;
     }
     Dosage* dosage_buf = nullptr;
+    // multiallelic records with dosages: rare-alt dosage buffers, and
+    // per-sample allele dosages (see SdiffFillMultiallelicDosages())
+    uint32_t md_allele_ct = 0;
+    uint32_t* md_u = nullptr;
+    int32_t* md_d = nullptr;
+    Dosage* md_dense = nullptr;
     if (dosage_needed) {
-      // todo: multidosage
-      if (unlikely(bigstack_alloc_dosage(sample_ct, &dosage_buf))) {
+      md_allele_ct = MultiallelicDosageMaxAlleleCt(variant_include, allele_idx_offsets, PgrGetVrtypes(simple_pgrp), variant_ct);
+      if (unlikely(bigstack_alloc_dosage(sample_ct, &dosage_buf) ||
+                   BigstackAllocMultidosage(sample_ct, md_allele_ct, 0, &pgv, &md_u, &md_d))) {
         goto SdiffMainBatch_ret_NOMEM;
       }
+      if (md_allele_ct) {
+        if (unlikely(bigstack_alloc_dosage(S_CAST(uintptr_t, sample_ct) * md_allele_ct, &md_dense))) {
+          goto SdiffMainBatch_ret_NOMEM;
+        }
+      }
+      // PgrGetMD() doesn't touch these
+      pgv.phasepresent_ct = 0;
+      pgv.dphase_ct = 0;
+      pgv.multidphase_sample_ct = 0;
     }
     AlleleCode* allele_code_buf = nullptr;
     if (allele_idx_offsets != nullptr) {
@@ -9727,8 +9878,69 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             }
           }
         } else {
-          // multiallelic-dosage; todo
-          exit(S_CAST(int32_t, kPglRetInternalError));
+          // multiallelic, dosages present; see SdiffCountsOnly()
+          if (unlikely(SdiffFillMultiallelicDosages(&pgv, sample_ct, allele_ct, md_u, md_d, md_dense))) {
+            reterr = kPglRetMalformedInput;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto SdiffMainBatch_ret_1;
+          }
+          if (ibs_needed) {
+            PglMultiallelicSparseToDenseMiss(&pgv, sample_ct, allele_code_buf);
+          }
+          for (uintptr_t pair_idx = 0; pair_idx != id_pair_ct; ++pair_idx) {
+            // (pair_sex_male may be nullptr when chrX/chrY are absent)
+            const uint32_t is_male = (is_x || is_y) && IsSet(pair_sex_male, pair_idx);
+            if (is_y && (!is_male)) {
+              continue;
+            }
+            const uint32_t sample_idx1 = id_pairs[2 * pair_idx];
+            const uint32_t sample_idx2 = id_pairs[2 * pair_idx + 1];
+            const Dosage* row1 = &(md_dense[sample_idx1 * S_CAST(uintptr_t, allele_ct)]);
+            const Dosage* row2 = &(md_dense[sample_idx2 * S_CAST(uintptr_t, allele_ct)]);
+            const uint32_t is_diploid_pair = is_autosomal_diploid || (is_x && (!is_male));
+            const uint32_t missing1 = (row1[0] == kDosageMissing);
+            const uint32_t missing2 = (row2[0] == kDosageMissing);
+            if (missing1 && missing2) {
+              sdiff_counts[pair_idx].missing_ct += 1;
+              sdiff_counts[pair_idx].ibsmiss_ct += is_diploid_pair;
+              continue;
+            }
+            SdiffCounts* cur_counts = &(sdiff_counts[pair_idx]);
+            if (missing1 || missing2) {
+              cur_counts->halfmiss_ct += 1;
+              cur_counts->ibsmiss_ct += is_diploid_pair;
+              if (!include_missing) {
+                continue;
+              }
+            } else {
+              if (ibs_needed && is_diploid_pair) {
+                SdiffMultiallelicIbsUpdate(allele_code_buf, sample_idx1, sample_idx2, cur_counts);
+              }
+              if (SdiffMaxDosageDiff(row1, row2, allele_ct) <= dosage_sex_tols[!is_diploid_pair]) {
+                continue;
+              }
+              cur_counts->diff_ct += 1;
+            }
+            const uintptr_t fidx = is_pairwise? pair_idx : 0;
+            char* cswritep = cswritep_arr[fidx];
+            const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, col_provref, provref, &(css_arr[fidx]), &cswritep))) {
+              cswritep_arr[fidx] = cswritep;
+              goto SdiffMainBatch_ret_WRITE_FAIL;
+            }
+            if (flags & kfSdiffColGeno) {
+              *cswritep++ = '\t';
+              cswritep = AppendSdiffMultiallelicDs(row1, allele_ct, is_diploid_pair, cswritep);
+              *cswritep++ = '\t';
+              cswritep = AppendSdiffMultiallelicDs(row2, allele_ct, is_diploid_pair, cswritep);
+            }
+            AppendBinaryEoln(&cswritep);
+            cswritep_arr[fidx] = cswritep;
+            if (unlikely(Cswrite(&(css_arr[fidx]), &(cswritep_arr[fidx])))) {
+              cswritep_arr[fidx] = cswritep;
+              goto SdiffMainBatch_ret_WRITE_FAIL;
+            }
+          }
         }
       }
     }
