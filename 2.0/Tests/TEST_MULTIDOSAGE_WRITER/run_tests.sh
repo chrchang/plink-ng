@@ -337,3 +337,55 @@ END {
   print ct " A-transpose values, " (bad + 0) " mismatches";
   exit (bad || (ct != 180 * 300));
 }' tmp_ex_tmp_small_DS-force.vcf tmp_ex_alt2.traw
+
+# --glm (linear, logistic, multinomial) on multiallelic dosages: each
+# non-omitted allele's column holds its dosages.  Checked against plink2's
+# biallelic code paths by glm_reference.sh (see its comments), on autosomes,
+# chrX under both --xchr-model 1 and 2, and MT (the last three without the
+# 255-allele variants, to save time).
+GC="awk -f glm_compare.awk"
+glm_check() {
+    ./glm_reference.sh "$P" $1 $2 $3 "$4"
+    $GC ${2}_ref.txt ${2}_multi.Q.glm.linear ${2}_multi.Q2.glm.linear ${2}_multi.B.glm.logistic.hybrid ${2}_multi.M.glm.multinomial.hybrid
+    $GC ${2}_ref.txt ${2}_multi1.Q.glm.linear
+    $GC ${2}_ref.txt ${2}_multis.B.glm.logistic.hybrid
+    $GC ${2}_permref.txt ${2}_dflt.Q.glm.linear ${2}_dflt.Q2.glm.linear ${2}_dflt.B.glm.logistic.hybrid ${2}_dflt.M.glm.multinomial.hybrid
+    # alleles with zero dosage everywhere must be reported as constant (with
+    # at most 5 alleles; variant-level errors like SAMPLE_CT<=PREDICTOR_CT
+    # take precedence for the bigger ones)
+    awk 'BEGIN {FS = "\t"} FNR == 1 {for (i = 1; i <= NF; ++i) c[$i] = i; next}
+      ($c["TEST"] == "ADD") && ($c["A1_FREQ"] == 0) && (split($c["ALT"], alts, ",") <= 4) {++ct; if ($c["ERRCODE"] != "CONST_ALLELE") ++bad}
+      END {print ct " zero-frequency alleles, " (bad + 0) " not CONST_ALLELE"; exit (bad || (!ct))}' ${2}_multi.Q.glm.linear ${2}_multi.B.glm.logistic.hybrid ${2}_multi.M.glm.multinomial.hybrid
+}
+glm_check tmp_small tmp_gl_small 6
+glm_check tmp_x tmp_gl_x2 3 "--max-alleles 20"
+glm_check tmp_x tmp_gl_x1 3 "--max-alleles 20 --xchr-model 1"
+glm_check tmp_mt tmp_gl_mt 3 "--max-alleles 20"
+# --condition on a multiallelic variant (previously hardcalls only): must
+# match the same allele dosages given as covariates.
+awk 'BEGIN {OFS = "\t"} /^##/ {next} /^#CHROM/ {for (i = 10; i <= NF; ++i) id[i] = $i; ns = NF; next}
+$3 == "v73" {
+  n = split($5, al, ",");
+  hdr = "#IID";
+  for (j = 1; j <= n; ++j) hdr = hdr "\tD" j;
+  print hdr;
+  for (i = 10; i <= ns; ++i) {
+    split($i, f, ":");
+    row = id[i];
+    if (f[2] == ".") {
+      for (j = 1; j <= n; ++j) row = row "\tNA";
+    } else {
+      split(f[2], d, ",");
+      for (j = 1; j <= n; ++j) row = row "\t" d[j];
+    }
+    print row;
+  }
+}' tmp_gl_small_ds.vcf > tmp_gl_cond_cov.txt
+GCOND="--glm allow-no-covars omit-ref hide-covar multinomial cols=+a1freq"
+$P --pfile tmp_small --pheno tmp_gl_small_ph.txt --condition v73 multiallelic $GCOND --out tmp_gl_cond
+$P --pfile tmp_small --pheno tmp_gl_small_ph.txt --covar tmp_gl_cond_cov.txt $GCOND --out tmp_gl_condref
+rm -f tmp_gl_condref.txt
+for ph in Q.glm.linear Q2.glm.linear B.glm.logistic.hybrid M.glm.multinomial.hybrid; do
+    awk -v ph=$ph 'BEGIN {OFS = "\t"} !/^#/ && ($3 != "v73") {print ph, $3, $0}' tmp_gl_condref.$ph >> tmp_gl_condref.txt
+done
+$GC tmp_gl_condref.txt tmp_gl_cond.Q.glm.linear tmp_gl_cond.Q2.glm.linear tmp_gl_cond.B.glm.logistic.hybrid tmp_gl_cond.M.glm.multinomial.hybrid

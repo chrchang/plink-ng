@@ -1614,12 +1614,15 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
   pgv.genovec = common->genovecs[tidx];
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
-  pgv.multidosage_present = nullptr;  // rare-alt dosages unsupported for now
   if (common->dosage_presents) {
     pgv.dosage_present = common->dosage_presents[tidx];
     pgv.dosage_main = common->dosage_mains[tidx];
   }
   unsigned char* workspace_buf = common->workspace_bufs[tidx];
+  uint32_t* md_u;
+  int32_t* md_d;
+  uint32_t* md_hc_cts;
+  GlmInitThreadMultidosage(common, workspace_buf, &pgv, &md_u, &md_d, &md_hc_cts);
   const uintptr_t* variant_include = common->variant_include;
   const uintptr_t* allele_idx_offsets = common->allele_idx_offsets;
   const AlleleCode* omitted_alleles = common->omitted_alleles;
@@ -1730,8 +1733,6 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
         } else {
           reterr = PgrGetMD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, &pgv);
-          // todo: multiallelic dosages
-          assert(!pgv.dosage_ct);
         }
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
@@ -1820,6 +1821,16 @@ THREAD_FUNC_DECL GlmMultinomialThread(void* raw_arg) {
           machr2_dosage_ssqs[a1_allele_idx] = dosage_ssq;
           machr2_dosage_sums[omitted_allele_idx] = kDosageMax * S_CAST(uint64_t, nm_sample_ct) - dosage_sum;
           machr2_dosage_ssqs[omitted_allele_idx] = kDosageMax * (kDosageMax * S_CAST(uint64_t, nm_sample_ct) - 2 * dosage_sum) + dosage_ssq;
+        } else if (dosage_ct) {
+          // Multiallelic dosages: one dosage column per allele.
+          double* cols[kPglMaxAlleleCt];
+          for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+            cols[allele_idx] = &(allele_cols[allele_idx * sample_ctav]);
+          }
+          if (unlikely(GlmFillMultiallelicDosageColsD(&pgv, sample_nm, nullptr, cur_sample_ct, nm_sample_ct, allele_ct, nm_sample_ct, cols, machr2_dosage_sums, machr2_dosage_ssqs, nullptr, nullptr, md_u, md_d))) {
+            new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto GlmMultinomialThread_err;
+          }
         } else {
           // Multiallelic hardcalls: one count column per allele.
           double* ref_col = allele_cols;
@@ -2466,6 +2477,7 @@ PglErr GlmMultinomial(const char* cur_pheno_name, const char* const* level_names
       }
     }
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
+    GlmReserveMultidosageWorkspace(max_sample_ct, common, &workspace_alloc);
     // +1 is for top-level common->workspace_bufs
     const uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
     const uintptr_t per_variant_xalloc_byte_ct = max_row_ct * (sizeof(MultinomialAuxResult) + (1 + level_ct) * sizeof(double) + row_beta_se_stride * sizeof(double)) + level_ct * sizeof(int32_t);

@@ -446,6 +446,55 @@ HEADER_INLINE BoolErr bigstack_end_alloc_dphase(uintptr_t ct, SDosage** dphase_a
 
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp);
 
+// Largest allele count among multiallelic records with dosages in
+// variant_include (0 if there are none).  vrtypes == nullptr for fixed-width
+// storage, where every record has dosages if any does.
+uint32_t MultiallelicDosageMaxAlleleCt(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const unsigned char* vrtypes, uint32_t variant_ct);
+
+// Sample-by-sample traversal of a multiallelic record with dosages (VCF/BCF
+// export, --glm).
+typedef struct MdCursorStruct {
+  const AlleleCode* patch_01_iter;
+  const AlleleCode* patch_10_iter;
+  const uint16_t* dosage_iter;
+  const int16_t* dphase_iter;
+  const unsigned char* md_cts_iter;
+  const AlleleCode* md_codes_iter;
+  const uint16_t* md_vals_iter;
+  const unsigned char* mdp_cts_iter;
+  const AlleleCode* mdp_codes_iter;
+  const int16_t* mdp_delta_iter;
+} MdCursor;
+
+typedef struct MdSampleStruct {
+  // hardcall alleles, ac0 <= ac1; both zero when is_missing is set
+  uint32_t ac0;
+  uint32_t ac1;
+  uint32_t is_missing;
+  uint32_t is_het;
+  // hardcall phase (heterozygous calls only).  When hc_phaseinfo is set, ac1
+  // is on the left haplotype.
+  uint32_t hc_phased;
+  uint32_t hc_phaseinfo;
+  // u[]/d[] were filled, from either a dosage or the hardcall
+  uint32_t has_vals;
+  uint32_t has_dosage;
+  // d[] holds per-allele haplotype differences (explicit dosage-phase, or a
+  // phased heterozygous hardcall without a dosage)
+  uint32_t hap_split;
+} MdSample;
+
+void MdCursorInit(const PgenVariant* pgvp, MdCursor* cp);
+
+// Must be called on every sample in order.  u[i] and d[i] (i in
+// [0, allele_ct - 2]) are ALT(i+1)'s dosage and dosage-phase value (16384 =
+// one copy).  When hc_vals is set, a nonmissing hardcall without a dosage
+// fills them too.  Returns 1 on an out-of-range dosage or dosage-phase value.
+// phasepresent_ct, dphase_ct, and multidphase_sample_ct must be valid (zero
+// after PgrGetMD()).
+BoolErr MdCursorNext(const PgenVariant* pgvp, uint32_t sample_idx, uint32_t allele_ct, uint32_t hc_vals, MdCursor* cp, MdSample* sp, uint32_t* u, int32_t* d);
+
+
 // remainder must be in [1, 16383].
 char* PrintDosageDecimal(uint32_t remainder, char* start);
 

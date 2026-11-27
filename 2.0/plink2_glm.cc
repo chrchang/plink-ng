@@ -1552,16 +1552,18 @@ PglErr GlmCondition(const char* condition_varname, const char* condition_list_fn
           }
           ++write_covar_idx;
         } else {
-          // todo: proper multiallelic dosage support
-          reterr = PgrGetM(nullptr, null_pssi, raw_sample_ct, variant_uidx, simple_pgrp, &pgv);
-          if (unlikely(reterr)) {
-            PgenErrPrintV(reterr, variant_uidx);
-            goto GlmCondition_ret_1;
-          }
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
             if (aidx == omitted_allele_idx) {
               continue;
+            }
+            // allele counts and dosages for this allele (including rare-alt
+            // dosages)
+            uint32_t dosage_ct;
+            reterr = PgrGet1D(nullptr, null_pssi, raw_sample_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &dosage_ct);
+            if (unlikely(reterr)) {
+              PgenErrPrintV(reterr, variant_uidx);
+              goto GlmCondition_ret_1;
             }
             PhenoCol* cur_covar_col = &(new_covar_cols[write_covar_idx]);
             uintptr_t* cur_nonmiss;
@@ -1576,51 +1578,15 @@ PglErr GlmCondition(const char* condition_varname, const char* condition_list_fn
             cur_covar_col->type_code = kPhenoDtypeQt;
             cur_covar_col->nonnull_category_ct = 0;
             GenoarrToNonmissing(pgv.genovec, raw_sample_ct, cur_nonmiss);
-            if (aidx == 0) {
-              GenoarrLookup16x8bx2(pgv.genovec, kSmallInvDoublePairs, raw_sample_ct, cur_covar_vals);
-            } else if (aidx == 1) {
-              GenoarrLookup16x8bx2(pgv.genovec, kSmallDoublePairs, raw_sample_ct, cur_covar_vals);
-              if (pgv.patch_01_ct) {
-                const uintptr_t* patch_01_set = pgv.patch_01_set;
-                uintptr_t sample_uidx_base = 0;
-                uintptr_t cur_bits = patch_01_set[0];
-                for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
-                  const uintptr_t sample_uidx = BitIter1(patch_01_set, &sample_uidx_base, &cur_bits);
-                  cur_covar_vals[sample_uidx] = 0.0;
-                }
+            GenoarrLookup16x8bx2(pgv.genovec, kSmallDoublePairs, raw_sample_ct, cur_covar_vals);
+            if (dosage_ct) {
+              uintptr_t sample_uidx_base = 0;
+              uintptr_t cur_bits = pgv.dosage_present[0];
+              for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                const uintptr_t sample_uidx = BitIter1(pgv.dosage_present, &sample_uidx_base, &cur_bits);
+                cur_covar_vals[sample_uidx] = kRecipDosageMid * u31tod(pgv.dosage_main[dosage_idx]);
               }
-              if (pgv.patch_10_ct) {
-                const uintptr_t* patch_10_set = pgv.patch_10_set;
-                const AlleleCode* patch_10_vals = pgv.patch_10_vals;
-                uintptr_t sample_uidx_base = 0;
-                uintptr_t cur_bits = patch_10_set[0];
-                for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
-                  const uintptr_t sample_uidx = BitIter1(patch_10_set, &sample_uidx_base, &cur_bits);
-                  cur_covar_vals[sample_uidx] = S_CAST(double, (patch_10_vals[2 * uii] == 1));
-                }
-              }
-            } else {
-              ZeroDArr(raw_sample_ct, cur_covar_vals);
-              if (pgv.patch_01_ct) {
-                const uintptr_t* patch_01_set = pgv.patch_01_set;
-                const AlleleCode* patch_01_vals = pgv.patch_01_vals;
-                uintptr_t sample_uidx_base = 0;
-                uintptr_t cur_bits = patch_01_set[0];
-                for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
-                  const uintptr_t sample_uidx = BitIter1(patch_01_set, &sample_uidx_base, &cur_bits);
-                  cur_covar_vals[sample_uidx] = S_CAST(double, (patch_01_vals[uii] == aidx));
-                }
-              }
-              if (pgv.patch_10_ct) {
-                const uintptr_t* patch_10_set = pgv.patch_10_set;
-                const AlleleCode* patch_10_vals = pgv.patch_10_vals;
-                uintptr_t sample_uidx_base = 0;
-                uintptr_t cur_bits = patch_10_set[0];
-                for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
-                  const uintptr_t sample_uidx = BitIter1(patch_10_set, &sample_uidx_base, &cur_bits);
-                  cur_covar_vals[sample_uidx] = S_CAST(double, (patch_10_vals[2 * uii] == aidx) + (patch_10_vals[2 * uii + 1] == aidx));
-                }
-              }
+              BitvecOr(pgv.dosage_present, raw_sample_ctl, cur_nonmiss);
             }
             if (glm_flags & kfGlmConditionDominant) {
               for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
@@ -3126,6 +3092,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
 
     common.max_extra_allele_ct = max_extra_allele_ct;
+    common.md_allele_ct = (pgfip->gflags & kfPgenGlobalDosagePresent)? MultiallelicDosageMaxAlleleCt(early_variant_include, allele_idx_offsets, pgfip->vrtypes, variant_ct) : 0;
+    common.md_ws_sample_ct = 0;
+    common.md_ws_offset = 0;
 
     const uint32_t pheno_ctl = BitCtToWordCt(pheno_ct);
     uintptr_t* pheno_include;
