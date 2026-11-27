@@ -4497,6 +4497,17 @@ void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr
     } else {
       logerrprintfww("Error: .pvar entry for (0-based) variant #%u has too few alleles to be consistent with corresponding record in %s .\n", variant_uidx, file_descrip);
     }
+  } else if (reterr == kPglRetNotYetSupported) {
+    // Previously silent.  (Multiallelic dosages are the main source of this
+    // for now.)
+    if (prepend_lf) {
+      logputs("\n");
+    }
+    if (variant_uidx == UINT32_MAX) {
+      logerrprintfww("Error: %s contains data (e.g. multiallelic dosages) that this command doesn't support yet.\n", file_descrip);
+    } else {
+      logerrprintfww("Error: (0-based) variant #%u in %s contains data (e.g. multiallelic dosages) that this command doesn't support yet.\n", variant_uidx, file_descrip);
+    }
   }
 }
 

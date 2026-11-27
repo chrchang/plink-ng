@@ -702,12 +702,16 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIn
 
 // When computing either form of imputation-r2, this function requires the
 // variant to be biallelic; PgrGetMDCounts must be called in that multiallelic
-// case.
+// case.  Otherwise, a multiallelic variant is collapsed to ref vs. nonref
+// (all_dosages[1] = total alt dosage).
 // imp_r2_ptr must be non-null when is_minimac3_r2 is set.
 PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
-// Multiallelic dosages (allele_ct > 2 with dosage data) aren't supported yet;
-// kPglRetNotYetSupported is returned for them.
+// genocounts (ref/ref, ref/altx, altx/alty, missing) and *het_ctp (including
+// altx/alty hets) are hardcall-based.  all_dosages[] has one entry per
+// allele, with dosages (16384 = 1 copy) used for samples that have them and
+// hardcalls elsewhere; for multiallelic variants, this includes rare-alt
+// dosages.
 PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
 // For multiallelic variants with dosage data, PgrGetMD() and PgrGetMDp() fill
@@ -743,8 +747,28 @@ PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, PgrSampleSubsetI
 
 PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
+// Upper bound on the number of words PgrGetRaw() appends for one
+// multiallelic rare-alt track pair (see below).
+HEADER_INLINE uintptr_t PgrGetRawRareAltMaxWordCt(uint32_t raw_sample_ct, uint32_t max_allele_ct) {
+  const uintptr_t max_entry_ct = S_CAST(uintptr_t, raw_sample_ct) * MINV(max_allele_ct - 2, 255);
+  return kWordsPerVec * (1 + BitCtToVecCt(raw_sample_ct) + DivUp(max_entry_ct, kBytesPerVec) + DivUp(2 * max_entry_ct, kBytesPerVec) + DivUp(raw_sample_ct, kBytesPerVec));
+}
+
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // to maximize parallelism
+// For a multiallelic variant with dosages loaded, read_gflags must include
+// kfPgenGlobalMultiallelicDosagePresent (otherwise kPglRetNotYetSupported is
+// returned).  Then, after the dosage (and dosage-phase) data, PgrGetRaw()
+// appends the rare-alt dosage track pair, and then (if dosage-phase is
+// loaded) the rare-alt dosage-phase track pair, each as:
+//   1. one vector; its first word is the entry count (entry_ct).
+//   2. vec-aligned bitarray of raw_sample_ct bits: samples with at least one
+//      entry (cf. PgenVariant.multidosage_present).
+//   3. entry_ct AlleleCodes, vector-padded (cf. multidosage_codes).
+//   4. entry_ct uint16s (dosages) or int16s (dosage-phase deltas),
+//      vector-padded.
+//   5. one byte per set bit in #2: that sample's entry count, vector-padded.
+// PgrGetRawRareAltMaxWordCt() bounds the size of each.
 PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);
 
 // Number of words of workspace PgrValidate() needs.  max_allele_ct must be
