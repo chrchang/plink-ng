@@ -507,3 +507,44 @@ $P --pfile tmp_small --read-freq tmp_ld_ipf.afreq --indep-pairwise 50 5 0.01 --o
 $P --pfile tmp_ld_nd --read-freq tmp_ld_ipf.afreq --indep-pairwise 50 5 0.01 --out tmp_ld_ipnd
 cmp tmp_ld_ip.prune.in tmp_ld_ipnd.prune.in
 cmp tmp_ld_ip.prune.out tmp_ld_ipnd.prune.out
+
+# --rm-dup on duplicate-ID multiallelic dosage records (see WriteDups()):
+# identical pairs are duplicates, while the pairs differing only in one
+# rare-alt dosage or dosage-phase value are mismatches.
+./tmp_multidosage_writer_test writedups tmp_small tmp_rd
+$P --pfile tmp_rd --validate --out tmp_rd_v
+$P --pfile tmp_rd --rm-dup retain-mismatch list --make-just-pvar --out tmp_rd_rm
+diff -q tmp_rd_rm.rmdup.mismatch tmp_rd_mismatch.txt
+test "$(grep -v '^#' tmp_rd_rm.pvar | cut -f 3 | tr '\n' ' ')" == "v72 v73 v74 v75 v78 v78 v90 v90 "
+$P --pfile tmp_rd --rm-dup exclude-mismatch --make-just-pvar --out tmp_rd_ex
+test "$(grep -v '^#' tmp_rd_ex.pvar | cut -f 3 | tr '\n' ' ')" == "v72 v73 v74 v75 "
+
+# --sample-diff 'dosage[=tol]' on multiallelic dosage records: a pair differs
+# when some allele's dosage differs by more than the tolerance; the report's
+# geno column has one DS value per ALT allele.  Checked against the DS-force
+# VCF by sdiff_compare.awk (main report and counts-only), on autosomes and
+# chrX (female pairs diploid, male pairs haploid).
+SD="--min-alleles 3 --max-alleles 20"
+$P --pfile tmp_small $SD --export vcf vcf-dosage=DS-force --out tmp_sd_ds
+for tol in 0 0.1; do
+    for im in 0 1; do
+        mods="dosage=$tol"
+        if [ $im = 1 ]; then mods="$mods include-missing"; fi
+        $P --pfile tmp_small $SD --sample-diff $mods counts-cols=+nobs,+ibs0,+ibs1 base=s0 s1 s2 s3 --out tmp_sd
+        awk -v tol=$tol -v include_missing=$im -f sdiff_compare.awk tmp_sd_ds.vcf tmp_sd.sdiff.summary tmp_sd.s0.sdiff
+        $P --pfile tmp_small $SD --sample-diff $mods counts-only counts-cols=+nobs,+ibs0,+ibs1 base=s0 s1 s2 s3 --out tmp_sd_c
+        awk -v tol=$tol -v include_missing=$im -f sdiff_compare.awk tmp_sd_ds.vcf tmp_sd_c.sdiff.summary
+    done
+done
+cp tmp_x.pgen tmp_sd_xauto.pgen
+cp tmp_x.psam tmp_sd_xauto.psam
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "1"; print}' tmp_x.pvar > tmp_sd_xauto.pvar
+$P --pfile tmp_sd_xauto $SD --export vcf vcf-dosage=DS-force --out tmp_sd_xds
+for tol in 0 0.1; do
+    $P --pfile tmp_x $SD --sample-diff dosage=$tol include-missing counts-cols=+nobs,+ibs0,+ibs1 base=s0 s2 s4 s6 --out tmp_sd_xf
+    awk -v tol=$tol -v include_missing=1 -f sdiff_compare.awk tmp_sd_xds.vcf tmp_sd_xf.sdiff.summary tmp_sd_xf.s0.sdiff
+    $P --pfile tmp_x $SD --sample-diff dosage=$tol include-missing counts-cols=+nobs,+ibs0,+ibs1 base=s1 s3 s5 s7 --out tmp_sd_xm
+    awk -v tol=$tol -v include_missing=1 -v haploid=1 -f sdiff_compare.awk tmp_sd_xds.vcf tmp_sd_xm.sdiff.summary tmp_sd_xm.s1.sdiff
+    $P --pfile tmp_x $SD --sample-diff dosage=$tol include-missing counts-only counts-cols=+nobs,+ibs0,+ibs1 base=s1 s3 s5 s7 --out tmp_sd_xmc
+    awk -v tol=$tol -v include_missing=1 -v haploid=1 -f sdiff_compare.awk tmp_sd_xds.vcf tmp_sd_xmc.sdiff.summary
+done

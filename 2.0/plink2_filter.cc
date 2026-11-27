@@ -1002,6 +1002,20 @@ PglErr AttribFilterSample(const char* fname, const char* condition_str, const Sa
 }
 
 // could permit split-chromosome here
+// Compares two rare-alt dosage (or dosage-phase) tracks in PgenVariant form,
+// with the same nonzero present-sample count.
+static uint32_t MultidosageTracksEqual(const uintptr_t* present1, const unsigned char* cts1, const AlleleCode* codes1, const uint16_t* vals1, const uintptr_t* present2, const unsigned char* cts2, const AlleleCode* codes2, const uint16_t* vals2, uint32_t sample_ct, uint32_t present_sample_ct) {
+  if ((!memequal(present1, present2, BitCtToWordCt(sample_ct) * sizeof(intptr_t))) ||
+      (!memequal(cts1, cts2, present_sample_ct))) {
+    return 0;
+  }
+  uintptr_t entry_ct = 0;
+  for (uint32_t uii = 0; uii != present_sample_ct; ++uii) {
+    entry_ct += cts1[uii];
+  }
+  return memequal(codes1, codes2, entry_ct * sizeof(AlleleCode)) && memequal(vals1, vals2, entry_ct * sizeof(uint16_t));
+}
+
 PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t save_list, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -1164,9 +1178,17 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     if (simple_pgrp && (rmdup_mode < kRmDupExcludeAll)) {
       const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
       uint32_t* sample_include_cumulative_popcounts;
+      // rare-alt dosage buffers, for multiallelic records with dosages
+      const PgenGlobalFlags gflags = PgrGetGflags(simple_pgrp);
+      const uint32_t md_allele_ct = (gflags & kfPgenGlobalDosagePresent)? MultiallelicDosageMaxAlleleCt(orig_dups, allele_idx_offsets, PgrGetVrtypes(simple_pgrp), orig_dup_ct) : 0;
+      const uint32_t load_dphase = (gflags / kfPgenGlobalDosagePhasePresent) & 1;
+      uint32_t* md_u_unused;
+      int32_t* md_d_unused;
       if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-                   BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, PgrGetGflags(simple_pgrp), &first_pgv) ||
-                   BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, PgrGetGflags(simple_pgrp), &cur_pgv))) {
+                   BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, gflags, &first_pgv) ||
+                   BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, gflags, &cur_pgv) ||
+                   BigstackAllocMultidosage(sample_ct, md_allele_ct, load_dphase, &first_pgv, &md_u_unused, &md_d_unused) ||
+                   BigstackAllocMultidosage(sample_ct, md_allele_ct, load_dphase, &cur_pgv, &md_u_unused, &md_d_unused))) {
         goto RmDup_ret_NOMEM;
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -1361,12 +1383,13 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
               PgenErrPrintNV(reterr, ll_variant_uidx);
               goto RmDup_ret_1;
             }
-            // todo: multidosage, multidphase
             if ((first_pgv.patch_01_ct != cur_pgv.patch_01_ct) ||
                 (first_pgv.patch_10_ct != cur_pgv.patch_10_ct) ||
                 (first_pgv.phasepresent_ct != cur_pgv.phasepresent_ct) ||
                 (first_pgv.dosage_ct != cur_pgv.dosage_ct) ||
-                (first_pgv.dphase_ct != cur_pgv.dphase_ct)) {
+                (first_pgv.dphase_ct != cur_pgv.dphase_ct) ||
+                (first_pgv.multidosage_sample_ct != cur_pgv.multidosage_sample_ct) ||
+                (first_pgv.multidphase_sample_ct != cur_pgv.multidphase_sample_ct)) {
               break;
             }
             ZeroTrailingNyps(sample_ct, cur_pgv.genovec);
@@ -1402,6 +1425,13 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
                     (!memequal(first_pgv.dphase_delta, cur_pgv.dphase_delta, first_pgv.dphase_ct * sizeof(SDosage)))) {
                   break;
                 }
+              }
+              // rare-alt dosages and dosage-phase values
+              if (first_pgv.multidosage_sample_ct && (!MultidosageTracksEqual(first_pgv.multidosage_present, first_pgv.multidosage_cts, first_pgv.multidosage_codes, first_pgv.multidosage_vals, cur_pgv.multidosage_present, cur_pgv.multidosage_cts, cur_pgv.multidosage_codes, cur_pgv.multidosage_vals, sample_ct, first_pgv.multidosage_sample_ct))) {
+                break;
+              }
+              if (first_pgv.multidphase_sample_ct && (!MultidosageTracksEqual(first_pgv.multidphase_present, first_pgv.multidphase_cts, first_pgv.multidphase_codes, R_CAST(const uint16_t*, first_pgv.multidphase_delta), cur_pgv.multidphase_present, cur_pgv.multidphase_cts, cur_pgv.multidphase_codes, R_CAST(const uint16_t*, cur_pgv.multidphase_delta), sample_ct, first_pgv.multidphase_sample_ct))) {
+                break;
               }
             }
           }
