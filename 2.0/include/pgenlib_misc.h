@@ -515,6 +515,25 @@ HEADER_INLINE void Deltalist64WriterPush(uint64_t cur_idx, Deltalist64Writer* dw
 // the end of the written bytes.
 unsigned char* Deltalist64Append(const uint64_t* __restrict idxs, uint32_t len, uint32_t idx_byte_ct, unsigned char* __restrict dst);
 
+// Bounded varint read; values that don't fit in 63 bits are errors.
+HEADER_INLINE BoolErr GetVint63Ck(const unsigned char* buf_end, const unsigned char** buf_iterp, uint64_t* val_ptr) {
+  uint64_t val = 0;
+  for (uint32_t shift = 0; ; shift += 7) {
+    if (unlikely(*buf_iterp == buf_end)) {
+      return 1;
+    }
+    const uint64_t cur_byte = *((*buf_iterp)++);
+    val |= (cur_byte & 127) << shift;
+    if (cur_byte <= 127) {
+      *val_ptr = val;
+      return 0;
+    }
+    if (unlikely(shift == 56)) {
+      return 1;
+    }
+  }
+}
+
 // Parses a 64-bit deltalist, with full validation: every index must be <
 // idx_end, indexes must be strictly increasing, group sizes must match, and
 // nothing may extend past fread_end.  Also errors out if the length exceeds

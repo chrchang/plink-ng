@@ -692,6 +692,10 @@ HEADER_INLINE PglErr PgrGetDMaybeSparse(const uintptr_t* __restrict sample_inclu
   return IMPLPgrGetDMaybeSparse(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, max_sparse_dosage_ct, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr, difflist_common_dosage_ptr, difflist_sample_ids);
 }
 
+// PgrGet1D() and PgrGetInv1D() return (inverse-)dosages for the specified
+// allele.  For a multiallelic variant, dosage_present is the same set of
+// samples PgrGetD() would return, so some of the returned values may be zero
+// (or 32768, for inverse-dosages).
 PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
 PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
@@ -702,8 +706,24 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIn
 // imp_r2_ptr must be non-null when is_minimac3_r2 is set.
 PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
+// Multiallelic dosages (allele_ct > 2 with dosage data) aren't supported yet;
+// kPglRetNotYetSupported is returned for them.
 PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
+// For multiallelic variants with dosage data, PgrGetMD() and PgrGetMDp() fill
+// the multidosage_* (and, for PgrGetMDp(), multidphase_*) PgenVariant fields;
+// see the PgenVariant comments in pgenlib_misc.h.  The caller opts in by
+// making pgvp->multidosage_present (and pgvp->multidphase_present, when
+// pgvp->dphase_present is non-null) non-null; otherwise kPglRetNotYetSupported
+// is returned for such variants.  Buffer sizes required:
+//   multidosage_present, multidphase_present: sample_ct bits
+//   multidosage_cts, multidphase_cts: sample_ct bytes
+//   multidosage_codes, multidosage_vals, multidphase_codes, multidphase_delta:
+//     sample_ct * min(max_allele_ct - 2, 255) entries
+// PgrGetD(), PgrGetDp(), and PgrGetDMaybeSparse() collapse a multiallelic
+// variant to ref vs. nonref: dosage_main holds the sum of all alt dosages, and
+// dphase_delta the corresponding sum.  (With unconditional phased dosages,
+// dphase_present may then include zero-valued entries.)
 PglErr PgrGetMD(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
 PglErr IMPLPgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, PgenVariant* pgvp);

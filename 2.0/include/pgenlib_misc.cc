@@ -3872,25 +3872,6 @@ unsigned char* Deltalist64Append(const uint64_t* __restrict idxs, uint32_t len, 
   return dw.write_iter;
 }
 
-// Bounded varint read; values that don't fit in 63 bits are errors.
-static inline BoolErr GetVint63Ck(const unsigned char* buf_end, const unsigned char** buf_iterp, uint64_t* val_ptr) {
-  uint64_t val = 0;
-  for (uint32_t shift = 0; ; shift += 7) {
-    if (unlikely(*buf_iterp == buf_end)) {
-      return 1;
-    }
-    const uint64_t cur_byte = *((*buf_iterp)++);
-    val |= (cur_byte & 127) << shift;
-    if (cur_byte <= 127) {
-      *val_ptr = val;
-      return 0;
-    }
-    if (unlikely(shift == 56)) {
-      return 1;
-    }
-  }
-}
-
 BoolErr ParseDeltalist64(const unsigned char* fread_end, uint64_t idx_end, uint32_t max_len, const unsigned char** fread_pp, uint64_t* __restrict idxs, uint32_t* __restrict len_ptr) {
   uint64_t len64;
   if (unlikely(GetVint63Ck(fread_end, fread_pp, &len64) || (len64 > max_len))) {
