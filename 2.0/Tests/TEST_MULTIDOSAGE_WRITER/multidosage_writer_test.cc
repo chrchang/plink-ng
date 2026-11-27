@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -1730,11 +1731,39 @@ static void DenseAlleleVals(const SampleData& sd, uint32_t allele_ct, std::vecto
 // (erase_thresh >= 0) on one sample, per the plink2_help.cc definitions.
 // Written independently of plink2's implementation; e.g. the nearest hardcall
 // is found by brute force over all genotypes.
+// flip_vars/flip_samples: expected --flip + --flip-subset effect; the
+// flip_samples' alleles of flip_vars variants are complemented (A<->T,
+// C<->G, N unchanged), except in variants with an allele outside {A, C, G,
+// T, N}, which are skipped (cf. 'permissive').  This is applied after the
+// operations above.
 struct CallOps {
   int32_t hc_thresh = -1;
   uint32_t fill = 0;
   int32_t erase_thresh = -1;
+  std::set<std::string> flip_vars;
+  std::set<std::string> flip_samples;
 };
+
+// Returns the strand-flipped allele, or the empty string if allele isn't one
+// of A, C, G, T, N.
+static std::string FlipAllele(const std::string& allele) {
+  if (allele.size() != 1) {
+    return std::string();
+  }
+  switch (allele[0]) {
+  case 'A':
+    return "T";
+  case 'C':
+    return "G";
+  case 'G':
+    return "C";
+  case 'T':
+    return "A";
+  case 'N':
+    return "N";
+  }
+  return std::string();
+}
 
 static void ApplyExpectedCallOps(const CallOps& ops, uint32_t allele_ct, SampleData& sd) {
   if (!sd.has_dosage) {
@@ -1838,9 +1867,8 @@ static void ApplyExpectedCallOps(const CallOps& ops, uint32_t allele_ct, SampleD
 }
 
 // Compares orig_prefix.{pgen,pvar,psam} and new_prefix.*, matching samples by
-// IID, variants by ID, and alleles by string.  Hardcalls, phase, dosages, and
-// dosage-phase values must agree (phaseinfo only when the variant's allele
-// order is unchanged).  If strip_phase is set, the new fileset must have no
+// IID, variants by ID, and alleles by string.  Hardcalls, phase (including
+// haplotype order), dosages, and dosage-phase values must agree.  If strip_phase is set, the new fileset must have no
 // phase information; if strip_dosage is set, no dosages.
 // If hets_missing is set, the original's heterozygous hardcalls (including
 // altx/alty) must be missing in the new fileset, with their dosages erased,
@@ -1903,12 +1931,27 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
     const std::vector<std::string>& new_alleles = new_pi.alleles[new_vidx];
     // orig allele index -> new allele index (UINT32_MAX if dropped)
     std::vector<uint32_t> orig_to_new(orig_alleles.size(), UINT32_MAX);
-    uint32_t order_unchanged = (orig_alleles.size() == new_alleles.size());
     for (size_t new_aidx = 0; new_aidx != new_alleles.size(); ++new_aidx) {
       for (size_t orig_aidx = 0; orig_aidx != orig_alleles.size(); ++orig_aidx) {
         if (orig_alleles[orig_aidx] == new_alleles[new_aidx]) {
           orig_to_new[orig_aidx] = new_aidx;
-          order_unchanged = order_unchanged && (orig_aidx == new_aidx);
+        }
+      }
+    }
+    // same, for --flip-subset samples (empty if the variant isn't flipped)
+    std::vector<uint32_t> orig_to_new_flipped;
+    if (ops.flip_vars.count(orig_pi.ids[orig_vidx])) {
+      orig_to_new_flipped.assign(orig_alleles.size(), UINT32_MAX);
+      for (size_t orig_aidx = 0; orig_aidx != orig_alleles.size(); ++orig_aidx) {
+        const std::string flipped = FlipAllele(orig_alleles[orig_aidx]);
+        if (flipped.empty()) {
+          orig_to_new_flipped.clear();
+          break;
+        }
+        for (size_t new_aidx = 0; new_aidx != new_alleles.size(); ++new_aidx) {
+          if (new_alleles[new_aidx] == flipped) {
+            orig_to_new_flipped[orig_aidx] = new_aidx;
+          }
         }
       }
     }
@@ -1923,6 +1966,7 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
     for (uint32_t new_sidx = 0; new_sidx != new_sample_ct; ++new_sidx) {
       SampleData o = orig_sds[new_to_orig_sample[new_sidx]];
       const SampleData& n = new_sds[new_sidx];
+      const std::vector<uint32_t>& allele_map = ((!orig_to_new_flipped.empty()) && ops.flip_samples.count(new_iids[new_sidx]))? orig_to_new_flipped : orig_to_new;
       ApplyExpectedCallOps(ops, orig_alleles.size(), o);
       if (hets_missing && (o.a1 != UINT32_MAX) && (o.a1 != o.a2)) {
         o.a1 = UINT32_MAX;
@@ -1936,8 +1980,8 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
       uint32_t expected_a1 = UINT32_MAX;
       uint32_t expected_a2 = UINT32_MAX;
       if (o.a1 != UINT32_MAX) {
-        expected_a1 = orig_to_new[o.a1];
-        expected_a2 = orig_to_new[o.a2];
+        expected_a1 = allele_map[o.a1];
+        expected_a2 = allele_map[o.a2];
         if (expected_a1 > expected_a2) {
           std::swap(expected_a1, expected_a2);
         }
@@ -1948,8 +1992,9 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
         ok = ok && (!n.phased) && (!n.has_dphase);
       } else {
         ok = ok && (n.phased == o.phased);
-        if (order_unchanged) {
-          ok = ok && (n.phaseinfo == o.phaseinfo);
+        if (o.phased) {
+          // phaseinfo is relative to allele order
+          ok = ok && (n.phaseinfo == (o.phaseinfo ^ (allele_map[o.a1] > allele_map[o.a2])));
         }
       }
       // dosages
@@ -1967,8 +2012,8 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
         if (!ou.empty()) {
           eu.assign(new_alleles.size(), 0);
           for (size_t orig_aidx = 0; orig_aidx != ou.size(); ++orig_aidx) {
-            if (orig_to_new[orig_aidx] != UINT32_MAX) {
-              eu[orig_to_new[orig_aidx]] = ou[orig_aidx];
+            if (allele_map[orig_aidx] != UINT32_MAX) {
+              eu[allele_map[orig_aidx]] = ou[orig_aidx];
             } else if (ou[orig_aidx]) {
               ok = 0;
             }
@@ -1977,8 +2022,8 @@ static int CompareFilesets(const char* orig_prefix, const char* new_prefix, uint
         if ((!od.empty()) && (!strip_phase)) {
           ed.assign(new_alleles.size(), 0);
           for (size_t orig_aidx = 0; orig_aidx != od.size(); ++orig_aidx) {
-            if (orig_to_new[orig_aidx] != UINT32_MAX) {
-              ed[orig_to_new[orig_aidx]] = od[orig_aidx];
+            if (allele_map[orig_aidx] != UINT32_MAX) {
+              ed[allele_map[orig_aidx]] = od[orig_aidx];
             }
           }
         }
@@ -2112,11 +2157,32 @@ static void CheckFixedWidth() {
   CloseReader(r);
 }
 
+// Writes tmp_flipfail.{pgen,pvar,psam}: one 3-allele variant, where sample 0
+// has a missing hardcall and dosages of 1 copy each for REF and ALT1; the
+// other samples are hom-ref without dosages.  (run_tests.sh replaces the
+// .pvar alleles.)
+static void WriteFlipFail() {
+  TinyVariant tv;
+  InitTiny(tv);
+  const uintptr_t allele_idx_offsets[2] = {0, 3};
+  STPgenWriter spgw;
+  unsigned char* alloc;
+  CHECK(!OpenWriter("tmp_flipfail.pgen", allele_idx_offsets, 1, 4, kfPgenGlobalDosagePresent | kfPgenGlobalMultiallelicDosagePresent, &spgw, &alloc));
+  PglErr reterr = SpgwAppendMultiallelicGenovecDphase16(&tv.pgv, 3, &spgw);
+  CHECK(!reterr);
+  CHECK(!SpgwFinish(&spgw));
+  CleanupSpgw(&spgw, &reterr);
+  free(alloc);
+  FreeTiny(tv);
+  WritePvarPsam("tmp_flipfail", allele_idx_offsets, 1, 4);
+}
+
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
-  // [hets-missing] [hct=<thresh>] [fill] [erase=<thresh>]" (thresholds in
-  // 16384ths of a copy, as plink2 truncates them): see
-  // CompareFilesets().
+  // [hets-missing] [hct=<thresh>] [fill] [erase=<thresh>]
+  // [flip-vars=<variant ID file> flip-samples=<IID file>]" (thresholds in
+  // 16384ths of a copy, as plink2 truncates them; '#' lines in the ID files
+  // are ignored): see CompareFilesets().
   if ((argc >= 4) && (!strcmp(argv[1], "compare"))) {
     uint32_t strip_phase = 0;
     uint32_t strip_dosage = 0;
@@ -2131,6 +2197,13 @@ int main(int argc, char** argv) {
         ops.hc_thresh = atoi(&(argv[argi][4]));
       } else if (!strncmp(argv[argi], "erase=", 6)) {
         ops.erase_thresh = atoi(&(argv[argi][6]));
+      } else if (!strncmp(argv[argi], "flip-vars=", 10) || !strncmp(argv[argi], "flip-samples=", 13)) {
+        const uint32_t is_vars = (argv[argi][5] == 'v');
+        for (const std::string& line : ReadLines(strchr(argv[argi], '=') + 1)) {
+          if ((!line.empty()) && (line[0] != '#')) {
+            (is_vars? ops.flip_vars : ops.flip_samples).insert(line);
+          }
+        }
       }
     }
     return CompareFilesets(argv[2], argv[3], strip_phase, strip_dosage, hets_missing, ops);
@@ -2143,6 +2216,7 @@ int main(int argc, char** argv) {
 
   ValidatorTinyTests();
   CheckFixedWidth();
+  WriteFlipFail();
 
   // Error paths.
   {
