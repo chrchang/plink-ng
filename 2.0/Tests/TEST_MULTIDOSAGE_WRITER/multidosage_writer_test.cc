@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <array>
 #include <set>
 #include <string>
 #include <vector>
@@ -2171,6 +2172,620 @@ static void CheckFixedWidth() {
   CloseReader(r);
 }
 
+// ***** variant-join with dosages *****
+
+// Encodes sds (allele_ct alleles; phased hets must have a1 != a2) as one
+// variant record.
+static void WriteSampleDatas(const std::vector<SampleData>& sds, uint32_t allele_ct, STPgenWriter* spgwp) {
+  const uint32_t n = sds.size();
+  uintptr_t* genovec = AllocWords(2 * n);
+  uintptr_t* patch_01_set = AllocWords(n);
+  uintptr_t* patch_10_set = AllocWords(n);
+  uintptr_t* phasepresent = AllocWords(n);
+  uintptr_t* phaseinfo = AllocWords(n);
+  uintptr_t* dosage_present = AllocWords(n);
+  uintptr_t* dphase_present = AllocWords(n);
+  uintptr_t* md_present = AllocWords(n);
+  uintptr_t* mdp_present = AllocWords(n);
+  std::vector<AlleleCode> patch_01_vals;
+  std::vector<AlleleCode> patch_10_vals;
+  std::vector<uint16_t> dosage_main;
+  std::vector<int16_t> dphase_delta;
+  std::vector<unsigned char> md_cts;
+  std::vector<AlleleCode> md_codes;
+  std::vector<uint16_t> md_vals;
+  std::vector<unsigned char> mdp_cts;
+  std::vector<AlleleCode> mdp_codes;
+  std::vector<int16_t> mdp_vals;
+  uint32_t phasepresent_ct = 0;
+  for (uint32_t s = 0; s != n; ++s) {
+    const SampleData& sd = sds[s];
+    uint32_t cat = 0;
+    if (sd.a1 == UINT32_MAX) {
+      cat = 3;
+    } else if (sd.a2 == 0) {
+      cat = 0;
+    } else if (sd.a1 == 0) {
+      cat = 1;
+      if (sd.a2 >= 2) {
+        SetBit(s, patch_01_set);
+        patch_01_vals.push_back(sd.a2);
+      }
+    } else {
+      cat = 2;
+      if (sd.a2 >= 2) {
+        SetBit(s, patch_10_set);
+        patch_10_vals.push_back(sd.a1);
+        patch_10_vals.push_back(sd.a2);
+      }
+    }
+    genovec[s / kBitsPerWordD2] |= S_CAST(uintptr_t, cat) << (2 * (s % kBitsPerWordD2));
+    if (sd.phased) {
+      SetBit(s, phasepresent);
+      ++phasepresent_ct;
+      if (sd.phaseinfo) {
+        SetBit(s, phaseinfo);
+      }
+    }
+    if (sd.has_dosage) {
+      SetBit(s, dosage_present);
+      dosage_main.push_back(sd.dosage);
+      if (!sd.md.empty()) {
+        SetBit(s, md_present);
+        md_cts.push_back(sd.md.size());
+        for (const auto& pr : sd.md) {
+          md_codes.push_back(pr.first);
+          md_vals.push_back(pr.second);
+        }
+      }
+      if (sd.has_dphase) {
+        SetBit(s, dphase_present);
+        dphase_delta.push_back(sd.dphase);
+        if (!sd.mdp.empty()) {
+          SetBit(s, mdp_present);
+          mdp_cts.push_back(sd.mdp.size());
+          for (const auto& pr : sd.mdp) {
+            mdp_codes.push_back(pr.first);
+            mdp_vals.push_back(pr.second);
+          }
+        }
+      }
+    }
+  }
+  if (allele_ct == 2) {
+    CHECK(!SpgwAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main.data(), dphase_delta.data(), dosage_main.size(), dphase_delta.size(), spgwp));
+  } else {
+    PgenVariant pgv;
+    memset(&pgv, 0, sizeof(PgenVariant));
+    pgv.genovec = genovec;
+    pgv.patch_01_set = patch_01_set;
+    pgv.patch_01_vals = patch_01_vals.data();
+    pgv.patch_01_ct = patch_01_vals.size();
+    pgv.patch_10_set = patch_10_set;
+    pgv.patch_10_vals = patch_10_vals.data();
+    pgv.patch_10_ct = patch_10_vals.size() / 2;
+    if (phasepresent_ct) {
+      pgv.phasepresent = phasepresent;
+      pgv.phaseinfo = phaseinfo;
+      pgv.phasepresent_ct = phasepresent_ct;
+    }
+    pgv.dosage_present = dosage_present;
+    pgv.dosage_main = dosage_main.data();
+    pgv.dosage_ct = dosage_main.size();
+    pgv.multidosage_present = md_present;
+    pgv.multidosage_cts = md_cts.data();
+    pgv.multidosage_codes = md_codes.data();
+    pgv.multidosage_vals = md_vals.data();
+    pgv.multidosage_sample_ct = md_cts.size();
+    pgv.dphase_present = dphase_present;
+    pgv.dphase_delta = dphase_delta.data();
+    pgv.dphase_ct = dphase_delta.size();
+    pgv.multidphase_present = mdp_present;
+    pgv.multidphase_cts = mdp_cts.data();
+    pgv.multidphase_codes = mdp_codes.data();
+    pgv.multidphase_delta = mdp_vals.data();
+    pgv.multidphase_sample_ct = mdp_cts.size();
+    CHECK(!SpgwAppendMultiallelicGenovecDphase16(&pgv, allele_ct, spgwp));
+  }
+  uintptr_t* bufs[] = {genovec, patch_01_set, patch_10_set, phasepresent, phaseinfo, dosage_present, dphase_present, md_present, mdp_present};
+  for (uintptr_t* p : bufs) {
+    free(p);
+  }
+}
+
+// Writes tmp_joinsrc.{pgen,pvar,psam}: groups of 2-3 variants per position
+// (same ID, distinct ALT alleles) for --make-pgen multiallelics=+any.  Each
+// sample's source records are derived from "true" haplotype allele dosages,
+// then varied: hardcall-only or with a dosage, explicit/implicit/no
+// dosage-phase, missing hardcalls, phased or unphased hets.  Some samples
+// get an extra ALT dosage on one haplotype of one source, so that the joined
+// haplotype dosage exceeds 1 by up to 150/16384 (rescaled) or by 400-3000
+// (set to missing); others get diffuse low ALT dosages whose joined total is
+// inconsistent with the joined hom-ref hardcall, or conflicting hardcalls
+// (an unphased 0/1 and a 1/1, three ALT alleles) with valid dosages (0.5 and
+// 1.5).
+static void WriteJoinSource() {
+  const uint32_t sample_ct = 240;
+  const uint32_t pos_ct = 60;
+  // (single-variant groups are written as is, except for dosage-phase
+  // representation details)
+  const std::vector<std::vector<uint32_t>> layouts = {{2, 2}, {2, 2, 2}, {2}, {2, 3}, {3, 2, 2}, {3}};
+  std::vector<uintptr_t> allele_idx_offsets(1, 0);
+  std::vector<std::vector<SampleData>> records;
+  FILE* pvar = fopen("tmp_joinsrc.pvar", "w");
+  CHECK(pvar);
+  fputs("#CHROM\tPOS\tID\tREF\tALT\n", pvar);
+  for (uint32_t pos = 0; pos != pos_ct; ++pos) {
+    const std::vector<uint32_t>& layout = layouts[pos % layouts.size()];
+    const uint32_t member_ct = layout.size();
+    // member allele k >= 1 -> joined allele index
+    std::vector<std::vector<uint32_t>> joined_idx(member_ct);
+    uint32_t joined_ct = 1;
+    for (uint32_t m = 0; m != member_ct; ++m) {
+      joined_idx[m].push_back(0);
+      std::string alts;
+      for (uint32_t k = 1; k != layout[m]; ++k) {
+        joined_idx[m].push_back(joined_ct);
+        std::string allele = "C";
+        for (uint32_t uii = joined_ct; uii; uii /= 4) {
+          allele += "ACGT"[uii % 4];
+        }
+        alts += ((k == 1)? "" : ",") + allele;
+        ++joined_ct;
+      }
+      fprintf(pvar, "1\t%u\tj%u\tA\t%s\n", 10 * pos + 1, pos, alts.c_str());
+      allele_idx_offsets.push_back(allele_idx_offsets.back() + layout[m]);
+    }
+    std::vector<std::vector<SampleData>> member_sds(member_ct, std::vector<SampleData>(sample_ct));
+    for (uint32_t s = 0; s != sample_ct; ++s) {
+      const uint32_t r = RandBelow(100);
+      std::vector<std::vector<int32_t>> hap(2, std::vector<int32_t>(joined_ct, 0));
+      uint32_t primary[2] = {0, 0};
+      for (uint32_t h = 0; h != 2; ++h) {
+        if ((r < 10) && (member_ct >= 2)) {
+          // diffuse
+          hap[h][0] = 16384 - 4800;
+          hap[h][joined_idx[0][1]] = 2400;
+          hap[h][joined_idx[1][1]] = 2400;
+          continue;
+        }
+        primary[h] = RandBelow(2)? 0 : (1 + RandBelow(joined_ct - 1));
+        const int32_t eps = (r < 40)? 0 : RandBelow(3001);
+        hap[h][primary[h]] = 16384 - eps;
+        const uint32_t o1 = (primary[h] + 1 + RandBelow(joined_ct - 1)) % joined_ct;
+        const uint32_t o2 = (primary[h] + 1 + RandBelow(joined_ct - 1)) % joined_ct;
+        const int32_t e1 = RandBelow(eps + 1);
+        hap[h][o1] += e1;
+        hap[h][o2] += eps - e1;
+      }
+      uint32_t inject_member = UINT32_MAX;
+      int32_t inject_delta = 0;
+      if ((r >= 10) && (r < 32)) {
+        inject_member = RandBelow(member_ct);
+        inject_delta = (r < 25)? (1 + RandBelow(150)) : (400 + RandBelow(2601));
+      }
+      if ((r >= 32) && (r < 35)) {
+        for (uint32_t m = 0; m != member_ct; ++m) {
+          SampleData& sd = member_sds[m][s];
+          if (m < 2) {
+            sd.a1 = m;
+            sd.a2 = 1;
+            sd.has_dosage = 1;
+            sd.dosage = m? 24576 : 8192;
+          }
+        }
+        continue;
+      }
+      for (uint32_t m = 0; m != member_ct; ++m) {
+        const uint32_t allele_ct = layout[m];
+        std::vector<int32_t> u(allele_ct, 0);
+        std::vector<int32_t> d(allele_ct, 0);
+        uint32_t calls[2] = {0, 0};
+        int32_t hap0_alt_sum = 0;
+        for (uint32_t k = 1; k != allele_ct; ++k) {
+          const uint32_t j = joined_idx[m][k];
+          u[k] = hap[0][j] + hap[1][j];
+          d[k] = hap[0][j] - hap[1][j];
+          hap0_alt_sum += hap[0][j];
+          for (uint32_t h = 0; h != 2; ++h) {
+            if (primary[h] == j) {
+              calls[h] = k;
+            }
+          }
+        }
+        if ((m == inject_member) && (hap0_alt_sum + inject_delta <= 16384)) {
+          u[1] += inject_delta;
+          d[1] += inject_delta;
+        }
+        SampleData& sd = member_sds[m][s];
+        sd.a1 = std::min(calls[0], calls[1]);
+        sd.a2 = std::max(calls[0], calls[1]);
+        const uint32_t hardcall_missing = (RandBelow(20) == 0);
+        if (hardcall_missing) {
+          sd.a1 = UINT32_MAX;
+          sd.a2 = UINT32_MAX;
+        } else if ((sd.a1 != sd.a2) && (RandBelow(10) < 7)) {
+          sd.phased = 1;
+          sd.phaseinfo = (calls[0] > calls[1]);
+        }
+        if (RandBelow(10) < 7) {
+          sd.has_dosage = 1;
+          for (uint32_t k = 1; k != allele_ct; ++k) {
+            sd.dosage += u[k];
+            if ((k >= 2) && u[k]) {
+              sd.md.emplace_back(k, u[k]);
+            }
+          }
+          if (RandBelow(2) || (sd.phased && (allele_ct > 2))) {
+            sd.has_dphase = 1;
+            for (uint32_t k = 1; k != allele_ct; ++k) {
+              sd.dphase += d[k];
+              if ((k >= 2) && d[k]) {
+                sd.mdp.emplace_back(k, d[k]);
+              }
+            }
+          }
+        }
+      }
+    }
+    for (uint32_t m = 0; m != member_ct; ++m) {
+      records.push_back(member_sds[m]);
+    }
+  }
+  fclose(pvar);
+  const uint32_t variant_ct = records.size();
+  STPgenWriter spgw;
+  unsigned char* alloc;
+  CHECK(!OpenWriter("tmp_joinsrc.pgen", allele_idx_offsets.data(), variant_ct, sample_ct, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent | kfPgenGlobalMultiallelicDosagePresent, &spgw, &alloc));
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    WriteSampleDatas(records[vidx], allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx], &spgw);
+  }
+  CHECK(!SpgwFinish(&spgw));
+  PglErr reterr = kPglRetSuccess;
+  CleanupSpgw(&spgw, &reterr);
+  free(alloc);
+  FILE* psam = fopen("tmp_joinsrc.psam", "w");
+  CHECK(psam);
+  fputs("#IID\n", psam);
+  for (uint32_t s = 0; s != sample_ct; ++s) {
+    fprintf(psam, "s%u\n", s);
+  }
+  fclose(psam);
+}
+
+// Reference rescaling, per the plink2_help.cc definition: round down, then
+// hand out the remaining units by largest remainder (ties to lower indexes).
+static void RescaleRef(std::vector<int64_t>& vals, int64_t target) {
+  int64_t total = 0;
+  for (int64_t v : vals) {
+    total += v;
+  }
+  std::vector<int64_t> rems(vals.size());
+  int64_t assigned = 0;
+  for (size_t i = 0; i != vals.size(); ++i) {
+    rems[i] = (vals[i] * target) % total;
+    vals[i] = (vals[i] * target) / total;
+    assigned += vals[i];
+  }
+  for (; assigned != target; ++assigned) {
+    size_t best = 0;
+    for (size_t i = 1; i != vals.size(); ++i) {
+      if (rems[i] > rems[best]) {
+        best = i;
+      }
+    }
+    vals[best] += 1;
+    rems[best] = -1;
+  }
+}
+
+// Compares new_prefix (from --make-pgen multiallelics=+... on orig_prefix)
+// against the expected variant-join of orig_prefix: each new variant is
+// matched to the original variants with the same ID, and alleles by string.
+// Written independently of plink2's implementation, from the plink2_help.cc
+// definitions.  If strip_phase is set, phase is removed from the original
+// first (cf. 'erase-phase').
+static int CompareJoin(const char* orig_prefix, const char* new_prefix, uint32_t strip_phase) {
+  PvarInfo orig_pi;
+  PvarInfo new_pi;
+  if (ReadPvar(orig_prefix, orig_pi) || ReadPvar(new_prefix, new_pi)) {
+    fprintf(stderr, "comparejoin: failed to read .pvar files\n");
+    return 1;
+  }
+  const std::vector<std::string> orig_iids = ReadPsamIids(orig_prefix);
+  const std::vector<std::string> new_iids = ReadPsamIids(new_prefix);
+  std::vector<uint32_t> new_to_orig_sample(new_iids.size());
+  for (size_t new_idx = 0; new_idx != new_iids.size(); ++new_idx) {
+    new_to_orig_sample[new_idx] = std::find(orig_iids.begin(), orig_iids.end(), new_iids[new_idx]) - orig_iids.begin();
+    if (new_to_orig_sample[new_idx] == orig_iids.size()) {
+      fprintf(stderr, "comparejoin: sample %s not in original\n", new_iids[new_idx].c_str());
+      return 1;
+    }
+  }
+  const uint32_t orig_sample_ct = orig_iids.size();
+  const uint32_t new_sample_ct = new_iids.size();
+  const uint32_t orig_variant_ct = orig_pi.ids.size();
+  const uint32_t new_variant_ct = new_pi.ids.size();
+  Reader orig_r;
+  Reader new_r;
+  if (OpenReader((std::string(orig_prefix) + ".pgen").c_str(), orig_pi.allele_idx_offsets.data(), orig_variant_ct, orig_sample_ct, orig_r) ||
+      OpenReader((std::string(new_prefix) + ".pgen").c_str(), new_pi.allele_idx_offsets.data(), new_variant_ct, new_sample_ct, new_r)) {
+    fprintf(stderr, "comparejoin: failed to open .pgen files\n");
+    return 1;
+  }
+  ReaderBufs orig_rb;
+  ReaderBufs new_rb;
+  InitReaderBufs(orig_sample_ct, 255, orig_rb);
+  InitReaderBufs(new_sample_ct, 255, new_rb);
+  PgrSampleSubsetIndex orig_pssi;
+  PgrSampleSubsetIndex new_pssi;
+  PgrClearSampleSubsetIndex(&orig_r.pgr, &orig_pssi);
+  PgrClearSampleSubsetIndex(&new_r.pgr, &new_pssi);
+  uint64_t mismatch_ct = 0;
+  // dosages, dosage-phases, overflows, inconsistent hardcalls, rescales,
+  // hardcall conflicts with dosages
+  uint64_t stats[6] = {0, 0, 0, 0, 0, 0};
+  for (uint32_t new_vidx = 0; new_vidx != new_variant_ct; ++new_vidx) {
+    const std::vector<std::string>& new_alleles = new_pi.alleles[new_vidx];
+    const uint32_t new_allele_ct = new_alleles.size();
+    std::vector<uint32_t> members;
+    for (uint32_t orig_vidx = 0; orig_vidx != orig_variant_ct; ++orig_vidx) {
+      if (orig_pi.ids[orig_vidx] == new_pi.ids[new_vidx]) {
+        members.push_back(orig_vidx);
+      }
+    }
+    const uint32_t member_ct = members.size();
+    std::vector<std::vector<uint32_t>> maps(member_ct);
+    std::vector<std::vector<SampleData>> member_sds(member_ct);
+    for (uint32_t m = 0; m != member_ct; ++m) {
+      const std::vector<std::string>& orig_alleles = orig_pi.alleles[members[m]];
+      for (const std::string& allele : orig_alleles) {
+        const uint32_t new_aidx = std::find(new_alleles.begin(), new_alleles.end(), allele) - new_alleles.begin();
+        if (new_aidx == new_allele_ct) {
+          fprintf(stderr, "comparejoin: allele %s missing from variant %s\n", allele.c_str(), new_pi.ids[new_vidx].c_str());
+          return 1;
+        }
+        maps[m].push_back(new_aidx);
+      }
+      if (PgrGetMDp(nullptr, orig_pssi, orig_sample_ct, members[m], &orig_r.pgr, &orig_rb.pgv)) {
+        fprintf(stderr, "comparejoin: read failure\n");
+        return 1;
+      }
+      member_sds[m] = Decode(orig_rb.pgv, orig_sample_ct, 1, 1, 1);
+      if (strip_phase) {
+        for (SampleData& sd : member_sds[m]) {
+          sd.phased = 0;
+          sd.phaseinfo = 0;
+          sd.has_dphase = 0;
+          sd.dphase = 0;
+          sd.mdp.clear();
+        }
+      }
+    }
+    if (PgrGetMDp(nullptr, new_pssi, new_sample_ct, new_vidx, &new_r.pgr, &new_rb.pgv)) {
+      fprintf(stderr, "comparejoin: read failure\n");
+      return 1;
+    }
+    const std::vector<SampleData> new_sds = Decode(new_rb.pgv, new_sample_ct, 1, 1, 1);
+    for (uint32_t new_sidx = 0; new_sidx != new_sample_ct; ++new_sidx) {
+      const uint32_t orig_sidx = new_to_orig_sample[new_sidx];
+      // Hardcall, as in the hardcall-only variant-join: (allele, phased,
+      // on first haplotype) for each ALT allele copy.
+      uint32_t hc_missing = 0;
+      uint32_t any_unphased = 0;
+      std::vector<std::array<uint32_t, 3>> alts;
+      // Dosage.
+      uint32_t any_dosage = 0;
+      uint32_t dosage_missing = 0;
+      uint32_t phase_unknown = 0;
+      uint32_t any_explicit = 0;
+      std::vector<int64_t> u(new_allele_ct, 0);
+      std::vector<int64_t> d(new_allele_ct, 0);
+      for (uint32_t m = 0; m != member_ct; ++m) {
+        const SampleData& sd = member_sds[m][orig_sidx];
+        const std::vector<uint32_t>& map = maps[m];
+        const uint32_t member_allele_ct = map.size();
+        const uint32_t is_het = (sd.a1 != UINT32_MAX) && (sd.a1 != sd.a2);
+        if (sd.a1 == UINT32_MAX) {
+          hc_missing = 1;
+        } else if (!is_het) {
+          if (sd.a1) {
+            alts.push_back({map[sd.a1], 0, 0});
+            alts.push_back({map[sd.a1], 0, 0});
+          }
+        } else {
+          any_unphased |= !sd.phased;
+          // phaseinfo: higher allele on the first haplotype
+          if (sd.a1) {
+            alts.push_back({map[sd.a1], sd.phased, !sd.phaseinfo});
+          }
+          alts.push_back({map[sd.a2], sd.phased, sd.phaseinfo});
+        }
+        if (sd.has_dosage) {
+          any_dosage = 1;
+          std::vector<int32_t> mu;
+          std::vector<int32_t> md;
+          DenseAlleleVals(sd, member_allele_ct, mu, md);
+          for (uint32_t k = 1; k != member_allele_ct; ++k) {
+            u[map[k]] += mu[k];
+          }
+          if (!md.empty()) {
+            any_explicit = 1;
+            for (uint32_t k = 1; k != member_allele_ct; ++k) {
+              d[map[k]] += md[k];
+            }
+          } else if ((member_allele_ct == 2) && is_het && sd.phased) {
+            const int32_t abs_delta = 16384 - abs(16384 - S_CAST(int32_t, sd.dosage));
+            d[map[1]] += sd.phaseinfo? abs_delta : -abs_delta;
+          } else {
+            phase_unknown = 1;
+          }
+        } else if (sd.a1 == UINT32_MAX) {
+          dosage_missing = 1;
+        } else {
+          if (sd.a1) {
+            u[map[sd.a1]] += 16384;
+          }
+          u[map[sd.a2]] += sd.a2? 16384 : 0;
+          if (is_het) {
+            if (sd.phased) {
+              const uint32_t left = sd.phaseinfo? sd.a2 : sd.a1;
+              const uint32_t right = sd.phaseinfo? sd.a1 : sd.a2;
+              if (left) {
+                d[map[left]] += 16384;
+              }
+              if (right) {
+                d[map[right]] -= 16384;
+              }
+            } else {
+              phase_unknown = 1;
+            }
+          }
+        }
+      }
+      uint32_t e_a1 = UINT32_MAX;
+      uint32_t e_a2 = UINT32_MAX;
+      uint32_t e_phased = 0;
+      uint32_t e_phaseinfo = 0;
+      if (!hc_missing) {
+        if (alts.empty()) {
+          e_a1 = 0;
+          e_a2 = 0;
+        } else if (alts.size() == 1) {
+          e_a1 = 0;
+          e_a2 = alts[0][0];
+          if (alts[0][1] && (!any_unphased)) {
+            e_phased = 1;
+            e_phaseinfo = alts[0][2];
+          }
+        } else if (alts.size() == 2) {
+          e_a1 = std::min(alts[0][0], alts[1][0]);
+          e_a2 = std::max(alts[0][0], alts[1][0]);
+          if ((e_a1 != e_a2) && alts[0][1] && alts[1][1] && (alts[0][2] != alts[1][2]) && (!any_unphased)) {
+            e_phased = 1;
+            e_phaseinfo = (alts[0][0] == e_a2)? alts[0][2] : alts[1][2];
+          }
+        }
+      }
+      uint32_t e_has_dosage = any_dosage && (!dosage_missing);
+      uint32_t e_has_dphase = 0;
+      if (e_has_dosage) {
+        const uint32_t phase_known = !phase_unknown;
+        uint32_t overflow = 0;
+        std::vector<int64_t> alt_u(u.begin() + 1, u.end());
+        std::vector<int64_t> alt_d(d.begin() + 1, d.end());
+        const int64_t overflow_max = (32768 * 101) / 100;
+        if (phase_known) {
+          std::vector<int64_t> h1(alt_u.size());
+          std::vector<int64_t> h2(alt_u.size());
+          int64_t s1 = 0;
+          int64_t s2 = 0;
+          for (size_t i = 0; i != alt_u.size(); ++i) {
+            h1[i] = alt_u[i] + alt_d[i];
+            h2[i] = alt_u[i] - alt_d[i];
+            s1 += h1[i];
+            s2 += h2[i];
+          }
+          if ((s1 > overflow_max) || (s2 > overflow_max)) {
+            overflow = 1;
+          } else if ((s1 > 32768) || (s2 > 32768)) {
+            ++stats[4];
+            if (s1 > 32768) {
+              RescaleRef(h1, 32768);
+            }
+            if (s2 > 32768) {
+              RescaleRef(h2, 32768);
+            }
+            for (size_t i = 0; i != alt_u.size(); ++i) {
+              alt_u[i] = (h1[i] + h2[i]) / 2;
+              alt_d[i] = (h1[i] - h2[i]) / 2;
+            }
+          }
+        } else {
+          int64_t total = 0;
+          for (int64_t v : alt_u) {
+            total += v;
+          }
+          if (total > overflow_max) {
+            overflow = 1;
+          } else if (total > 32768) {
+            ++stats[4];
+            RescaleRef(alt_u, 32768);
+          }
+        }
+        if (overflow) {
+          ++stats[2];
+          e_a1 = UINT32_MAX;
+          e_a2 = UINT32_MAX;
+          e_phased = 0;
+          e_has_dosage = 0;
+        } else {
+          int64_t alt_sum = 0;
+          int64_t delta_sum = 0;
+          for (size_t i = 0; i != alt_u.size(); ++i) {
+            u[i + 1] = alt_u[i];
+            d[i + 1] = alt_d[i];
+            alt_sum += alt_u[i];
+            delta_sum += alt_d[i];
+          }
+          u[0] = 32768 - alt_sum;
+          d[0] = -delta_sum;
+          if (e_a1 != UINT32_MAX) {
+            int64_t l1 = 0;
+            for (uint32_t aidx = 0; aidx != new_allele_ct; ++aidx) {
+              l1 += std::llabs(16384 * S_CAST(int64_t, (e_a1 == aidx) + (e_a2 == aidx)) - u[aidx]);
+            }
+            if (l1 > 16384) {
+              ++stats[3];
+              e_a1 = UINT32_MAX;
+              e_a2 = UINT32_MAX;
+              e_phased = 0;
+            }
+          }
+          if (!phase_known) {
+            e_phased = 0;
+          }
+          e_has_dphase = ((new_allele_ct > 2) || (member_ct > 1))? phase_known : any_explicit;
+          ++stats[0];
+          stats[5] += (!hc_missing) && (alts.size() > 2);
+          stats[1] += e_has_dphase;
+        }
+      }
+      const SampleData& n = new_sds[new_sidx];
+      int ok = (n.a1 == e_a1) && (n.a2 == e_a2) && (n.phased == e_phased);
+      if (e_phased) {
+        ok = ok && (n.phaseinfo == e_phaseinfo);
+      }
+      std::vector<int32_t> nu;
+      std::vector<int32_t> nd;
+      DenseAlleleVals(n, new_allele_ct, nu, nd);
+      ok = ok && (nu.empty() == (!e_has_dosage)) && (nd.empty() == (!e_has_dphase));
+      for (uint32_t aidx = 0; ok && (aidx != nu.size()); ++aidx) {
+        ok = (nu[aidx] == u[aidx]);
+      }
+      for (uint32_t aidx = 0; ok && (aidx != nd.size()); ++aidx) {
+        ok = (nd[aidx] == d[aidx]);
+      }
+      if (!ok) {
+        if (mismatch_ct < 10) {
+          fprintf(stderr, "comparejoin: mismatch at variant %s, sample %s: hardcall %u/%u vs expected %u/%u, phased %u vs %u, dosage %s vs %s, dphase %s vs %s\n", new_pi.ids[new_vidx].c_str(), new_iids[new_sidx].c_str(), n.a1, n.a2, e_a1, e_a2, n.phased, e_phased, nu.empty()? "absent" : "present", e_has_dosage? "present" : "absent", nd.empty()? "absent" : "present", e_has_dphase? "present" : "absent");
+        }
+        ++mismatch_ct;
+      }
+    }
+  }
+  FreeReaderBufs(orig_rb);
+  FreeReaderBufs(new_rb);
+  CloseReader(orig_r);
+  CloseReader(new_r);
+  if (mismatch_ct) {
+    fprintf(stderr, "comparejoin: %" PRIu64 " mismatch(es).\n", mismatch_ct);
+    return 1;
+  }
+  printf("comparejoin: %s matches the variant-join of %s (%u variants, %u samples; %" PRIu64 " dosages, %" PRIu64 " dosage-phases, %" PRIu64 " overflows, %" PRIu64 " inconsistent hardcalls, %" PRIu64 " rescales, %" PRIu64 " hardcall conflicts with dosages).\n", new_prefix, orig_prefix, new_variant_ct, new_sample_ct, stats[0], stats[1], stats[2], stats[3], stats[4], stats[5]);
+  return 0;
+}
+
 // Writes tmp_flipfail.{pgen,pvar,psam}: one 3-allele variant, where sample 0
 // has a missing hardcall and dosages of 1 copy each for REF and ALT1; the
 // other samples are hom-ref without dosages.  (run_tests.sh replaces the
@@ -2198,6 +2813,11 @@ int main(int argc, char** argv) {
   // (thresholds in
   // 16384ths of a copy, as plink2 truncates them; '#' lines in the ID files
   // are ignored): see CompareFilesets().
+  // "comparejoin <orig prefix> <new prefix> [strip-phase]": see
+  // CompareJoin().
+  if ((argc >= 4) && (!strcmp(argv[1], "comparejoin"))) {
+    return CompareJoin(argv[2], argv[3], (argc >= 5) && (!strcmp(argv[4], "strip-phase")));
+  }
   if ((argc >= 4) && (!strcmp(argv[1], "compare"))) {
     uint32_t strip_phase = 0;
     uint32_t strip_dosage = 0;
@@ -2233,6 +2853,7 @@ int main(int argc, char** argv) {
   ValidatorTinyTests();
   CheckFixedWidth();
   WriteFlipFail();
+  WriteJoinSource();
 
   // Error paths.
   {

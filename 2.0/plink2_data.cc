@@ -10465,9 +10465,200 @@ HEADER_INLINE void JoinSampleAddAllele(AlleleCode ac, uint32_t is_phased, uint32
   *statep = state;
 }
 
-// Single-output-thread genotype writer for variant-join.  Hardcalls and
-// hardcall-phase only; dosages must have been erased.
-PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* write_allele_idx_offsets, const char* writer_ver, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_write_allele_ct, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+// Per-sample variant-join dosage state bits.
+// Some source variant has an explicit dosage for the sample.
+CONSTI32(kJoinDosagePresent, 1);
+// Some source variant has neither a dosage nor a hardcall.
+CONSTI32(kJoinDosageMissing, 2);
+// Some source variant doesn't determine how the sample's dosages are split
+// between the haplotypes.
+CONSTI32(kJoinDphaseUnknown, 4);
+// Some source variant has an explicit dosage-phase value.
+CONSTI32(kJoinDphaseExplicit, 8);
+
+// A total-ALT dosage of up to 2.02 (or a haplotype ALT dosage of up to 1.01,
+// on the doubled scale used below) is rescaled to 2 (resp. 1).
+CONSTI32(kJoinDosageOverflowMax, (kDosageMax * 101) / 100);
+
+// Adds one source variant's contribution to each sample's per-allele dosages
+// (join_u, kDosageMid = one copy) and dosage-phase deltas (join_d,
+// left-haplotype dosage minus right-haplotype dosage, same scale), indexed
+// by output allele.  An explicit dosage is used when present, otherwise the
+// hardcall.
+static void JoinAddMemberDosages(const PgenVariant* pgvp, const AlleleCode* wide_codes, const AlleleCode* remap, uint32_t sample_ct, uint32_t read_allele_ct, uint32_t write_allele_ct, unsigned char* dosage_states, int32_t* join_u, int32_t* join_d) {
+  RareAltList md_list;
+  RareAltList mdp_list;
+  md_list.present = pgvp->multidosage_present;
+  md_list.cts = pgvp->multidosage_cts;
+  md_list.codes = pgvp->multidosage_codes;
+  md_list.vals = pgvp->multidosage_vals;
+  md_list.sample_ct = ((read_allele_ct > 2) && pgvp->dosage_ct)? pgvp->multidosage_sample_ct : 0;
+  mdp_list.present = pgvp->multidphase_present;
+  mdp_list.cts = pgvp->multidphase_cts;
+  mdp_list.codes = pgvp->multidphase_codes;
+  mdp_list.vals = R_CAST(uint16_t*, pgvp->multidphase_delta);
+  mdp_list.sample_ct = ((read_allele_ct > 2) && pgvp->dphase_ct)? pgvp->multidphase_sample_ct : 0;
+  RareAltCursor md_cursor;
+  RareAltCursor mdp_cursor;
+  RareAltCursorInit(&md_list, &md_cursor);
+  RareAltCursorInit(&mdp_list, &mdp_cursor);
+  const uintptr_t* dosage_present = pgvp->dosage_present;
+  const uintptr_t* dphase_present = pgvp->dphase_present;
+  const uintptr_t* phasepresent = pgvp->phasepresent;
+  const uintptr_t* phaseinfo = pgvp->phaseinfo;
+  const uint32_t dosage_ct = pgvp->dosage_ct;
+  const uint32_t dphase_ct = pgvp->dphase_ct;
+  const uint32_t phasepresent_ct = pgvp->phasepresent_ct;
+  uint32_t dosage_idx = 0;
+  uint32_t dphase_idx = 0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    int32_t* cur_u = &(join_u[sample_idx * write_allele_ct]);
+    int32_t* cur_d = &(join_d[sample_idx * write_allele_ct]);
+    const AlleleCode ac0 = wide_codes[2 * sample_idx];
+    const AlleleCode ac1 = wide_codes[2 * sample_idx + 1];
+    const uint32_t is_phased_het = (ac0 != ac1) && (ac0 != kMissingAlleleCode) && phasepresent_ct && IsSet(phasepresent, sample_idx);
+    uint32_t state = dosage_states[sample_idx];
+    if (dosage_ct && IsSet(dosage_present, sample_idx)) {
+      state |= kJoinDosagePresent;
+      const AlleleCode* rare_codes;
+      const uint16_t* rare_vals;
+      uint32_t rare_ct = RareAltCursorGet(sample_idx, &md_cursor, &rare_codes, &rare_vals);
+      const int32_t alt_dosage = pgvp->dosage_main[dosage_idx++];
+      int32_t alt1_dosage = alt_dosage;
+      for (uint32_t uii = 0; uii != rare_ct; ++uii) {
+        cur_u[remap[rare_codes[uii]]] += rare_vals[uii];
+        alt1_dosage -= rare_vals[uii];
+      }
+      cur_u[remap[1]] += alt1_dosage;
+      if (dphase_ct && IsSet(dphase_present, sample_idx)) {
+        state |= kJoinDphaseExplicit;
+        rare_ct = RareAltCursorGet(sample_idx, &mdp_cursor, &rare_codes, &rare_vals);
+        int32_t alt1_delta = pgvp->dphase_delta[dphase_idx++];
+        for (uint32_t uii = 0; uii != rare_ct; ++uii) {
+          const int32_t cur_delta = S_CAST(int16_t, rare_vals[uii]);
+          cur_d[remap[rare_codes[uii]]] += cur_delta;
+          alt1_delta -= cur_delta;
+        }
+        cur_d[remap[1]] += alt1_delta;
+      } else if ((read_allele_ct == 2) && is_phased_het) {
+        // Implicit dosage-phase: one haplotype component is an integer, and
+        // the ALT allele leans toward the phased hardcall's ALT haplotype.
+        const int32_t abs_delta = kDosageMid - abs_i32(kDosageMid - alt_dosage);
+        cur_d[remap[1]] += IsSet(phaseinfo, sample_idx)? abs_delta : (-abs_delta);
+      } else {
+        state |= kJoinDphaseUnknown;
+      }
+    } else if (ac0 == kMissingAlleleCode) {
+      state |= kJoinDosageMissing;
+    } else {
+      if (ac0) {
+        cur_u[remap[ac0]] += kDosageMid;
+      }
+      if (ac1) {
+        cur_u[remap[ac1]] += kDosageMid;
+      }
+      if (ac0 != ac1) {
+        if (is_phased_het) {
+          // phaseinfo bit set: higher allele on the left haplotype
+          const uint32_t left_is_ac1 = IsSet(phaseinfo, sample_idx);
+          const AlleleCode left_ac = left_is_ac1? ac1 : ac0;
+          const AlleleCode right_ac = left_is_ac1? ac0 : ac1;
+          if (left_ac) {
+            cur_d[remap[left_ac]] += kDosageMid;
+          }
+          if (right_ac) {
+            cur_d[remap[right_ac]] -= kDosageMid;
+          }
+        } else {
+          state |= kJoinDphaseUnknown;
+        }
+      }
+    }
+    dosage_states[sample_idx] = state;
+  }
+}
+
+// Scales the nonnegative vals[] (which sum to more than target) down to sum
+// to exactly target: each value is rounded down, and the remaining units go
+// to the largest remainders (ties to lower indexes).
+static void JoinRescale(uint32_t ct, int32_t target, int32_t* vals, int64_t* remainders) {
+  int64_t total = 0;
+  for (uint32_t uii = 0; uii != ct; ++uii) {
+    total += vals[uii];
+  }
+  int32_t assigned = 0;
+  for (uint32_t uii = 0; uii != ct; ++uii) {
+    const int64_t scaled = S_CAST(int64_t, vals[uii]) * target;
+    vals[uii] = scaled / total;
+    remainders[uii] = scaled % total;
+    assigned += vals[uii];
+  }
+  for (; assigned != target; ++assigned) {
+    uint32_t best_idx = 0;
+    for (uint32_t uii = 1; uii != ct; ++uii) {
+      if (remainders[uii] > remainders[best_idx]) {
+        best_idx = uii;
+      }
+    }
+    vals[best_idx] += 1;
+    remainders[best_idx] = -1;
+  }
+}
+
+// Applies the total-ALT-dosage <= 2 constraint (and, if phase_known, the
+// per-haplotype ALT dosage <= 1 constraints) to one sample's joined ALT
+// dosages and deltas (indexes 1..write_allele_ct-1).  Returns 1 if a
+// constraint is violated by more than 1%.
+static BoolErr JoinFinalizeDosage(uint32_t write_allele_ct, uint32_t phase_known, int32_t* cur_u, int32_t* cur_d, int32_t* hap_bufs, int64_t* remainders) {
+  const uint32_t alt_ct = write_allele_ct - 1;
+  int32_t* alt_u = &(cur_u[1]);
+  int32_t* alt_d = &(cur_d[1]);
+  if (phase_known) {
+    // haplotype ALT dosages, kDosageMax = one copy
+    int32_t* hap1 = hap_bufs;
+    int32_t* hap2 = &(hap_bufs[alt_ct]);
+    int64_t hap1_sum = 0;
+    int64_t hap2_sum = 0;
+    for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+      hap1[uii] = alt_u[uii] + alt_d[uii];
+      hap2[uii] = alt_u[uii] - alt_d[uii];
+      hap1_sum += hap1[uii];
+      hap2_sum += hap2[uii];
+    }
+    if ((hap1_sum <= kDosageMax) && (hap2_sum <= kDosageMax)) {
+      return 0;
+    }
+    if ((hap1_sum > kJoinDosageOverflowMax) || (hap2_sum > kJoinDosageOverflowMax)) {
+      return 1;
+    }
+    if (hap1_sum > kDosageMax) {
+      JoinRescale(alt_ct, kDosageMax, hap1, remainders);
+    }
+    if (hap2_sum > kDosageMax) {
+      JoinRescale(alt_ct, kDosageMax, hap2, remainders);
+    }
+    for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+      alt_u[uii] = (hap1[uii] + hap2[uii]) / 2;
+      alt_d[uii] = (hap1[uii] - hap2[uii]) / 2;
+    }
+    return 0;
+  }
+  int64_t alt_sum = 0;
+  for (uint32_t uii = 0; uii != alt_ct; ++uii) {
+    alt_sum += alt_u[uii];
+  }
+  if (alt_sum <= kDosageMax) {
+    return 0;
+  }
+  if (alt_sum > kJoinDosageOverflowMax) {
+    return 1;
+  }
+  JoinRescale(alt_ct, kDosageMax, alt_u, remainders);
+  return 0;
+}
+
+// Single-output-thread genotype writer for variant-join.
+PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* write_allele_idx_offsets, const char* writer_ver, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_read_allele_ct, uint32_t max_write_allele_ct, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   STPgenWriter spgw;
@@ -10475,14 +10666,32 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
   PgenExtensionLl ext_slot; // shouldn't have shorter lifetime than spgw
   {
     const MakePlink2Flags join_mode = make_plink2_flags & kfMakePlink2MMask;
-    PgenGlobalFlags read_gflags = PgrGetGflags(simple_pgrp) & kfPgenGlobalHardcallPhasePresent;
+    PgenGlobalFlags read_gflags = PgrGetGflags(simple_pgrp) & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
     if (make_plink2_flags & kfMakePgenErasePhase) {
-      read_gflags = kfPgenGlobal0;
+      read_gflags &= ~(kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent);
+    }
+    if (make_plink2_flags & kfMakePgenEraseDosage) {
+      read_gflags &= ~(kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
     }
     if (read_gflags && (variant_ct < raw_variant_ct)) {
       read_gflags &= GflagsVfilter(variant_include, PgrGetVrtypes(simple_pgrp), raw_variant_ct, PgrGetGflags(simple_pgrp));
     }
-    const uint32_t read_phase_present = (read_gflags != kfPgenGlobal0);
+    // As in MakePgenRobust(), dosage-phase without hardcall-phase is treated
+    // like the usual case.
+    const uint32_t read_phase_present = !!(read_gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
+    const uint32_t read_dosage_present = (read_gflags / kfPgenGlobalDosagePresent) & 1;
+    const uint32_t read_dphase_present = (read_gflags / kfPgenGlobalDosagePhasePresent) & 1;
+    PgenGlobalFlags write_gflags = read_gflags;
+    if (read_dosage_present) {
+      // Joined dosage-phase values can come from phased hardcalls and
+      // implicit dosage-phase.
+      if (read_phase_present) {
+        write_gflags |= kfPgenGlobalDosagePhasePresent;
+      }
+      if (max_write_allele_ct > 2) {
+        write_gflags |= kfPgenGlobalMultiallelicDosagePresent;
+      }
+    }
 
     uint32_t nonref_flags_storage = 3;
     uintptr_t* nonref_flags_write = nullptr;
@@ -10519,7 +10728,7 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
     }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1Ex(outname, write_allele_idx_offsets, nonref_flags_write, header_exts, nullptr, write_variant_ct, sample_ct, max_write_allele_ct, kPgenWriteBackwardSeek, read_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1Ex(outname, write_allele_idx_offsets, nonref_flags_write, header_exts, nullptr, write_variant_ct, sample_ct, max_write_allele_ct, kPgenWriteBackwardSeek, write_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -10590,6 +10799,66 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
         goto MakePgenJoin_ret_NOMEM;
       }
     }
+    const unsigned char* read_vrtypes = PgrGetVrtypes(simple_pgrp);
+    int32_t* join_u = nullptr;
+    int32_t* join_d = nullptr;
+    int32_t* hap_bufs = nullptr;
+    int64_t* remainders = nullptr;
+    unsigned char* dosage_states = nullptr;
+    uintptr_t* write_dosage_present = nullptr;
+    Dosage* write_dosage_main = nullptr;
+    uintptr_t* write_dphase_present = nullptr;
+    SDosage* write_dphase_delta = nullptr;
+    RareAltList write_md;
+    RareAltList write_mdp;
+    memset(&write_md, 0, sizeof(RareAltList));
+    memset(&write_mdp, 0, sizeof(RareAltList));
+    if (read_dosage_present) {
+      const uintptr_t max_read_entry_ct = S_CAST(uintptr_t, sample_ct) * MINV(MAXV(max_read_allele_ct, 3) - 2, 255);
+      const uintptr_t max_write_entry_ct = S_CAST(uintptr_t, sample_ct) * MINV(MAXV(max_write_allele_ct, 3) - 2, 255);
+      if (unlikely(bigstack_alloc_w(sample_ctl, &pgv.dosage_present) ||
+                   bigstack_alloc_dosage(sample_ct, &pgv.dosage_main) ||
+                   bigstack_alloc_w(sample_ctl, &pgv.multidosage_present) ||
+                   bigstack_alloc_uc(sample_ct, &pgv.multidosage_cts) ||
+                   bigstack_alloc_ac(max_read_entry_ct, &pgv.multidosage_codes) ||
+                   bigstack_alloc_u16(max_read_entry_ct, &pgv.multidosage_vals) ||
+                   bigstack_alloc_i32(S_CAST(uintptr_t, sample_ct) * max_write_allele_ct, &join_u) ||
+                   bigstack_alloc_i32(S_CAST(uintptr_t, sample_ct) * max_write_allele_ct, &join_d) ||
+                   bigstack_alloc_i32(2 * max_write_allele_ct, &hap_bufs) ||
+                   BIGSTACK_ALLOC_X(int64_t, max_write_allele_ct, &remainders) ||
+                   bigstack_alloc_uc(sample_ct, &dosage_states) ||
+                   bigstack_alloc_w(sample_ctl, &write_dosage_present) ||
+                   bigstack_alloc_dosage(sample_ct, &write_dosage_main) ||
+                   bigstack_alloc_w(sample_ctl, &write_dphase_present) ||
+                   bigstack_alloc_dphase(sample_ct, &write_dphase_delta) ||
+                   bigstack_alloc_w(sample_ctl, &write_md.present) ||
+                   bigstack_alloc_uc(sample_ct, &write_md.cts) ||
+                   bigstack_alloc_ac(max_write_entry_ct, &write_md.codes) ||
+                   bigstack_alloc_u16(max_write_entry_ct, &write_md.vals) ||
+                   bigstack_alloc_w(sample_ctl, &write_mdp.present) ||
+                   bigstack_alloc_uc(sample_ct, &write_mdp.cts) ||
+                   bigstack_alloc_ac(max_write_entry_ct, &write_mdp.codes) ||
+                   bigstack_alloc_u16(max_write_entry_ct, &write_mdp.vals))) {
+        goto MakePgenJoin_ret_NOMEM;
+      }
+      if (read_dphase_present) {
+        if (unlikely(bigstack_alloc_w(sample_ctl, &pgv.dphase_present) ||
+                     bigstack_alloc_dphase(sample_ct, &pgv.dphase_delta) ||
+                     bigstack_alloc_w(sample_ctl, &pgv.multidphase_present) ||
+                     bigstack_alloc_uc(sample_ct, &pgv.multidphase_cts) ||
+                     bigstack_alloc_ac(max_read_entry_ct, &pgv.multidphase_codes) ||
+                     bigstack_alloc_i16(max_read_entry_ct, &pgv.multidphase_delta))) {
+          goto MakePgenJoin_ret_NOMEM;
+        }
+      }
+      if (!write_phasepresent) {
+        // The dosage writers need a (zeroed) phasepresent.
+        if (unlikely(bigstack_alloc_w(sample_ctl, &write_phasepresent) ||
+                     bigstack_alloc_w(sample_ctl, &write_phaseinfo))) {
+          goto MakePgenJoin_ret_NOMEM;
+        }
+      }
+    }
     const uintptr_t* read_sample_include = nullptr;
     uint32_t* sample_include_cumulative_popcounts = nullptr;
     PgrSampleSubsetIndex pssi;
@@ -10618,6 +10887,8 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
     fputs("0%", stdout);
     fflush(stdout);
     uintptr_t conflict_ct = 0;
+    uintptr_t dosage_conflict_ct = 0;
+    uintptr_t inconsistent_hardcall_ct = 0;
     uint32_t write_variant_idx = 0;
     uint32_t pct = 0;
     uint32_t next_print_write_variant_idx = (write_variant_ct + 99) / 100;
@@ -10657,6 +10928,23 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
           write_allele_ct = JoinGroupAlleles(block_uidxs, members, allele_idx_offsets, allele_storage, allele_freqs, member_ct, alt_buf, write_alleles, allele_remap);
         }
         memset(sample_states, 0, sample_ct);
+        // Only bother with dosages when some source variant has them.
+        uint32_t group_has_dosage = 0;
+        if (read_dosage_present) {
+          for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
+            // vrtypes == nullptr for fixed-width storage, where every record
+            // has dosages if any does.
+            if ((!read_vrtypes) || (read_vrtypes[block_uidxs[members[member_idx]]] & 0x60)) {
+              group_has_dosage = 1;
+              break;
+            }
+          }
+          if (group_has_dosage) {
+            memset(dosage_states, 0, sample_ct);
+            memset(join_u, 0, S_CAST(uintptr_t, sample_ct) * write_allele_ct * sizeof(int32_t));
+            memset(join_d, 0, S_CAST(uintptr_t, sample_ct) * write_allele_ct * sizeof(int32_t));
+          }
+        }
         const AlleleCode* cur_remap = allele_remap;
         for (uint32_t member_idx = 0; member_idx != member_ct; ++member_idx) {
           const uint32_t read_variant_uidx = block_uidxs[members[member_idx]];
@@ -10667,6 +10955,7 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
           } else {
             reterr = PgrGetMD(read_sample_include, pssi, sample_ct, read_variant_uidx, simple_pgrp, &pgv);
             pgv.phasepresent_ct = 0;
+            pgv.dphase_ct = 0;
           }
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, read_variant_uidx);
@@ -10705,6 +10994,9 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
               JoinSampleAddAllele(cur_remap[ac0], is_phased, 1 - hap1, statep, cur_slots);
             }
             JoinSampleAddAllele(cur_remap[ac1], is_phased, hap1, statep, cur_slots);
+          }
+          if (group_has_dosage) {
+            JoinAddMemberDosages(&pgv, wide_codes, cur_remap, sample_ct, read_allele_ct, write_allele_ct, dosage_states, join_u, join_d);
           }
           cur_remap = &(cur_remap[read_allele_ct]);
         }
@@ -10768,10 +11060,140 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
             }
           }
         }
+        uint32_t write_dosage_ct = 0;
+        uint32_t write_dphase_ct = 0;
+        if (group_has_dosage) {
+          // A sample has a joined dosage iff some source variant has an
+          // explicit dosage for it, and none has neither a dosage nor a
+          // hardcall.  The joined dosage-phase value is known iff every
+          // source variant determines the haplotype split.
+          ZeroWArr(sample_ctl, write_dosage_present);
+          ZeroWArr(sample_ctl, write_dphase_present);
+          ZeroWArr(sample_ctl, write_md.present);
+          ZeroWArr(sample_ctl, write_mdp.present);
+          write_md.sample_ct = 0;
+          write_md.entry_ct = 0;
+          write_mdp.sample_ct = 0;
+          write_mdp.entry_ct = 0;
+          for (uint32_t write_sample_idx = 0; write_sample_idx != sample_ct; ++write_sample_idx) {
+            const uint32_t read_sample_idx = write_to_read_sample_idx? write_to_read_sample_idx[write_sample_idx] : write_sample_idx;
+            const uint32_t state = dosage_states[read_sample_idx];
+            if ((state & (kJoinDosagePresent | kJoinDosageMissing)) != kJoinDosagePresent) {
+              continue;
+            }
+            int32_t* cur_u = &(join_u[read_sample_idx * S_CAST(uintptr_t, write_allele_ct)]);
+            int32_t* cur_d = &(join_d[read_sample_idx * S_CAST(uintptr_t, write_allele_ct)]);
+            const uint32_t phase_known = !(state & kJoinDphaseUnknown);
+            AlleleCode* cur_write_codes = &(wide_codes[2 * write_sample_idx]);
+            if (JoinFinalizeDosage(write_allele_ct, phase_known, cur_u, cur_d, hap_bufs, remainders)) {
+              cur_write_codes[0] = kMissingAlleleCode;
+              cur_write_codes[1] = kMissingAlleleCode;
+              ClearBit(write_sample_idx, write_phasepresent);
+              ++dosage_conflict_ct;
+              continue;
+            }
+            int32_t alt_sum = 0;
+            for (uint32_t allele_idx = 1; allele_idx != write_allele_ct; ++allele_idx) {
+              alt_sum += cur_u[allele_idx];
+            }
+            cur_u[0] = kDosageMax - alt_sum;
+            if (cur_write_codes[0] != kMissingAlleleCode) {
+              // The hardcall must be consistent with the dosage.
+              uint32_t l1_dist = 0;
+              for (uint32_t allele_idx = 0; allele_idx != write_allele_ct; ++allele_idx) {
+                const int32_t hardcall_val = kDosageMid * ((cur_write_codes[0] == allele_idx) + (cur_write_codes[1] == allele_idx));
+                l1_dist += abs_i32(hardcall_val - cur_u[allele_idx]);
+              }
+              if (l1_dist > kDosageMid) {
+                cur_write_codes[0] = kMissingAlleleCode;
+                cur_write_codes[1] = kMissingAlleleCode;
+                ClearBit(write_sample_idx, write_phasepresent);
+                ++inconsistent_hardcall_ct;
+              }
+            }
+            if (!phase_known) {
+              // A phased het with a dosage needs a dosage-phase value.
+              ClearBit(write_sample_idx, write_phasepresent);
+            }
+            SetBit(write_sample_idx, write_dosage_present);
+            write_dosage_main[write_dosage_ct++] = alt_sum;
+            uint32_t entry_codes[kPglMaxAlleleCt];
+            int32_t entry_vals[kPglMaxAlleleCt];
+            uint32_t entry_ct = 0;
+            for (uint32_t allele_idx = 2; allele_idx < write_allele_ct; ++allele_idx) {
+              if (cur_u[allele_idx]) {
+                entry_codes[entry_ct] = allele_idx;
+                entry_vals[entry_ct++] = cur_u[allele_idx];
+              }
+            }
+            RareAltAppend(write_sample_idx, entry_codes, entry_vals, entry_ct, &write_md);
+            // Keep a lone biallelic source's dosage-phase representation
+            // (possibly implicit) unchanged.
+            const uint32_t write_dphase = (write_allele_ct > 2) || (member_ct > 1)? phase_known : (state & kJoinDphaseExplicit);
+            if (write_dphase) {
+              int32_t alt_delta = 0;
+              entry_ct = 0;
+              for (uint32_t allele_idx = 1; allele_idx != write_allele_ct; ++allele_idx) {
+                alt_delta += cur_d[allele_idx];
+                if ((allele_idx >= 2) && cur_d[allele_idx]) {
+                  entry_codes[entry_ct] = allele_idx;
+                  entry_vals[entry_ct++] = cur_d[allele_idx];
+                }
+              }
+              SetBit(write_sample_idx, write_dphase_present);
+              write_dphase_delta[write_dphase_ct++] = alt_delta;
+              RareAltAppend(write_sample_idx, entry_codes, entry_vals, entry_ct, &write_mdp);
+            }
+          }
+          if (write_phasepresent) {
+            phased_het_found = !AllWordsAreZero(write_phasepresent, sample_ctl);
+          }
+        }
         uint32_t patch_01_ct;
         uint32_t patch_10_ct;
         PglMultiallelicDenseToSparse(wide_codes, sample_ct, write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, &patch_01_ct, &patch_10_ct);
-        if (write_allele_ct == 2) {
+        if (write_dosage_ct) {
+          if (write_allele_ct == 2) {
+            if (!phased_het_found) {
+              ZeroWArr(sample_ctl, write_phasepresent);
+            }
+            reterr = SpgwAppendBiallelicGenovecDphase16(write_genovec, write_phasepresent, write_phaseinfo, write_dosage_present, write_dphase_present, write_dosage_main, write_dphase_delta, write_dosage_ct, write_dphase_ct, &spgw);
+          } else {
+            PgenVariant write_pgv;
+            memset(&write_pgv, 0, sizeof(PgenVariant));
+            write_pgv.genovec = write_genovec;
+            write_pgv.patch_01_set = write_patch_01_set;
+            write_pgv.patch_01_vals = write_patch_01_vals;
+            write_pgv.patch_10_set = write_patch_10_set;
+            write_pgv.patch_10_vals = write_patch_10_vals;
+            write_pgv.patch_01_ct = patch_01_ct;
+            write_pgv.patch_10_ct = patch_10_ct;
+            if (phased_het_found) {
+              write_pgv.phasepresent = write_phasepresent;
+              write_pgv.phaseinfo = write_phaseinfo;
+              write_pgv.phasepresent_ct = PopcountWords(write_phasepresent, sample_ctl);
+            }
+            write_pgv.dosage_present = write_dosage_present;
+            write_pgv.dosage_main = write_dosage_main;
+            write_pgv.dosage_ct = write_dosage_ct;
+            write_pgv.multidosage_present = write_md.present;
+            write_pgv.multidosage_cts = write_md.cts;
+            write_pgv.multidosage_codes = write_md.codes;
+            write_pgv.multidosage_vals = write_md.vals;
+            write_pgv.multidosage_sample_ct = write_md.sample_ct;
+            if (write_dphase_ct) {
+              write_pgv.dphase_present = write_dphase_present;
+              write_pgv.dphase_delta = write_dphase_delta;
+              write_pgv.dphase_ct = write_dphase_ct;
+              write_pgv.multidphase_present = write_mdp.present;
+              write_pgv.multidphase_cts = write_mdp.cts;
+              write_pgv.multidphase_codes = write_mdp.codes;
+              write_pgv.multidphase_delta = R_CAST(int16_t*, write_mdp.vals);
+              write_pgv.multidphase_sample_ct = write_mdp.sample_ct;
+            }
+            reterr = SpgwAppendMultiallelicGenovecDphase16(&write_pgv, write_allele_ct, &spgw);
+          }
+        } else if (write_allele_ct == 2) {
           if (phased_het_found) {
             reterr = SpgwAppendBiallelicGenovecHphase(write_genovec, write_phasepresent, write_phaseinfo, &spgw);
           } else {
@@ -10783,6 +11205,12 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
           reterr = SpgwAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, write_allele_ct, patch_01_ct, patch_10_ct, &spgw);
         }
         if (unlikely(reterr)) {
+          if (reterr == kPglRetMalformedInput) {
+            // The multiallelic dosage writer rejected the record.
+            logputs("\n");
+            logerrprintfww("Error: Internal error: variant-join generated an invalid record for (0-based) output variant #%u.  Please report this to the developers.\n", write_variant_idx);
+            reterr = kPglRetInternalError;
+          }
           goto MakePgenJoin_ret_1;
         }
       }
@@ -10799,6 +11227,12 @@ PglErr MakePgenJoin(const uintptr_t* sample_include, const uint32_t* new_sample_
     logputs("done.\n");
     if (conflict_ct) {
       logerrprintfww("Warning: %" PRIuPTR " genotype call%s set to missing during variant-join, since the variants being joined had conflicting calls for the sample.\n", conflict_ct, (conflict_ct == 1)? " was" : "s were");
+    }
+    if (dosage_conflict_ct) {
+      logerrprintfww("Warning: %" PRIuPTR " genotype%s (hardcall and dosage) set to missing during variant-join, since the joined ALT allele dosages added up to more than 2 (or more than 1 on a haplotype) by over 1%%.\n", dosage_conflict_ct, (dosage_conflict_ct == 1)? " was" : "s were");
+    }
+    if (inconsistent_hardcall_ct) {
+      logerrprintfww("Warning: %" PRIuPTR " hardcall%s set to missing during variant-join, since %s inconsistent with the joined dosage%s.\n", inconsistent_hardcall_ct, (inconsistent_hardcall_ct == 1)? " was" : "s were", (inconsistent_hardcall_ct == 1)? "it was" : "they were", (inconsistent_hardcall_ct == 1)? "" : "s");
     }
   }
   while (0) {
@@ -10864,8 +11298,8 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         if (variant_ct < raw_variant_ct) {
           dosage_gflags &= GflagsVfilter(variant_include, pgfip->vrtypes, raw_variant_ct, pgfip->gflags);
         }
-        if (unlikely(dosage_gflags && (!(make_plink2_flags & kfMakePgenEraseDosage)))) {
-          logerrputs("Error: Variant-join does not support dosages yet.  Add the 'erase-dosage'\nmodifier to discard them.\n");
+        if (unlikely(dosage_gflags && (!(make_plink2_flags & kfMakePgenEraseDosage)) && dosage_erase_thresh)) {
+          logerrputs("Error: Variant-join doesn't support --dosage-erase-threshold yet.\n");
           reterr = kPglRetNotYetSupported;
           goto MakePlink2NoVsort_ret_1;
         }
@@ -11669,7 +12103,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       mpgwp = nullptr;
       BigstackReset(bigstack_mark2);
       if (make_plink2_flags & kfMakePlink2MJoin) {
-        reterr = MakePgenJoin(sample_include, new_sample_idx_to_old, variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, allele_freqs, write_allele_idx_offsets, writer_ver, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, write_variant_ct, max_write_allele_ct, make_plink2_flags, simple_pgrp, outname, outname_end);
+        reterr = MakePgenJoin(sample_include, new_sample_idx_to_old, variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, allele_freqs, write_allele_idx_offsets, writer_ver, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, max_write_allele_ct, make_plink2_flags, simple_pgrp, outname, outname_end);
       } else {
         reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, allele_storage, nullptr, ctx.sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
       }
