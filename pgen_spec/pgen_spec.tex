@@ -146,10 +146,10 @@ currently defined:
 \item \texttt{0x02} is the simplest PLINK 2 fixed-width format.  All variant
   records are of type \texttt{0}.  (Variant record types are discussed in
   section \ref{sec:vr}.)
-\item \texttt{0x03} is the fixed-width unphased-dosage format.  All variant
-  records are of type \texttt{0x40}.
-\item \texttt{0x04} is the fixed-width phased-dosage format.  All variant
-  records are of type \texttt{0xc0}.
+\item \texttt{0x03} is the fixed-width biallelic unphased-dosage format.  All
+  variant records are of type \texttt{0x40}.
+\item \texttt{0x04} is the fixed-width biallelic phased-dosage format.  All
+  variant records are of type \texttt{0xc0}.
 \item \texttt{0x10} is the standard PLINK 2 format, with variable-width variant
   records.
 \item \texttt{0x11} is \texttt{0x10} with ignorable extensions.  It adds a few bytes to the end of the header, possibly a few bytes to the end of the .pgen file, and can in principle introduce references to other files.
@@ -748,9 +748,6 @@ where $h_i$ is the number of copies of allele $i$ in the hard-call.  (With two
 alleles, $|16384h_0-u_0| = |16384h_1-u_1| = |16384c-v|$, so this reduces to
 $|16384c - v|\leq 8192$.)
 
-In the fixed-width storage modes \texttt{0x03} and \texttt{0x04}, tracks \#5-6
-do not exist, and all rare ALT dosages are zero.
-
 For example, suppose $N=1000$ and $A=4$ (so $b=1$ and $E=2000$), sample \#5 has
 an ALT allele \#2 dosage of 0.25 (on a 0..2 scale), sample \#7 has an ALT
 allele \#3 dosage of 0.5, and no other sample has a nonzero rare ALT dosage.
@@ -839,9 +836,6 @@ the first ALT allele:
 \sum_{a\geq 2} (u_a + \delta_a) \leq v + \delta \quad\textrm{and}\quad
 \sum_{a\geq 2} (u_a - \delta_a) \leq v - \delta .
 \]
-
-In the fixed-width storage mode \texttt{0x04}, tracks \#9-10 do not exist, and
-all rare ALT dosage-phase values are zero.
 
 \subsection{Footer}
 
