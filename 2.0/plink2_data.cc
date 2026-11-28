@@ -8040,138 +8040,6 @@ static void EraseNewlyMissingDosages(const uintptr_t* old_genovec, const uintptr
   }
 }
 
-// One sample's per-allele values: codes[] are allele indexes (0 = REF, 1 =
-// ALT1, then the rare alts with nonzero dosage), u[] the dosages (16384 = one
-// copy), and d[] the dosage-phase deltas (zero without an explicit phased
-// dosage).
-typedef struct SampleAlleleValsStruct {
-  uint32_t codes[257];
-  int32_t u[257];
-  int32_t d[257];
-  uint32_t ct;
-} SampleAlleleVals;
-
-static int32_t AlleleValLookup(const SampleAlleleVals* savp, const int32_t* vals, uint32_t allele_idx) {
-  for (uint32_t uii = 0; uii != savp->ct; ++uii) {
-    if (savp->codes[uii] == allele_idx) {
-      return vals[uii];
-    }
-  }
-  return 0;
-}
-
-// sum_i |u_i - 16384 * h_i| for the genotype (a1, a2).
-static uint32_t HardcallL1Dist(const SampleAlleleVals* savp, uint32_t a1, uint32_t a2) {
-  uint32_t tot = 0;
-  uint32_t a1_seen = 0;
-  uint32_t a2_seen = 0;
-  for (uint32_t uii = 0; uii != savp->ct; ++uii) {
-    const uint32_t code = savp->codes[uii];
-    const int32_t h = 16384 * ((code == a1) + (code == a2));
-    a1_seen |= (code == a1);
-    a2_seen |= (code == a2);
-    tot += abs_i32(savp->u[uii] - h);
-  }
-  tot += 16384 * ((!a1_seen) + (!a2_seen));
-  return tot;
-}
-
-// Rounds every allele's dosage.  Returns sum_i |u_i - 16384 * r_i| (twice the
-// --hard-call-threshold distance), and sets *a1_ptr/*a2_ptr to the rounded
-// genotype, or kMissingAlleleCode if the rounded counts don't sum to 2.
-static uint32_t RoundAlleleVals(const SampleAlleleVals* savp, uint32_t* a1_ptr, uint32_t* a2_ptr) {
-  uint32_t tot = 0;
-  uint32_t copy_ct = 0;
-  uint32_t a1 = kMissingAlleleCode;
-  uint32_t a2 = kMissingAlleleCode;
-  for (uint32_t uii = 0; uii != savp->ct; ++uii) {
-    const int32_t u = savp->u[uii];
-    const uint32_t r = (u + 8192) / 16384;
-    tot += abs_i32(u - S_CAST(int32_t, 16384 * r));
-    for (uint32_t ujj = 0; ujj != r; ++ujj) {
-      if (copy_ct == 0) {
-        a1 = savp->codes[uii];
-      } else if (copy_ct == 1) {
-        a2 = savp->codes[uii];
-      }
-      ++copy_ct;
-    }
-  }
-  if (copy_ct != 2) {
-    a1 = kMissingAlleleCode;
-    a2 = kMissingAlleleCode;
-  } else if (a1 > a2) {
-    const uint32_t tmp = a1;
-    a1 = a2;
-    a2 = tmp;
-  }
-  *a1_ptr = a1;
-  *a2_ptr = a2;
-  return tot;
-}
-
-// Euclidean-nearest genotype, ties broken in favor of lower-index alleles
-// (lexicographically smallest (a1, a2) with a1 <= a2).  Only alleles with
-// nonzero dosage can be optimal.
-static void NearestHardcall(const SampleAlleleVals* savp, uint32_t* a1_ptr, uint32_t* a2_ptr) {
-  // Up to a constant, 16384 * squared distance is
-  //   hom a: 4 * 16384 - 4 * u_a
-  //   het a/b: 2 * 16384 - 2 * (u_a + u_b)
-  int32_t u1 = -1;
-  int32_t u2 = -1;
-  for (uint32_t uii = 0; uii != savp->ct; ++uii) {
-    const int32_t u = savp->u[uii];
-    if (u > u1) {
-      u2 = u1;
-      u1 = u;
-    } else if (u > u2) {
-      u2 = u;
-    }
-  }
-  const int64_t hom_score = 4 * 16384 - 4 * S_CAST(int64_t, u1);
-  const int64_t het_score = (u2 >= 0)? (2 * 16384 - 2 * (S_CAST(int64_t, u1) + u2)) : INT64_MAX;
-  // lowest-index alleles with dosage u1, and with dosage u2
-  uint32_t t1_min = UINT32_MAX;
-  uint32_t t1_second = UINT32_MAX;
-  uint32_t t2_min = UINT32_MAX;
-  for (uint32_t uii = 0; uii != savp->ct; ++uii) {
-    const uint32_t code = savp->codes[uii];
-    if (savp->u[uii] == u1) {
-      if (code < t1_min) {
-        t1_second = t1_min;
-        t1_min = code;
-      } else if (code < t1_second) {
-        t1_second = code;
-      }
-    } else if ((savp->u[uii] == u2) && (code < t2_min)) {
-      t2_min = code;
-    }
-  }
-  uint32_t best_a1 = UINT32_MAX;
-  uint32_t best_a2 = UINT32_MAX;
-  if (hom_score <= het_score) {
-    best_a1 = t1_min;
-    best_a2 = t1_min;
-  }
-  if (het_score <= hom_score) {
-    uint32_t c1;
-    uint32_t c2;
-    if (u1 == u2) {
-      c1 = t1_min;
-      c2 = t1_second;
-    } else {
-      c1 = MINV(t1_min, t2_min);
-      c2 = MAXV(t1_min, t2_min);
-    }
-    if ((c1 < best_a1) || ((c1 == best_a1) && (c2 < best_a2))) {
-      best_a1 = c1;
-      best_a2 = c2;
-    }
-  }
-  *a1_ptr = best_a1;
-  *a2_ptr = best_a2;
-}
-
 // --hard-call-threshold, 'fill-missing-from-dosage', and
 // --dosage-erase-threshold for a multiallelic record with dosages; see
 // plink2_help.cc for the definitions.  (With two alleles, these reduce to the
@@ -8401,35 +8269,17 @@ static void ApplyMultiallelicDosageCallOps(const RareAltList* mdp, const RareAlt
       if (phasepresent) {
         ClearBit(sample_idx, phasepresent);
         if (has_dphase && (new_a1 != new_a2) && (new_a1 != kMissingAlleleCode)) {
-          const int32_t delta_diff = AlleleValLookup(&sav, sav.d, new_a2) - AlleleValLookup(&sav, sav.d, new_a1);
-          if (abs_i32(delta_diff) > 16384) {
+          uint32_t phaseinfo_bit;
+          if (MultiallelicHetPhased(&sav, new_a1, new_a2, &phaseinfo_bit)) {
             SetBit(sample_idx, phasepresent);
-            AssignBit(sample_idx, delta_diff > 0, phaseinfo);
+            AssignBit(sample_idx, phaseinfo_bit, phaseinfo);
           }
         }
       }
     }
     // Dosage erasure.
     if (erase_thresh != UINT32_MAX) {
-      uint32_t do_erase;
-      if (!has_dphase) {
-        uint32_t dummy1;
-        uint32_t dummy2;
-        do_erase = (RoundAlleleVals(&sav, &dummy1, &dummy2) <= 2 * erase_thresh);
-      } else {
-        // haplotype dosages, doubled: 32768 = one copy
-        uint32_t dist1 = 0;
-        uint32_t dist2 = 0;
-        for (uint32_t uii = 0; uii != sav.ct; ++uii) {
-          const int32_t hap1 = sav.u[uii] + sav.d[uii];
-          const int32_t hap2 = sav.u[uii] - sav.d[uii];
-          dist1 += abs_i32(hap1 - 32768 * ((hap1 + 16384) / 32768));
-          dist2 += abs_i32(hap2 - 32768 * ((hap2 + 16384) / 32768));
-        }
-        // haplotype distance (in 16384 units) is dist / 4; erase iff both are
-        // <= erase_thresh / 2
-        do_erase = (dist1 <= 2 * erase_thresh) && (dist2 <= 2 * erase_thresh);
-      }
+      const uint32_t do_erase = MultiallelicDosageErasable(&sav, has_dphase, erase_thresh);
       if (do_erase) {
         SetBit(sample_idx, erase_map);
         ++erase_ct;

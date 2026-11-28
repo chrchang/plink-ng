@@ -182,7 +182,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      'ref-first': The first allele for each variant is REF.\n"
 "      'ref-last': The last allele for each variant is REF.\n"
 "      'ref-unknown': The last allele for each variant is treated as\n"
-"                     provisional-REF.\n\n"
+"                     provisional-REF.\n"
+"      With 'ref-last'/'ref-unknown', a multiallelic variant's ALT alleles keep\n"
+"      their .bgen order.\n"
+"    * Multiallelic BGEN v1.2+ variants are supported; each allele's dosage is\n"
+"      its expected copy count.\n\n"
                );
     // todo: make 'per' prefix modifiable
     HelpPrint("haps\0legend\0", &help_ctrl, 1,
@@ -2706,6 +2710,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                    2 treat a dosage as missing whenever the\n"
 "                                    largest probability is less than a\n"
 "                                    threshold, use --import-dosage-certainty.\n"
+"                                    Phased BGEN probabilities (one allele\n"
+"                                    distribution per haplotype) are compared\n"
+"                                    against the genotype distribution with\n"
+"                                    maximal heterozygosity for the summed\n"
+"                                    allele dosages: one haplotype takes the\n"
+"                                    highest-dosage alleles up to one copy, the\n"
+"                                    other the rest.  (Otherwise, a\n"
+"                                    heterozygous call of unknown phase, stored\n"
+"                                    as two 50/50 haplotypes, would appear only\n"
+"                                    25% certain.)\n"
                );
     HelpPrint("input-missing-genotype\0missing-genotype\0", &help_ctrl, 0,
 "  --input-missing-genotype <c> : '.' is always interpreted as a missing\n"
