@@ -4704,14 +4704,28 @@ PglErr LoadMultiallelicCenteredVarmaj(const uintptr_t* sample_include, PgrSample
   return kPglRetSuccess;
 }
 
-// This function handles error-message-logging.
-PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_ct, PgenReader* simple_pgrp, double* normed_vmaj_iter, uintptr_t* variant_include_has_missing, uint32_t* cur_batch_sizep, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uintptr_t* allele_idx_basep, uint32_t* cur_allele_ctp, uint32_t* incomplete_allele_idxp, PgenVariant* pgvp, double* allele_1copy_buf) {
+// Position of a variant-major centered-dosage loader: the next row to load is
+// allele incomplete_allele_idx of the variant at variant_uidx if
+// incomplete_allele_idx is nonzero, and the first row of the next included
+// variant at or after variant_uidx otherwise.  variant_idx counts completed
+// variants.
+typedef struct VarmajLoadStateStruct {
+  uintptr_t variant_uidx;
+  uintptr_t allele_idx_base;
+  uint32_t variant_idx;
+  uint32_t cur_allele_ct;
+  uint32_t incomplete_allele_idx;
+} VarmajLoadState;
+
+// Loads up to *cur_batch_sizep rows (reduced at the end of the variant set),
+// advancing *statep.  Doesn't log; on error, *err_variant_uidxp is set.
+PglErr LoadCenteredVarmajRows(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_ct, PgenReader* pgrp, double* normed_vmaj_iter, uintptr_t* variant_include_has_missing, uint32_t* cur_batch_sizep, VarmajLoadState* statep, PgenVariant* pgvp, double* allele_1copy_buf, uintptr_t* err_variant_uidxp) {
   const uint32_t std_batch_size = *cur_batch_sizep;
-  uint32_t variant_idx = *variant_idxp;
-  uintptr_t variant_uidx = *variant_uidxp;
-  uintptr_t allele_idx_base = *allele_idx_basep;
-  uint32_t cur_allele_ct = *cur_allele_ctp;
-  uint32_t incomplete_allele_idx = *incomplete_allele_idxp;
+  uint32_t variant_idx = statep->variant_idx;
+  uintptr_t variant_uidx = statep->variant_uidx;
+  uintptr_t allele_idx_base = statep->allele_idx_base;
+  uint32_t cur_allele_ct = statep->cur_allele_ct;
+  uint32_t incomplete_allele_idx = statep->incomplete_allele_idx;
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, variant_uidx + (incomplete_allele_idx != 0), &variant_uidx_base, &cur_bits);
@@ -4733,22 +4747,17 @@ PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetI
     if (cur_allele_ct == 2) {
       allele_idx_stop = 1;
       allele_idx_end = 1;
-      reterr = LoadBiallelicCenteredVarmaj(sample_include, pssi, variance_standardize, is_haploid, sample_ct, variant_uidx, allele_freqs[allele_idx_base], simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main);
+      reterr = LoadBiallelicCenteredVarmaj(sample_include, pssi, variance_standardize, is_haploid, sample_ct, variant_uidx, allele_freqs[allele_idx_base], pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main);
     } else {
       allele_idx_end = cur_allele_ct;
       allele_idx_stop = std_batch_size + incomplete_allele_idx - allele_bidx;
       if (allele_idx_stop > allele_idx_end) {
         allele_idx_stop = allele_idx_end;
       }
-      reterr = LoadMultiallelicCenteredVarmaj(sample_include, pssi, &(allele_freqs[allele_idx_base]), variance_standardize, is_haploid, sample_ct, variant_uidx, cur_allele_ct, incomplete_allele_idx, allele_idx_stop, simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, pgvp, allele_1copy_buf);
+      reterr = LoadMultiallelicCenteredVarmaj(sample_include, pssi, &(allele_freqs[allele_idx_base]), variance_standardize, is_haploid, sample_ct, variant_uidx, cur_allele_ct, incomplete_allele_idx, allele_idx_stop, pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, pgvp, allele_1copy_buf);
     }
     if (unlikely(reterr)) {
-      if (reterr == kPglRetDegenerateData) {
-        logputs("\n");
-        logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
-      } else {
-        PgenErrPrintNV(reterr, variant_uidx);
-      }
+      *err_variant_uidxp = variant_uidx;
       return reterr;
     }
     if (missing_present) {
@@ -4767,12 +4776,167 @@ PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetI
       incomplete_allele_idx = allele_idx_stop;
     }
   }
-  *variant_idxp = variant_idx;
-  *variant_uidxp = variant_uidx + (incomplete_allele_idx == 0);
-  *allele_idx_basep = allele_idx_base;
-  *cur_allele_ctp = cur_allele_ct;
-  *incomplete_allele_idxp = incomplete_allele_idx;
+  statep->variant_idx = variant_idx;
+  statep->variant_uidx = variant_uidx + (incomplete_allele_idx == 0);
+  statep->allele_idx_base = allele_idx_base;
+  statep->cur_allele_ct = cur_allele_ct;
+  statep->incomplete_allele_idx = incomplete_allele_idx;
   return kPglRetSuccess;
+}
+
+void PrintCenteredVarmajErr(PglErr reterr, uintptr_t variant_uidx) {
+  if (reterr == kPglRetDegenerateData) {
+    logputs("\n");
+    logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
+  } else {
+    PgenErrPrintNV(reterr, variant_uidx);
+  }
+}
+
+// This function handles error-message-logging.
+PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_ct, PgenReader* simple_pgrp, double* normed_vmaj_iter, uintptr_t* variant_include_has_missing, uint32_t* cur_batch_sizep, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uintptr_t* allele_idx_basep, uint32_t* cur_allele_ctp, uint32_t* incomplete_allele_idxp, PgenVariant* pgvp, double* allele_1copy_buf) {
+  VarmajLoadState state;
+  state.variant_uidx = *variant_uidxp;
+  state.allele_idx_base = *allele_idx_basep;
+  state.variant_idx = *variant_idxp;
+  state.cur_allele_ct = *cur_allele_ctp;
+  state.incomplete_allele_idx = *incomplete_allele_idxp;
+  uintptr_t err_variant_uidx;
+  const PglErr reterr = LoadCenteredVarmajRows(sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, variance_standardize, is_haploid, sample_ct, variant_ct, simple_pgrp, normed_vmaj_iter, variant_include_has_missing, cur_batch_sizep, &state, pgvp, allele_1copy_buf, &err_variant_uidx);
+  if (unlikely(reterr)) {
+    PrintCenteredVarmajErr(reterr, err_variant_uidx);
+    return reterr;
+  }
+  *variant_idxp = state.variant_idx;
+  *variant_uidxp = state.variant_uidx;
+  *allele_idx_basep = state.allele_idx_base;
+  *cur_allele_ctp = state.cur_allele_ct;
+  *incomplete_allele_idxp = state.incomplete_allele_idx;
+  return kPglRetSuccess;
+}
+
+// Advances *statep by up to row_ct rows, as LoadCenteredVarmajRows() would,
+// without loading anything.  Returns the number of rows advanced (less than
+// row_ct only at the end of the variant set).  If at least one row is
+// advanced, *last_uidxp is set to the last variant touched.
+uint32_t AdvanceVarmajState(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, uint32_t row_ct, VarmajLoadState* statep, uintptr_t* last_uidxp) {
+  uint32_t variant_idx = statep->variant_idx;
+  uintptr_t variant_uidx = statep->variant_uidx;
+  uintptr_t allele_idx_base = statep->allele_idx_base;
+  uint32_t cur_allele_ct = statep->cur_allele_ct;
+  uint32_t incomplete_allele_idx = statep->incomplete_allele_idx;
+  if (variant_idx == variant_ct) {
+    return 0;
+  }
+  uintptr_t variant_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(variant_include, variant_uidx + (incomplete_allele_idx != 0), &variant_uidx_base, &cur_bits);
+  uint32_t allele_bidx = 0;
+  while (allele_bidx != row_ct) {
+    if (!incomplete_allele_idx) {
+      variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (!allele_idx_offsets) {
+        allele_idx_base = variant_uidx;
+      } else {
+        allele_idx_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
+        allele_idx_base -= variant_uidx;
+      }
+    }
+    *last_uidxp = variant_uidx;
+    uint32_t allele_idx_stop;
+    uint32_t allele_idx_end;
+    if (cur_allele_ct == 2) {
+      allele_idx_stop = 1;
+      allele_idx_end = 1;
+    } else {
+      allele_idx_end = cur_allele_ct;
+      allele_idx_stop = row_ct + incomplete_allele_idx - allele_bidx;
+      if (allele_idx_stop > allele_idx_end) {
+        allele_idx_stop = allele_idx_end;
+      }
+    }
+    allele_bidx += allele_idx_stop - incomplete_allele_idx;
+    if (allele_idx_stop == allele_idx_end) {
+      if (++variant_idx == variant_ct) {
+        incomplete_allele_idx = 0;
+        break;
+      }
+      incomplete_allele_idx = 0;
+    } else {
+      incomplete_allele_idx = allele_idx_stop;
+    }
+  }
+  statep->variant_idx = variant_idx;
+  statep->variant_uidx = variant_uidx + (incomplete_allele_idx == 0);
+  statep->allele_idx_base = allele_idx_base;
+  statep->cur_allele_ct = cur_allele_ct;
+  statep->incomplete_allele_idx = incomplete_allele_idx;
+  return allele_bidx;
+}
+
+// First variant a loader at *statep would touch.  (Requires
+// statep->variant_idx < variant_ct.)
+static inline uintptr_t VarmajStateNextUidx(const uintptr_t* variant_include, const VarmajLoadState* statep) {
+  if (statep->incomplete_allele_idx) {
+    return statep->variant_uidx;
+  }
+  return AdvTo1Bit(variant_include, statep->variant_uidx);
+}
+
+static inline uint32_t VarmajRowCt(const uintptr_t* allele_idx_offsets, uintptr_t variant_uidx) {
+  if (!allele_idx_offsets) {
+    return 1;
+  }
+  const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+  return (allele_ct == 2)? 1 : allele_ct;
+}
+
+// Upper bound on the PgfiMultiread() buffer size needed for any batch of at
+// most max_row_ct consecutive rows (whatever its alignment): the largest
+// span from a touched variant's LD-base record start through the end of the
+// last touched variant's record.  A batch touching included variants i..j
+// (j > i) loads at least one row of each of i and j, so
+// rows(i+1..j-1) <= max_row_ct - 2.  Uses temporary bigstack space;
+// returns UINT64_MAX on allocation failure.
+uint64_t MaxVarmajBatchByteCt(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const PgenFileInfo* pgfip, uint32_t variant_ct, uint32_t max_row_ct) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uint32_t* uidxs;
+  if (unlikely(bigstack_alloc_u32(variant_ct, &uidxs))) {
+    return UINT64_MAX;
+  }
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    uidxs[variant_idx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+  }
+  uint64_t max_byte_ct = 0;
+  // mid_row_ct = rows(i+1..j-1) when j > i
+  uint32_t j = 0;
+  uint64_t mid_row_ct = 0;
+  for (uint32_t i = 0; i != variant_ct; ++i) {
+    if (j < i) {
+      j = i;
+      mid_row_ct = 0;
+    } else if (j > i) {
+      // variant i is no longer in the middle
+      mid_row_ct -= VarmajRowCt(allele_idx_offsets, uidxs[i]);
+    }
+    while (j + 1 < variant_ct) {
+      const uint64_t next_mid_row_ct = (j > i)? (mid_row_ct + VarmajRowCt(allele_idx_offsets, uidxs[j])) : 0;
+      if (next_mid_row_ct + 2 > max_row_ct) {
+        break;
+      }
+      mid_row_ct = next_mid_row_ct;
+      ++j;
+    }
+    const uint64_t byte_ct = GetPgfiFpos(pgfip, uidxs[j] + 1) - GetPgfiLdbaseFpos(pgfip, uidxs[i]);
+    if (byte_ct > max_byte_ct) {
+      max_byte_ct = byte_ct;
+    }
+  }
+  BigstackReset(bigstack_mark);
+  return max_byte_ct;
 }
 
 CONSTI32(kGrmVariantBlockSize, 144);
@@ -6834,6 +6998,277 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 // performance.
 CONSTI32(kPcaVariantBlockSize, 240);
 
+// Parallel variant loading for --pca: the main thread PgfiMultiread()s each
+// batch's raw records while the compute threads work on the previous batch;
+// then decode_thread_ct threads decode the batch's rows (segment tidx is rows
+// [tidx * seg_row_ct, (tidx + 1) * seg_row_ct)) with their own block-mode
+// PgenReaders.  decode_thread_ct == 0 means serial loading by the main
+// thread (when the per-thread readers and raw buffer don't fit).
+typedef struct PcaDecodeCtxStruct {
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const double* allele_freqs;
+  uint32_t is_haploid;
+  uint32_t sample_ct;
+  uint32_t variant_ct;
+
+  PgenReader** pgr_ptrs;
+  PgenVariant* pgvs;
+  double** allele_1copy_bufs;
+
+  // per batch
+  double* yy_dst;
+  uint32_t seg_row_ct;
+  VarmajLoadState* seg_starts;
+  uint32_t* seg_row_cts;
+
+  PglErr* reterrs;
+  uintptr_t* err_variant_uidxs;
+} PcaDecodeCtx;
+
+THREAD_FUNC_DECL PcaDecodeThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  PcaDecodeCtx* ctx = S_CAST(PcaDecodeCtx*, arg->sharedp->context);
+  const uint32_t sample_ct = ctx->sample_ct;
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
+  do {
+    uint32_t row_ct = ctx->seg_row_cts[tidx];
+    if (row_ct) {
+      VarmajLoadState state = ctx->seg_starts[tidx];
+      double* dst = &(ctx->yy_dst[S_CAST(uintptr_t, tidx) * ctx->seg_row_ct * sample_ct]);
+      ctx->reterrs[tidx] = LoadCenteredVarmajRows(ctx->sample_include, pssi, ctx->variant_include, ctx->allele_idx_offsets, ctx->allele_freqs, 1, ctx->is_haploid, sample_ct, ctx->variant_ct, pgrp, dst, nullptr, &row_ct, &state, &(ctx->pgvs[tidx]), ctx->allele_1copy_bufs[tidx], &(ctx->err_variant_uidxs[tidx]));
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+typedef struct PcaLoaderStruct {
+  PcaDecodeCtx dctx;
+  ThreadGroup dtg;
+  uint32_t decode_thread_ct;
+  PgenFileInfo* pgfip;
+  unsigned char* raw_buf;
+  uint64_t raw_byte_ct;
+
+  // serial mode
+  const uintptr_t* sample_include;
+  PgrSampleSubsetIndex pssi;
+  PgenReader* simple_pgrp;
+  PgenVariant* pgvp;
+  double* allele_1copy_buf;
+
+  // next unplanned row
+  VarmajLoadState state;
+  // planned (raw records read) batch, parallel mode
+  uint32_t planned_row_ct;
+} PcaLoader;
+
+void PcaLoaderRewind(PcaLoader* ldp) {
+  ldp->state.variant_uidx = 0;
+  ldp->state.allele_idx_base = 0;
+  ldp->state.variant_idx = 0;
+  ldp->state.cur_allele_ct = 2;
+  ldp->state.incomplete_allele_idx = 0;
+  ldp->planned_row_ct = 0;
+}
+
+static inline uint32_t PcaLoaderDone(const PcaLoader* ldp) {
+  return (ldp->state.variant_idx == ldp->dctx.variant_ct);
+}
+
+// Parallel mode: plans the next batch of up to batch_size rows and reads its
+// raw records.  Serial mode: loads it into yy_dst directly.  Either way,
+// *row_ctp is set to the batch's row count.  Errors are logged here.
+PglErr PcaLoaderAhead(uint32_t batch_size, double* yy_dst, PcaLoader* ldp, uint32_t* row_ctp) {
+  PcaDecodeCtx* dctxp = &ldp->dctx;
+  if (!ldp->decode_thread_ct) {
+    uint32_t row_ct = batch_size;
+    uintptr_t err_variant_uidx;
+    const PglErr reterr = LoadCenteredVarmajRows(ldp->sample_include, ldp->pssi, dctxp->variant_include, dctxp->allele_idx_offsets, dctxp->allele_freqs, 1, dctxp->is_haploid, dctxp->sample_ct, dctxp->variant_ct, ldp->simple_pgrp, yy_dst, nullptr, &row_ct, &ldp->state, ldp->pgvp, ldp->allele_1copy_buf, &err_variant_uidx);
+    if (unlikely(reterr)) {
+      PrintCenteredVarmajErr(reterr, err_variant_uidx);
+      return reterr;
+    }
+    *row_ctp = row_ct;
+    return kPglRetSuccess;
+  }
+  const uint32_t decode_thread_ct = ldp->decode_thread_ct;
+  const uint32_t seg_row_ct = DivUp(batch_size, decode_thread_ct);
+  const uintptr_t first_uidx = VarmajStateNextUidx(dctxp->variant_include, &ldp->state);
+  uintptr_t last_uidx = first_uidx;
+  uint32_t row_ct = 0;
+  for (uint32_t tidx = 0; tidx != decode_thread_ct; ++tidx) {
+    dctxp->seg_starts[tidx] = ldp->state;
+    const uint32_t cur_seg_row_ct = AdvanceVarmajState(dctxp->variant_include, dctxp->allele_idx_offsets, dctxp->variant_ct, MINV(seg_row_ct, batch_size - row_ct), &ldp->state, &last_uidx);
+    dctxp->seg_row_cts[tidx] = cur_seg_row_ct;
+    row_ct += cur_seg_row_ct;
+  }
+  dctxp->seg_row_ct = seg_row_ct;
+  PgenFileInfo* pgfip = ldp->pgfip;
+  // MaxVarmajBatchByteCt() should guarantee this.
+  if (unlikely(GetPgfiFpos(pgfip, last_uidx + 1) - GetPgfiLdbaseFpos(pgfip, first_uidx) > ldp->raw_byte_ct)) {
+    logputs("\n");
+    logerrputs("Error: --pca raw-record buffer overflow.  Please report this bug.\n");
+    return kPglRetImproperFunctionCall;
+  }
+  pgfip->block_base = ldp->raw_buf;
+  const uint32_t load_variant_ct = PopcountBitRange(dctxp->variant_include, first_uidx, last_uidx + 1);
+  if (unlikely(PgfiMultiread(dctxp->variant_include, first_uidx, last_uidx + 1, load_variant_ct, pgfip))) {
+    logputs("\n");
+    logerrprintfww(kErrprintfFread, ".pgen file", rstrerror(errno));
+    return kPglRetReadFail;
+  }
+  PgrCopyBaseAndOffset(pgfip, decode_thread_ct, dctxp->pgr_ptrs);
+  ldp->planned_row_ct = row_ct;
+  *row_ctp = row_ct;
+  return kPglRetSuccess;
+}
+
+// Parallel mode: decodes the batch planned by PcaLoaderAhead() into yy_dst.
+// Serial mode: no-op.  Errors are logged here.
+PglErr PcaLoaderFinish(double* yy_dst, PcaLoader* ldp) {
+  if (!ldp->decode_thread_ct) {
+    return kPglRetSuccess;
+  }
+  PcaDecodeCtx* dctxp = &ldp->dctx;
+  dctxp->yy_dst = yy_dst;
+  const uint32_t decode_thread_ct = ldp->decode_thread_ct;
+  for (uint32_t tidx = 0; tidx != decode_thread_ct; ++tidx) {
+    dctxp->reterrs[tidx] = kPglRetSuccess;
+  }
+  ThreadGroup* dtgp = &ldp->dtg;
+  if (PcaLoaderDone(ldp)) {
+    DeclareLastThreadBlock(dtgp);
+  }
+  if (unlikely(SpawnThreads(dtgp))) {
+    return kPglRetThreadCreateFail;
+  }
+  JoinThreads(dtgp);
+  if (PcaLoaderDone(ldp)) {
+    // threads have exited; allow a later pass to respawn them
+    ReinitThreads(dtgp);
+  }
+  for (uint32_t tidx = 0; tidx != decode_thread_ct; ++tidx) {
+    const PglErr reterr = dctxp->reterrs[tidx];
+    if (unlikely(reterr)) {
+      PrintCenteredVarmajErr(reterr, dctxp->err_variant_uidxs[tidx]);
+      return reterr;
+    }
+  }
+  return kPglRetSuccess;
+}
+
+// Loads the first batch of a pass into yy_dst.
+PglErr PcaLoaderFirst(uint32_t batch_size, double* yy_dst, PcaLoader* ldp, uint32_t* row_ctp) {
+  PcaLoaderRewind(ldp);
+  PglErr reterr = PcaLoaderAhead(batch_size, yy_dst, ldp, row_ctp);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  return PcaLoaderFinish(yy_dst, ldp);
+}
+
+// Sets up parallel loading if it fits in max_bytes (allocating from the
+// bigstack), and serial loading otherwise.
+PglErr PcaLoaderInit(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t md_allele_ct, uint32_t max_batch_size, uint32_t max_thread_ct, uintptr_t max_bytes, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgrSampleSubsetIndex pssi, PgenReader* simple_pgrp, PgenVariant* pgvp, double* allele_1copy_buf, PcaLoader* ldp) {
+  PcaDecodeCtx* dctxp = &ldp->dctx;
+  dctxp->sample_include = sample_include;
+  dctxp->sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+  dctxp->variant_include = variant_include;
+  dctxp->allele_idx_offsets = allele_idx_offsets;
+  dctxp->allele_freqs = allele_freqs;
+  dctxp->is_haploid = is_haploid;
+  dctxp->sample_ct = sample_ct;
+  dctxp->variant_ct = variant_ct;
+  ldp->pgfip = pgfip;
+  ldp->sample_include = sample_include;
+  ldp->pssi = pssi;
+  ldp->simple_pgrp = simple_pgrp;
+  ldp->pgvp = pgvp;
+  ldp->allele_1copy_buf = allele_1copy_buf;
+  ldp->decode_thread_ct = 0;
+  ldp->raw_buf = nullptr;
+  PcaLoaderRewind(ldp);
+  // A batch should give every decode thread a reasonable share.
+  uint32_t decode_thread_ct = MINV(max_thread_ct, max_batch_size / 16);
+  if ((decode_thread_ct < 2) || (!pgfip)) {
+    return kPglRetSuccess;
+  }
+  unsigned char* bigstack_mark = g_bigstack_base;
+  const uint64_t raw_byte_ct = MaxVarmajBatchByteCt(variant_include, allele_idx_offsets, pgfip, variant_ct, max_batch_size);
+  if (raw_byte_ct >= max_bytes) {
+    return kPglRetSuccess;
+  }
+  const uintptr_t raw_alloc = RoundUpPow2(raw_byte_ct, kCacheline);
+  ldp->raw_byte_ct = raw_byte_ct;
+  if (unlikely(bigstack_alloc_uc(raw_alloc, &ldp->raw_buf))) {
+    return kPglRetSuccess;
+  }
+  const PgenGlobalFlags gflags = PgrGetGflags(simple_pgrp);
+  const uintptr_t pgr_struct_alloc = RoundUpPow2(sizeof(PgenReader), kCacheline);
+  if (unlikely(bigstack_alloc_wp(decode_thread_ct, R_CAST(uintptr_t***, &dctxp->pgr_ptrs)) ||
+               BIGSTACK_ALLOC_X(PgenVariant, decode_thread_ct, &dctxp->pgvs) ||
+               bigstack_alloc_dp(decode_thread_ct, &dctxp->allele_1copy_bufs) ||
+               BIGSTACK_ALLOC_X(VarmajLoadState, decode_thread_ct, &dctxp->seg_starts) ||
+               bigstack_alloc_u32(decode_thread_ct, &dctxp->seg_row_cts) ||
+               BIGSTACK_ALLOC_X(PglErr, decode_thread_ct, &dctxp->reterrs) ||
+               bigstack_alloc_w(decode_thread_ct, &dctxp->err_variant_uidxs))) {
+    BigstackReset(bigstack_mark);
+    ldp->raw_buf = nullptr;
+    return kPglRetSuccess;
+  }
+  // Per-thread readers and buffers; stop early if max_bytes is reached.
+  uint32_t tidx = 0;
+  // PgrInit() branches on block_base being non-null.
+  pgfip->block_base = ldp->raw_buf;
+  for (; tidx != decode_thread_ct; ++tidx) {
+    unsigned char* thread_mark = g_bigstack_base;
+    unsigned char* pgr_alloc;
+    uint32_t* md_u;
+    int32_t* md_d;
+    if (unlikely(bigstack_alloc_uc(pgr_struct_alloc, R_CAST(unsigned char**, &dctxp->pgr_ptrs[tidx])) ||
+                 bigstack_alloc_uc(pgr_alloc_cacheline_ct * kCacheline, &pgr_alloc) ||
+                 BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, gflags, &dctxp->pgvs[tidx]) ||
+                 BigstackAllocMultidosage(sample_ct, md_allele_ct, 0, &dctxp->pgvs[tidx], &md_u, &md_d) ||
+                 bigstack_alloc_d(max_allele_ct, &dctxp->allele_1copy_bufs[tidx]) ||
+                 (S_CAST(uintptr_t, g_bigstack_base - bigstack_mark) > max_bytes))) {
+      BigstackReset(thread_mark);
+      break;
+    }
+    PreinitPgr(dctxp->pgr_ptrs[tidx]);
+    PgrInit(nullptr, 0, pgfip, dctxp->pgr_ptrs[tidx], pgr_alloc);
+  }
+  pgfip->block_base = nullptr;
+  if (tidx < 2) {
+    BigstackReset(bigstack_mark);
+    ldp->raw_buf = nullptr;
+    return kPglRetSuccess;
+  }
+  decode_thread_ct = tidx;
+  PreinitThreads(&ldp->dtg);
+  if (unlikely(SetThreadCt(decode_thread_ct, &ldp->dtg))) {
+    return kPglRetNomem;
+  }
+  SetThreadFuncAndData(PcaDecodeThread, dctxp, &ldp->dtg);
+  ldp->decode_thread_ct = decode_thread_ct;
+  return kPglRetSuccess;
+}
+
+void PcaLoaderCleanup(PcaLoader* ldp) {
+  if (ldp->decode_thread_ct) {
+    CleanupThreads(&ldp->dtg);
+    ldp->decode_thread_ct = 0;
+  }
+  if (ldp->pgfip) {
+    ldp->pgfip->block_base = nullptr;
+  }
+}
+
 typedef struct CalcPcaCtxStruct {
   uint32_t sample_ct;
   uint32_t pc_ct;
@@ -7850,13 +8285,16 @@ PglErr NeighbourFromEigvecFile(const uintptr_t* sample_include, const SampleIdIn
 }
 
 #ifndef NOLAPACK
-PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
   CompressStreamState css;
   ThreadGroup tg;
   PreinitThreads(&tg);
+  PcaLoader ld;
+  ld.decode_thread_ct = 0;
+  ld.pgfip = nullptr;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
@@ -7955,7 +8393,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     ctx.pc_ct = pc_ct;
     const uintptr_t pca_row_ct = CountAlleles(variant_include, allele_idx_offsets, raw_variant_ct, variant_ct) - biallelic_variant_ct;
     const uint32_t is_haploid = cip->haploid_mask[0] & 1;
-    uint32_t cur_allele_ct = 2;
+    if (is_approx || wts_requested) {
+      // calc_thread_ct only decreases from here, so this bounds every batch
+      // size used below.  Parallel loading gets at most a quarter of the
+      // remaining workspace.
+      reterr = PcaLoaderInit(pca_sample_include, pca_sample_include_cumulative_popcounts, variant_include, allele_idx_offsets, allele_freqs, is_haploid, pca_sample_ct, variant_ct, max_allele_ct, md_allele_ct, calc_thread_ct * kPcaVariantBlockSize, max_thread_ct, bigstack_left() / 4, pgr_alloc_cacheline_ct, pgfip, pssi, simple_pgrp, &pgv, allele_1copy_buf, &ld);
+      if (unlikely(reterr)) {
+        goto CalcPca_ret_1;
+      }
+    }
     double* qq = nullptr;
     double* eigvecs_smaj;
     char* writebuf;
@@ -8057,44 +8503,46 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         ctx.qq = qq_iter;
 
         // Main workflow:
-        // 1. Set n=0, load batch 0
-        //
-        // 2. Spawn threads processing batch n
-        // 3. Increment n by 1
-        // 4. Load batch n unless eof
-        // 5. Join threads
-        // 6. Goto step 2 unless eof
-        //
-        // 7. Assemble next g1 by summing g2_parts
-        uint32_t cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
-        uint32_t variant_idx = 0;
-        uintptr_t variant_uidx = 0;
-        uintptr_t allele_idx_base = 0;
-        uint32_t incomplete_allele_idx = 0;
+        // 1. Load batch 0.
+        // 2. Spawn compute threads processing batch n.  Meanwhile, the main
+        //    thread reads batch n+1's raw records (or, in serial mode, loads
+        //    batch n+1).
+        // 3. Join compute threads; stop if batch n was the last one.
+        // 4. Decode batch n+1 with the decode threads (parallel mode); goto
+        //    step 2 with n incremented.
+        // 5. Assemble next g1 by summing g2_parts.
+        const uint32_t std_batch_size = calc_thread_ct * kPcaVariantBlockSize;
+        uint32_t cur_batch_size;
+        reterr = PcaLoaderFirst(std_batch_size, ctx.yy_bufs[0], &ld, &cur_batch_size);
+        if (unlikely(reterr)) {
+          goto CalcPca_ret_1;
+        }
         uint32_t parity = 0;
-        uint32_t is_not_first_block = 0;
         while (1) {
-          if (!IsLastBlock(&tg)) {
-            reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
-            if (unlikely(reterr)) {
-              goto CalcPca_ret_1;
-            }
-          }
-          if (is_not_first_block) {
-            JoinThreads(&tg);
-            if (IsLastBlock(&tg)) {
-              break;
-            }
-          }
           ctx.cur_batch_size = cur_batch_size;
-          if (variant_idx == variant_ct) {
+          const uint32_t is_last = PcaLoaderDone(&ld);
+          if (is_last) {
             DeclareLastThreadBlock(&tg);
-            cur_batch_size = 0;
           }
           if (unlikely(SpawnThreads(&tg))) {
             goto CalcPca_ret_THREAD_CREATE_FAIL;
           }
-          is_not_first_block = 1;
+          uint32_t next_batch_size = 0;
+          if (!is_last) {
+            reterr = PcaLoaderAhead(std_batch_size, ctx.yy_bufs[1 - parity], &ld, &next_batch_size);
+            if (unlikely(reterr)) {
+              goto CalcPca_ret_1;
+            }
+          }
+          JoinThreads(&tg);
+          if (is_last) {
+            break;
+          }
+          reterr = PcaLoaderFinish(ctx.yy_bufs[1 - parity], &ld);
+          if (unlikely(reterr)) {
+            goto CalcPca_ret_1;
+          }
+          cur_batch_size = next_batch_size;
           parity = 1 - parity;
         }
         if (iter_idx < pc_ct) {
@@ -8136,39 +8584,44 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       SetThreadFuncAndData(CalcPcaXtbThread, &ctx, &tg);
       ctx.qq = qq;
-      uint32_t cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
-      uint32_t variant_idx = 0;
-      uintptr_t variant_uidx = 0;
-      uintptr_t allele_idx_base = 0;
-      uint32_t incomplete_allele_idx = 0;
-      uint32_t parity = 0;
-      uint32_t is_not_first_block = 0;
-      while (1) {
-        if (!IsLastBlock(&tg)) {
-          reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
-          if (unlikely(reterr)) {
-            // This error *didn't* happen on an earlier pass, so assign blame
-            // to I/O.  (This may be additive with an error message printed by
-            // LoadCenteredVarmajBlock().)
-            goto CalcPca_ret_REWIND_FAIL;
-          }
+      {
+        // See the kjg_fpca_XTXA() loop above.  Load errors here didn't
+        // happen on an earlier pass, so blame is assigned to I/O.  (This may
+        // be additive with the error message printed by the loader.)
+        const uint32_t std_batch_size = calc_thread_ct * kPcaVariantBlockSize;
+        uint32_t cur_batch_size;
+        reterr = PcaLoaderFirst(std_batch_size, ctx.yy_bufs[0], &ld, &cur_batch_size);
+        if (unlikely(reterr)) {
+          goto CalcPca_ret_REWIND_FAIL;
         }
-        if (is_not_first_block) {
+        uint32_t parity = 0;
+        while (1) {
+          ctx.cur_batch_size = cur_batch_size;
+          const uint32_t is_last = PcaLoaderDone(&ld);
+          if (is_last) {
+            DeclareLastThreadBlock(&tg);
+          }
+          if (unlikely(SpawnThreads(&tg))) {
+            goto CalcPca_ret_THREAD_CREATE_FAIL;
+          }
+          uint32_t next_batch_size = 0;
+          if (!is_last) {
+            reterr = PcaLoaderAhead(std_batch_size, ctx.yy_bufs[1 - parity], &ld, &next_batch_size);
+            if (unlikely(reterr)) {
+              goto CalcPca_ret_REWIND_FAIL;
+            }
+          }
           JoinThreads(&tg);
-          if (IsLastBlock(&tg)) {
+          if (is_last) {
             break;
           }
+          reterr = PcaLoaderFinish(ctx.yy_bufs[1 - parity], &ld);
+          if (unlikely(reterr)) {
+            goto CalcPca_ret_REWIND_FAIL;
+          }
+          cur_batch_size = next_batch_size;
+          parity = 1 - parity;
         }
-        ctx.cur_batch_size = cur_batch_size;
-        if (variant_idx == variant_ct) {
-          DeclareLastThreadBlock(&tg);
-          cur_batch_size = 0;
-        }
-        if (unlikely(SpawnThreads(&tg))) {
-          goto CalcPca_ret_THREAD_CREATE_FAIL;
-        }
-        is_not_first_block = 1;
-        parity = 1 - parity;
       }
       double* bb = ctx.g2_bb_part_bufs[0];
       for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
@@ -8429,65 +8882,76 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         goto CalcPca_ret_NOMEM;
       }
       SetThreadFuncAndData(CalcPcaVarWtsThread, &vwctx, &tg);
-      uint32_t prev_batch_size = 0;
-      uint32_t cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
-
-      uint32_t variant_idx_load = 0;
-      uintptr_t variant_uidx_load = 0;
-      uintptr_t allele_idx_base_load = 0;
-      uint32_t cur_allele_ct_load = 2;
-      uint32_t incomplete_allele_idx_load = 0;
-
       uint32_t variant_idx_write = 0;
       uintptr_t variant_uidx_write = 0;
       uintptr_t allele_idx_offset_write = 0;
-      // cur_allele_ct = 2;
+      uint32_t cur_allele_ct = 2;
       uint32_t incomplete_allele_idx_write = 0;
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
 
+      // See the kjg_fpca_XTXA() loop above; in addition, each batch's
+      // results are written while the next batch is being processed.
+      const uint32_t std_batch_size = calc_thread_ct * kPcaVariantBlockSize;
+      uint32_t cur_batch_size;
+      reterr = PcaLoaderFirst(std_batch_size, vwctx.yy_bufs[0], &ld, &cur_batch_size);
+      if (unlikely(reterr)) {
+        goto CalcPca_ret_1;
+      }
+      uint32_t prev_batch_size = 0;
       uint32_t parity = 0;
-      uint32_t is_not_first_block = 0;
       while (1) {
-        if (!IsLastBlock(&tg)) {
-          reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, vwctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx_load, &variant_uidx_load, &allele_idx_base_load, &cur_allele_ct_load, &incomplete_allele_idx_load, &pgv, allele_1copy_buf);
+        vwctx.cur_batch_size = cur_batch_size;
+        const uint32_t is_last = PcaLoaderDone(&ld);
+        if (is_last) {
+          DeclareLastThreadBlock(&tg);
+        }
+        if (unlikely(SpawnThreads(&tg))) {
+          goto CalcPca_ret_THREAD_CREATE_FAIL;
+        }
+        uint32_t next_batch_size = 0;
+        if (!is_last) {
+          reterr = PcaLoaderAhead(std_batch_size, vwctx.yy_bufs[1 - parity], &ld, &next_batch_size);
           if (unlikely(reterr)) {
             goto CalcPca_ret_1;
           }
         }
-        if (is_not_first_block) {
-          JoinThreads(&tg);
-        }
-        if (!IsLastBlock(&tg)) {
-          vwctx.cur_batch_size = cur_batch_size;
-          if (variant_idx_load == variant_ct) {
-            DeclareLastThreadBlock(&tg);
+        // the final batch is written after the loop
+        for (uint32_t write_final = 0; write_final != 2; ++write_final) {
+          const uint32_t write_batch_size = write_final? cur_batch_size : prev_batch_size;
+          if (write_final) {
+            if (!is_last) {
+              break;
+            }
+            JoinThreads(&tg);
           }
-          if (unlikely(SpawnThreads(&tg))) {
-            goto CalcPca_ret_THREAD_CREATE_FAIL;
+          if (!write_batch_size) {
+            continue;
           }
-        }
-        parity = 1 - parity;
-        if (is_not_first_block) {
-          // write *previous* block results
-          const double* var_wts_iter = &(var_wts[parity * var_wts_part_size]);
           // (todo: update projection here)
+          const double* var_wts_iter = &(var_wts[(write_final? parity : (1 - parity)) * var_wts_part_size]);
           if (allele_wts) {
-            reterr = FlushAlleleWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, var_wts_iter, eigval_inv_sqrts, prev_batch_size, pc_ct, pca_flags, provref_col, all_nonref, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &allele_idx_offset_write, &cur_allele_ct, &incomplete_allele_idx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
+            reterr = FlushAlleleWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, var_wts_iter, eigval_inv_sqrts, write_batch_size, pc_ct, pca_flags, provref_col, all_nonref, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &allele_idx_offset_write, &cur_allele_ct, &incomplete_allele_idx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
           } else {
-            reterr = FlushBiallelicVarWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, maj_alleles, var_wts_iter, eigval_inv_sqrts, prev_batch_size, pc_ct, pca_flags, provref_col, all_nonref, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
+            reterr = FlushBiallelicVarWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, maj_alleles, var_wts_iter, eigval_inv_sqrts, write_batch_size, pc_ct, pca_flags, provref_col, all_nonref, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
           }
           if (unlikely(reterr)) {
             // only write_fail possible in practice
             goto CalcPca_ret_1;
           }
-          if (variant_idx_write == variant_ct) {
-            break;
-          }
         }
-        is_not_first_block = 1;
+        if (is_last) {
+          break;
+        }
+        JoinThreads(&tg);
+        reterr = PcaLoaderFinish(vwctx.yy_bufs[1 - parity], &ld);
+        if (unlikely(reterr)) {
+          goto CalcPca_ret_1;
+        }
         prev_batch_size = cur_batch_size;
+        cur_batch_size = next_batch_size;
+        parity = 1 - parity;
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
         goto CalcPca_ret_WRITE_FAIL;
@@ -8586,6 +9050,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
   }
  CalcPca_ret_1:
   CleanupThreads(&tg);
+  PcaLoaderCleanup(&ld);
   BLAS_SET_NUM_THREADS(1);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);

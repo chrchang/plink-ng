@@ -3156,7 +3156,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
-        reterr = CalcPca(sample_include, &pii.sii, grm_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->neighbour_info), raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
+        reterr = CalcPca(sample_include, &pii.sii, grm_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->neighbour_info), raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sfmtp, grm, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
