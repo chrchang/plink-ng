@@ -406,6 +406,25 @@ $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --pca 4 allele-wts --out tmp
 ./tmp_multidosage_writer_test checkpca tmp_rel_sq.rel tmp_rel_pca.eigenvec tmp_rel_pca.eigenval
 $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --pca 4 approx allele-wts --out tmp_rel_pcaa
 ./tmp_multidosage_writer_test checkpca tmp_rel_sqmi.rel tmp_rel_pcaa.eigenvec tmp_rel_pcaa.eigenval approx
+# --pca variant loading is parallel (decode threads), except with --threads 1.
+# With this few variants there's a single compute thread either way, so the
+# results must be byte-identical.  3 threads give decode segments that split
+# multiallelic variants at different points; the variant subset (every third
+# variant excluded) makes batch boundaries land on excluded variants, and its
+# last batch (84 rows) has a partial second segment under 3 threads.
+awk '!/^#/ && (NR % 3) {print $3}' tmp_small.pvar > tmp_rel_subset.txt
+for subset in "" "--extract tmp_rel_subset.txt"; do
+    for mode in "approx" ""; do
+        for t in 1 3 4; do
+            $P --pfile tmp_small $subset --read-freq tmp_rel_freq.afreq --threads $t --seed 1 --pca 4 $mode allele-wts --out tmp_rel_pcat$t
+        done
+        for t in 3 4; do
+            for ext in eigenval eigenvec eigenvec.allele; do
+                cmp tmp_rel_pcat1.$ext tmp_rel_pcat$t.$ext
+            done
+        done
+    done
+done
 
 # --score with rare ALT alleles counted (PgrGet1D()): ALT2 for every
 # multiallelic variant, plus ALT3 where present (two rows for the same
