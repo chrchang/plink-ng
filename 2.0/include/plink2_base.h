@@ -2140,6 +2140,14 @@ HEADER_INLINE void CAppendU16(uint16_t usii, char** targetp) {
 
 // now compiling with gcc >= 4.4 (or clang equivalent) on all platforms, so
 // safe to use memset everywhere
+HEADER_INLINE void ZeroU16Arr(uintptr_t entry_ct, uint16_t* u16arr) {
+  memset(u16arr, 0, entry_ct * sizeof(int16_t));
+}
+
+HEADER_INLINE void ZeroI16Arr(uintptr_t entry_ct, int16_t* i16arr) {
+  memset(i16arr, 0, entry_ct * sizeof(int16_t));
+}
+
 HEADER_INLINE void ZeroU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
   memset(u32arr, 0, entry_ct * sizeof(int32_t));
 }

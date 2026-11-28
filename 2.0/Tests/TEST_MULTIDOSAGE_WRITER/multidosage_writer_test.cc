@@ -3785,6 +3785,233 @@ static int WriteDups(const char* src_prefix, const char* out_prefix) {
   return 0;
 }
 
+// ***** "comparemerge" mode: --pmerge[-list] on multiallelic dosages *****
+
+// One sample's genotype data in the merged allele space.
+struct MergedVal {
+  uint32_t missing = 1;
+  uint32_t a1 = 0, a2 = 0;  // hardcall, a1 <= a2 (UINT32_MAX if missing)
+  uint32_t phased = 0, left = 0;  // left: allele on the first haplotype
+  std::vector<int32_t> u;  // allele dosages (empty if none)
+  std::vector<int32_t> d;  // dosage-phase values (empty if none)
+  bool operator==(const MergedVal& o) const {
+    return (missing == o.missing) && (a1 == o.a1) && (a2 == o.a2) && (phased == o.phased) && (left == o.left) && (u == o.u) && (d == o.d);
+  }
+};
+
+static MergedVal ToMerged(const SampleData& sd, uint32_t src_allele_ct, const std::vector<uint32_t>& src_to_merged, uint32_t merged_allele_ct) {
+  MergedVal mv;
+  if (sd.a1 == UINT32_MAX) {
+    mv.a1 = UINT32_MAX;
+    mv.a2 = UINT32_MAX;
+  } else {
+    mv.a1 = src_to_merged[sd.a1];
+    mv.a2 = src_to_merged[sd.a2];
+    if (mv.a1 > mv.a2) {
+      std::swap(mv.a1, mv.a2);
+    }
+    if (sd.phased && (sd.a1 != sd.a2)) {
+      mv.phased = 1;
+      mv.left = src_to_merged[sd.phaseinfo? sd.a2 : sd.a1];
+    }
+  }
+  std::vector<int32_t> u;
+  std::vector<int32_t> d;
+  DenseAlleleVals(sd, src_allele_ct, u, d);
+  if (!u.empty()) {
+    mv.u.assign(merged_allele_ct, 0);
+    for (uint32_t aidx = 0; aidx != src_allele_ct; ++aidx) {
+      mv.u[src_to_merged[aidx]] = u[aidx];
+    }
+  }
+  if (!d.empty()) {
+    mv.d.assign(merged_allele_ct, 0);
+    for (uint32_t aidx = 0; aidx != src_allele_ct; ++aidx) {
+      mv.d[src_to_merged[aidx]] = d[aidx];
+    }
+  }
+  mv.missing = (mv.a1 == UINT32_MAX) && mv.u.empty();
+  return mv;
+}
+
+// Checks a --pmerge[-list] --merge-mode <mode> output against the merge
+// computed independently from the sources (in merge order): for each output
+// variant and sample, the records of the sources containing both (variant
+// matched by ID, alleles by string) are combined per the mode
+// ('first': first value, even if missing; 'nm-first': first nonmissing
+// value; 'nm-match': the common nonmissing value, or missing if they
+// differ).  Values (hardcall, hardcall phase, per-allele dosages, and
+// per-allele dosage-phase values) are compared in the merged allele space.
+static int CompareMerge(const char* mode, const char* out_prefix, const std::vector<std::string>& src_prefixes) {
+  PvarInfo out_pi;
+  if (ReadPvar(out_prefix, out_pi)) {
+    fprintf(stderr, "comparemerge: failed to read output .pvar\n");
+    return 1;
+  }
+  const std::vector<std::string> out_iids = ReadPsamIids(out_prefix);
+  const uint32_t out_sample_ct = out_iids.size();
+  const uint32_t out_variant_ct = out_pi.ids.size();
+  const uint32_t src_ct = src_prefixes.size();
+  std::vector<PvarInfo> src_pis(src_ct);
+  std::vector<std::vector<std::string>> src_iids(src_ct);
+  std::vector<Reader> readers(src_ct);
+  std::vector<ReaderBufs> rbs(src_ct);
+  std::vector<PgrSampleSubsetIndex> pssis(src_ct);
+  for (uint32_t src_idx = 0; src_idx != src_ct; ++src_idx) {
+    if (ReadPvar(src_prefixes[src_idx], src_pis[src_idx])) {
+      fprintf(stderr, "comparemerge: failed to read %s.pvar\n", src_prefixes[src_idx].c_str());
+      return 1;
+    }
+    src_iids[src_idx] = ReadPsamIids(src_prefixes[src_idx]);
+    if (OpenReader((src_prefixes[src_idx] + ".pgen").c_str(), src_pis[src_idx].allele_idx_offsets.data(), src_pis[src_idx].ids.size(), src_iids[src_idx].size(), readers[src_idx])) {
+      return 1;
+    }
+    InitReaderBufs(src_iids[src_idx].size(), 255, rbs[src_idx]);
+    PgrClearSampleSubsetIndex(&readers[src_idx].pgr, &pssis[src_idx]);
+  }
+  Reader out_r;
+  if (OpenReader((std::string(out_prefix) + ".pgen").c_str(), out_pi.allele_idx_offsets.data(), out_variant_ct, out_sample_ct, out_r)) {
+    return 1;
+  }
+  ReaderBufs out_rb;
+  InitReaderBufs(out_sample_ct, 255, out_rb);
+  PgrSampleSubsetIndex out_pssi;
+  PgrClearSampleSubsetIndex(&out_r.pgr, &out_pssi);
+  // output sample index -> per-source sample index (UINT32_MAX if absent)
+  std::vector<std::vector<uint32_t>> out_to_src(src_ct, std::vector<uint32_t>(out_sample_ct, UINT32_MAX));
+  for (uint32_t src_idx = 0; src_idx != src_ct; ++src_idx) {
+    for (uint32_t sidx = 0; sidx != src_iids[src_idx].size(); ++sidx) {
+      const size_t out_idx = std::find(out_iids.begin(), out_iids.end(), src_iids[src_idx][sidx]) - out_iids.begin();
+      if (out_idx == out_iids.size()) {
+        fprintf(stderr, "comparemerge: source sample %s missing from output\n", src_iids[src_idx][sidx].c_str());
+        return 1;
+      }
+      out_to_src[src_idx][out_idx] = sidx;
+    }
+  }
+  uint64_t mismatch_ct = 0;
+  uint64_t compared_ct = 0;
+  uint64_t rare_dosage_ct = 0;
+  uint64_t rare_dphase_ct = 0;
+  uint64_t conflict_ct = 0;
+  for (uint32_t vidx = 0; vidx != out_variant_ct; ++vidx) {
+    const std::vector<std::string>& merged_alleles = out_pi.alleles[vidx];
+    const uint32_t merged_allele_ct = merged_alleles.size();
+    // per-source decoded records (empty if the variant is absent)
+    std::vector<std::vector<SampleData>> src_sds(src_ct);
+    std::vector<std::vector<uint32_t>> src_maps(src_ct);
+    std::vector<uint32_t> src_allele_cts(src_ct, 0);
+    for (uint32_t src_idx = 0; src_idx != src_ct; ++src_idx) {
+      const PvarInfo& spi = src_pis[src_idx];
+      const size_t svidx = std::find(spi.ids.begin(), spi.ids.end(), out_pi.ids[vidx]) - spi.ids.begin();
+      if (svidx == spi.ids.size()) {
+        continue;
+      }
+      const std::vector<std::string>& src_alleles = spi.alleles[svidx];
+      std::vector<uint32_t>& cur_map = src_maps[src_idx];
+      for (const std::string& allele : src_alleles) {
+        const size_t midx = std::find(merged_alleles.begin(), merged_alleles.end(), allele) - merged_alleles.begin();
+        if (midx == merged_allele_ct) {
+          fprintf(stderr, "comparemerge: allele %s of %s missing from output\n", allele.c_str(), out_pi.ids[vidx].c_str());
+          return 1;
+        }
+        cur_map.push_back(midx);
+      }
+      src_allele_cts[src_idx] = src_alleles.size();
+      PgenVariant& pgv = rbs[src_idx].pgv;
+      if (PgrGetMDp(nullptr, pssis[src_idx], src_iids[src_idx].size(), svidx, &readers[src_idx].pgr, &pgv)) {
+        fprintf(stderr, "comparemerge: read error\n");
+        return 1;
+      }
+      src_sds[src_idx] = Decode(pgv, src_iids[src_idx].size(), 1, 1, 1);
+    }
+    PgenVariant& opgv = out_rb.pgv;
+    if (PgrGetMDp(nullptr, out_pssi, out_sample_ct, vidx, &out_r.pgr, &opgv)) {
+      fprintf(stderr, "comparemerge: read error\n");
+      return 1;
+    }
+    const std::vector<SampleData> out_sds = Decode(opgv, out_sample_ct, 1, 1, 1);
+    std::vector<uint32_t> identity(merged_allele_ct);
+    for (uint32_t aidx = 0; aidx != merged_allele_ct; ++aidx) {
+      identity[aidx] = aidx;
+    }
+    for (uint32_t out_idx = 0; out_idx != out_sample_ct; ++out_idx) {
+      MergedVal expected;
+      expected.a1 = UINT32_MAX;
+      expected.a2 = UINT32_MAX;
+      uint32_t decided = 0;
+      uint32_t conflict = 0;
+      for (uint32_t src_idx = 0; (src_idx != src_ct) && (!decided); ++src_idx) {
+        const uint32_t sidx = out_to_src[src_idx][out_idx];
+        if (src_sds[src_idx].empty() || (sidx == UINT32_MAX)) {
+          continue;
+        }
+        const MergedVal cur = ToMerged(src_sds[src_idx][sidx], src_allele_cts[src_idx], src_maps[src_idx], merged_allele_ct);
+        if (!strcmp(mode, "first")) {
+          expected = cur;
+          decided = 1;
+        } else if (!strcmp(mode, "nm-first")) {
+          if (!cur.missing) {
+            expected = cur;
+            decided = 1;
+          }
+        } else {
+          if (cur.missing) {
+            continue;
+          }
+          if (expected.missing) {
+            expected = cur;
+          } else if (!(expected == cur)) {
+            conflict = 1;
+            decided = 1;
+          }
+        }
+      }
+      if (conflict) {
+        expected = MergedVal();
+        expected.a1 = UINT32_MAX;
+        expected.a2 = UINT32_MAX;
+        ++conflict_ct;
+      }
+      const MergedVal actual = ToMerged(out_sds[out_idx], merged_allele_ct, identity, merged_allele_ct);
+      ++compared_ct;
+      if (!actual.u.empty()) {
+        for (uint32_t aidx = 2; aidx < merged_allele_ct; ++aidx) {
+          if (actual.u[aidx]) {
+            ++rare_dosage_ct;
+            break;
+          }
+        }
+      }
+      if (!actual.d.empty()) {
+        for (uint32_t aidx = 2; aidx < merged_allele_ct; ++aidx) {
+          if (actual.d[aidx]) {
+            ++rare_dphase_ct;
+            break;
+          }
+        }
+      }
+      if (!(expected == actual)) {
+        if (mismatch_ct++ < 10) {
+          fprintf(stderr, "comparemerge: %s %s: expected missing=%u %d/%d ph=%u dos=%zu dph=%zu, got missing=%u %d/%d ph=%u dos=%zu dph=%zu\n", out_pi.ids[vidx].c_str(), out_iids[out_idx].c_str(), expected.missing, S_CAST(int32_t, expected.a1), S_CAST(int32_t, expected.a2), expected.phased, expected.u.size(), expected.d.size(), actual.missing, S_CAST(int32_t, actual.a1), S_CAST(int32_t, actual.a2), actual.phased, actual.u.size(), actual.d.size());
+        }
+      }
+    }
+  }
+  for (uint32_t src_idx = 0; src_idx != src_ct; ++src_idx) {
+    FreeReaderBufs(rbs[src_idx]);
+    CloseReader(readers[src_idx]);
+  }
+  FreeReaderBufs(out_rb);
+  CloseReader(out_r);
+  if (mismatch_ct) {
+    fprintf(stderr, "comparemerge: %" PRIu64 " mismatch(es)\n", mismatch_ct);
+    return 1;
+  }
+  printf("comparemerge: %" PRIu64 " genotypes ok (%" PRIu64 " with rare-alt dosages, %" PRIu64 " with rare-alt dosage-phase values, %" PRIu64 " conflicts)\n", compared_ct, rare_dosage_ct, rare_dphase_ct, conflict_ct);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   // "compare <orig prefix> <new prefix> [strip-phase] [strip-dosage]
   // [hets-missing [keep-dosage] [hm-samples=<IID file>]] [hct=<thresh>] [fill]
@@ -3810,6 +4037,15 @@ int main(int argc, char** argv) {
       meanimpute |= !strcmp(argv[argi], "meanimpute");
     }
     return CheckGrm(argv[2], argv[3], argv[4], is_cov, meanimpute);
+  }
+  // "comparemerge <first | nm-first | nm-match> <output prefix> <source
+  // prefix>...": see CompareMerge().
+  if ((argc >= 5) && (!strcmp(argv[1], "comparemerge"))) {
+    std::vector<std::string> src_prefixes;
+    for (int argi = 4; argi < argc; ++argi) {
+      src_prefixes.push_back(argv[argi]);
+    }
+    return CompareMerge(argv[2], argv[3], src_prefixes);
   }
   // "writedups <source prefix> <out prefix>": see WriteDups().
   if ((argc == 4) && (!strcmp(argv[1], "writedups"))) {
@@ -3857,6 +4093,12 @@ int main(int argc, char** argv) {
       }
     }
     return CompareFilesets(argv[2], argv[3], strip_phase, strip_dosage, hets_missing, ops);
+  }
+  if (argc > 1) {
+    // Don't fall through to the self-test (which a stale binary would also do
+    // for a newer mode).
+    fprintf(stderr, "unrecognized mode or argument count: %s\n", argv[1]);
+    return 1;
   }
   // 300 samples: 2-byte group starts for most allele counts.  70000 samples:
   // 3-byte group starts, and sample IDs past 2^16.
