@@ -579,6 +579,8 @@ struct Reader {
   PgenReader pgr;
   unsigned char* pgfi_alloc;
   unsigned char* pgr_alloc;
+  // loaded during phase 2 when the .pgen stores nonref flags
+  uintptr_t* nonref_flags;
 };
 
 static PglErr OpenReader(const char* fname, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct, Reader& r) {
@@ -587,6 +589,7 @@ static PglErr OpenReader(const char* fname, const uintptr_t* allele_idx_offsets,
   PreinitPgr(&r.pgr);
   r.pgfi_alloc = nullptr;
   r.pgr_alloc = nullptr;
+  r.nonref_flags = nullptr;
   PgenHeaderCtrl header_ctrl;
   uintptr_t pgfi_alloc_cacheline_ct;
   PglErr reterr = PgfiInitPhase1(fname, nullptr, variant_ct, sample_ct, &header_ctrl, &r.pgfi, &pgfi_alloc_cacheline_ct, errstr);
@@ -601,6 +604,9 @@ static PglErr OpenReader(const char* fname, const uintptr_t* allele_idx_offsets,
     max_allele_ct = MAXV(max_allele_ct, allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]);
   }
   r.pgfi.max_allele_ct = max_allele_ct;
+  // (e.g. after --maj-ref force, which marks REF alleles provisional)
+  r.nonref_flags = static_cast<uintptr_t*>(calloc(BitCtToWordCt(variant_ct) + 1, sizeof(intptr_t)));
+  r.pgfi.nonref_flags = r.nonref_flags;
   r.pgfi_alloc = static_cast<unsigned char*>(aligned_alloc(kCacheline, (pgfi_alloc_cacheline_ct + 1) * kCacheline));
   uint32_t max_vrec_width;
   uintptr_t pgr_alloc_cacheline_ct;
@@ -619,6 +625,7 @@ static void CloseReader(Reader& r) {
   CleanupPgfi(&r.pgfi, &reterr);
   free(r.pgr_alloc);
   free(r.pgfi_alloc);
+  free(r.nonref_flags);
 }
 
 // Expected single-allele (inverse-)dosage data.
@@ -3785,6 +3792,84 @@ static int WriteDups(const char* src_prefix, const char* out_prefix) {
   return 0;
 }
 
+// ***** "dumpvals" mode *****
+
+// Writes each sample's per-allele values, in internal allele order: one line
+// per variant (ID, allele count, then one token per sample).  A token is "M"
+// for a missing call (no hardcall and no dosage); otherwise the comma-separated
+// allele dosages u (16384 = one copy, from the dosage or the hardcall),
+// followed by ";" and the per-allele haplotype differences d (left minus
+// right, same units) when the haplotype split is known: an explicit
+// dosage-phase value, or a phased heterozygous hardcall without a dosage.
+static int DumpVals(const char* prefix, const char* out_fname) {
+  PvarInfo pi;
+  if (ReadPvar(prefix, pi)) {
+    fprintf(stderr, "dumpvals: failed to read .pvar\n");
+    return 1;
+  }
+  const uint32_t sample_ct = ReadPsamIids(prefix).size();
+  const uint32_t variant_ct = pi.ids.size();
+  Reader r;
+  if (OpenReader((std::string(prefix) + ".pgen").c_str(), pi.allele_idx_offsets.data(), variant_ct, sample_ct, r)) {
+    return 1;
+  }
+  ReaderBufs rb;
+  InitReaderBufs(sample_ct, 255, rb);
+  PgrSampleSubsetIndex pssi;
+  PgrClearSampleSubsetIndex(&r.pgr, &pssi);
+  FILE* outfile = fopen(out_fname, "w");
+  if (!outfile) {
+    fprintf(stderr, "dumpvals: failed to open %s\n", out_fname);
+    return 1;
+  }
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    const uint32_t allele_ct = pi.allele_idx_offsets[vidx + 1] - pi.allele_idx_offsets[vidx];
+    if (PgrGetMDp(nullptr, pssi, sample_ct, vidx, &r.pgr, &rb.pgv)) {
+      fprintf(stderr, "dumpvals: read error\n");
+      return 1;
+    }
+    const std::vector<SampleData> sds = Decode(rb.pgv, sample_ct, 1, 1, 1);
+    fprintf(outfile, "%s\t%u", pi.ids[vidx].c_str(), allele_ct);
+    for (uint32_t sidx = 0; sidx != sample_ct; ++sidx) {
+      const SampleData& sd = sds[sidx];
+      std::vector<int32_t> u;
+      std::vector<int32_t> d;
+      DenseAlleleVals(sd, allele_ct, u, d);
+      if (u.empty()) {
+        if (sd.a1 == UINT32_MAX) {
+          fputs("\tM", outfile);
+          continue;
+        }
+        u.assign(allele_ct, 0);
+        u[sd.a1] += 16384;
+        u[sd.a2] += 16384;
+        if (sd.phased && (sd.a1 != sd.a2)) {
+          d.assign(allele_ct, 0);
+          const uint32_t left = sd.phaseinfo? sd.a2 : sd.a1;
+          const uint32_t right = sd.phaseinfo? sd.a1 : sd.a2;
+          d[left] += 16384;
+          d[right] -= 16384;
+        }
+      }
+      fputc('\t', outfile);
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        fprintf(outfile, "%s%d", aidx? "," : "", u[aidx]);
+      }
+      if (!d.empty()) {
+        fputc(';', outfile);
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          fprintf(outfile, "%s%d", aidx? "," : "", d[aidx]);
+        }
+      }
+    }
+    fputc('\n', outfile);
+  }
+  fclose(outfile);
+  FreeReaderBufs(rb);
+  CloseReader(r);
+  return 0;
+}
+
 // ***** "comparemerge" mode: --pmerge[-list] on multiallelic dosages *****
 
 // One sample's genotype data in the merged allele space.
@@ -4037,6 +4122,10 @@ int main(int argc, char** argv) {
       meanimpute |= !strcmp(argv[argi], "meanimpute");
     }
     return CheckGrm(argv[2], argv[3], argv[4], is_cov, meanimpute);
+  }
+  // "dumpvals <prefix> <output file>": see DumpVals().
+  if ((argc == 4) && (!strcmp(argv[1], "dumpvals"))) {
+    return DumpVals(argv[2], argv[3]);
   }
   // "comparemerge <first | nm-first | nm-match> <output prefix> <source
   // prefix>...": see CompareMerge().
