@@ -231,12 +231,28 @@ $CJ tmp_joinsrc tmp_jn5
 $P --pfile tmp_joinsrc --make-pgen multiallelics=+any erase-phase --out tmp_jn6
 $P --pfile tmp_jn6 --validate --out tmp_jn6_v
 $CJ tmp_joinsrc tmp_jn6 strip-phase
-# not supported yet with dosages
-for f in "--hard-call-threshold 0.1" "--dosage-erase-threshold 0.1"; do
-    if $P --pfile tmp_joinsrc $f --make-pgen multiallelics=+any --out tmp_jn_err; then
-        echo "variant-join accepted $f"
-        exit 1
-    fi
+# erase-dosage: the join only sees hardcalls.  (This used to crash.)
+$P --pfile tmp_joinsrc --make-pgen erase-dosage --out tmp_jn_src_nd
+$P --pfile tmp_joinsrc --make-pgen multiallelics=+any erase-dosage --out tmp_jn7
+$CJ tmp_jn_src_nd tmp_jn7
+# --hard-call-threshold/--dosage-erase-threshold are applied to each joined
+# variant as if it had been read that way, so joining with them must match
+# joining first and applying them in a second --make-pgen run, byte for byte.
+# (tmp_sp4 under '+snps' also covers single-variant biallelic groups.)
+for src_mode in "tmp_joinsrc +any" "tmp_sp4 +snps"; do
+    set -- $src_mode
+    $P --pfile $1 --make-pgen multiallelics=$2 --out tmp_jn_ops_ref
+    for ops in "--hard-call-threshold 0.1" "--hard-call-threshold 0.4" "--dosage-erase-threshold 0.2" "--hard-call-threshold 0.3 --dosage-erase-threshold 0.15"; do
+        $P --pfile $1 $ops --make-pgen multiallelics=$2 --out tmp_jn_ops1
+        $P --pfile tmp_jn_ops_ref $ops --make-pgen --out tmp_jn_ops2
+        $P --pfile tmp_jn_ops1 --validate --out tmp_jn_ops1_v
+        cmp tmp_jn_ops1.pgen tmp_jn_ops2.pgen
+    done
+    # erase-dosage + --hard-call-threshold: dosages are read, joined, used for
+    # hardcalls, then discarded
+    $P --pfile $1 --hard-call-threshold 0.2 --make-pgen multiallelics=$2 erase-dosage --out tmp_jn_ops1
+    $P --pfile tmp_jn_ops_ref --hard-call-threshold 0.2 --make-pgen erase-dosage --out tmp_jn_ops2
+    cmp tmp_jn_ops1.pgen tmp_jn_ops2.pgen
 done
 
 # 'keep-dosage': cleared heterozygous hardcalls keep their dosages, and those
