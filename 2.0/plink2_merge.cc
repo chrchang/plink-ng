@@ -9130,6 +9130,64 @@ typedef struct PgenDiffGtEntryStruct {
 } PgenDiffGtEntry;
 
 static_assert(sizeof(Dosage) == 2, "PgenDiff() must be updated.");
+// --pgen-diff 'dosage' on variants with more than two merged alleles: fills
+// dense_dosages[sample_idx * merged_allele_ct + <merged allele index>] with
+// allele dosages (16384 = 1 copy; hardcalls for samples without a dosage), or
+// sets dense_dosages[sample_idx * merged_allele_ct] to kDosageMissing when
+// the sample has neither.  remap[] maps this fileset's allele indexes to
+// merged ones.  u_buf/d_buf need allele_ct - 1 entries.  Returns 1 on an
+// out-of-range dosage, or a nonzero dosage for a missing allele code.
+static BoolErr PgenDiffFillMergedDosages(const PgenVariant* pgvp, const AlleleCode* remap, uint32_t sample_ct, uint32_t allele_ct, uint32_t merged_allele_ct, uint32_t* u_buf, int32_t* d_buf, Dosage* dense_dosages) {
+  MdCursor cursor;
+  MdCursorInit(pgvp, &cursor);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    MdSample s;
+    if (unlikely(MdCursorNext(pgvp, sample_idx, allele_ct, 1, &cursor, &s, u_buf, d_buf))) {
+      return 1;
+    }
+    Dosage* row = &(dense_dosages[sample_idx * S_CAST(uintptr_t, merged_allele_ct)]);
+    if (!s.has_vals) {
+      row[0] = kDosageMissing;
+      continue;
+    }
+    for (uint32_t merged_idx = 0; merged_idx != merged_allele_ct; ++merged_idx) {
+      row[merged_idx] = 0;
+    }
+    uint32_t alt_sum = 0;
+    for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+      const uint32_t cur_u = u_buf[allele_idx - 1];
+      if (!cur_u) {
+        continue;
+      }
+      if (unlikely(remap[allele_idx] == kMissingAlleleCode)) {
+        return 1;
+      }
+      row[remap[allele_idx]] += cur_u;
+      alt_sum += cur_u;
+    }
+    const uint32_t ref_u = kDosageMax - alt_sum;
+    if (ref_u) {
+      if (unlikely(remap[0] == kMissingAlleleCode)) {
+        return 1;
+      }
+      row[remap[0]] += ref_u;
+    }
+  }
+  return 0;
+}
+
+// Largest per-allele dosage difference; both rows must be nonmissing.
+static uint32_t PgenDiffMaxDosageDiff(const Dosage* row1, const Dosage* row2, uint32_t merged_allele_ct) {
+  uint32_t max_diff = 0;
+  for (uint32_t merged_idx = 0; merged_idx != merged_allele_ct; ++merged_idx) {
+    const uint32_t cur_diff = abs_i32(S_CAST(int32_t, row1[merged_idx]) - S_CAST(int32_t, row2[merged_idx]));
+    if (cur_diff > max_diff) {
+      max_diff = cur_diff;
+    }
+  }
+  return max_diff;
+}
+
 PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PgenDiffInfo* pdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct1, uint32_t max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -9425,6 +9483,10 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     uintptr_t* sex_male_collapsed = nullptr;
     Dosage* biallelic_dosage1 = nullptr;
     Dosage* biallelic_dosage2 = nullptr;
+    uint32_t* md_u = nullptr;
+    int32_t* md_d = nullptr;
+    Dosage* merged_dosage1 = nullptr;
+    Dosage* merged_dosage2 = nullptr;
     if (dosage_needed) {
       // allocations are automatically rounded up to vector boundary, so
       // PopulateDenseDosage() is safe
@@ -9432,6 +9494,37 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
                    bigstack_alloc_dosage(sample_ct, &biallelic_dosage2))) {
         goto PgenDiff_ret_NOMEM;
       }
+      // Variants with more than two merged alleles: rare-alt dosage buffers,
+      // per-sample allele dosages (see PgenDiffFillMergedDosages()), and
+      // MdCursorNext() scratch space.
+      const uint32_t md_allele_ct1 = MultiallelicDosageMaxAlleleCt(variant_include, allele_idx_offsets, PgrGetVrtypes(simple_pgrp), PopcountWords(variant_include, BitCtToWordCt(raw_variant_ct)));
+      uint32_t md_allele_ct2 = 0;
+      if (allele_idx_offsets2) {
+        const unsigned char* vrtypes2 = PgrGetVrtypes(&simple_pgr2);
+        for (uint32_t variant_uidx2 = 0; variant_uidx2 != raw_variant_ct2; ++variant_uidx2) {
+          const uint32_t cur_allele_ct = allele_idx_offsets2[variant_uidx2 + 1] - allele_idx_offsets2[variant_uidx2];
+          if ((cur_allele_ct > md_allele_ct2) && (cur_allele_ct > 2) && ((!vrtypes2) || (vrtypes2[variant_uidx2] & 0x60))) {
+            md_allele_ct2 = cur_allele_ct;
+          }
+        }
+      }
+      uint32_t* md_u_unused;
+      int32_t* md_d_unused;
+      if (unlikely(BigstackAllocMultidosage(sample_ct, md_allele_ct1, 0, &pgv1, &md_u_unused, &md_d_unused) ||
+                   BigstackAllocMultidosage(sample_ct, md_allele_ct2, 0, &pgv2, &md_u_unused, &md_d_unused) ||
+                   bigstack_alloc_u32(MAXV(max_allele_ct1, max_allele_ct2), &md_u) ||
+                   bigstack_alloc_i32(MAXV(max_allele_ct1, max_allele_ct2), &md_d) ||
+                   bigstack_alloc_dosage(S_CAST(uintptr_t, sample_ct) * max_merged_allele_ct, &merged_dosage1) ||
+                   bigstack_alloc_dosage(S_CAST(uintptr_t, sample_ct) * max_merged_allele_ct, &merged_dosage2))) {
+        goto PgenDiff_ret_NOMEM;
+      }
+      // PgrGetMD() never touches these
+      pgv1.phasepresent_ct = 0;
+      pgv1.dphase_ct = 0;
+      pgv1.multidphase_sample_ct = 0;
+      pgv2.phasepresent_ct = 0;
+      pgv2.dphase_ct = 0;
+      pgv2.multidphase_sample_ct = 0;
       if (sex_needed) {
         const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
         if (unlikely(bigstack_alloc_w(sample_ctl, &sex_male_collapsed))) {
@@ -9836,10 +9929,12 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         // PgrGet()/PgrGetD() don't reset these.
         pgv1.patch_01_ct = 0;
         pgv1.patch_10_ct = 0;
+        pgv1.multidosage_sample_ct = 0;
       }
       if (cur_allele_ct2 == 2) {
         pgv2.patch_01_ct = 0;
         pgv2.patch_10_ct = 0;
+        pgv2.multidosage_sample_ct = 0;
       }
 
       uintptr_t* genovec1 = pgv1.genovec;
@@ -10262,10 +10357,50 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             }
           }
         } else {
-          // multiallelic, dosage_needed
-          logerrputs("Error: --pgen-diff multiallelic-variant dosage support is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto PgenDiff_ret_1;
+          // more than two merged alleles, dosage_needed: a sample's genotypes
+          // differ when some allele's dosage differs by more than the
+          // tolerance (as in --sample-diff)
+          if (unlikely(PgenDiffFillMergedDosages(&pgv1, remap1, sample_ct, cur_allele_ct1, merged_allele_ct, md_u, md_d, merged_dosage1))) {
+            reterr = kPglRetMalformedInput;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto PgenDiff_ret_1;
+          }
+          if (unlikely(PgenDiffFillMergedDosages(&pgv2, remap2, sample_ct, cur_allele_ct2, merged_allele_ct, md_u, md_d, merged_dosage2))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid dosage data for variant on line %" PRIuPTR " of --pgen-diff .pvar file.\n", pvar_line_idx);
+            goto PgenDiff_ret_MALFORMED_INPUT_WW_N;
+          }
+          const uint32_t merged_allele_ct_m1 = merged_allele_ct - 1;
+          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+            const uint32_t sample_idx2 = sample1_idx_to_2? sample1_idx_to_2[sample_idx] : sample_idx;
+            const Dosage* row1 = &(merged_dosage1[sample_idx * S_CAST(uintptr_t, merged_allele_ct)]);
+            const Dosage* row2 = &(merged_dosage2[sample_idx2 * S_CAST(uintptr_t, merged_allele_ct)]);
+            const uint32_t missing1 = (row1[0] == kDosageMissing);
+            const uint32_t missing2 = (row2[0] == kDosageMissing);
+            if (missing1 || missing2) {
+              if ((missing1 && missing2) || (!include_missing)) {
+                continue;
+              }
+            } else {
+              const uint32_t cur_tol = is_x? dosage_sex_tols[IsSet(sex_male_collapsed, sample_idx)] : dosage_cur_tol;
+              if (PgenDiffMaxDosageDiff(row1, row2, merged_allele_ct) <= cur_tol) {
+                continue;
+              }
+            }
+            diff_sample_idxs[diff_ct] = sample_idx;
+            Dosage* cur_ds_entry = &(ds_entries[diff_ct * (2 * k1LU) * merged_allele_ct_m1]);
+            if (missing1) {
+              cur_ds_entry[0] = kDosageMissing;
+            } else {
+              memcpy(cur_ds_entry, &(row1[1]), merged_allele_ct_m1 * sizeof(Dosage));
+            }
+            cur_ds_entry = &(cur_ds_entry[merged_allele_ct_m1]);
+            if (missing2) {
+              cur_ds_entry[0] = kDosageMissing;
+            } else {
+              memcpy(cur_ds_entry, &(row2[1]), merged_allele_ct_m1 * sizeof(Dosage));
+            }
+            ++diff_ct;
+          }
         }
       }
       if (!diff_ct) {
