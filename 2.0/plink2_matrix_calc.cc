@@ -4355,9 +4355,8 @@ BoolErr CheckMultiallelicDegenVariance(const PgenVariant* pgvp, const double* cu
   return !AllBytesAreX(pgvp->patch_10_vals, mono_allele_idx, 2 * nm_sample_ct);
 }
 
-// md_u and md_d (see MdCursorNext()) need cur_allele_ct - 1 entries when the
-// variant has dosages, and pgvp's rare-alt dosage buffers must be allocated.
-PglErr LoadMultiallelicCenteredVarmaj(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const double* cur_allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_uidx, uint32_t cur_allele_ct, uint32_t allele_idx_start, uint32_t allele_idx_end, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, PgenVariant* pgvp, double* allele_1copy_buf, uint32_t* md_u, int32_t* md_d) {
+// pgvp's rare-alt dosage buffers must be allocated.
+PglErr LoadMultiallelicCenteredVarmaj(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const double* cur_allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_uidx, uint32_t cur_allele_ct, uint32_t allele_idx_start, uint32_t allele_idx_end, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, PgenVariant* pgvp, double* allele_1copy_buf) {
   // This handles cur_allele_ct == 2 correctly.  But we typically don't use it
   // in that case since it does ~2x as much work as necessary: the two
   // normed_dosages[] rows are identical except for opposite sign, so it's best
@@ -4569,47 +4568,144 @@ PglErr LoadMultiallelicCenteredVarmaj(const uintptr_t* sample_include, PgrSample
   }
   // Dosages present.  Each allele's row holds its centered and scaled dosage
   // (hardcall where there's no dosage, 0 where both are missing).
-  // allele_1copy_buf[] holds the 0-copy values here.
+  // Every value is computed as (0-copy value) + (dosage) * scale, with
+  // hardcalls as dosages 0, 16384, and 32768, so the hardcall-only samples
+  // can be filled from lookup tables first; then the samples with dosages are
+  // overwritten.
   double* normed_dosages0 = normed_dosages - (allele_idx_start * S_CAST(uintptr_t, sample_ct));
+  const double scale = inv_stdev * kRecipDosageMid;
+  // [3 * allele_idx + c] = value for c copies
+  double copy_vals[3 * kPglMaxAlleleCt];
   for (uint32_t allele_idx = allele_idx_start; allele_idx != allele_idx_end; ++allele_idx) {
     const double cur_allele_freq = (allele_idx != cur_allele_ct_m1)? cur_allele_freqs[allele_idx] : last_allele_freq;
-    allele_1copy_buf[allele_idx] = -2 * cur_allele_freq * inv_stdev;
+    const double zero_copy_val = -2 * cur_allele_freq * inv_stdev;
+    copy_vals[3 * allele_idx] = zero_copy_val + u31tod(0) * scale;
+    copy_vals[3 * allele_idx + 1] = zero_copy_val + u31tod(kDosageMid) * scale;
+    copy_vals[3 * allele_idx + 2] = zero_copy_val + u31tod(kDosageMax) * scale;
   }
-  const double scale = inv_stdev * kRecipDosageMid;
-  // PgrGetMD() doesn't touch the phase fields
-  pgvp->phasepresent_ct = 0;
-  pgvp->dphase_ct = 0;
-  pgvp->multidphase_sample_ct = 0;
-  MdCursor cursor;
-  MdCursorInit(pgvp, &cursor);
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-    MdSample s;
-    if (unlikely(MdCursorNext(pgvp, sample_idx, cur_allele_ct, 1, &cursor, &s, md_u, md_d))) {
+  {
+    double lookup_vals[32] ALIGNV16;
+    for (uint32_t allele_idx = allele_idx_start; allele_idx != allele_idx_end; ++allele_idx) {
+      const double* cur_copy_vals = &(copy_vals[3 * allele_idx]);
+      if (!allele_idx) {
+        // genovec entry of 0 corresponds to 2 copies of REF allele, etc.
+        lookup_vals[0] = cur_copy_vals[2];
+        lookup_vals[2] = cur_copy_vals[1];
+        lookup_vals[4] = cur_copy_vals[0];
+      } else if (allele_idx == 1) {
+        lookup_vals[0] = cur_copy_vals[0];
+        lookup_vals[2] = cur_copy_vals[1];
+        lookup_vals[4] = cur_copy_vals[2];
+      } else {
+        lookup_vals[0] = cur_copy_vals[0];
+        lookup_vals[2] = cur_copy_vals[0];
+        lookup_vals[4] = cur_copy_vals[0];
+      }
+      lookup_vals[6] = 0.0;
+      InitLookup16x8bx2(lookup_vals);
+      GenoarrLookup16x8bx2(genovec_buf, lookup_vals, sample_ct, &(normed_dosages0[allele_idx * S_CAST(uintptr_t, sample_ct)]));
+    }
+  }
+  // Rare-alt hardcalls.  (Overwritten below for samples with dosages.)
+  const uint32_t patch_01_ct = pgvp->patch_01_ct;
+  if (patch_01_ct) {
+    const uintptr_t* patch_01_set = pgvp->patch_01_set;
+    const AlleleCode* patch_01_vals = pgvp->patch_01_vals;
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_01_set[0];
+    for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+      if ((allele_idx_start <= 1) && (allele_idx_end > 1)) {
+        normed_dosages0[sample_ct + sample_idx] = copy_vals[3];
+      }
+      const uintptr_t ac = patch_01_vals[uii];
+      if ((ac >= allele_idx_start) && (ac < allele_idx_end)) {
+        normed_dosages0[ac * sample_ct + sample_idx] = copy_vals[3 * ac + 1];
+      }
+    }
+  }
+  const uint32_t patch_10_ct = pgvp->patch_10_ct;
+  if (patch_10_ct) {
+    const uintptr_t* patch_10_set = pgvp->patch_10_set;
+    const AlleleCode* patch_10_vals = pgvp->patch_10_vals;
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_10_set[0];
+    for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+      const uintptr_t ac0 = patch_10_vals[2 * uii];
+      const uintptr_t ac1 = patch_10_vals[2 * uii + 1];
+      // ALT1 row: 0 copies unless ac0 == 1 (one copy)
+      if ((allele_idx_start <= 1) && (allele_idx_end > 1)) {
+        normed_dosages0[sample_ct + sample_idx] = copy_vals[3 + (ac0 == 1)];
+      }
+      if (ac0 == ac1) {
+        if ((ac0 >= allele_idx_start) && (ac0 < allele_idx_end)) {
+          normed_dosages0[ac0 * sample_ct + sample_idx] = copy_vals[3 * ac0 + 2];
+        }
+      } else {
+        if ((ac0 >= 2) && (ac0 >= allele_idx_start) && (ac0 < allele_idx_end)) {
+          normed_dosages0[ac0 * sample_ct + sample_idx] = copy_vals[3 * ac0 + 1];
+        }
+        if ((ac1 >= allele_idx_start) && (ac1 < allele_idx_end)) {
+          normed_dosages0[ac1 * sample_ct + sample_idx] = copy_vals[3 * ac1 + 1];
+        }
+      }
+    }
+  }
+  // Samples with dosages.
+  const uintptr_t* dosage_present = pgvp->dosage_present;
+  const uint16_t* dosage_main_iter = pgvp->dosage_main;
+  const uint32_t dosage_ct = pgvp->dosage_ct;
+  const uintptr_t* md_present = pgvp->multidosage_present;
+  const uint32_t md_sample_ct = pgvp->multidosage_sample_ct;
+  const unsigned char* md_cts_iter = pgvp->multidosage_cts;
+  const AlleleCode* md_codes_iter = pgvp->multidosage_codes;
+  const uint16_t* md_vals_iter = pgvp->multidosage_vals;
+  // first rare allele index in range
+  const uint32_t rare_start = MAXV(allele_idx_start, 2);
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
+    const uint32_t alt_sum = *dosage_main_iter++;
+    if (unlikely(alt_sum > kDosageMax)) {
       return kPglRetMalformedInput;
     }
     double* dst = &(normed_dosages0[sample_idx]);
-    if (!s.has_vals) {
-      for (uint32_t allele_idx = allele_idx_start; allele_idx != allele_idx_end; ++allele_idx) {
-        dst[allele_idx * S_CAST(uintptr_t, sample_ct)] = 0.0;
+    // Rare-alt rows only hold something other than their 0-copy value when
+    // the hardcall is missing (0) or involves a rare alt.
+    if ((GetNyparrEntry(genovec_buf, sample_idx) == 3) || (patch_01_ct && IsSet(pgvp->patch_01_set, sample_idx)) || (patch_10_ct && IsSet(pgvp->patch_10_set, sample_idx))) {
+      for (uint32_t allele_idx = rare_start; allele_idx < allele_idx_end; ++allele_idx) {
+        dst[allele_idx * S_CAST(uintptr_t, sample_ct)] = copy_vals[3 * allele_idx];
       }
-      continue;
     }
-    uint32_t ref_dosage = kDosageMax;
+    uint32_t alt1_dosage = alt_sum;
+    if (md_sample_ct && IsSet(md_present, sample_idx)) {
+      const uint32_t entry_ct = *md_cts_iter++;
+      for (uint32_t uii = 0; uii != entry_ct; ++uii) {
+        const uint32_t code = *md_codes_iter++;
+        const uint32_t val = *md_vals_iter++;
+        if (unlikely((code < 2) || (code >= cur_allele_ct) || (val > alt1_dosage))) {
+          return kPglRetMalformedInput;
+        }
+        alt1_dosage -= val;
+        if ((code >= allele_idx_start) && (code < allele_idx_end)) {
+          dst[code * S_CAST(uintptr_t, sample_ct)] = copy_vals[3 * code] + u31tod(val) * scale;
+        }
+      }
+    }
     if (!allele_idx_start) {
-      for (uint32_t alt_idx = 0; alt_idx != cur_allele_ct_m1; ++alt_idx) {
-        ref_dosage -= md_u[alt_idx];
-      }
+      dst[0] = copy_vals[0] + u31tod(kDosageMax - alt_sum) * scale;
     }
-    for (uint32_t allele_idx = allele_idx_start; allele_idx != allele_idx_end; ++allele_idx) {
-      const uint32_t cur_dosage = allele_idx? md_u[allele_idx - 1] : ref_dosage;
-      dst[allele_idx * S_CAST(uintptr_t, sample_ct)] = allele_1copy_buf[allele_idx] + u31tod(cur_dosage) * scale;
+    if ((allele_idx_start <= 1) && (allele_idx_end > 1)) {
+      dst[sample_ct] = copy_vals[3] + u31tod(alt1_dosage) * scale;
     }
   }
   return kPglRetSuccess;
 }
 
 // This function handles error-message-logging.
-PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_ct, PgenReader* simple_pgrp, double* normed_vmaj_iter, uintptr_t* variant_include_has_missing, uint32_t* cur_batch_sizep, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uintptr_t* allele_idx_basep, uint32_t* cur_allele_ctp, uint32_t* incomplete_allele_idxp, PgenVariant* pgvp, double* allele_1copy_buf, uint32_t* md_u, int32_t* md_d) {
+PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_ct, PgenReader* simple_pgrp, double* normed_vmaj_iter, uintptr_t* variant_include_has_missing, uint32_t* cur_batch_sizep, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uintptr_t* allele_idx_basep, uint32_t* cur_allele_ctp, uint32_t* incomplete_allele_idxp, PgenVariant* pgvp, double* allele_1copy_buf) {
   const uint32_t std_batch_size = *cur_batch_sizep;
   uint32_t variant_idx = *variant_idxp;
   uintptr_t variant_uidx = *variant_uidxp;
@@ -4644,7 +4740,7 @@ PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetI
       if (allele_idx_stop > allele_idx_end) {
         allele_idx_stop = allele_idx_end;
       }
-      reterr = LoadMultiallelicCenteredVarmaj(sample_include, pssi, &(allele_freqs[allele_idx_base]), variance_standardize, is_haploid, sample_ct, variant_uidx, cur_allele_ct, incomplete_allele_idx, allele_idx_stop, simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, pgvp, allele_1copy_buf, md_u, md_d);
+      reterr = LoadMultiallelicCenteredVarmaj(sample_include, pssi, &(allele_freqs[allele_idx_base]), variance_standardize, is_haploid, sample_ct, variant_uidx, cur_allele_ct, incomplete_allele_idx, allele_idx_stop, simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, pgvp, allele_1copy_buf);
     }
     if (unlikely(reterr)) {
       if (reterr == kPglRetDegenerateData) {
@@ -6259,7 +6355,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     while (1) {
       if (!IsLastBlock(&tg)) {
         double* normed_vmaj = ctx.normed_dosage_vmaj_bufs[parity];
-        reterr = LoadCenteredVarmajBlock(sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, variance_standardize, is_haploid, row_end_idx, variant_ct, simple_pgrp, normed_vmaj, variant_include_has_missing, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf, md_u, md_d);
+        reterr = LoadCenteredVarmajBlock(sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, variance_standardize, is_haploid, row_end_idx, variant_ct, simple_pgrp, normed_vmaj, variant_include_has_missing, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
         if (unlikely(reterr)) {
           goto CalcGrm_ret_1;
         }
@@ -7979,7 +8075,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         uint32_t is_not_first_block = 0;
         while (1) {
           if (!IsLastBlock(&tg)) {
-            reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf, md_u, md_d);
+            reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
             if (unlikely(reterr)) {
               goto CalcPca_ret_1;
             }
@@ -8049,7 +8145,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       uint32_t is_not_first_block = 0;
       while (1) {
         if (!IsLastBlock(&tg)) {
-          reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf, md_u, md_d);
+          reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
           if (unlikely(reterr)) {
             // This error *didn't* happen on an earlier pass, so assign blame
             // to I/O.  (This may be additive with an error message printed by
@@ -8355,7 +8451,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       uint32_t is_not_first_block = 0;
       while (1) {
         if (!IsLastBlock(&tg)) {
-          reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, vwctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx_load, &variant_uidx_load, &allele_idx_base_load, &cur_allele_ct_load, &incomplete_allele_idx_load, &pgv, allele_1copy_buf, md_u, md_d);
+          reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, vwctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx_load, &variant_uidx_load, &allele_idx_base_load, &cur_allele_ct_load, &incomplete_allele_idx_load, &pgv, allele_1copy_buf);
           if (unlikely(reterr)) {
             goto CalcPca_ret_1;
           }
