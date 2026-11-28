@@ -4088,6 +4088,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       logistic_ctx.pheno_cc = nullptr;
       logistic_ctx.gcount_case_interleaved_vec = nullptr;
       logistic_ctx.cc_residualize = nullptr;
+      logistic_ctx.cat_layout.family_ct = 0;
+      logistic_ctx.cat_layout_x.family_ct = 0;
+      logistic_ctx.cat_layout_y.family_ct = 0;
+      logistic_ctx.cat_enabled = 0;
       const char** level_names = nullptr;
       const uint32_t* cat_to_level = nullptr;
       if (is_multinomial) {
@@ -4155,7 +4159,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         double* pheno_d = nullptr;
         float* covars_cmaj_f = nullptr;
         double* covars_cmaj_d = nullptr;
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, domdev_third_p1, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults, &logistic_ctx.cc_residualize, &cur_covar_names, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, domdev_third_p1, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults, &logistic_ctx.cat_layout, &logistic_ctx.cc_residualize, &cur_covar_names, &glm_err))) {
           goto GlmMain_ret_NOMEM;
         }
         logistic_ctx.pheno_f = pheno_f;
@@ -4213,7 +4217,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           double* pheno_d = nullptr;
           float* covars_cmaj_f = nullptr;
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, domdev_third_p1, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_x_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_x) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_x, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults_x, &logistic_ctx.cc_residualize_x, &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, domdev_third_p1, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_x_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_x) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_x, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults_x, &logistic_ctx.cat_layout_x, &logistic_ctx.cc_residualize_x, &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           logistic_ctx.pheno_x_f = pheno_f;
@@ -4267,7 +4271,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           double* pheno_d = nullptr;
           float* covars_cmaj_f = nullptr;
           double* covars_cmaj_d = nullptr;
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, domdev_third_p1, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_y_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_y) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_y, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults_y, &logistic_ctx.cc_residualize_y, &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, domdev_third_p1, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, glm_flags, &logistic_ctx.pheno_y_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_y) : nullptr, &pheno_f, &pheno_d, &common.nm_precomp_y, &covars_cmaj_f, &covars_cmaj_d, &covar_beta_mults_y, &logistic_ctx.cat_layout_y, &logistic_ctx.cc_residualize_y, &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
           logistic_ctx.pheno_y_f = pheno_f;
