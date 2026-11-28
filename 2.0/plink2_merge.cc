@@ -5452,9 +5452,8 @@ typedef struct MergeReaderStruct {
   // is nullptr in all other cases.
   BitmapReader locked_br;
   uintptr_t* locked_buf;
-  // Row currently in locked_buf (UINT32_MAX if none), and its dosage bit.
+  // Row currently in locked_buf (UINT32_MAX if none).
   uint32_t locked_buf_row;
-  uint32_t row_dosage_seen;
 } MergeReader;
 
 typedef struct MergeWriterStruct {
@@ -5500,9 +5499,32 @@ typedef struct MergeWriterStruct {
   // Non-null iff we're writing to a temporary fileset.  MergePgenVariant()
   // fills it with the locked-missing bits of the variant it writes.
   uintptr_t* write_locked;
-  // Set by MergePgenVariant() when any record it merged (or any record
-  // behind a temporary-fileset record) had dosage data.
-  uint32_t write_dosage_seen;
+
+  // Multiallelic dosages (see MergeWriterAllocMultidosage()); md_stride == 0
+  // iff they can't occur.  md_rows/mdp_rows hold each write sample's rare-alt
+  // dosage/dosage-phase values (merged allele codes 2..), valid only where
+  // dosage_present/dphase_present is set; r_md_rows/r_mdp_rows are the
+  // --merge-mode nm-match comparison copies.  The rest is
+  // MergeRemapDosages() scratch space.
+  uint32_t md_stride;
+  uint16_t* md_rows;
+  int16_t* mdp_rows;
+  uint16_t* r_md_rows;
+  int16_t* r_mdp_rows;
+  uint32_t* md_u;
+  int32_t* md_d;
+  uint32_t* md_wvals;
+  int32_t* md_wdeltas;
+  uint16_t* md_new_main;
+  int16_t* md_new_dphase;
+  uintptr_t* md_new_present;
+  unsigned char* md_new_cts;
+  AlleleCode* md_new_codes;
+  uint16_t* md_new_vals;
+  uintptr_t* mdp_new_present;
+  unsigned char* mdp_new_cts;
+  AlleleCode* mdp_new_codes;
+  int16_t* mdp_new_delta;
   // Scratch buffers for temporary-fileset input, in read- and write-sample
   // space respectively.
   uintptr_t* tmp_read_mask;
@@ -5523,8 +5545,11 @@ static inline void ApplyVrtypeMask(uint32_t vrtype_mask, PgenVariant* pgvp) {
   if (!(vrtype_mask & 0x60)) {
     pgvp->dosage_ct = 0;
     pgvp->dphase_ct = 0;
+    pgvp->multidosage_sample_ct = 0;
+    pgvp->multidphase_sample_ct = 0;
   } else if (!(vrtype_mask & 0x80)) {
     pgvp->dphase_ct = 0;
+    pgvp->multidphase_sample_ct = 0;
   }
 }
 
@@ -5543,8 +5568,7 @@ void ReadToWriteSampleBitarr(const uintptr_t* __restrict read_bitarr, const Merg
 }
 
 // Loads a temporary-fileset record's bitmap row into mrp->locked_buf, unless
-// it's already there.  The extra last column is moved to
-// mrp->row_dosage_seen.
+// it's already there.
 PglErr LoadTmpBitmapRow(uint32_t read_variant_uidx, MergeReader* mrp) {
   if (mrp->locked_buf_row == read_variant_uidx) {
     return kPglRetSuccess;
@@ -5553,14 +5577,12 @@ PglErr LoadTmpBitmapRow(uint32_t read_variant_uidx, MergeReader* mrp) {
   uintptr_t* locked_buf = mrp->locked_buf;
   PgrColSubsetIndex null_pcsi;
   PgrClearColSubsetIndex(nullptr, &null_pcsi);
-  PglErr reterr = BitmapGet(nullptr, null_pcsi, read_sample_ct + 1, read_variant_uidx, &mrp->locked_br, locked_buf);
+  PglErr reterr = BitmapGet(nullptr, null_pcsi, read_sample_ct, read_variant_uidx, &mrp->locked_br, locked_buf);
   if (unlikely(reterr)) {
     logputs("\n");
     logerrputs("Error: Failed to read temporary --pmerge[-list] bitmap file.\n");
     return reterr;
   }
-  mrp->row_dosage_seen = IsSet(locked_buf, read_sample_ct);
-  ClearBit(read_sample_ct, locked_buf);
   mrp->locked_buf_row = read_variant_uidx;
   return kPglRetSuccess;
 }
@@ -5640,6 +5662,419 @@ void SetWriteLockedFromSingle(const uintptr_t* genovec, const uintptr_t* dosage_
   }
 }
 
+// Allocates the multiallelic-dosage buffers: rare-alt dosage buffers for
+// pgv_midbuf (also used for the final write) and pgv_readbuf
+// (read_sample_ct), the dense rows, and MergeRemapDosages() scratch space.
+// Multiallelic dosages are possible iff dosages are present and
+// write_max_allele_ct > 2; otherwise this just sets md_stride to 0.
+BoolErr MergeWriterAllocMultidosage(uint32_t write_sample_ct, uint32_t read_sample_ct, uint32_t write_max_allele_ct, uint32_t dosage_present, uint32_t dphase_present, MergeWriter* mwp) {
+  mwp->md_stride = 0;
+  mwp->md_rows = nullptr;
+  mwp->mdp_rows = nullptr;
+  mwp->r_md_rows = nullptr;
+  mwp->r_mdp_rows = nullptr;
+  uint32_t* md_unused_u;
+  int32_t* md_unused_d;
+  if ((!dosage_present) || (write_max_allele_ct <= 2)) {
+    return BigstackAllocMultidosage(write_sample_ct, 0, 0, &mwp->pgv_midbuf, &md_unused_u, &md_unused_d);
+  }
+  const uint32_t stride = write_max_allele_ct - 2;
+  const uint32_t max_sample_ct = MAXV(write_sample_ct, read_sample_ct);
+  const uintptr_t entry_ct = S_CAST(uintptr_t, max_sample_ct) * MINV(stride, 255);
+  const uintptr_t row_entry_ct = S_CAST(uintptr_t, write_sample_ct) * stride;
+  const uint32_t max_sample_ctl = BitCtToWordCt(max_sample_ct);
+  if (unlikely(BigstackAllocMultidosage(write_sample_ct, write_max_allele_ct, dphase_present, &mwp->pgv_midbuf, &md_unused_u, &md_unused_d) ||
+               bigstack_alloc_u16(row_entry_ct, &mwp->md_rows) ||
+               bigstack_alloc_u16(row_entry_ct, &mwp->r_md_rows) ||
+               bigstack_alloc_u32(write_max_allele_ct, &mwp->md_u) ||
+               bigstack_alloc_i32(write_max_allele_ct, &mwp->md_d) ||
+               bigstack_alloc_u32(write_max_allele_ct, &mwp->md_wvals) ||
+               bigstack_alloc_i32(write_max_allele_ct, &mwp->md_wdeltas) ||
+               bigstack_alloc_u16(max_sample_ct, &mwp->md_new_main) ||
+               bigstack_alloc_i16(max_sample_ct, &mwp->md_new_dphase) ||
+               bigstack_alloc_w(max_sample_ctl, &mwp->md_new_present) ||
+               bigstack_alloc_uc(max_sample_ct, &mwp->md_new_cts) ||
+               bigstack_alloc_ac(entry_ct, &mwp->md_new_codes) ||
+               bigstack_alloc_u16(entry_ct, &mwp->md_new_vals))) {
+    return 1;
+  }
+  mwp->mdp_rows = nullptr;
+  mwp->r_mdp_rows = nullptr;
+  mwp->mdp_new_present = nullptr;
+  mwp->mdp_new_cts = nullptr;
+  mwp->mdp_new_codes = nullptr;
+  mwp->mdp_new_delta = nullptr;
+  if (dphase_present) {
+    if (unlikely(bigstack_alloc_i16(row_entry_ct, &mwp->mdp_rows) ||
+                 bigstack_alloc_i16(row_entry_ct, &mwp->r_mdp_rows) ||
+                 bigstack_alloc_w(max_sample_ctl, &mwp->mdp_new_present) ||
+                 bigstack_alloc_uc(max_sample_ct, &mwp->mdp_new_cts) ||
+                 bigstack_alloc_ac(entry_ct, &mwp->mdp_new_codes) ||
+                 bigstack_alloc_i16(entry_ct, &mwp->mdp_new_delta))) {
+      return 1;
+    }
+  }
+  mwp->md_stride = stride;
+  return 0;
+}
+
+// Rebuilds pgvp's dosage tracks (dosage_main, dphase_delta, and the rare-alt
+// lists) in the merged allele space; remap[] maps the record's allele
+// indexes to merged ones.  dosage_present and dphase_present are unchanged.
+// Returns 1 on an out-of-range value, or a nonzero dosage for a missing
+// allele code.
+BoolErr MergeRemapDosages(const AlleleCode* remap, uint32_t sample_ct, uint32_t read_allele_ct, uint32_t write_allele_ct, MergeWriter* mwp, PgenVariant* pgvp) {
+  const uint32_t dosage_ct = pgvp->dosage_ct;
+  if (!dosage_ct) {
+    pgvp->multidosage_sample_ct = 0;
+    pgvp->multidphase_sample_ct = 0;
+    return 0;
+  }
+  const uint32_t dphase_ct = pgvp->dphase_ct;
+  uint32_t* u_buf = mwp->md_u;
+  int32_t* d_buf = mwp->md_d;
+  uint32_t* wvals = mwp->md_wvals;
+  int32_t* wdeltas = mwp->md_wdeltas;
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  ZeroWArr(sample_ctl, mwp->md_new_present);
+  if (dphase_ct) {
+    ZeroWArr(sample_ctl, mwp->mdp_new_present);
+  }
+  uint32_t md_sample_ct = 0;
+  uint32_t mdp_sample_ct = 0;
+  uintptr_t md_entry_idx = 0;
+  uintptr_t mdp_entry_idx = 0;
+  uint32_t dosage_idx = 0;
+  uint32_t dphase_idx = 0;
+  MdCursor cursor;
+  MdCursorInit(pgvp, &cursor);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    MdSample s;
+    if (unlikely(MdCursorNext(pgvp, sample_idx, read_allele_ct, 0, &cursor, &s, u_buf, d_buf))) {
+      return 1;
+    }
+    if (!s.has_dosage) {
+      continue;
+    }
+    for (uint32_t write_idx = 0; write_idx != write_allele_ct; ++write_idx) {
+      wvals[write_idx] = 0;
+      wdeltas[write_idx] = 0;
+    }
+    uint32_t alt_sum = 0;
+    int32_t alt_delta_sum = 0;
+    for (uint32_t allele_idx = 0; allele_idx != read_allele_ct; ++allele_idx) {
+      uint32_t cur_u;
+      int32_t cur_d;
+      if (allele_idx) {
+        cur_u = u_buf[allele_idx - 1];
+        cur_d = d_buf[allele_idx - 1];
+        alt_sum += cur_u;
+        alt_delta_sum += cur_d;
+      } else {
+        // filled in below
+        continue;
+      }
+      if (cur_u || cur_d) {
+        const uint32_t write_idx = remap[allele_idx];
+        if (unlikely(write_idx == kMissingAlleleCode)) {
+          return 1;
+        }
+        wvals[write_idx] = cur_u;
+        wdeltas[write_idx] = cur_d;
+      }
+    }
+    const uint32_t ref_u = kDosageMax - alt_sum;
+    if (ref_u || alt_delta_sum) {
+      if (unlikely(remap[0] == kMissingAlleleCode)) {
+        return 1;
+      }
+      wvals[remap[0]] = ref_u;
+      wdeltas[remap[0]] = -alt_delta_sum;
+    }
+    mwp->md_new_main[dosage_idx++] = kDosageMax - wvals[0];
+    uint32_t cur_ct = 0;
+    for (uint32_t write_idx = 2; write_idx != write_allele_ct; ++write_idx) {
+      if (wvals[write_idx]) {
+        mwp->md_new_codes[md_entry_idx] = write_idx;
+        mwp->md_new_vals[md_entry_idx] = wvals[write_idx];
+        ++md_entry_idx;
+        ++cur_ct;
+      }
+    }
+    if (cur_ct) {
+      SetBit(sample_idx, mwp->md_new_present);
+      mwp->md_new_cts[md_sample_ct++] = cur_ct;
+    }
+    if (s.hap_split) {
+      mwp->md_new_dphase[dphase_idx++] = -wdeltas[0];
+      cur_ct = 0;
+      for (uint32_t write_idx = 2; write_idx != write_allele_ct; ++write_idx) {
+        if (wdeltas[write_idx]) {
+          mwp->mdp_new_codes[mdp_entry_idx] = write_idx;
+          mwp->mdp_new_delta[mdp_entry_idx] = wdeltas[write_idx];
+          ++mdp_entry_idx;
+          ++cur_ct;
+        }
+      }
+      if (cur_ct) {
+        SetBit(sample_idx, mwp->mdp_new_present);
+        mwp->mdp_new_cts[mdp_sample_ct++] = cur_ct;
+      }
+    }
+  }
+  memcpy(pgvp->dosage_main, mwp->md_new_main, dosage_ct * sizeof(Dosage));
+  memcpy(pgvp->multidosage_present, mwp->md_new_present, sample_ctl * sizeof(intptr_t));
+  memcpy(pgvp->multidosage_cts, mwp->md_new_cts, md_sample_ct);
+  memcpy(pgvp->multidosage_codes, mwp->md_new_codes, md_entry_idx * sizeof(AlleleCode));
+  memcpy(pgvp->multidosage_vals, mwp->md_new_vals, md_entry_idx * sizeof(uint16_t));
+  pgvp->multidosage_sample_ct = md_sample_ct;
+  pgvp->multidphase_sample_ct = 0;
+  if (dphase_ct) {
+    memcpy(pgvp->dphase_delta, mwp->md_new_dphase, dphase_ct * sizeof(SDosage));
+    memcpy(pgvp->multidphase_present, mwp->mdp_new_present, sample_ctl * sizeof(intptr_t));
+    memcpy(pgvp->multidphase_cts, mwp->mdp_new_cts, mdp_sample_ct);
+    memcpy(pgvp->multidphase_codes, mwp->mdp_new_codes, mdp_entry_idx * sizeof(AlleleCode));
+    memcpy(pgvp->multidphase_delta, mwp->mdp_new_delta, mdp_entry_idx * sizeof(int16_t));
+    pgvp->multidphase_sample_ct = mdp_sample_ct;
+  }
+  return 0;
+}
+
+// For each sample of pgvp (already in the merged allele space) with a
+// dosage, whose write index (sample_idx_to_new[], or the sample index itself
+// if that's nullptr) is in update_mask (nullptr: no restriction), overwrites
+// its rows in md_rows (and mdp_rows, if non-null).
+void MdUpdateRows(const PgenVariant* pgvp, const uint32_t* sample_idx_to_new, const uintptr_t* update_mask, uint32_t stride, uint16_t* md_rows, int16_t* mdp_rows) {
+  const uint32_t dosage_ct = pgvp->dosage_ct;
+  if (!dosage_ct) {
+    return;
+  }
+  const uintptr_t* dosage_present = pgvp->dosage_present;
+  const uintptr_t* md_present = pgvp->multidosage_present;
+  const uintptr_t* mdp_present = pgvp->multidphase_present;
+  const uint32_t md_sample_ct = pgvp->multidosage_sample_ct;
+  const uint32_t mdp_sample_ct = mdp_rows? pgvp->multidphase_sample_ct : 0;
+  const unsigned char* md_cts_iter = pgvp->multidosage_cts;
+  const AlleleCode* md_codes_iter = pgvp->multidosage_codes;
+  const uint16_t* md_vals_iter = pgvp->multidosage_vals;
+  const unsigned char* mdp_cts_iter = pgvp->multidphase_cts;
+  const AlleleCode* mdp_codes_iter = pgvp->multidphase_codes;
+  const int16_t* mdp_delta_iter = pgvp->multidphase_delta;
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uint32_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
+    const uint32_t write_idx = sample_idx_to_new? sample_idx_to_new[sample_idx] : sample_idx;
+    const uint32_t do_update = (!update_mask) || IsSet(update_mask, write_idx);
+    uint16_t* md_row = &(md_rows[write_idx * S_CAST(uintptr_t, stride)]);
+    if (do_update) {
+      ZeroU16Arr(stride, md_row);
+    }
+    if (md_sample_ct && IsSet(md_present, sample_idx)) {
+      const uint32_t cur_ct = *md_cts_iter++;
+      for (uint32_t uii = 0; uii != cur_ct; ++uii) {
+        const uint32_t code = *md_codes_iter++;
+        const uint32_t val = *md_vals_iter++;
+        if (do_update) {
+          md_row[code - 2] = val;
+        }
+      }
+    }
+    if (mdp_rows) {
+      int16_t* mdp_row = &(mdp_rows[write_idx * S_CAST(uintptr_t, stride)]);
+      if (do_update) {
+        ZeroI16Arr(stride, mdp_row);
+      }
+      if (mdp_sample_ct && IsSet(mdp_present, sample_idx)) {
+        const uint32_t cur_ct = *mdp_cts_iter++;
+        for (uint32_t uii = 0; uii != cur_ct; ++uii) {
+          const uint32_t code = *mdp_codes_iter++;
+          const int32_t delta = *mdp_delta_iter++;
+          if (do_update) {
+            mdp_row[code - 2] = delta;
+          }
+        }
+      }
+    }
+  }
+}
+
+// Copies the rows of the samples in update_mask & src_present.
+void MdCopyRows(const uintptr_t* update_mask, const uintptr_t* src_present, const uint16_t* src_md_rows, const int16_t* src_mdp_rows, uint32_t write_sample_ctl, uint32_t stride, uint16_t* md_rows, int16_t* mdp_rows) {
+  for (uint32_t widx = 0; widx != write_sample_ctl; ++widx) {
+    uintptr_t cur_bits = update_mask[widx] & src_present[widx];
+    while (cur_bits) {
+      const uintptr_t sample_idx = widx * kBitsPerWord + ctzw(cur_bits);
+      memcpy(&(md_rows[sample_idx * stride]), &(src_md_rows[sample_idx * stride]), stride * sizeof(int16_t));
+      if (mdp_rows) {
+        memcpy(&(mdp_rows[sample_idx * stride]), &(src_mdp_rows[sample_idx * stride]), stride * sizeof(int16_t));
+      }
+      cur_bits &= cur_bits - 1;
+    }
+  }
+}
+
+// --merge-mode nm-match: clears compare_mask bits of samples whose rare-alt
+// dosage rows differ, among samples with a dosage in both, and likewise for
+// dosage-phase rows among samples with a dosage-phase value in both
+// (r_dphase_present is nullptr when the new record has none or dosage-phase
+// values aren't tracked; it's non-null only if dphase_present is).
+void MdCompareRows(const uintptr_t* r_dosage_present, const uintptr_t* dosage_present, const uintptr_t* r_dphase_present, const uintptr_t* dphase_present, const uint16_t* r_md_rows, const uint16_t* md_rows, const int16_t* r_mdp_rows, const int16_t* mdp_rows, uint32_t write_sample_ctl, uint32_t stride, uintptr_t* compare_mask) {
+  for (uint32_t widx = 0; widx != write_sample_ctl; ++widx) {
+    uintptr_t cur_bits = compare_mask[widx] & r_dosage_present[widx] & dosage_present[widx];
+    while (cur_bits) {
+      const uintptr_t lowbit = cur_bits & (-cur_bits);
+      const uintptr_t sample_idx = widx * kBitsPerWord + ctzw(cur_bits);
+      uint32_t mismatch = !memequal(&(r_md_rows[sample_idx * stride]), &(md_rows[sample_idx * stride]), stride * sizeof(int16_t));
+      if ((!mismatch) && r_dphase_present && (r_dphase_present[widx] & dphase_present[widx] & lowbit)) {
+        mismatch = !memequal(&(r_mdp_rows[sample_idx * stride]), &(mdp_rows[sample_idx * stride]), stride * sizeof(int16_t));
+      }
+      if (mismatch) {
+        compare_mask[widx] &= ~lowbit;
+      }
+      cur_bits ^= lowbit;
+    }
+  }
+}
+
+// Collapses the rows of the samples in dosage_present (and dphase_present,
+// if non-null) to rare-alt lists in pgvp.
+void MdRowsToSparse(const uintptr_t* dosage_present, const uintptr_t* dphase_present, const uint16_t* md_rows, const int16_t* mdp_rows, uint32_t write_sample_ct, uint32_t stride, PgenVariant* pgvp) {
+  const uint32_t write_sample_ctl = BitCtToWordCt(write_sample_ct);
+  ZeroWArr(write_sample_ctl, pgvp->multidosage_present);
+  uint32_t md_sample_ct = 0;
+  uintptr_t md_entry_idx = 0;
+  for (uint32_t widx = 0; widx != write_sample_ctl; ++widx) {
+    uintptr_t cur_bits = dosage_present[widx];
+    while (cur_bits) {
+      const uintptr_t sample_idx = widx * kBitsPerWord + ctzw(cur_bits);
+      const uint16_t* md_row = &(md_rows[sample_idx * stride]);
+      uint32_t cur_ct = 0;
+      for (uint32_t uii = 0; uii != stride; ++uii) {
+        if (md_row[uii]) {
+          pgvp->multidosage_codes[md_entry_idx] = uii + 2;
+          pgvp->multidosage_vals[md_entry_idx] = md_row[uii];
+          ++md_entry_idx;
+          ++cur_ct;
+        }
+      }
+      if (cur_ct) {
+        SetBit(sample_idx, pgvp->multidosage_present);
+        pgvp->multidosage_cts[md_sample_ct++] = cur_ct;
+      }
+      cur_bits &= cur_bits - 1;
+    }
+  }
+  pgvp->multidosage_sample_ct = md_sample_ct;
+  pgvp->multidphase_sample_ct = 0;
+  if (!dphase_present) {
+    return;
+  }
+  ZeroWArr(write_sample_ctl, pgvp->multidphase_present);
+  uint32_t mdp_sample_ct = 0;
+  uintptr_t mdp_entry_idx = 0;
+  for (uint32_t widx = 0; widx != write_sample_ctl; ++widx) {
+    uintptr_t cur_bits = dphase_present[widx];
+    while (cur_bits) {
+      const uintptr_t sample_idx = widx * kBitsPerWord + ctzw(cur_bits);
+      const int16_t* mdp_row = &(mdp_rows[sample_idx * stride]);
+      uint32_t cur_ct = 0;
+      for (uint32_t uii = 0; uii != stride; ++uii) {
+        if (mdp_row[uii]) {
+          pgvp->multidphase_codes[mdp_entry_idx] = uii + 2;
+          pgvp->multidphase_delta[mdp_entry_idx] = mdp_row[uii];
+          ++mdp_entry_idx;
+          ++cur_ct;
+        }
+      }
+      if (cur_ct) {
+        SetBit(sample_idx, pgvp->multidphase_present);
+        pgvp->multidphase_cts[mdp_sample_ct++] = cur_ct;
+      }
+      cur_bits &= cur_bits - 1;
+    }
+  }
+  pgvp->multidphase_sample_ct = mdp_sample_ct;
+}
+
+// Copies the rare-alt lists of the samples in subset (src sample indexes)
+// from src to dst, renumbered to subset ranks.
+void MdCopySubset(const PgenVariant* src, const uintptr_t* subset, uint32_t subset_ct, PgenVariant* dst) {
+  for (uint32_t track_idx = 0; track_idx != 2; ++track_idx) {
+    const uint32_t src_present_ct = track_idx? src->multidphase_sample_ct : src->multidosage_sample_ct;
+    if (track_idx) {
+      dst->multidphase_sample_ct = 0;
+    } else {
+      dst->multidosage_sample_ct = 0;
+    }
+    if (!src_present_ct) {
+      continue;
+    }
+    const uintptr_t* src_present = track_idx? src->multidphase_present : src->multidosage_present;
+    const unsigned char* src_cts = track_idx? src->multidphase_cts : src->multidosage_cts;
+    const AlleleCode* src_codes = track_idx? src->multidphase_codes : src->multidosage_codes;
+    const uint16_t* src_vals = track_idx? R_CAST(const uint16_t*, src->multidphase_delta) : src->multidosage_vals;
+    uintptr_t* dst_present = track_idx? dst->multidphase_present : dst->multidosage_present;
+    unsigned char* dst_cts = track_idx? dst->multidphase_cts : dst->multidosage_cts;
+    AlleleCode* dst_codes = track_idx? dst->multidphase_codes : dst->multidosage_codes;
+    uint16_t* dst_vals = track_idx? R_CAST(uint16_t*, dst->multidphase_delta) : dst->multidosage_vals;
+    ZeroWArr(BitCtToWordCt(subset_ct), dst_present);
+    uint32_t dst_sample_ct = 0;
+    uintptr_t src_entry_idx = 0;
+    uintptr_t dst_entry_idx = 0;
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = src_present[0];
+    // subset rank of sample_idx, maintained incrementally
+    uint32_t prev_sample_idx = 0;
+    uint32_t subset_rank = 0;
+    for (uint32_t uii = 0; uii != src_present_ct; ++uii) {
+      const uint32_t sample_idx = BitIter1(src_present, &sample_idx_base, &cur_bits);
+      const uint32_t cur_ct = src_cts[uii];
+      subset_rank += PopcountBitRange(subset, prev_sample_idx, sample_idx);
+      prev_sample_idx = sample_idx;
+      if (IsSet(subset, sample_idx)) {
+        SetBit(subset_rank, dst_present);
+        dst_cts[dst_sample_ct++] = cur_ct;
+        memcpy(&(dst_codes[dst_entry_idx]), &(src_codes[src_entry_idx]), cur_ct * sizeof(AlleleCode));
+        memcpy(&(dst_vals[dst_entry_idx]), &(src_vals[src_entry_idx]), cur_ct * sizeof(uint16_t));
+        dst_entry_idx += cur_ct;
+      }
+      src_entry_idx += cur_ct;
+    }
+    if (track_idx) {
+      dst->multidphase_sample_ct = dst_sample_ct;
+    } else {
+      dst->multidosage_sample_ct = dst_sample_ct;
+    }
+  }
+}
+
+// Writes a multiallelic record with dosages from the (sparse) write buffers
+// and the dense rare-alt rows.
+PglErr MergeWriteMultiallelicDosage(const uintptr_t* genovec, uint32_t patch_01_ct, uint32_t patch_10_ct, uint32_t phasepresent_ct, uint32_t dosage_ct, uint32_t dphase_ct, uint32_t write_allele_ct, MergeWriter* mwp) {
+  const uint32_t write_sample_ct = SpgwGetSampleCt(&mwp->spgw);
+  PgenVariant* pgvp = &mwp->pgv_midbuf;
+  MdRowsToSparse(mwp->dosage_present, dphase_ct? mwp->dphase_present : nullptr, mwp->md_rows, mwp->mdp_rows, write_sample_ct, mwp->md_stride, pgvp);
+  PgenVariant out = *pgvp;
+  out.genovec = K_CAST(uintptr_t*, genovec);
+  out.patch_01_set = mwp->patch_01_set;
+  out.patch_01_vals = mwp->patch_01_vals;
+  out.patch_10_set = mwp->patch_10_set;
+  out.patch_10_vals = mwp->patch_10_vals;
+  out.phasepresent = mwp->phasepresent;
+  out.phaseinfo = mwp->phaseinfo;
+  out.dosage_present = mwp->dosage_present;
+  out.dosage_main = mwp->dosage_main;
+  out.dphase_present = mwp->dphase_present;
+  out.dphase_delta = mwp->dphase_delta;
+  out.patch_01_ct = patch_01_ct;
+  out.patch_10_ct = patch_10_ct;
+  out.phasepresent_ct = phasepresent_ct;
+  out.dosage_ct = dosage_ct;
+  out.dphase_ct = dphase_ct;
+  return SpgwAppendMultiallelicGenovecDphase16(&out, write_allele_ct, &mwp->spgw);
+}
+
 PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* master_allele_remap, uintptr_t merge_rec_ct, uint32_t write_allele_ct, uint32_t allele_remap_stride, MergeReader** mrp_arr, MergeWriter* mwp) {
   PglErr reterr = kPglRetSuccess;
   {
@@ -5678,10 +6113,6 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
         }
       }
       uint32_t vrtype_or = 0;
-      // A temporary fileset's record may have lost the dosages of the
-      // records behind it (e.g. to an 'nm-match' conflict), but it still
-      // counts as having them below, as it would in a single-pass merge.
-      uint32_t tmp_dosage_seen = 0;
       for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
         const uint32_t file_idx = same_id_records[rec_idx]->secondary_key >> 32;
         // bugfix: this was reading same_id_records[0]'s variant index out of
@@ -5691,26 +6122,12 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
         MergeReader* cur_mrp = mrp_arr[file_idx];
         PgenReader* pgrp = &(cur_mrp->pgr);
         vrtype_or |= PgrGetVrtype(pgrp, read_variant_uidx);
-        if (cur_mrp->locked_buf) {
-          reterr = LoadTmpBitmapRow(read_variant_uidx, cur_mrp);
-          if (unlikely(reterr)) {
-            goto MergePgenVariant_ret_1;
-          }
-          tmp_dosage_seen |= cur_mrp->row_dosage_seen;
-        }
       }
       vrtype_or &= vrtype_mask;
       hphase_exists = (vrtype_or / 0x10) & 1;
       dosage_exists = !!(vrtype_or & 0x60);
       dphase_exists = (vrtype_or / 0x80) & 1;
       assert((!dphase_exists) || dosage_exists);
-      mwp->write_dosage_seen = dosage_exists || tmp_dosage_seen;
-      if (mwp->write_dosage_seen && (write_allele_ct > 2)) {
-        logputs("\n");
-        logerrputs("Error: --pmerge[-list] multiallelic-variant dosage support is under development.\n");
-        reterr = kPglRetNotYetSupported;
-        goto MergePgenVariant_ret_1;
-      }
     }
     const MergeMode merge_mode = mwp->merge_mode;
     uintptr_t* write_locked = mwp->write_locked;
@@ -5725,28 +6142,25 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
       const uint32_t read_phase_present = !!(vrtype & 0x90);
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
       const uintptr_t* sample_include = cur_mrp->sample_include;
-      if ((merge_rec_ct == 1) && write_locked) {
-        mwp->write_dosage_seen = read_dosage_present;
-        if (cur_mrp->locked_buf) {
-          reterr = LoadTmpBitmapRow(read_variant_uidx, cur_mrp);
-          if (unlikely(reterr)) {
-            goto MergePgenVariant_ret_1;
-          }
-          mwp->write_dosage_seen |= cur_mrp->row_dosage_seen;
-        }
-      }
       if ((read_allele_ct == 2) && (!read_dosage_present)) {
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
         pgvp->dosage_ct = 0;
         // bugfix (21 Sep 2026): dphase_ct was left stale here.
         pgvp->dphase_ct = 0;
+        pgvp->multidosage_sample_ct = 0;
+        pgvp->multidphase_sample_ct = 0;
         if (!read_phase_present) {
           pgvp->phasepresent_ct = 0;
           reterr = PgrGet(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp->genovec);
         } else {
           reterr = PgrGetP(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &pgvp->phasepresent_ct);
         }
+      } else if (!(vrtype_mask & 0x60)) {
+        // --merge-ignore-dosage: don't load dosages (the rare-alt dosage
+        // buffers have no room for them)
+        reterr = PgrGetMP(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
+        ApplyVrtypeMask(vrtype_mask, pgvp);
       } else {
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
         ApplyVrtypeMask(vrtype_mask, pgvp);
@@ -5777,7 +6191,12 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
         }
       }
       const uint32_t sample_idx_increasing = cur_mrp->sample_idx_increasing;
-      const uint32_t write_biallelic = (!pgvp->patch_01_ct) && (!pgvp->patch_10_ct);
+      const uint32_t md_stride = mwp->md_stride;
+      // A multiallelic record without rare-alt hardcalls can be written in
+      // biallelic form, except when it has dosages and the output has
+      // multiallelic dosages (the rare-alt dosage tracks are then required,
+      // even when empty).
+      const uint32_t write_biallelic = (write_allele_ct == 2) || ((!pgvp->patch_01_ct) && (!pgvp->patch_10_ct) && ((!md_stride) || (!pgvp->dosage_ct)));
       uint32_t unlocked_ct = 0;
       if (sample_idx_increasing == 2) {
         // read_sample_ct == write_sample_ct
@@ -5835,8 +6254,9 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
           } else {
             // Multiallelic.
             ZeroTrailingNyps(write_sample_ct, read_genovec);
-            assert(!pgvp->dosage_ct);  // not yet supported
-            if (!pgvp->phasepresent_ct) {
+            if (pgvp->dosage_ct) {
+              reterr = SpgwAppendMultiallelicGenovecDphase16(pgvp, write_allele_ct, spgwp);
+            } else if (!pgvp->phasepresent_ct) {
               reterr = SpgwAppendMultiallelicSparse(read_genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, write_allele_ct, pgvp->patch_01_ct, pgvp->patch_10_ct, spgwp);
             } else {
               reterr = SpgwAppendMultiallelicGenovecHphase(read_genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, pgvp->phasepresent, pgvp->phaseinfo, write_allele_ct, pgvp->patch_01_ct, pgvp->patch_10_ct, spgwp);
@@ -5886,6 +6306,9 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
             } else {
               ZeroWArr(write_sample_ctl, mwp->dphase_present);
             }
+          }
+          if (md_stride) {
+            MdUpdateRows(pgvp, nullptr, nullptr, md_stride, mwp->md_rows, mwp->mdp_rows);
           }
         }
       } else {
@@ -5952,7 +6375,6 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
         // patch_10_vals, dosage_main, and dphase_delta.
         const uint32_t dosage_ct = pgvp->dosage_ct;
         if (dosage_ct) {
-          assert(write_biallelic);
           if (sample_idx_increasing) {
             ExpandBytearr(pgvp->dosage_present, sample_span, write_sample_ctl, read_sample_ct, 0, mwp->dosage_present);
           } else {
@@ -6040,8 +6462,10 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
           }
         }
         uint32_t dphase_ct = 0;
+        if (dosage_ct && md_stride) {
+          MdUpdateRows(pgvp, old_sample_idx_to_new, nullptr, md_stride, mwp->md_rows, mwp->mdp_rows);
+        }
         if (dosage_ct) {
-          assert(write_biallelic);
           // mwp->dosage_present already correct
           if (sample_idx_increasing) {
             if (!unlocked_ct) {
@@ -6092,6 +6516,8 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
                 reterr = SpgwAppendMultiallelicGenovecHphase(genovec, mwp->patch_01_set, mwp->patch_01_vals, mwp->patch_10_set, mwp->patch_10_vals, mwp->phasepresent, mwp->phaseinfo, write_allele_ct, patch_01_ct, patch_10_ct, spgwp);
               }
             }
+          } else if (!write_biallelic) {
+            reterr = MergeWriteMultiallelicDosage(genovec, patch_01_ct, patch_10_ct, phasepresent_ct, dosage_ct, dphase_ct, write_allele_ct, mwp);
           } else {
             if ((!phasepresent_ct) && (!dphase_ct)) {
               reterr = SpgwAppendBiallelicGenovecDosage16(genovec, mwp->dosage_present, mwp->dosage_main, dosage_ct, spgwp);
@@ -6208,6 +6634,8 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
       const uint32_t read_variant_uidx = S_CAST(uint32_t, same_id_records[rec_idx]->secondary_key);
       // not const since there's an allele-rotation case where we change it
       uint32_t read_allele_ct = same_id_records[rec_idx]->allele_ct;
+      const uint32_t orig_read_allele_ct = read_allele_ct;
+      const uint32_t md_stride = mwp->md_stride;
       PgenReader* pgrp = &(cur_mrp->pgr);
       const uint32_t vrtype = PgrGetVrtype(pgrp, read_variant_uidx) & vrtype_mask;
       const uint32_t read_hphase_present = (vrtype / 0x10) & 1;
@@ -6218,12 +6646,19 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
         pgvp->dosage_ct = 0;
         // bugfix (21 Sep 2026): dphase_ct was left stale here.
         pgvp->dphase_ct = 0;
+        pgvp->multidosage_sample_ct = 0;
+        pgvp->multidphase_sample_ct = 0;
         if (!read_hphase_present) {
           pgvp->phasepresent_ct = 0;
           reterr = PgrGet(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp->genovec);
         } else {
           reterr = PgrGetP(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &pgvp->phasepresent_ct);
         }
+      } else if (!(vrtype_mask & 0x60)) {
+        // --merge-ignore-dosage: don't load dosages (the rare-alt dosage
+        // buffers have no room for them)
+        reterr = PgrGetMP(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
+        ApplyVrtypeMask(vrtype_mask, pgvp);
       } else {
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
         ApplyVrtypeMask(vrtype_mask, pgvp);
@@ -6280,6 +6715,13 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
         }
         if (read_allele_idx != read_allele_ct) {
           // Allele rotation may be needed.
+          if (md_stride && pgvp->dosage_ct && (write_allele_ct > 2)) {
+            if (unlikely(MergeRemapDosages(cur_allele_remap, read_sample_ct, orig_read_allele_ct, write_allele_ct, mwp, pgvp))) {
+              reterr = kPglRetMalformedInput;
+              PgenErrPrintNV(reterr, read_variant_uidx);
+              goto MergePgenVariant_ret_1;
+            }
+          }
           const uint32_t missing_code_present = (cur_allele_remap[0] == kMissingAlleleCode) || (cur_allele_remap[1] == kMissingAlleleCode);
           if (missing_code_present) {
             reterr = ValidateBiallelicVariantWithMissingCode(cur_allele_remap, read_sample_ct, (write_allele_ct == 2), pgvp);
@@ -6511,6 +6953,16 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
               BitvecInvmask(dphase_present, write_sample_ctl, compare_mask);
             }
           }
+          if (md_stride && pgvp->dosage_ct) {
+            // rare-alt dosage (and dosage-phase) rows; pgvp is already in the
+            // merged allele space
+            MdUpdateRows(pgvp, old_sample_idx_to_new, nullptr, md_stride, mwp->r_md_rows, mwp->r_mdp_rows);
+            const uintptr_t* r_dphase_present = (dphase_present && pgvp->dphase_ct)? compare_pgvp->dphase_present : nullptr;
+            MdCompareRows(compare_pgvp->dosage_present, dosage_present, r_dphase_present, dphase_present, mwp->r_md_rows, mwp->md_rows, mwp->r_mdp_rows, mwp->mdp_rows, write_sample_ctl, md_stride, compare_mask);
+            if (clobber_sample_ct) {
+              MdCopyRows(clobber_sample_span, compare_pgvp->dosage_present, mwp->r_md_rows, mwp->r_mdp_rows, write_sample_ctl, md_stride, mwp->md_rows, mwp->mdp_rows);
+            }
+          }
         }
         // unlocked_set ^= unlocked_dbl_nonmissing_sample_span ^ compare_mask
         BitvecXor(unlocked_dbl_nonmissing_sample_span, write_sample_ctl, unlocked_set);
@@ -6568,9 +7020,14 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
             }
           }
           clobber_pgvp->dosage_ct = 0;
+          clobber_pgvp->multidosage_sample_ct = 0;
+          clobber_pgvp->multidphase_sample_ct = 0;
           if (pgvp->dosage_ct) {
             clobber_pgvp->dosage_ct = Copy1bit16Subset(pgvp->dosage_present, pgvp->dosage_main, clobber_subset_of_read, pgvp->dosage_ct, clobber_sample_ct, clobber_pgvp->dosage_present, clobber_pgvp->dosage_main);
             clobber_pgvp->dphase_ct = Copy1bit16Subset(pgvp->dphase_present, pgvp->dphase_delta, clobber_subset_of_read, pgvp->dphase_ct, clobber_sample_ct, clobber_pgvp->dphase_present, clobber_pgvp->dphase_delta);
+            if (md_stride) {
+              MdCopySubset(pgvp, clobber_subset_of_read, clobber_sample_ct, clobber_pgvp);
+            }
           }
         }
         if (cur_allele_remap && ((cur_allele_remap[0] == kMissingAlleleCode) || (cur_allele_remap[1] == kMissingAlleleCode))) {
@@ -6641,7 +7098,21 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
                 BitvecXor(phaseinfo_xor, clobber_sample_ctl, clobber_pgvp->phaseinfo);
               }
               PglMultiallelicDenseToSparse(wide_codes, clobber_sample_ct, r_genovec, r_patch_01_set, r_patch_01_vals, r_patch_10_set, r_patch_10_vals, &r_patch_01_ct, &r_patch_10_ct);
+              if (md_stride && clobber_pgvp->dosage_ct) {
+                if (unlikely(MergeRemapDosages(cur_allele_remap, clobber_sample_ct, orig_read_allele_ct, write_allele_ct, mwp, clobber_pgvp))) {
+                  reterr = kPglRetMalformedInput;
+                  PgenErrPrintNV(reterr, read_variant_uidx);
+                  goto MergePgenVariant_ret_1;
+                }
+              }
             }
+          }
+          if (md_stride && clobber_pgvp->dosage_ct) {
+            PermuteUpdate16bitDenseFromSparse(clobber_pgvp->dosage_present, clobber_pgvp->dosage_main, clobber_sample_idx_to_new, clobber_pgvp->dosage_ct, dosage_present, dosage_dense);
+            if (dphase_present && clobber_pgvp->dphase_ct) {
+              PermuteUpdate16bitDenseFromSparse(clobber_pgvp->dphase_present, clobber_pgvp->dphase_delta, clobber_sample_idx_to_new, clobber_pgvp->dphase_ct, dphase_present, dphase_dense);
+            }
+            MdUpdateRows(clobber_pgvp, clobber_sample_idx_to_new, nullptr, md_stride, mwp->md_rows, mwp->mdp_rows);
           }
           PermuteUpdateGenovec(r_genovec, clobber_sample_idx_to_new, clobber_sample_ct, genovec);
           if (r_patch_01_ct) {
@@ -6756,8 +7227,9 @@ PglErr MergePgenVariant(SamePosPvarRecord** same_id_records, const AlleleCode* m
           reterr = SpgwAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main, dphase_delta, dosage_ct, dphase_ct, spgwp);
         }
       }
+    } else if (dosage_ct) {
+      reterr = MergeWriteMultiallelicDosage(genovec, patch_01_ct, patch_10_ct, phasepresent_ct, dosage_ct, dphase_ct, write_allele_ct, mwp);
     } else {
-      assert(!dosage_ct); // not yet supported
       if (!phasepresent_ct) {
         reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, write_allele_ct, patch_01_ct, patch_10_ct, spgwp);
       } else {
@@ -7167,6 +7639,12 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     // write_allele_idx_offsets have not been initialized, and this triggered
     // an assert-failure in debug builds or a write_max_allele_ct
     // miscalculation otherwise (practically always a harmless overestimate)
+    // Multiallelic dosage records can occur whenever dosages do and some
+    // output variant is multiallelic (even if every input record is
+    // biallelic).
+    if ((write_gflags & kfPgenGlobalDosagePresent) && (write_max_allele_ct > 2)) {
+      write_gflags |= kfPgenGlobalMultiallelicDosagePresent;
+    }
     reterr = SpgwInitPhase1(outname, nullptr, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
@@ -7231,7 +7709,8 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
                  bigstack_alloc_w(sample_ctl, &mw.unlocked_sample_span) ||
                  bigstack_alloc_u32(sample_ct, &mw.clobber_sample_idx_to_new) ||
                  bigstack_alloc_w(sample_ctl, &mw.mask_buf) ||
-                 BigstackAllocPgv(sample_ct, write_max_allele_ct > 2, read_gflags, &mw.pgv_midbuf))) {
+                 BigstackAllocPgv(sample_ct, write_max_allele_ct > 2, read_gflags, &mw.pgv_midbuf) ||
+                 MergeWriterAllocMultidosage(sample_ct, sample_ct, write_max_allele_ct, (read_gflags & kfPgenGlobalDosagePresent) && (mw.vrtype_mask & 0x60), (read_gflags & kfPgenGlobalDosagePhasePresent) && (mw.vrtype_mask & 0x80), &mw))) {
       goto PmergeConcat_ret_NOMEM;
     }
     mw.unlocked_missing_set = nullptr;
@@ -7334,7 +7813,10 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       // Must check write_max_allele_ct instead of just whether the input file
       // has multiallelic variants, since we may need to rotate a biallelic
       // variant into a "multiallelic variant" in these buffers.
-      if (unlikely(BigstackAllocPgv(read_sample_ct, write_max_allele_ct > 2, read_gflags, &mw.pgv_readbuf))) {
+      uint32_t* md_unused_u;
+      int32_t* md_unused_d;
+      if (unlikely(BigstackAllocPgv(read_sample_ct, write_max_allele_ct > 2, read_gflags, &mw.pgv_readbuf) ||
+                   BigstackAllocMultidosage(read_sample_ct, mw.md_stride? write_max_allele_ct : 0, (read_gflags / kfPgenGlobalDosagePhasePresent) & 1, &mw.pgv_readbuf, &md_unused_u, &md_unused_d))) {
         goto PmergeConcat_ret_NOMEM;
       }
       reterr = InitTextStream(read_pvar_fname, MAXV(filesets_iter->max_pvar_line_blen, kDecompressMinBlen), 1, &pvar_txs);
@@ -8056,7 +8538,7 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
           logerrputsb();
           goto PmergePassSingle_ret_1;
         }
-        if (unlikely((BitmapReaderRowCt(&mrp->locked_br) != read_variant_ct) || (BitmapReaderColCt(&mrp->locked_br) != read_sample_ct + 1))) {
+        if (unlikely((BitmapReaderRowCt(&mrp->locked_br) != read_variant_ct) || (BitmapReaderColCt(&mrp->locked_br) != read_sample_ct))) {
           logputs("\n");
           logerrprintfww("Error: %s has an unexpected shape.\n", filesets_iter->pgen_locked_fname);
           reterr = kPglRetMalformedInput;
@@ -8064,7 +8546,7 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
         }
         unsigned char* br_alloc;
         if (unlikely(bigstack_alloc_uc(br_alloc_cacheline_ct * kCacheline, &br_alloc) ||
-                     bigstack_alloc_w(BitCtToWordCt(read_sample_ct + 1), &mrp->locked_buf))) {
+                     bigstack_alloc_w(BitCtToWordCt(read_sample_ct), &mrp->locked_buf))) {
           goto PmergePassSingle_ret_NOMEM;
         }
         mrp->locked_buf_row = UINT32_MAX;
@@ -8519,6 +9001,10 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
+    // See PmergeConcat().
+    if ((write_gflags & kfPgenGlobalDosagePresent) && (write_max_allele_ct > 2)) {
+      write_gflags |= kfPgenGlobalMultiallelicDosagePresent;
+    }
     reterr = SpgwInitPhase1(write_pgen_fname, nullptr, ppmc.write_nonref_flags, write_variant_ct, write_sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, tmp_dst? 3 : nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
@@ -8574,8 +9060,18 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
                  bigstack_alloc_u32(sample_ct, &mw.clobber_sample_idx_to_new) ||
                  bigstack_alloc_w(sample_ctl, &mw.mask_buf) ||
                  BigstackAllocPgv(sample_ct, write_max_allele_ct > 2, read_gflags, &mw.pgv_midbuf) ||
-                 BigstackAllocPgv(max_read_sample_ct, write_max_allele_ct > 2, read_gflags, &mw.pgv_readbuf))) {
+                 BigstackAllocPgv(max_read_sample_ct, write_max_allele_ct > 2, read_gflags, &mw.pgv_readbuf) ||
+                 MergeWriterAllocMultidosage(sample_ct, max_read_sample_ct, write_max_allele_ct, (read_gflags & kfPgenGlobalDosagePresent) && (mw.vrtype_mask & 0x60), (read_gflags & kfPgenGlobalDosagePhasePresent) && (mw.vrtype_mask & 0x80), &mw))) {
       goto PmergePassSingle_ret_NOMEM;
+    }
+    {
+      uint32_t* md_unused_u;
+      int32_t* md_unused_d;
+      // (the reader needs room for rare-alt dosage-phase values even under
+      // --merge-ignore-phase)
+      if (unlikely(BigstackAllocMultidosage(max_read_sample_ct, mw.md_stride? write_max_allele_ct : 0, (read_gflags / kfPgenGlobalDosagePhasePresent) & 1, &mw.pgv_readbuf, &md_unused_u, &md_unused_d))) {
+        goto PmergePassSingle_ret_NOMEM;
+      }
     }
     mw.unlocked_missing_set = nullptr;
     mw.clobber_sample_span = nullptr;
@@ -8599,7 +9095,7 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
     if (tmp_dst) {
       uintptr_t bw_alloc_cacheline_ct;
-      reterr = BitmapWriterInitPhase1(tmp_dst->pgen_locked_fname, write_variant_ct, write_sample_ct + 1, &locked_bw, &bw_alloc_cacheline_ct);
+      reterr = BitmapWriterInitPhase1(tmp_dst->pgen_locked_fname, write_variant_ct, write_sample_ct, &locked_bw, &bw_alloc_cacheline_ct);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logerrprintfww(kErrprintfFopen, tmp_dst->pgen_locked_fname, strerror(errno));
@@ -8608,7 +9104,7 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
       }
       unsigned char* bw_alloc;
       if (unlikely(bigstack_alloc_uc(bw_alloc_cacheline_ct * kCacheline, &bw_alloc) ||
-                   bigstack_alloc_w(BitCtToWordCt(sample_ct + 1), &mw.write_locked))) {
+                   bigstack_alloc_w(BitCtToWordCt(sample_ct), &mw.write_locked))) {
         goto PmergePassSingle_ret_NOMEM;
       }
       BitmapWriterInitPhase2(&locked_bw, bw_alloc);
@@ -8672,11 +9168,7 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
             goto PmergePassSingle_ret_N;
           }
           if (mw.write_locked) {
-            // Last column: dosage bit, see PmergePass().
-            if (!(write_sample_ct % kBitsPerWord)) {
-              mw.write_locked[write_sample_ct / kBitsPerWord] = 0;
-            }
-            AssignBit(write_sample_ct, mw.write_dosage_seen, mw.write_locked);
+            ZeroTrailingBits(write_sample_ct, mw.write_locked);
             reterr = BitmapAppend(mw.write_locked, &locked_bw);
             if (unlikely(reterr)) {
               goto PmergePassSingle_ret_N;
@@ -8808,9 +9300,6 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
 // include/plink2_bitmap.h) with one row per variant, where a set bit marks a
 // locked missing genotype.  ("nm-first" has no locked state, so these bits
 // are all zero in that case.)
-// The bitmap has one extra column, set when any record merged into the
-// variant had dosage data, even if none of it survived.  The
-// multiallelic-dosage "under development" error depends on this.
 // The .pvar side of this is described above MergePvariant().
 PglErr PmergePass(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t pass_idx, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t missing_varid_match_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, uint32_t write_qual, uint32_t write_filter, uint32_t write_info, uint32_t write_cm, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl** input_filesets_ptr, PmergeInputFilesetLl** next_filesets_ptr, uintptr_t* next_fileset_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;

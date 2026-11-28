@@ -603,3 +603,113 @@ for tol in 0 0.1; do
     $P --pfile tmp_x $PD --pgen-diff tmp_pd_x_erase dosage=$tol include-missing --out tmp_pd_x
     awk -v tol=$tol -v include_missing=1 -v x_males=tmp_pd_x_males.txt -f pdiff_compare.awk tmp_pd_va.vcf tmp_pd_vb_erase.vcf tmp_pd_x.pdiff
 done
+
+# --pmerge/--pmerge-list with multiallelic dosages.  comparemerge recomputes
+# each output genotype from the sources (matching variants by ID and alleles
+# by string, so allele permutations are covered) under the given
+# --merge-mode, and compares hardcalls, phase, per-allele dosages, and
+# per-allele dosage-phase values in the merged allele space.
+# Sources: tmp_pm_a = tmp_small; tmp_pm_bperm = ALT-permuted copy;
+# tmp_pm_bnd = ALT-permuted copy without dosages (dosage conflicts);
+# tmp_pm_ahm = copy with heterozygous hardcalls (and their dosages) set
+# missing; tmp_pm_alo/tmp_pm_bhi/tmp_pm_bndhi = overlapping sample subsets;
+# tmp_pm_brev/tmp_pm_bndrev = sample-order-reversed copies; tmp_pm_bswap =
+# copy with ALT2 and ALT3 relabeled (where there are at least 3 ALTs), so that
+# rare-alt dosages move between alleles while REF/ALT1 hardcalls and alt-sums
+# stay the same.
+cp tmp_small.pgen tmp_pm_a.pgen
+cp tmp_small.pvar tmp_pm_a.pvar
+cp tmp_small.psam tmp_pm_a.psam
+awk '!/^#/ && (split($5, a, ",") >= 2) {print $3 "\t" a[2]}' tmp_pm_a.pvar > tmp_pm_alt2.txt
+$P --pfile tmp_pm_a --alt1-allele force tmp_pm_alt2.txt --make-pgen --out tmp_pm_bperm
+$P --pfile tmp_pm_bperm --make-pgen erase-dosage --out tmp_pm_bnd
+# (--set-mixed-mt-missing applies to chrM only)
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "MT"; print}' tmp_pm_a.pvar > tmp_pm_amt.pvar
+cp tmp_pm_a.pgen tmp_pm_amt.pgen
+cp tmp_pm_a.psam tmp_pm_amt.psam
+$P --pfile tmp_pm_amt --set-mixed-mt-missing --make-pgen --out tmp_pm_ahm0
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "1"; print}' tmp_pm_ahm0.pvar > tmp_pm_ahm.pvar
+cp tmp_pm_ahm0.pgen tmp_pm_ahm.pgen
+cp tmp_pm_ahm0.psam tmp_pm_ahm.psam
+awk 'NR > 1 && NR <= 201 {print $1}' tmp_pm_a.psam > tmp_pm_lo.txt
+awk 'NR > 101 {print $1}' tmp_pm_a.psam > tmp_pm_hi.txt
+awk 'NR > 1 {ids[NR] = $1} END {for (i = NR; i > 1; --i) print ids[i]}' tmp_pm_a.psam > tmp_pm_rev.txt
+$P --pfile tmp_pm_a --keep tmp_pm_lo.txt --make-pgen --out tmp_pm_alo
+$P --pfile tmp_pm_bperm --keep tmp_pm_hi.txt --make-pgen --out tmp_pm_bhi
+$P --pfile tmp_pm_bnd --keep tmp_pm_hi.txt --make-pgen --out tmp_pm_bndhi
+$P --pfile tmp_pm_bhi --indiv-sort f tmp_pm_rev.txt --make-pgen --out tmp_pm_brev
+$P --pfile tmp_pm_bndhi --indiv-sort f tmp_pm_rev.txt --make-pgen --out tmp_pm_bndrev
+test "$(awk 'NR == 2 {print $1}' tmp_pm_brev.psam)" = "s299"
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {n = split($5, a, ","); if (n >= 3) {t = a[2]; a[2] = a[3]; a[3] = t; s = a[1]; for (i = 2; i <= n; ++i) s = s "," a[i]; $5 = s} print}' tmp_pm_a.pvar > tmp_pm_bswap.pvar
+cp tmp_pm_a.pgen tmp_pm_bswap.pgen
+cp tmp_pm_a.psam tmp_pm_bswap.psam
+# Each scenario: sources, in merge order.  Two sources use --pmerge, three use
+# --pmerge-list (and are repeated with 2-fileset passes, so that a temporary
+# fileset gets merged).
+pm_scenarios="tmp_pm_a,tmp_pm_bperm tmp_pm_a,tmp_pm_bnd tmp_pm_bnd,tmp_pm_a tmp_pm_ahm,tmp_pm_bperm tmp_pm_alo,tmp_pm_bndhi tmp_pm_alo,tmp_pm_bndrev tmp_pm_brev,tmp_pm_alo tmp_pm_ahm,tmp_pm_brev tmp_pm_a,tmp_pm_bswap tmp_pm_ahm,tmp_pm_bndhi,tmp_pm_a"
+pm_rare_dphase_seen=0
+pm_conflicts_seen=0
+for mode in first nm-first nm-match; do
+    for scenario in $pm_scenarios; do
+        srcs=$(echo $scenario | tr ',' ' ')
+        set -- $srcs
+        if [ $# = 2 ]; then
+            pass_opts="single"
+        else
+            pass_opts="single multi"
+        fi
+        for pass_opt in $pass_opts; do
+            if [ $# = 2 ]; then
+                $P --pfile $1 --pmerge $2 --merge-mode $mode --make-pgen --out tmp_pm_out
+            else
+                rm -f tmp_pm_list.txt
+                for src in $srcs; do echo $src >> tmp_pm_list.txt; done
+                extra=""
+                if [ $pass_opt = multi ]; then extra="--debug pmerge-pass-size=2"; fi
+                $P --pmerge-list tmp_pm_list.txt pfile --merge-mode $mode $extra --make-pgen --out tmp_pm_out
+            fi
+            $P --pfile tmp_pm_out --validate --out tmp_pm_out_v
+            ./tmp_multidosage_writer_test comparemerge $mode tmp_pm_out $srcs | tee tmp_pm_cmp.txt
+            if ! grep -q " 0 with rare-alt dosage-phase" tmp_pm_cmp.txt; then pm_rare_dphase_seen=1; fi
+            if ! grep -q " 0 conflicts" tmp_pm_cmp.txt; then pm_conflicts_seen=1; fi
+        done
+    done
+done
+test $pm_rare_dphase_seen = 1
+test $pm_conflicts_seen = 1
+# Record pairs that differ only in a rare-alt dosage (or only in a rare-alt
+# dosage-phase value) of one sample, from writedups above: the two copies are
+# split into separate filesets, and nm-match must report exactly one conflict
+# for each pair.
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$3 = $3 "_" (++ct[$3]); print}' tmp_rd.pvar > tmp_pm_rdtag.pvar
+cp tmp_rd.pgen tmp_pm_rdtag.pgen
+cp tmp_rd.psam tmp_pm_rdtag.psam
+for copy in 1 2; do
+    awk -v c=$copy '!/^#/ && ($3 ~ ("_" c "$")) {print $3}' tmp_pm_rdtag.pvar > tmp_pm_rd_ids.txt
+    $P --pfile tmp_pm_rdtag --extract tmp_pm_rd_ids.txt --make-pgen --out tmp_pm_rd${copy}t
+    awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {sub(/_[12]$/, "", $3); print}' tmp_pm_rd${copy}t.pvar > tmp_pm_rd${copy}.pvar
+    cp tmp_pm_rd${copy}t.pgen tmp_pm_rd${copy}.pgen
+    cp tmp_pm_rd${copy}t.psam tmp_pm_rd${copy}.psam
+done
+$P --pfile tmp_pm_rd1 --pmerge tmp_pm_rd2 --make-pgen --out tmp_pm_rdm
+$P --pfile tmp_pm_rdm --validate --out tmp_pm_rdm_v
+./tmp_multidosage_writer_test comparemerge nm-match tmp_pm_rdm tmp_pm_rd1 tmp_pm_rd2 | tee tmp_pm_cmp.txt
+grep -q " 2 conflicts" tmp_pm_cmp.txt
+# Variant-disjoint sources (concatenation path).
+$P --pfile tmp_pm_a --from v0 --to v107 --make-pgen --out tmp_pm_v1
+$P --pfile tmp_pm_bperm --from v108 --to v215 --make-pgen --out tmp_pm_v2
+$P --pfile tmp_pm_v1 --pmerge tmp_pm_v2 --make-pgen --out tmp_pm_cat
+$P --pfile tmp_pm_cat --validate --out tmp_pm_cat_v
+./tmp_multidosage_writer_test comparemerge nm-match tmp_pm_cat tmp_pm_v1 tmp_pm_v2
+# --merge-ignore-dosage/--merge-ignore-phase: same as merging copies without
+# dosages/phase.
+$P --pfile tmp_pm_a --make-pgen erase-dosage --out tmp_pm_a_nd
+$P --pfile tmp_pm_a --make-pgen erase-phase --out tmp_pm_a_np
+$P --pfile tmp_pm_bperm --make-pgen erase-phase --out tmp_pm_b_np
+for ig in dosage phase; do
+    if [ $ig = dosage ]; then b_erased=tmp_pm_bnd; else b_erased=tmp_pm_b_np; fi
+    $P --pfile tmp_pm_a --pmerge tmp_pm_bperm --merge-ignore-$ig --make-pgen --out tmp_pm_ig
+    $P --pfile tmp_pm_a_n${ig:0:1} --pmerge $b_erased --make-pgen --out tmp_pm_ig_ref
+    $P --pfile tmp_pm_ig --validate --out tmp_pm_ig_v
+    ./tmp_multidosage_writer_test comparemerge nm-match tmp_pm_ig tmp_pm_ig_ref
+done
