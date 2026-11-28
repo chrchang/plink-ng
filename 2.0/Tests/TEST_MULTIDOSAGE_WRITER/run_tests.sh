@@ -548,3 +548,58 @@ for tol in 0 0.1; do
     $P --pfile tmp_x $SD --sample-diff dosage=$tol include-missing counts-only counts-cols=+nobs,+ibs0,+ibs1 base=s1 s3 s5 s7 --out tmp_sd_xmc
     awk -v tol=$tol -v include_missing=1 -v haploid=1 -f sdiff_compare.awk tmp_sd_xds.vcf tmp_sd_xmc.sdiff.summary
 done
+
+# --pgen-diff 'dosage[=tol]' with more than two merged alleles: a sample
+# differs when some allele's dosage differs by more than the tolerance.
+# Checked by pdiff_compare.awk against the second fileset being a
+# dosage-erased copy, an ALT-permuted copy (no differences), both, and a
+# trim-alts + dosage-erased copy (mostly biallelic); and on chrX (males
+# haploid).
+PD="--min-alleles 3 --max-alleles 5"
+cp tmp_small.pgen tmp_pd_a.pgen
+cp tmp_x.psam tmp_pd_a.psam
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "1"; print}' tmp_small.pvar > tmp_pd_a.pvar
+awk '!/^#/ && (split($5, a, ",") >= 2) && (split($5, a, ",") <= 19) {print $3 "\t" a[2]}' tmp_pd_a.pvar > tmp_pd_alt2.txt
+$P --pfile tmp_pd_a $PD --make-pgen erase-dosage --out tmp_pd_b_erase
+$P --pfile tmp_pd_a $PD --alt1-allele force tmp_pd_alt2.txt --make-pgen --out tmp_pd_b_perm
+$P --pfile tmp_pd_b_perm --make-pgen erase-dosage --out tmp_pd_b_permerase
+$P --pfile tmp_pd_a $PD --make-pgen trim-alts erase-dosage --out tmp_pd_b_trim
+$P --pfile tmp_pd_a $PD --export vcf vcf-dosage=DS-force --out tmp_pd_va
+# (all tolerance/include-missing combinations for the first one, to save
+# time)
+for b in b_erase b_perm b_permerase b_trim; do
+    $P --pfile tmp_pd_$b --export vcf vcf-dosage=DS-force --out tmp_pd_v$b
+    for tol in 0 0.1; do
+        for im in 0 1; do
+            if [ $b != b_erase ] && { [ $tol = 0 ] || [ $im = 0 ]; }; then continue; fi
+            mods="dosage=$tol"
+            if [ $im = 1 ]; then mods="$mods include-missing"; fi
+            $P --pfile tmp_pd_a $PD --pgen-diff tmp_pd_$b $mods --out tmp_pd
+            awk -v tol=$tol -v include_missing=$im -f pdiff_compare.awk tmp_pd_va.vcf tmp_pd_v$b.vcf tmp_pd.pdiff
+        done
+    done
+done
+test "$(grep -v '^#' tmp_pd.pdiff | wc -l)" -gt 0
+# trim-alts copy that keeps its dosages: no differences.  (Variant order is
+# reversed first, so that its biallelic records with dosages follow
+# multiallelic ones with rare-alt dosages.)
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$2 = 1000 - $2; print}' tmp_pd_a.pvar > tmp_pd_rev0.pvar
+cp tmp_pd_a.pgen tmp_pd_rev0.pgen
+cp tmp_pd_a.psam tmp_pd_rev0.psam
+$P --pfile tmp_pd_rev0 $PD --sort-vars --make-pgen --out tmp_pd_rev
+$P --pfile tmp_pd_rev --make-pgen trim-alts --out tmp_pd_b_trimonly
+$P --pfile tmp_pd_rev --pgen-diff tmp_pd_b_trimonly dosage include-missing --out tmp_pd_trimonly
+grep -q "108 variants compared, 0 differences" tmp_pd_trimonly.log
+test "$(grep -v '^#' tmp_pd_b_trimonly.pvar | awk -F '\t' 'split($5, a, ",") == 1' | wc -l)" -gt 0
+# ALT-permuted copy with up to 20 alleles: still no differences
+awk '!/^#/ && (split($5, a, ",") >= 2) && (split($5, a, ",") <= 19) {print $3 "\t" a[2]}' tmp_pd_a.pvar > tmp_pd_alt2.txt
+$P --pfile tmp_pd_a --min-alleles 3 --max-alleles 20 --alt1-allele force tmp_pd_alt2.txt --make-pgen --out tmp_pd_b_perm20
+$P --pfile tmp_pd_a --min-alleles 3 --max-alleles 20 --pgen-diff tmp_pd_b_perm20 dosage include-missing --out tmp_pd_perm20
+test "$(grep -v '^#' tmp_pd_perm20.pdiff | wc -l)" -eq 0
+grep -q "144 variants compared, 0 differences" tmp_pd_perm20.log
+$P --pfile tmp_x $PD --make-pgen erase-dosage --out tmp_pd_x_erase
+awk 'NR > 1 && $2 == 1 {print $1}' tmp_x.psam > tmp_pd_x_males.txt
+for tol in 0 0.1; do
+    $P --pfile tmp_x $PD --pgen-diff tmp_pd_x_erase dosage=$tol include-missing --out tmp_pd_x
+    awk -v tol=$tol -v include_missing=1 -v x_males=tmp_pd_x_males.txt -f pdiff_compare.awk tmp_pd_va.vcf tmp_pd_vb_erase.vcf tmp_pd_x.pdiff
+done
