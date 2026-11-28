@@ -784,3 +784,77 @@ $P --pfile tmp_bgx_y $BGX_OPTS --make-pgen --out tmp_bgx_y2
 ./tmp_multidosage_writer_test dumpvals tmp_bgx_y2 tmp_bgx_y2_vals.txt
 $P --pfile tmp_bgx_y $BGX_OPTS --export bgen-1.2 bits=3 --out tmp_bgx3
 python3 bgen_multiallelic_check.py tmp_bgx3.bgen tmp_bgx_y2.pvar tmp_bgx_y2.psam tmp_bgx_y2_vals.txt ref-last
+
+# --bgen import of multiallelic variants.  bgen_multiallelic_import_check.py
+# decodes the .bgen itself and derives each sample's expected stored record
+# (hardcall, phase, dosages, dosage-phase; see its docstring) independently,
+# comparing against dumpcalls output.  Inputs: random layout-2 files from
+# bgen_multiallelic_gen.py (unphased/phased/mixed, ploidy 0-2, missing calls,
+# 1-28 bits), and plink2's own multiallelic exports above.
+BGI_GEN="python3 bgen_multiallelic_gen.py"
+BGI_CHECK="python3 bgen_multiallelic_import_check.py"
+bgi_check() {
+    # <bgen> <REF mode> <hct> <erase> <certainty> <plink2 options...>
+    local bgen=$1 ref=$2 hct=$3 erase=$4 cert=$5
+    shift 5
+    $P --bgen $bgen $ref --make-pgen --out tmp_bgi "$@"
+    $P --pfile tmp_bgi --validate --out tmp_bgi_v
+    ./tmp_multidosage_writer_test dumpcalls tmp_bgi tmp_bgi_calls.txt
+    if [ $ref = ref-unknown ]; then ref=ref-last; fi
+    $BGI_CHECK $bgen tmp_bgi.pvar tmp_bgi_calls.txt $ref $hct $erase $cert
+}
+$BGI_GEN tmp_bgi1.bgen 1 mixed 16 zlib 60 40
+$BGI_GEN tmp_bgi2.bgen 2 unphased 5 none 60 40
+$BGI_GEN tmp_bgi3.bgen 3 phased 8 zlib 60 40 3
+$BGI_GEN tmp_bgi4.bgen 4 mixed 28 none 60 40
+# exact calls only: no dosage, and (phased) hardcall phase only, so the scan
+# pass must detect phase from multiallelic records alone
+$BGI_GEN tmp_bgi5.bgen 5 phased 1 none 60 40 3
+$BGI_GEN tmp_bgi6.bgen 6 unphased 1 zlib 60 40 3
+bgi_check tmp_bgi1.bgen ref-first 1638 0 0
+bgi_check tmp_bgi1.bgen ref-unknown 3276 1638 0 --hard-call-threshold 0.2 --dosage-erase-threshold 0.1 --threads 3
+bgi_check tmp_bgi2.bgen ref-last 0 0 0.8 --hard-call-threshold 0 --import-dosage-certainty 0.8
+bgi_check tmp_bgi2.bgen ref-first 1638 0 0 --threads 1
+bgi_check tmp_bgi3.bgen ref-first 1638 0 0.7 --import-dosage-certainty 0.7
+bgi_check tmp_bgi3.bgen ref-last 8028 4915 0 --hard-call-threshold 0.49 --dosage-erase-threshold 0.3
+bgi_check tmp_bgi4.bgen ref-last 1638 0 0.5 --import-dosage-certainty 0.5
+bgi_check tmp_bgi5.bgen ref-first 1638 0 0
+bgi_check tmp_bgi6.bgen ref-last 1638 0 0
+# --import-max-alleles
+$P --bgen tmp_bgi1.bgen ref-first --import-max-alleles 4 --make-pgen --out tmp_bgi_max
+./tmp_multidosage_writer_test dumpcalls tmp_bgi_max tmp_bgi_max_calls.txt
+$BGI_CHECK tmp_bgi1.bgen tmp_bgi_max.pvar tmp_bgi_max_calls.txt ref-first 1638 0 0 4
+# plink2's own exports: 16-bit ref-last; zstd 7-bit ref-first chrX (haploid
+# males); 3-bit chrY (ploidy-0 females)
+bgi_check tmp_bgx1.bgen ref-last 1638 0 0 --sample tmp_bgx1.sample
+bgi_check tmp_bgx2.bgen ref-first 1638 0 0 --sample tmp_bgx2.sample --sort-vars --split-par b37
+bgi_check tmp_bgx3.bgen ref-last 1638 0 0 --sample tmp_bgx3.sample
+# Export -> import round trip at 16 bits: wherever both haplotype values of
+# the source are representable (u + d even), the reimported dosage (and
+# split) must equal the source's.  (An all-zero split is not stored on import,
+# as with biallelic variants.)
+bgi_check tmp_bgx1.bgen ref-last 1638 0 0 --sample tmp_bgx1.sample
+python3 - tmp_bgx_small_vals.txt tmp_bgi_calls.txt <<'PYEOF'
+import sys
+src = {l.split("\t")[0]: l.rstrip("\n").split("\t")[2:] for l in open(sys.argv[1])}
+imp = {l.split("\t")[0]: l.rstrip("\n").split("\t")[2:] for l in open(sys.argv[2])}
+eq_ct = 0
+for vid, toks in imp.items():
+    for s, t in zip(src[vid], toks):
+        if "=" not in t:
+            continue
+        su, _, sd = s.partition(";")
+        u = [int(x) for x in su.split(",")]
+        d = [int(x) for x in sd.split(",")] if sd else [0] * len(u)
+        if not any(d):
+            sd = ""
+        if any((a + b) % 2 for a, b in zip(u, d)):
+            continue
+        iu, _, idd = t.split("=")[1].partition("~")
+        if (iu != su) or (idd != sd):
+            sys.exit("round trip mismatch at %s: %s vs %s" % (vid, s, t))
+        eq_ct += 1
+if eq_ct < 1000:
+    sys.exit("round trip: too few dosages compared")
+print("round trip: %d dosages ok" % eq_ct)
+PYEOF

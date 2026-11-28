@@ -3792,6 +3792,74 @@ static int WriteDups(const char* src_prefix, const char* out_prefix) {
   return 0;
 }
 
+// ***** "dumpcalls" mode *****
+
+// Writes each sample's stored record contents, in internal allele order: one
+// line per variant (ID, allele count, then one token per sample).  A token is
+// the hardcall ("." if missing, "a1/a2" if unphased, "left|right" if phased),
+// then "=" and the comma-separated allele dosages (16384 = one copy) if a
+// dosage is stored, then "~" and the per-allele haplotype differences if an
+// explicit dosage-phase value is stored.
+static int DumpCalls(const char* prefix, const char* out_fname) {
+  PvarInfo pi;
+  if (ReadPvar(prefix, pi)) {
+    fprintf(stderr, "dumpcalls: failed to read .pvar\n");
+    return 1;
+  }
+  const uint32_t sample_ct = ReadPsamIids(prefix).size();
+  const uint32_t variant_ct = pi.ids.size();
+  Reader r;
+  if (OpenReader((std::string(prefix) + ".pgen").c_str(), pi.allele_idx_offsets.data(), variant_ct, sample_ct, r)) {
+    return 1;
+  }
+  ReaderBufs rb;
+  InitReaderBufs(sample_ct, 255, rb);
+  PgrSampleSubsetIndex pssi;
+  PgrClearSampleSubsetIndex(&r.pgr, &pssi);
+  FILE* outfile = fopen(out_fname, "w");
+  if (!outfile) {
+    fprintf(stderr, "dumpcalls: failed to open %s\n", out_fname);
+    return 1;
+  }
+  for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+    const uint32_t allele_ct = pi.allele_idx_offsets[vidx + 1] - pi.allele_idx_offsets[vidx];
+    if (PgrGetMDp(nullptr, pssi, sample_ct, vidx, &r.pgr, &rb.pgv)) {
+      fprintf(stderr, "dumpcalls: read error\n");
+      return 1;
+    }
+    const std::vector<SampleData> sds = Decode(rb.pgv, sample_ct, 1, 1, 1);
+    fprintf(outfile, "%s\t%u", pi.ids[vidx].c_str(), allele_ct);
+    for (uint32_t sidx = 0; sidx != sample_ct; ++sidx) {
+      const SampleData& sd = sds[sidx];
+      if (sd.a1 == UINT32_MAX) {
+        fputs("\t.", outfile);
+      } else if (sd.phased && (sd.a1 != sd.a2)) {
+        fprintf(outfile, "\t%u|%u", sd.phaseinfo? sd.a2 : sd.a1, sd.phaseinfo? sd.a1 : sd.a2);
+      } else {
+        fprintf(outfile, "\t%u/%u", sd.a1, sd.a2);
+      }
+      std::vector<int32_t> u;
+      std::vector<int32_t> d;
+      DenseAlleleVals(sd, allele_ct, u, d);
+      if (!u.empty()) {
+        fputc('=', outfile);
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          fprintf(outfile, "%s%d", aidx? "," : "", u[aidx]);
+        }
+      }
+      if (!d.empty()) {
+        fputc('~', outfile);
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          fprintf(outfile, "%s%d", aidx? "," : "", d[aidx]);
+        }
+      }
+    }
+    fputc('\n', outfile);
+  }
+  fclose(outfile);
+  return 0;
+}
+
 // ***** "dumpvals" mode *****
 
 // Writes each sample's per-allele values, in internal allele order: one line
@@ -4122,6 +4190,10 @@ int main(int argc, char** argv) {
       meanimpute |= !strcmp(argv[argi], "meanimpute");
     }
     return CheckGrm(argv[2], argv[3], argv[4], is_cov, meanimpute);
+  }
+  // "dumpcalls <prefix> <output file>": see DumpCalls().
+  if ((argc == 4) && (!strcmp(argv[1], "dumpcalls"))) {
+    return DumpCalls(argv[2], argv[3]);
   }
   // "dumpvals <prefix> <output file>": see DumpVals().
   if ((argc == 4) && (!strcmp(argv[1], "dumpvals"))) {

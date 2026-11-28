@@ -1711,6 +1711,43 @@ PglErr LoadTokensNondup2(const char* fname, const uintptr_t* variant_include, co
 
 PglErr LoadTokensNondupReindex(const char* fname, const uintptr_t* variant_include, const uint32_t* variant_include_cumulative_popcounts, const uint32_t* old_variant_uidx_to_new, const char* const* variant_ids, const char* flagname_p, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uintptr_t* loaded_variant_set);
 
+// One sample's per-allele values: codes[] are allele indexes (0 = REF, 1 =
+// ALT1, then the rare alts with nonzero dosage), u[] the dosages (16384 = one
+// copy), and d[] the dosage-phase deltas (zero without an explicit phased
+// dosage).
+typedef struct SampleAlleleValsStruct {
+  uint32_t codes[257];
+  int32_t u[257];
+  int32_t d[257];
+  uint32_t ct;
+} SampleAlleleVals;
+
+int32_t AlleleValLookup(const SampleAlleleVals* savp, const int32_t* vals, uint32_t allele_idx);
+
+// sum_i |u_i - 16384 * h_i| for the genotype (a1, a2).
+uint32_t HardcallL1Dist(const SampleAlleleVals* savp, uint32_t a1, uint32_t a2);
+
+// Rounds every allele's dosage.  Returns sum_i |u_i - 16384 * r_i| (twice the
+// --hard-call-threshold distance), and sets *a1_ptr/*a2_ptr to the rounded
+// genotype (a1 <= a2), or kMissingAlleleCode if the rounded counts don't sum
+// to 2.
+uint32_t RoundAlleleVals(const SampleAlleleVals* savp, uint32_t* a1_ptr, uint32_t* a2_ptr);
+
+// Euclidean-nearest genotype, ties broken in favor of lower-index alleles.
+void NearestHardcall(const SampleAlleleVals* savp, uint32_t* a1_ptr, uint32_t* a2_ptr);
+
+// For a new heterozygous hardcall a1 < a2 with an explicit dosage-phase:
+// returns nonzero iff the call is phased (the alleles' haplotype differences
+// differ by more than one copy), and sets *phaseinfo_bit_ptr to 1 iff a2 is on
+// the first haplotype.
+uint32_t MultiallelicHetPhased(const SampleAlleleVals* savp, uint32_t a1, uint32_t a2, uint32_t* phaseinfo_bit_ptr);
+
+// --dosage-erase-threshold test for a multiallelic dosage; erase_thresh is in
+// dosage units (16384 = one copy).  Without dosage-phase, the hardcall
+// distance must be <= erase_thresh; with it, both haplotypes must be within
+// erase_thresh / 2.
+uint32_t MultiallelicDosageErasable(const SampleAlleleVals* savp, uint32_t has_dphase, uint32_t erase_thresh);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

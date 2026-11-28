@@ -135,13 +135,25 @@ typedef struct GparseReadBcfMetadataStruct {
 //   iff kfGparseDosage set:
 //     dosage_present (sample_ctv)
 //     dosage_main (DivUp(sample_ct, kDosagePerVec))
-//     iff allele_ct > 2:
-//       todo; probably want to exploit alternate size limit
+//     iff allele_ct > 2 (with rare_max = sample_ct * (allele_ct - 2)):
+//       multidosage_present (sample_ctv)
+//       multidosage_cts (DivUp(sample_ct, kBytesPerVec))
+//       multidosage_codes (DivUp(rare_max, kAlleleCodesPerVec))
+//       multidosage_vals (DivUp(rare_max, kDosagePerVec))
 //     iff kfGparseDphase set:
 //       dphase_present (sample_ctv)
 //       dphase_delta (DivUp(sample_ct, kDosagePerVec))
 //       iff allele_ct > 2:
-//         todo; probably want to exploit alternate size limit
+//         multidphase_{present,cts,codes,delta}, sized as above
+// (The rare-alt bound could be tightened for VCF/BCF/BGEN by also using the
+// input record size, if this ever matters.)
+
+// Vector count of one rare-alt track (multidosage_* or multidphase_*) in the
+// parsed form.
+static inline uint64_t GparseMultidosageTrackVecCt(uint32_t sample_ct, uint32_t allele_ct) {
+  const uint64_t rare_max = S_CAST(uint64_t, sample_ct) * (allele_ct - 2);
+  return BitCtToVecCt(sample_ct) + DivUp(sample_ct, kBytesPerVec) + DivUpU64(rare_max, kAlleleCodesPerVec) + DivUpU64(rare_max, kDosagePerVec);
+}
 
 uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags flags) {
   const uint32_t is_multiallelic = (allele_ct > 2);
@@ -161,11 +173,7 @@ uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags f
       const uint32_t dosage_ctv = DosageCtToVecCt(sample_ct);
       uintptr_t vec_incr = sample_ctv + dosage_ctv;
       if (is_multiallelic) {
-        // todo
-        // note that in VCF/BCF cases, we can compute an alternate upper bound
-        // based on input record size, and this can buy us a lot
-        logerrprintf("Error: GparseWriteByteCt multiallelic dosage size request.\n");
-        exit(S_CAST(int32_t, kPglRetInternalError));
+        vec_incr += GparseMultidosageTrackVecCt(sample_ct, allele_ct);
       }
       vec_ct += vec_incr * (1 + ((flags / kfGparseDphase) & 1));
     }
@@ -244,20 +252,52 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
       *dosage_main_ptr = R_CAST(Dosage*, record_iter);
       record_iter = &(record_iter[dosage_ctaw]);
       if (is_multiallelic) {
-        // todo
+        record_iter = &(record_iter[kWordsPerVec * GparseMultidosageTrackVecCt(sample_ct, allele_ct)]);
       }
       if (flags & kfGparseDphase) {
         *dphase_present_ptr = record_iter;
         record_iter = &(record_iter[sample_ctaw]);
         *dphase_delta_ptr = R_CAST(SDosage*, record_iter);
-        // record_iter = &(record_iter[dosage_ctaw]);
-        if (is_multiallelic) {
-          // todo
-        }
       }
     }
   }
   return genovec;
+}
+
+static unsigned char* GparseMultidosageTrackPointers(unsigned char* track_start, uint32_t sample_ct, uint32_t allele_ct, uintptr_t** present_ptr, unsigned char** cts_ptr, AlleleCode** codes_ptr, uint16_t** vals_ptr) {
+  const uint64_t rare_max = S_CAST(uint64_t, sample_ct) * (allele_ct - 2);
+  unsigned char* iter = track_start;
+  *present_ptr = R_CAST(uintptr_t*, iter);
+  iter = &(iter[BitCtToVecCt(sample_ct) * kBytesPerVec]);
+  *cts_ptr = iter;
+  iter = &(iter[DivUp(sample_ct, kBytesPerVec) * kBytesPerVec]);
+  *codes_ptr = R_CAST(AlleleCode*, iter);
+  iter = &(iter[DivUpU64(rare_max, kAlleleCodesPerVec) * kBytesPerVec]);
+  *vals_ptr = R_CAST(uint16_t*, iter);
+  return &(iter[DivUpU64(rare_max, kDosagePerVec) * kBytesPerVec]);
+}
+
+// Fills all of *pgvp's buffer pointers for a multiallelic record with
+// kfGparseDosage set; counts are not touched.
+static void GparseGetPgv(unsigned char* record_start, uint32_t sample_ct, uint32_t allele_ct, GparseFlags flags, PgenVariant* pgvp) {
+  assert((allele_ct > 2) && (flags & kfGparseDosage));
+  SDosage* dphase_delta = nullptr;
+  pgvp->genovec = GparseGetPointers(record_start, sample_ct, allele_ct, flags, &pgvp->patch_01_set, &pgvp->patch_01_vals, &pgvp->patch_10_set, &pgvp->patch_10_vals, &pgvp->phasepresent, &pgvp->phaseinfo, &pgvp->dosage_present, &pgvp->dosage_main, &pgvp->dphase_present, &dphase_delta);
+  pgvp->dphase_delta = dphase_delta;
+  unsigned char* track_start = &(R_CAST(unsigned char*, pgvp->dosage_main)[DosageCtToAlignedWordCt(sample_ct) * kBytesPerWord]);
+  uint16_t* multidphase_delta;
+  track_start = GparseMultidosageTrackPointers(track_start, sample_ct, allele_ct, &pgvp->multidosage_present, &pgvp->multidosage_cts, &pgvp->multidosage_codes, &pgvp->multidosage_vals);
+  if (flags & kfGparseDphase) {
+    track_start = &(R_CAST(unsigned char*, dphase_delta)[DosageCtToAlignedWordCt(sample_ct) * kBytesPerWord]);
+    GparseMultidosageTrackPointers(track_start, sample_ct, allele_ct, &pgvp->multidphase_present, &pgvp->multidphase_cts, &pgvp->multidphase_codes, &multidphase_delta);
+    pgvp->multidphase_delta = R_CAST(int16_t*, multidphase_delta);
+  } else {
+    pgvp->dphase_present = nullptr;
+    pgvp->multidphase_present = nullptr;
+    pgvp->multidphase_cts = nullptr;
+    pgvp->multidphase_codes = nullptr;
+    pgvp->multidphase_delta = nullptr;
+  }
 }
 
 // Might want to change allele_idx_offsets parameter to
@@ -280,7 +320,6 @@ PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets,
     Dosage* dosage_main = nullptr;
     uintptr_t* dphase_present = nullptr;
     SDosage* dphase_delta = nullptr;
-    // todo: multiallelic dosage buffers
     for (uintptr_t write_block_vidx = 0; write_block_vidx != write_block_size; ++write_block_vidx) {
       const GparseRecord* cur_gparse_rec = &(grp[write_block_vidx]);
       const GparseFlags flags = cur_gparse_rec->flags;
@@ -299,6 +338,20 @@ PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets,
           if (unlikely(reterr)) {
             goto GparseFlush_ret_1;
           }
+        }
+      } else if ((allele_ct > 2) && cur_gwmp->dosage_ct) {
+        PgenVariant pgv;
+        GparseGetPgv(cur_gparse_rec->record_start, sample_ct, allele_ct, flags, &pgv);
+        pgv.patch_01_ct = cur_gwmp->patch_01_ct;
+        pgv.patch_10_ct = cur_gwmp->patch_10_ct;
+        pgv.phasepresent_ct = cur_gwmp->phasepresent_exists? PopcountWords(pgv.phasepresent, BitCtToWordCt(sample_ct)) : 0;
+        pgv.dosage_ct = cur_gwmp->dosage_ct;
+        pgv.multidosage_sample_ct = cur_gwmp->multiallelic_dosage_ct;
+        pgv.dphase_ct = cur_gwmp->dphase_ct;
+        pgv.multidphase_sample_ct = cur_gwmp->multiallelic_dphase_ct;
+        reterr = SpgwAppendMultiallelicGenovecDphase16(&pgv, allele_ct, spgwp);
+        if (unlikely(reterr)) {
+          goto GparseFlush_ret_1;
         }
       } else {
         const uint32_t cur_dosage_ct = cur_gwmp->dosage_ct;
@@ -12602,7 +12655,6 @@ ENUM_U31_DEF_START()
   kBgenImportErrSubtypeIsPhasedOutOfRange,
   kBgenImportErrSubtypeBitPrecisionOutOfRange,
   kBgenImportErrSubtypeBitPrecisionUnsupported,
-  kBgenImportErrSubtypeAlleleCtUnsupported,
   kBgenImportErrSubtypeUncompressedByteCtMismatch,
   kBgenImportErrSubtypeNumeratorOverflow,
   kBgenImportErrSubtypeProbOffsetMismatch,
@@ -12641,9 +12693,6 @@ void PrintBgenImportErr(const char** err_extra, uint64_t err_info, uint32_t vidx
   case kBgenImportErrSubtypeBitPrecisionUnsupported:
     snprintf(g_logbuf, kLogbufSize, "Error: .bgen bit_precision unsupported, vidx=%u.\n", vidx);
     break;
-  case kBgenImportErrSubtypeAlleleCtUnsupported:
-    snprintf(g_logbuf, kLogbufSize, "Error: .bgen allele_ct unsupported, vidx=%u.\n", vidx);
-    break;
   case kBgenImportErrSubtypeUncompressedByteCtMismatch:
     snprintf(g_logbuf, kLogbufSize, "Error: .bgen uncompressed_byte_ct mismatch, vidx=%u.\n", vidx);
     break;
@@ -12667,6 +12716,429 @@ void PrintBgenImportErr(const char** err_extra, uint64_t err_info, uint32_t vidx
   }
   WordWrapB(0);
   logerrputsb();
+}
+
+// Largest-remainder rounding of numers[0..ct-1], which sum to numer_tot, to
+// integers summing to target.  Ties go to the lower index.  An entry rounds up
+// only if it has a nonzero remainder, so zeros stay zero.
+static void LargestRemainderRound(const uint64_t* numers, uint32_t ct, uint64_t numer_tot, uint32_t target, int32_t* results) {
+  int64_t rems[kPglMaxAlleleCt];
+  uint32_t deficit = target;
+  for (uint32_t uii = 0; uii != ct; ++uii) {
+    const uint64_t scaled = numers[uii] * target;
+    const uint32_t quotient = scaled / numer_tot;
+    results[uii] = quotient;
+    rems[uii] = scaled - quotient * numer_tot;
+    deficit -= quotient;
+  }
+  for (; deficit; --deficit) {
+    uint32_t best_idx = 0;
+    for (uint32_t uii = 1; uii != ct; ++uii) {
+      if (rems[uii] > rems[best_idx]) {
+        best_idx = uii;
+      }
+    }
+    results[best_idx] += 1;
+    rems[best_idx] = -1;
+  }
+}
+
+// --import-dosage-certainty for phased multiallelic probabilities.  Treating
+// the haplotypes as independent would make plink2's own export of an
+// unknown-phase het call (two identical 50/50 haplotypes) look 25% certain on
+// reimport, so (as in the biallelic case) we assume maximal heterozygosity:
+// one haplotype is filled with the highest-dosage alleles up to one copy, the
+// other gets the rest, and the largest resulting genotype probability is
+// compared against the threshold.  Returns nonzero iff certain enough.
+// numers[]: per-allele sums of the two haplotypes' numerators.
+static uint32_t Bgen13PhasedCertain(const uint64_t* numers, uint32_t allele_ct, uintptr_t numer_mask, uint32_t numer_certainty_min) {
+  uint64_t sorted[kPglMaxAlleleCt];
+  uint32_t nz_ct = 0;
+  for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+    const uint64_t cur_numer = numers[allele_idx];
+    if (!cur_numer) {
+      continue;
+    }
+    // insertion sort, descending
+    uint32_t insert_idx = nz_ct;
+    for (; insert_idx && (sorted[insert_idx - 1] < cur_numer); --insert_idx) {
+      sorted[insert_idx] = sorted[insert_idx - 1];
+    }
+    sorted[insert_idx] = cur_numer;
+    ++nz_ct;
+  }
+  uint64_t hap1[kPglMaxAlleleCt];
+  uint64_t hap2[kPglMaxAlleleCt];
+  uint64_t cap = numer_mask;
+  for (uint32_t uii = 0; uii != nz_ct; ++uii) {
+    const uint64_t take = MINV(sorted[uii], cap);
+    hap1[uii] = take;
+    hap2[uii] = sorted[uii] - take;
+    cap -= take;
+  }
+  // genotype probabilities, times numer_mask^2
+  uint64_t max_prob = 0;
+  for (uint32_t uii = 0; uii != nz_ct; ++uii) {
+    const uint64_t hom_prob = hap1[uii] * hap2[uii];
+    if (hom_prob > max_prob) {
+      max_prob = hom_prob;
+    }
+    for (uint32_t ujj = uii + 1; ujj != nz_ct; ++ujj) {
+      const uint64_t het_prob = hap1[uii] * hap2[ujj] + hap1[ujj] * hap2[uii];
+      if (het_prob > max_prob) {
+        max_prob = het_prob;
+      }
+    }
+  }
+  return (max_prob >= S_CAST(uint64_t, numer_certainty_min) * numer_mask);
+}
+
+// Converts one non-missing haploid or diploid sample's multiallelic
+// probabilities.  On success, savp holds the nonzero per-allele dosages u
+// (16384 = one copy) and haplotype differences d (hap1 = u + d, hap2 = u - d,
+// with 32768 = one copy), in output allele order with increasing codes;
+// *has_dphase_ptr is set iff the haplotype split is known and nonzero; and the
+// return value is 1, or 0 if --import-dosage-certainty makes the call
+// missing.  Returns UINT32_MAX if the stored probabilities sum to more than 1.
+// ref_last: allele K-1 is REF (output index 0), and the others shift up.
+// Haploid dosages are doubled, as in the biallelic case.
+static uint32_t Bgen13ConvertMultiallelicSample(const unsigned char* probs_start, uint64_t prob_offset, uint32_t ploidy, uint32_t is_phased, uint32_t allele_ct, uint32_t bit_precision, uintptr_t numer_mask, uint32_t numer_certainty_min, uint32_t ref_last, SampleAlleleVals* savp, uint32_t* has_dphase_ptr) {
+  // [0, allele_ct): first haplotype, or all-haplotype sums; [allele_ct,
+  // 2 * allele_ct): second haplotype if phased diploid.  Output allele order.
+  uint64_t numers[2 * kPglMaxAlleleCt];
+  int32_t u[kPglMaxAlleleCt];
+  int32_t d[kPglMaxAlleleCt];
+  const uint32_t last_in_idx = allele_ct - 1;
+  uint32_t has_dphase = 0;
+  if ((ploidy == 1) || is_phased) {
+    // one probability vector per haplotype, last allele omitted
+    for (uint32_t hap_idx = 0; hap_idx != ploidy; ++hap_idx) {
+      uint64_t* hap_numers = &(numers[hap_idx * allele_ct]);
+      uintptr_t numer_sum = 0;
+      uintptr_t numer_max = 0;
+      for (uint32_t in_idx = 0; in_idx != last_in_idx; ++in_idx) {
+        const uintptr_t cur_numer = Bgen13GetOneVal(probs_start, prob_offset + in_idx, bit_precision, numer_mask);
+        numer_sum += cur_numer;
+        if (cur_numer > numer_max) {
+          numer_max = cur_numer;
+        }
+        hap_numers[ref_last? (in_idx + 1) : in_idx] = cur_numer;
+      }
+      if (unlikely(numer_sum > numer_mask)) {
+        return UINT32_MAX;
+      }
+      const uintptr_t last_numer = numer_mask - numer_sum;
+      if (last_numer > numer_max) {
+        numer_max = last_numer;
+      }
+      hap_numers[ref_last? 0 : last_in_idx] = last_numer;
+      prob_offset += last_in_idx;
+      if ((ploidy == 1) && (numer_max < numer_certainty_min)) {
+        return 0;
+      }
+    }
+    if (ploidy == 1) {
+      LargestRemainderRound(numers, allele_ct, numer_mask, 16384, u);
+      for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+        u[allele_idx] *= 2;
+        d[allele_idx] = 0;
+      }
+    } else {
+      if (numer_certainty_min) {
+        uint64_t numer_sums[kPglMaxAlleleCt];
+        for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+          numer_sums[allele_idx] = numers[allele_idx] + numers[allele_ct + allele_idx];
+        }
+        if (!Bgen13PhasedCertain(numer_sums, allele_ct, numer_mask, numer_certainty_min)) {
+          return 0;
+        }
+      }
+      int32_t hap2[kPglMaxAlleleCt];
+      LargestRemainderRound(numers, allele_ct, numer_mask, 16384, u);
+      LargestRemainderRound(&(numers[allele_ct]), allele_ct, numer_mask, 16384, hap2);
+      for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+        const int32_t hap1_val = u[allele_idx];
+        const int32_t hap2_val = hap2[allele_idx];
+        u[allele_idx] = hap1_val + hap2_val;
+        d[allele_idx] = hap1_val - hap2_val;
+        has_dphase |= (hap1_val != hap2_val);
+      }
+    }
+  } else {
+    // unphased diploid: genotype probabilities in colex order, i.e. (j, k)
+    // with j <= k at index k(k+1)/2 + j; last one omitted
+    for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+      numers[allele_idx] = 0;
+    }
+    uintptr_t numer_sum = 0;
+    uintptr_t numer_max = 0;
+    uint64_t geno_idx = 0;
+    for (uint32_t in_k = 0; in_k != allele_ct; ++in_k) {
+      const uint32_t out_k = ref_last? ((in_k == last_in_idx)? 0 : (in_k + 1)) : in_k;
+      for (uint32_t in_j = 0; in_j <= in_k; ++in_j, ++geno_idx) {
+        uintptr_t cur_numer;
+        // the omitted genotype is the last one, (K-1, K-1)
+        if (in_j != last_in_idx) {
+          cur_numer = Bgen13GetOneVal(probs_start, prob_offset + geno_idx, bit_precision, numer_mask);
+          numer_sum += cur_numer;
+        } else {
+          if (unlikely(numer_sum > numer_mask)) {
+            return UINT32_MAX;
+          }
+          cur_numer = numer_mask - numer_sum;
+        }
+        if (cur_numer > numer_max) {
+          numer_max = cur_numer;
+        }
+        const uint32_t out_j = ref_last? ((in_j == last_in_idx)? 0 : (in_j + 1)) : in_j;
+        numers[out_j] += cur_numer;
+        numers[out_k] += cur_numer;
+      }
+    }
+    if (numer_max < numer_certainty_min) {
+      return 0;
+    }
+    LargestRemainderRound(numers, allele_ct, 2 * S_CAST(uint64_t, numer_mask), 32768, u);
+    for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+      d[allele_idx] = 0;
+    }
+  }
+  uint32_t nz_ct = 0;
+  for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+    if (u[allele_idx]) {
+      savp->codes[nz_ct] = allele_idx;
+      savp->u[nz_ct] = u[allele_idx];
+      savp->d[nz_ct] = d[allele_idx];
+      ++nz_ct;
+    }
+  }
+  savp->ct = nz_ct;
+  *has_dphase_ptr = has_dphase;
+  return 1;
+}
+
+// Stored record contents for one sample of a multiallelic variant, from its
+// per-allele dosages (SampleAlleleVals) via the --hard-call-threshold /
+// --dosage-erase-threshold rules (see plink2_help.cc).  a1 == a2 ==
+// kMissingAlleleCode for a missing hardcall.
+typedef struct MultiallelicImportCallStruct {
+  uint32_t a1;
+  uint32_t a2;
+  uint32_t phased;
+  uint32_t phaseinfo_bit;  // a2 on the first haplotype
+  uint32_t keep_dosage;
+  uint32_t has_dphase;  // savp->d[] is a known nonzero haplotype split
+} MultiallelicImportCall;
+
+HEADER_INLINE void MultiallelicImportCallSetMissing(MultiallelicImportCall* callp) {
+  callp->a1 = kMissingAlleleCode;
+  callp->a2 = kMissingAlleleCode;
+  callp->phased = 0;
+  callp->phaseinfo_bit = 0;
+  callp->keep_dosage = 0;
+  callp->has_dphase = 0;
+}
+
+// hc_thresh and erase_thresh are in dosage units (16384 = one copy).
+static void MultiallelicImportCallFromVals(const SampleAlleleVals* savp, uint32_t has_dphase, uint32_t hc_thresh, uint32_t erase_thresh, MultiallelicImportCall* callp) {
+  uint32_t a1;
+  uint32_t a2;
+  const uint32_t dist_x2 = RoundAlleleVals(savp, &a1, &a2);
+  if (dist_x2 > 2 * hc_thresh) {
+    a1 = kMissingAlleleCode;
+    a2 = kMissingAlleleCode;
+  }
+  callp->a1 = a1;
+  callp->a2 = a2;
+  callp->phased = 0;
+  callp->phaseinfo_bit = 0;
+  if (has_dphase && (a1 != a2) && (a1 != kMissingAlleleCode)) {
+    callp->phased = MultiallelicHetPhased(savp, a1, a2, &callp->phaseinfo_bit);
+  }
+  callp->keep_dosage = !MultiallelicDosageErasable(savp, has_dphase, erase_thresh);
+  callp->has_dphase = has_dphase;
+}
+
+// Fills a multiallelic record's sparse hardcalls, hardcall phase, dosages,
+// rare-alt dosages, and dosage-phase values into a PgenVariant's buffers, one
+// sample at a time in increasing sample order.
+typedef struct MultiallelicRecordFillerStruct {
+  PgenVariant* pgvp;
+  AlleleCode* patch_01_vals_iter;
+  AlleleCode* patch_10_vals_iter;
+  Dosage* dosage_main_iter;
+  unsigned char* multidosage_cts_iter;
+  AlleleCode* multidosage_codes_iter;
+  uint16_t* multidosage_vals_iter;
+  SDosage* dphase_delta_iter;
+  unsigned char* multidphase_cts_iter;
+  AlleleCode* multidphase_codes_iter;
+  int16_t* multidphase_delta_iter;
+  uint32_t phasepresent_ct;
+} MultiallelicRecordFiller;
+
+static void MultiallelicRecordFillInit(uint32_t sample_ct, PgenVariant* pgvp, MultiallelicRecordFiller* mrfp) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  ZeroWArr(NypCtToWordCt(sample_ct), pgvp->genovec);
+  ZeroWArr(sample_ctl, pgvp->patch_01_set);
+  ZeroWArr(sample_ctl, pgvp->patch_10_set);
+  ZeroWArr(sample_ctl, pgvp->phasepresent);
+  ZeroWArr(sample_ctl, pgvp->phaseinfo);
+  ZeroWArr(sample_ctl, pgvp->dosage_present);
+  ZeroWArr(sample_ctl, pgvp->multidosage_present);
+  ZeroWArr(sample_ctl, pgvp->dphase_present);
+  ZeroWArr(sample_ctl, pgvp->multidphase_present);
+  mrfp->pgvp = pgvp;
+  mrfp->patch_01_vals_iter = pgvp->patch_01_vals;
+  mrfp->patch_10_vals_iter = pgvp->patch_10_vals;
+  mrfp->dosage_main_iter = pgvp->dosage_main;
+  mrfp->multidosage_cts_iter = pgvp->multidosage_cts;
+  mrfp->multidosage_codes_iter = pgvp->multidosage_codes;
+  mrfp->multidosage_vals_iter = pgvp->multidosage_vals;
+  mrfp->dphase_delta_iter = pgvp->dphase_delta;
+  mrfp->multidphase_cts_iter = pgvp->multidphase_cts;
+  mrfp->multidphase_codes_iter = pgvp->multidphase_codes;
+  mrfp->multidphase_delta_iter = pgvp->multidphase_delta;
+  mrfp->phasepresent_ct = 0;
+}
+
+// Every sample must be filled, since genovec starts out all-hom-REF.  savp is
+// only read if callp->keep_dosage is set; its codes must be increasing.
+static void MultiallelicRecordFillSample(uint32_t sample_idx, const MultiallelicImportCall* callp, const SampleAlleleVals* savp, MultiallelicRecordFiller* mrfp) {
+  PgenVariant* pgvp = mrfp->pgvp;
+  const uint32_t a1 = callp->a1;
+  const uint32_t a2 = callp->a2;
+  uintptr_t cur_geno;
+  if (a1 == kMissingAlleleCode) {
+    cur_geno = 3;
+  } else if (!a1) {
+    cur_geno = (a2 != 0);
+    if (a2 > 1) {
+      SetBit(sample_idx, pgvp->patch_01_set);
+      *(mrfp->patch_01_vals_iter)++ = a2;
+    }
+  } else {
+    cur_geno = 2;
+    if (a2 > 1) {
+      SetBit(sample_idx, pgvp->patch_10_set);
+      *(mrfp->patch_10_vals_iter)++ = a1;
+      *(mrfp->patch_10_vals_iter)++ = a2;
+    }
+  }
+  pgvp->genovec[sample_idx / kBitsPerWordD2] |= cur_geno << (2 * (sample_idx % kBitsPerWordD2));
+  if (callp->phased) {
+    SetBit(sample_idx, pgvp->phasepresent);
+    if (callp->phaseinfo_bit) {
+      SetBit(sample_idx, pgvp->phaseinfo);
+    }
+    mrfp->phasepresent_ct += 1;
+  }
+  if (!callp->keep_dosage) {
+    return;
+  }
+  SetBit(sample_idx, pgvp->dosage_present);
+  const uint32_t ref_present = (savp->codes[0] == 0);
+  *(mrfp->dosage_main_iter)++ = kDosageMax - (ref_present? savp->u[0] : 0);
+  uint32_t rare_start = 0;
+  while ((rare_start != savp->ct) && (savp->codes[rare_start] < 2)) {
+    ++rare_start;
+  }
+  if (rare_start != savp->ct) {
+    SetBit(sample_idx, pgvp->multidosage_present);
+    *(mrfp->multidosage_cts_iter)++ = savp->ct - rare_start;
+    for (uint32_t uii = rare_start; uii != savp->ct; ++uii) {
+      *(mrfp->multidosage_codes_iter)++ = savp->codes[uii];
+      *(mrfp->multidosage_vals_iter)++ = savp->u[uii];
+    }
+  }
+  if (callp->has_dphase) {
+    SetBit(sample_idx, pgvp->dphase_present);
+    // alt-sum delta
+    *(mrfp->dphase_delta_iter)++ = ref_present? (-savp->d[0]) : 0;
+    uint32_t rare_dphase_ct = 0;
+    for (uint32_t uii = rare_start; uii != savp->ct; ++uii) {
+      if (savp->d[uii]) {
+        *(mrfp->multidphase_codes_iter)++ = savp->codes[uii];
+        *(mrfp->multidphase_delta_iter)++ = savp->d[uii];
+        ++rare_dphase_ct;
+      }
+    }
+    if (rare_dphase_ct) {
+      SetBit(sample_idx, pgvp->multidphase_present);
+      *(mrfp->multidphase_cts_iter)++ = rare_dphase_ct;
+    }
+  }
+}
+
+static void MultiallelicRecordFillFinish(MultiallelicRecordFiller* mrfp) {
+  PgenVariant* pgvp = mrfp->pgvp;
+  pgvp->patch_01_ct = mrfp->patch_01_vals_iter - pgvp->patch_01_vals;
+  pgvp->patch_10_ct = S_CAST(uintptr_t, mrfp->patch_10_vals_iter - pgvp->patch_10_vals) / 2;
+  pgvp->phasepresent_ct = mrfp->phasepresent_ct;
+  pgvp->dosage_ct = mrfp->dosage_main_iter - pgvp->dosage_main;
+  pgvp->multidosage_sample_ct = mrfp->multidosage_cts_iter - pgvp->multidosage_cts;
+  pgvp->dphase_ct = mrfp->dphase_delta_iter - pgvp->dphase_delta;
+  pgvp->multidphase_sample_ct = mrfp->multidphase_cts_iter - pgvp->multidphase_cts;
+}
+
+// Converts a multiallelic layout-2 genotype block (header fields already
+// validated by the caller).  With pgvp == nullptr, just sets *found_ptr if any
+// hardcall phase or dosage would be saved (returning as soon as one is), else
+// fills pgvp's buffers and counts.  hc_thresh and erase_thresh are in dosage
+// units (16384 = one copy).  Returns a BgenImportErrSubtype.
+static BgenImportErrSubtype Bgen13ConvertMultiallelic(const unsigned char* geno, uint32_t uncompressed_byte_ct, uint32_t sample_ct, uint32_t allele_ct, uint32_t is_phased, uint32_t bit_precision, uint32_t numer_certainty_min, uint32_t ref_last, uint32_t hc_thresh, uint32_t erase_thresh, PgenVariant* pgvp, uint32_t* found_ptr) {
+  const unsigned char* missing_and_ploidy_info = &(geno[8]);
+  const unsigned char* probs_start = &(geno[10 + sample_ct]);
+  const uintptr_t numer_mask = (1U << bit_precision) - 1;
+  const uint64_t haploid_val_ct = allele_ct - 1;
+  const uint64_t diploid_val_ct = is_phased? (2 * haploid_val_ct) : ((allele_ct * (allele_ct + 1LLU)) / 2 - 1);
+  uint64_t tot_val_ct = 0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uint32_t ploidy = missing_and_ploidy_info[sample_idx] & 127;
+    if (unlikely(ploidy > 2)) {
+      return kBgenImportErrSubtypeInvalidMissingPloidy;
+    }
+    tot_val_ct += (ploidy == 1)? haploid_val_ct : ((ploidy == 2)? diploid_val_ct : 0);
+  }
+  if (unlikely(uncompressed_byte_ct != 10 + sample_ct + DivUpU64(tot_val_ct * bit_precision, CHAR_BIT))) {
+    return kBgenImportErrSubtypeUncompressedByteCtMismatch;
+  }
+  MultiallelicRecordFiller mrf;
+  if (pgvp) {
+    MultiallelicRecordFillInit(sample_ct, pgvp, &mrf);
+  }
+  SampleAlleleVals sav;
+  MultiallelicImportCall call;
+  uint64_t prob_offset = 0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uint32_t missing_and_ploidy = missing_and_ploidy_info[sample_idx];
+    const uint32_t ploidy = missing_and_ploidy & 127;
+    MultiallelicImportCallSetMissing(&call);
+    // treat ploidy 0 as missing
+    if ((!(missing_and_ploidy & 128)) && ploidy) {
+      uint32_t has_dphase;
+      const uint32_t certain = Bgen13ConvertMultiallelicSample(probs_start, prob_offset, ploidy, is_phased, allele_ct, bit_precision, numer_mask, numer_certainty_min, ref_last, &sav, &has_dphase);
+      if (unlikely(certain == UINT32_MAX)) {
+        return kBgenImportErrSubtypeNumeratorOverflow;
+      }
+      if (certain) {
+        MultiallelicImportCallFromVals(&sav, has_dphase, hc_thresh, erase_thresh, &call);
+      }
+    }
+    prob_offset += (ploidy == 1)? haploid_val_ct : ((ploidy == 2)? diploid_val_ct : 0);
+    if (!pgvp) {
+      if (call.phased || call.keep_dosage) {
+        *found_ptr = 1;
+        return kBgenImportErrSubtype0;
+      }
+      continue;
+    }
+    MultiallelicRecordFillSample(sample_idx, &call, &sav, &mrf);
+  }
+  if (pgvp) {
+    MultiallelicRecordFillFinish(&mrf);
+  }
+  return kBgenImportErrSubtype0;
 }
 
 static_assert(sizeof(Dosage) == 2, "Bgen13DosageOrPhaseScanThread() needs to be updated.");
@@ -12780,10 +13252,19 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
         }
 
         if (cur_allele_ct != 2) {
-          // shouldn't be possible to get here for now
-          assert(0);
-          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeAlleleCtUnsupported) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
-          goto Bgen13DosageOrPhaseScanThread_err;
+          // REF position doesn't affect whether phase or dosage is found.
+          // Hardcall missingness is ignored here (a missing hardcall can't be
+          // phased), so this errs on the side of finding phase.
+          uint32_t found = 0;
+          const BgenImportErrSubtype err_subtype = Bgen13ConvertMultiallelic(cur_uncompressed_geno, uncompressed_byte_ct, sample_ct, cur_allele_ct, is_phased, bit_precision, bgen_import_dosage_certainty_thresholds? bgen_import_dosage_certainty_thresholds[bit_precision] : 0, 0, 0x7fffffff, kDosage4th - dosage_erase_halfdist, nullptr, &found);
+          if (unlikely(err_subtype)) {
+            new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, err_subtype) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto Bgen13DosageOrPhaseScanThread_err;
+          }
+          if (found) {
+            goto Bgen13DosageOrPhaseScanThread_found;
+          }
+          continue;
         }
         const uint64_t magic_preadd = kBgenMagicNums[bit_precision].preadd;
         const uint64_t magic_mult = kBgenMagicNums[bit_precision].mult;
@@ -13291,10 +13772,21 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
           goto Bgen13GenoToPgenThread_err;
         }
         if (cur_allele_ct != 2) {
-          // shouldn't be possible to get here for now
-          assert(0);
-          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeAlleleCtUnsupported) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
-          goto Bgen13GenoToPgenThread_err;
+          PgenVariant pgv;
+          GparseGetPgv(grp->record_start, sample_ct, cur_allele_ct, grp->flags, &pgv);
+          const BgenImportErrSubtype err_subtype = Bgen13ConvertMultiallelic(cur_uncompressed_geno, uncompressed_byte_ct, sample_ct, cur_allele_ct, is_phased, bit_precision, bgen_import_dosage_certainty_thresholds? bgen_import_dosage_certainty_thresholds[bit_precision] : 0, prov_ref_allele_second, kDosage4th - hard_call_halfdist, kDosage4th - dosage_erase_halfdist, &pgv, nullptr);
+          if (unlikely(err_subtype)) {
+            new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, err_subtype) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto Bgen13GenoToPgenThread_err;
+          }
+          grp->metadata.write.patch_01_ct = pgv.patch_01_ct;
+          grp->metadata.write.patch_10_ct = pgv.patch_10_ct;
+          grp->metadata.write.phasepresent_exists = (pgv.phasepresent_ct != 0);
+          grp->metadata.write.dosage_ct = pgv.dosage_ct;
+          grp->metadata.write.multiallelic_dosage_ct = pgv.multidosage_sample_ct;
+          grp->metadata.write.dphase_ct = pgv.dphase_ct;
+          grp->metadata.write.multiallelic_dphase_ct = pgv.multidphase_sample_ct;
+          continue;
         }
         uintptr_t* genovec = GparseGetPointers(grp->record_start, sample_ct, cur_allele_ct, grp->flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
         Dosage* dosage_main_iter = dosage_main;
@@ -14040,7 +14532,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     }
     uint32_t variant_ct = 0;
     // temporary kludge
-    uint32_t multiallelic_tmp_skip_ct = 0;
     if (layout == 1) {
       // v1.1
       // this block belongs in its own function...
@@ -15022,15 +15513,13 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           fflush(stdout);
         }
 
-        if (cur_allele_ct > 2) {
-          // temporary kludge, update when multiallelic-variant import
-          // implemented
-          if (!skip) {
-            skip = 1;
-            if (cur_allele_ct <= import_max_allele_ct) {
-              ++multiallelic_tmp_skip_ct;
-            }
-          }
+        if (cur_allele_ct > import_max_allele_ct) {
+          skip = 1;
+        } else if (unlikely((!skip) && (cur_allele_ct > kPglMaxAlleleCt))) {
+          putc_unlocked('\n', stdout);
+          logerrprintfww("Error: .bgen file has a variant with %u alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALLELE_CT_STR ". (You can use \"--import-max-alleles " PGL_MAX_ALLELE_CT_STR "\" to filter out such variants.)\n", cur_allele_ct);
+          reterr = kPglRetNotYetSupported;
+          goto OxBgenToPgen_ret_1;
         }
 
         if (skip) {
@@ -15048,49 +15537,36 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           }
           continue;
         }
-        // special handling of first two alleles since either may be
-        // reference, so we may need to swap order
-        char* a1_ptr = loadbuf_iter;
-        uint32_t a1_slen;
-        if (unlikely(!fread_unlocked(&a1_slen, 4, 1, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
-        }
-        if (unlikely(!a1_slen)) {
-          putc_unlocked('\n', stdout);
-          logerrputs("Error: Empty allele code in .bgen file.\n");
-          goto OxBgenToPgen_ret_MALFORMED_INPUT;
-        }
-        if (unlikely(a1_slen > 1000000000)) {
-          putc_unlocked('\n', stdout);
-          logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-          goto OxBgenToPgen_ret_MALFORMED_INPUT;
-        }
-        if (unlikely(a1_slen + S_CAST(uintptr_t, a1_ptr - R_CAST(char*, loadbuf)) > loadbuf_size)) {
-          goto OxBgenToPgen_ret_NOMEM;
-        }
-        if (unlikely(!fread_unlocked(a1_ptr, a1_slen, 1, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
-        }
-        char* a2_ptr = &(a1_ptr[a1_slen]);
-        uint32_t a2_slen;
-        if (unlikely(!fread_unlocked(&a2_slen, 4, 1, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
-        }
-        if (unlikely(!a2_slen)) {
-          putc_unlocked('\n', stdout);
-          logerrputs("Error: Empty allele code in .bgen file.\n");
-          goto OxBgenToPgen_ret_MALFORMED_INPUT;
-        }
-        if (unlikely(a2_slen > 1000000000)) {
-          putc_unlocked('\n', stdout);
-          logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-          goto OxBgenToPgen_ret_MALFORMED_INPUT;
-        }
-        if (unlikely(a2_slen + S_CAST(uintptr_t, a2_ptr - R_CAST(char*, loadbuf)) > loadbuf_size)) {
-          goto OxBgenToPgen_ret_NOMEM;
-        }
-        if (unlikely(!fread_unlocked(a2_ptr, a2_slen, 1, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
+        // Read all allele codes first, since REF may be last.
+        char* allele_ptrs[kPglMaxAlleleCt];
+        uint32_t allele_slens[kPglMaxAlleleCt];
+        {
+          char* allele_write_iter = loadbuf_iter;
+          for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+            uint32_t cur_allele_slen;
+            if (unlikely(!fread_unlocked(&cur_allele_slen, 4, 1, bgenfile))) {
+              goto OxBgenToPgen_ret_READ_FAIL;
+            }
+            if (unlikely(!cur_allele_slen)) {
+              putc_unlocked('\n', stdout);
+              logerrputs("Error: Empty allele code in .bgen file.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
+            }
+            if (unlikely(cur_allele_slen > 1000000000)) {
+              putc_unlocked('\n', stdout);
+              logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
+            }
+            if (unlikely(cur_allele_slen + S_CAST(uintptr_t, allele_write_iter - R_CAST(char*, loadbuf)) > loadbuf_size)) {
+              goto OxBgenToPgen_ret_NOMEM;
+            }
+            if (unlikely(!fread_unlocked(allele_write_iter, cur_allele_slen, 1, bgenfile))) {
+              goto OxBgenToPgen_ret_READ_FAIL;
+            }
+            allele_ptrs[allele_idx] = allele_write_iter;
+            allele_slens[allele_idx] = cur_allele_slen;
+            allele_write_iter = &(allele_write_iter[cur_allele_slen]);
+          }
         }
         pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
         *pvar_cswritep++ = '\t';
@@ -15123,69 +15599,25 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
         }
         *pvar_cswritep++ = '\t';
-        if (prov_ref_allele_second) {
-          const uint32_t swap_slen = a1_slen;
-          a1_slen = a2_slen;
-          a2_slen = swap_slen;
-          char* swap_ptr = a1_ptr;
-          a1_ptr = a2_ptr;
-          a2_ptr = swap_ptr;
-        }
-        // allele codes may be too large for write buffer
-        if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
-          goto OxBgenToPgen_ret_WRITE_FAIL;
-        }
-        if (a1_slen < kMaxMediumLine) {
-          pvar_cswritep = memcpya(pvar_cswritep, a1_ptr, a1_slen);
-        } else {
-          if (unlikely(CsputsStd(a1_ptr, a1_slen, &pvar_css, &pvar_cswritep))) {
-            goto OxBgenToPgen_ret_WRITE_FAIL;
+        // With provisional-REF-last, REF is the last allele and the ALT alleles
+        // keep their .bgen order.
+        for (uint32_t out_allele_idx = 0; out_allele_idx != cur_allele_ct; ++out_allele_idx) {
+          uint32_t in_allele_idx = out_allele_idx;
+          if (prov_ref_allele_second) {
+            in_allele_idx = out_allele_idx? (out_allele_idx - 1) : (cur_allele_ct - 1);
           }
-        }
-        *pvar_cswritep++ = '\t';
-        if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
-          goto OxBgenToPgen_ret_WRITE_FAIL;
-        }
-        if (a2_slen < kMaxMediumLine) {
-          pvar_cswritep = memcpya(pvar_cswritep, a2_ptr, a2_slen);
-        } else {
-          if (unlikely(CsputsStd(a2_ptr, a2_slen, &pvar_css, &pvar_cswritep))) {
-            goto OxBgenToPgen_ret_WRITE_FAIL;
+          if (out_allele_idx) {
+            *pvar_cswritep++ = out_allele_idx == 1? '\t' : ',';
           }
-        }
-        for (uint32_t allele_idx = 2; allele_idx != cur_allele_ct; ++allele_idx) {
-          // (can't actually reach here yet since we're skipping multiallelics
-          // for now)
-          // safe to use entire loadbuf for this
-          assert(0);
-          uint32_t cur_allele_slen;
-          if (unlikely(!fread_unlocked(&cur_allele_slen, 4, 1, bgenfile))) {
-            goto OxBgenToPgen_ret_READ_FAIL;
-          }
-          if (unlikely(!cur_allele_slen)) {
-            putc_unlocked('\n', stdout);
-            logerrputs("Error: Empty allele code in .bgen file.\n");
-            goto OxBgenToPgen_ret_MALFORMED_INPUT;
-          }
-          if (unlikely(cur_allele_slen > 1000000000)) {
-            putc_unlocked('\n', stdout);
-            logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-            goto OxBgenToPgen_ret_MALFORMED_INPUT;
-          }
-          if (unlikely(cur_allele_slen > loadbuf_size)) {
-            goto OxBgenToPgen_ret_NOMEM;
-          }
-          if (unlikely(!fread_unlocked(loadbuf, cur_allele_slen, 1, bgenfile))) {
-            goto OxBgenToPgen_ret_READ_FAIL;
-          }
-          *pvar_cswritep++ = ',';
+          // allele codes may be too large for write buffer
           if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
             goto OxBgenToPgen_ret_WRITE_FAIL;
           }
+          const uint32_t cur_allele_slen = allele_slens[in_allele_idx];
           if (cur_allele_slen < kMaxMediumLine) {
-            pvar_cswritep = memcpya(pvar_cswritep, loadbuf, cur_allele_slen);
+            pvar_cswritep = memcpya(pvar_cswritep, allele_ptrs[in_allele_idx], cur_allele_slen);
           } else {
-            if (unlikely(CsputsStd(R_CAST(char*, loadbuf), cur_allele_slen, &pvar_css, &pvar_cswritep))) {
+            if (unlikely(CsputsStd(allele_ptrs[in_allele_idx], cur_allele_slen, &pvar_css, &pvar_cswritep))) {
               goto OxBgenToPgen_ret_WRITE_FAIL;
             }
           }
@@ -15307,16 +15739,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
       }
       variant_ct += block_vidx;
-      if (multiallelic_tmp_skip_ct) {
-        putc_unlocked('\n', stdout);
-        logerrprintfww("Warning: %u multiallelic variant%s skipped%s (not yet supported).\n", multiallelic_tmp_skip_ct, (multiallelic_tmp_skip_ct == 1)? "" : "s", (import_max_allele_ct < 0x7ffffffe)? ", on top of --import-max-alleles filter" : "");
-      }
       if (unlikely(!variant_ct)) {
         char* write_iter = strcpya_k(g_logbuf, "Error: All ");
-        if (multiallelic_tmp_skip_ct) {
-          write_iter = strcpya_k(write_iter, "remaining ");
-        }
-        write_iter = u32toa(raw_variant_ct - multiallelic_tmp_skip_ct, write_iter);
+        write_iter = u32toa(raw_variant_ct, write_iter);
         write_iter = strcpya_k(write_iter, " variant(s) in .bgen file excluded by ");
         AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
         strcpy_k(write_iter, ".\n");
@@ -15369,9 +15794,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         allele_idx_offsets = nullptr;
         BigstackEndReset(bigstack_end_mark);
       } else {
-        // not yet possible
-        reterr = kPglRetNotYetSupported;
-        goto OxBgenToPgen_ret_1;
         *allele_idx_offsets_iter = tot_allele_ct;
       }
       if (unlikely(fseeko(bgenfile, initial_uints[0] + 4, SEEK_SET))) {
@@ -15380,7 +15802,16 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, max_allele_ct, kPgenWriteBackwardSeek, dosage_exists? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      PgenGlobalFlags phase_dosage_gflags = kfPgenGlobal0;
+      if (dosage_exists) {
+        phase_dosage_gflags = kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
+        // The scan stops at the first phase or dosage it finds, so it doesn't
+        // tell us whether the multiallelic variants have rare-alt dosages.
+        if (max_allele_ct > 2) {
+          phase_dosage_gflags |= kfPgenGlobalMultiallelicDosagePresent;
+        }
+      }
+      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, max_allele_ct, kPgenWriteBackwardSeek, phase_dosage_gflags, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -15638,8 +16069,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
 
-            // "cur_allele_ct > 2" is temporary kludge
-            if (skip_chr || (cur_allele_ct > 2) || ((overlong_varids_mode == kImportOverlongVarIdsSkip) && (rsid_slen > kMaxIdSlen))) {
+            if (skip_chr || (cur_allele_ct > import_max_allele_ct) || ((overlong_varids_mode == kImportOverlongVarIdsSkip) && (rsid_slen > kMaxIdSlen))) {
               if (unlikely(fseeko(bgenfile, genodata_byte_ct, SEEK_CUR))) {
                 goto OxBgenToPgen_ret_READ_FAIL;
               }
@@ -15724,8 +16154,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     write_iter = strcpya_k(write_iter, " remaining");
     if (load_filter_log_import_flags) {
       write_iter = strcpya_k(write_iter, " (");
-      if (raw_variant_ct - multiallelic_tmp_skip_ct != variant_ct) {
-        write_iter = u32toa(raw_variant_ct - multiallelic_tmp_skip_ct - variant_ct, write_iter);
+      if (raw_variant_ct != variant_ct) {
+        write_iter = u32toa(raw_variant_ct - variant_ct, write_iter);
         write_iter = strcpya_k(write_iter, " excluded by ");
         AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
         *write_iter++ = ')';
