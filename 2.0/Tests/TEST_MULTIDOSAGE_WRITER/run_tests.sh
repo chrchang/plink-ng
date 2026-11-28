@@ -399,6 +399,16 @@ for m in "" "meanimpute" "cov" "cov meanimpute"; do
     $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --make-grm-list $m --out tmp_rel_grm
     ./tmp_multidosage_writer_test checkgrm tmp_small tmp_rel_freq.afreq tmp_rel_grm.grm $m
 done
+# GRM variant loading is parallel (decode threads) except with --threads 1;
+# 3 threads give uneven decode segments.  Each decode thread tracks variants
+# with missing calls separately (merged afterward), which the default mode's
+# per-pair observation counts depend on.
+for t in 1 3; do
+    for m in "" "cov"; do
+        $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --threads $t --make-grm-list $m --out tmp_rel_grm
+        ./tmp_multidosage_writer_test checkgrm tmp_small tmp_rel_freq.afreq tmp_rel_grm.grm $m
+    done
+done
 $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --make-rel square --out tmp_rel_sq
 $P --pfile tmp_small --read-freq tmp_rel_freq.afreq --make-rel square meanimpute --out tmp_rel_sqmi
 # (allele-wts exercises the other variant-loading passes)
