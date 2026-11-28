@@ -63,7 +63,7 @@ def generate(args, work_dir):
     data_dir = os.path.join(work_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
     prefix = os.path.join(data_dir, "bench")
-    params = "%d %d %s" % (args.samples, args.variants, " ".join(args.gen_opt))
+    params = " ".join([str(args.samples), str(args.variants)] + args.gen_opt)
     params_fname = os.path.join(data_dir, "params.txt")
     if os.path.exists(params_fname) and os.path.exists(prefix + "_bi.pgen"):
         with open(params_fname) as f:
