@@ -758,3 +758,29 @@ for ig in dosage phase; do
     $P --pfile tmp_pm_ig --validate --out tmp_pm_ig_v
     ./tmp_multidosage_writer_test comparemerge nm-match tmp_pm_ig tmp_pm_ig_ref
 done
+
+# --export bgen-1.2/1.3 with multiallelic variants.  bgen_multiallelic_check.py
+# decodes the .bgen itself and compares each multiallelic genotype block
+# exactly (ploidy/missingness bytes, ploidy range, phased flag, every
+# probability) against values derived from the source fileset's per-allele
+# dosages (dumpvals), with alleles matched by string.
+./tmp_multidosage_writer_test dumpvals tmp_small tmp_bgx_small_vals.txt
+$P --pfile tmp_small --export bgen-1.2 --out tmp_bgx1
+python3 bgen_multiallelic_check.py tmp_bgx1.bgen tmp_small.pvar tmp_small.psam tmp_bgx_small_vals.txt ref-last
+# chrX (haploid males), zstd compression, odd bit depth, ref-first
+$P --pfile tmp_x --max-alleles 20 --make-pgen --out tmp_bgx_x
+./tmp_multidosage_writer_test dumpvals tmp_bgx_x tmp_bgx_x_vals.txt
+$P --pfile tmp_bgx_x --export bgen-1.3 bits=7 ref-first --out tmp_bgx2
+python3 bgen_multiallelic_check.py tmp_bgx2.bgen tmp_bgx_x.pvar tmp_bgx_x.psam tmp_bgx_x_vals.txt ref-first
+# chrY (ploidy 0 for missing females), with an ALT-allele permutation applied
+# by the exporter, and a sample subset
+awk 'BEGIN {OFS = "\t"} /^#/ {print; next} {$1 = "Y"; print}' tmp_x.pvar > tmp_bgx_y.pvar
+cp tmp_x.pgen tmp_bgx_y.pgen
+cp tmp_x.psam tmp_bgx_y.psam
+awk '!/^#/ && (split($5, a, ",") >= 2) {print $3 "\t" a[2]}' tmp_bgx_y.pvar > tmp_bgx_alt2.txt
+awk 'NR > 1 && (NR % 3) {print $1}' tmp_bgx_y.psam > tmp_bgx_keep.txt
+BGX_OPTS="--max-alleles 20 --keep tmp_bgx_keep.txt --alt1-allele force tmp_bgx_alt2.txt"
+$P --pfile tmp_bgx_y $BGX_OPTS --make-pgen --out tmp_bgx_y2
+./tmp_multidosage_writer_test dumpvals tmp_bgx_y2 tmp_bgx_y2_vals.txt
+$P --pfile tmp_bgx_y $BGX_OPTS --export bgen-1.2 bits=3 --out tmp_bgx3
+python3 bgen_multiallelic_check.py tmp_bgx3.bgen tmp_bgx_y2.pvar tmp_bgx_y2.psam tmp_bgx_y2_vals.txt ref-last

@@ -1985,10 +1985,198 @@ typedef struct ExportBgen13CtxStruct {
   unsigned char* writebufs[2];
   uint32_t* variant_bytects[2];
 
+  // Multiallelic variants (null if there are none): per-thread readback
+  // buffers (with rare-alt dosage lists when needed) and scratch space; see
+  // FillBgen13MultiallelicBlock().
+  PgenVariant* multi_pgvs;
+  uint32_t** multi_u_bufs;
+  int32_t** multi_d_bufs;
+  uint32_t** multi_scratch_bufs;
+
   // high 32 bits = variant_uidx, earlier one takes precedence
   // low 32 bits = uint32_t(PglErr)
   uint64_t err_info;
 } ExportBgen13Ctx;
+
+// Output allele order for a bgen-1.2/1.3 variant: out_to_in[k] is the
+// internal allele index of output allele k.  REF (after any allele
+// permutation) comes first, or last if ref_allele_last is set; the other
+// alleles keep their (permuted) order.
+static void Bgen13OutputAlleleOrder(const AlleleCode* cur_allele_permute, uint32_t allele_ct, uint32_t ref_allele_last, uint32_t* out_to_in) {
+  for (uint32_t new_idx = 0; new_idx != allele_ct; ++new_idx) {
+    const uint32_t in_idx = cur_allele_permute? cur_allele_permute[new_idx] : new_idx;
+    if (ref_allele_last) {
+      out_to_in[(new_idx + allele_ct - 1) % allele_ct] = in_idx;
+    } else {
+      out_to_in[new_idx] = in_idx;
+    }
+  }
+}
+
+// Writes one bgen layout-2 genotype data block for a variant with more than
+// two alleles.  These are always stored in the phased format (each haplotype
+// gets allele_ct - 1 probabilities), since the unphased format needs
+// O(allele_ct^2) values per sample; a sample whose haplotype split is unknown
+// gets two identical haplotypes, each with half of its dosages.
+// Ploidy follows the biallelic code: 2 on diploid chromosomes; on haploid
+// chromosomes, 2 for phased calls (and non-males on chrX), 1 otherwise, and 0
+// for missing female chrY calls.
+// Each haplotype's probabilities are scaled to (2^bit_precision - 1) with
+// largest-remainder rounding (ties to the lower output allele index), so they
+// sum to exactly that; the last output allele's value is omitted, per the
+// spec.
+// u_buf and d_buf need allele_ct - 1 entries, scratch 5 * allele_ct.
+// Returns nullptr on malformed input.
+static unsigned char* FillBgen13MultiallelicBlock(const PgenVariant* pgvp, const uint32_t* out_to_in, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_female_collapsed, uint32_t sample_ct, uint32_t allele_ct, uint32_t is_haploid, uint32_t is_x, uint32_t is_y, uint32_t bit_precision, uint32_t* u_buf, int32_t* d_buf, uint32_t* scratch, unsigned char* buf) {
+  const uint32_t max_output_val = (1U << bit_precision) - 1;
+  // per-haplotype values in internal allele order, kDosageMax = 1
+  uint32_t* hap_vals[2] = {scratch, &(scratch[allele_ct])};
+  uint32_t* numers = &(scratch[2 * allele_ct]);
+  uint32_t* rems = &(scratch[3 * allele_ct]);
+  uint32_t* order = &(scratch[4 * allele_ct]);
+  unsigned char* buf_iter = buf;
+  AppendU32(sample_ct, &buf_iter);
+  AppendU16(allele_ct, &buf_iter);
+  unsigned char* ploidy_range = buf_iter;
+  buf_iter = &(buf_iter[2]);
+  unsigned char* ploidy_and_missingness_iter = buf_iter;
+  buf_iter = &(buf_iter[sample_ct]);
+  *buf_iter++ = 1;  // phased
+  *buf_iter++ = bit_precision;
+  uintptr_t cur_write_bits = 0;
+  uint32_t cur_write_bit_idx = 0;
+  uint32_t min_ploidy = 2;
+  uint32_t max_ploidy = 0;
+  const uint32_t alt_ct = allele_ct - 1;
+  MdCursor cursor;
+  MdCursorInit(pgvp, &cursor);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    MdSample ms;
+    if (unlikely(MdCursorNext(pgvp, sample_idx, allele_ct, 1, &cursor, &ms, u_buf, d_buf))) {
+      return nullptr;
+    }
+    uint32_t ploidy = 2;
+    if (is_haploid) {
+      if (is_x) {
+        ploidy = 2 - (IsSet(sex_male_collapsed, sample_idx) && (!ms.hap_split));
+      } else {
+        ploidy = 2 - (!ms.hap_split);
+        if (is_y && (!ms.has_vals) && IsSet(sex_female_collapsed, sample_idx)) {
+          ploidy = 0;
+        }
+      }
+    }
+    if (ploidy < min_ploidy) {
+      min_ploidy = ploidy;
+    }
+    if (ploidy > max_ploidy) {
+      max_ploidy = ploidy;
+    }
+    if (!ms.has_vals) {
+      *ploidy_and_missingness_iter++ = 128 + ploidy;
+      for (uint32_t uii = 0; uii != ploidy * alt_ct; ++uii) {
+        Append0Bits(bit_precision, &cur_write_bits, &cur_write_bit_idx, &buf_iter);
+      }
+      continue;
+    }
+    *ploidy_and_missingness_iter++ = ploidy;
+    uint32_t alt_sum = 0;
+    int32_t delta_sum = 0;
+    for (uint32_t alt_idx = 0; alt_idx != alt_ct; ++alt_idx) {
+      alt_sum += u_buf[alt_idx];
+      if (ms.hap_split) {
+        delta_sum += d_buf[alt_idx];
+      }
+    }
+    // (u +/- d) on diploid haplotypes, u alone when there's no split (half of
+    // a diploid sample's dosage, or all of a haploid sample's)
+    for (uint32_t hap_idx = 0; hap_idx != ploidy; ++hap_idx) {
+      uint32_t* cur_hap_vals = hap_vals[hap_idx];
+      if (ms.hap_split) {
+        const int32_t sign = hap_idx? -1 : 1;
+        cur_hap_vals[0] = S_CAST(int32_t, kDosageMax - alt_sum) - sign * delta_sum;
+        for (uint32_t alt_idx = 0; alt_idx != alt_ct; ++alt_idx) {
+          cur_hap_vals[alt_idx + 1] = S_CAST(int32_t, u_buf[alt_idx]) + sign * d_buf[alt_idx];
+        }
+      } else {
+        cur_hap_vals[0] = kDosageMax - alt_sum;
+        for (uint32_t alt_idx = 0; alt_idx != alt_ct; ++alt_idx) {
+          cur_hap_vals[alt_idx + 1] = u_buf[alt_idx];
+        }
+      }
+      // Largest-remainder rounding, in output allele order.
+      uint32_t numer_sum = 0;
+      for (uint32_t out_idx = 0; out_idx != allele_ct; ++out_idx) {
+        const uint64_t scaled = S_CAST(uint64_t, cur_hap_vals[out_to_in[out_idx]]) * max_output_val;
+        numers[out_idx] = scaled / kDosageMax;
+        rems[out_idx] = scaled % kDosageMax;
+        numer_sum += numers[out_idx];
+      }
+      if (numer_sum != max_output_val) {
+        // stable sort by decreasing remainder (allele counts are small)
+        for (uint32_t out_idx = 0; out_idx != allele_ct; ++out_idx) {
+          uint32_t pos = out_idx;
+          while (pos && (rems[order[pos - 1]] < rems[out_idx])) {
+            order[pos] = order[pos - 1];
+            --pos;
+          }
+          order[pos] = out_idx;
+        }
+        for (uint32_t uii = 0; numer_sum != max_output_val; ++uii) {
+          numers[order[uii]] += 1;
+          ++numer_sum;
+        }
+      }
+      for (uint32_t out_idx = 0; out_idx != alt_ct; ++out_idx) {
+        AppendBits(bit_precision, numers[out_idx], &cur_write_bits, &cur_write_bit_idx, &buf_iter);
+      }
+    }
+  }
+  if (min_ploidy > max_ploidy) {
+    min_ploidy = max_ploidy;
+  }
+  ploidy_range[0] = min_ploidy;
+  ploidy_range[1] = max_ploidy;
+  CopyToUnalignedW(buf_iter, &cur_write_bits);
+  return &(buf_iter[DivUp(cur_write_bit_idx, CHAR_BIT)]);
+}
+
+// Compresses one variant's genotype data block into *writebuf_iterp, and
+// updates the per-sample missing-call counts.
+static void Bgen13FinishVariant(const unsigned char* uncompressed_buf, uint32_t uncompressed_bytect, struct libdeflate_compressor* compressor, uint32_t zst_level, uintptr_t bgen_compressed_buf_max, const uintptr_t* genovec, const uintptr_t* dosage_present, uint32_t dosage_ct, const uintptr_t* y_female_mask, uint32_t sample_ct, uint32_t acc1_vec_ct, uintptr_t* missing_acc1, VecW* missing_acc4, VecW* missing_acc8, VecW* missing_acc32, uint32_t* vidx_rem15_ptr, uint32_t* vidx_rem255d15_ptr, unsigned char** writebuf_iterp, uint32_t** variant_bytect_iterp) {
+  unsigned char* writebuf_iter = *writebuf_iterp;
+  uintptr_t compressed_bytect;
+  if (compressor) {
+    compressed_bytect = libdeflate_zlib_compress(compressor, uncompressed_buf, uncompressed_bytect, writebuf_iter, bgen_compressed_buf_max);
+  } else {
+    compressed_bytect = ZSTD_compress(writebuf_iter, bgen_compressed_buf_max, uncompressed_buf, uncompressed_bytect, zst_level);
+  }
+  assert(compressed_bytect);
+  uint32_t* variant_bytect_iter = *variant_bytect_iterp;
+  *variant_bytect_iter++ = 4 + compressed_bytect;
+  *variant_bytect_iter++ = uncompressed_bytect;
+  *variant_bytect_iterp = variant_bytect_iter;
+  *writebuf_iterp = &(writebuf_iter[bgen_compressed_buf_max]);
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  GenoarrToMissingnessUnsafe(genovec, sample_ct, missing_acc1);
+  if (dosage_ct) {
+    BitvecInvmask(dosage_present, sample_ctl, missing_acc1);
+  }
+  if (y_female_mask) {
+    BitvecInvmask(y_female_mask, sample_ctl, missing_acc1);
+  }
+  const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
+  const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
+  VcountIncr1To4(missing_acc1, acc1_vec_ct, missing_acc4);
+  if (!(--(*vidx_rem15_ptr))) {
+    Vcount0Incr4To8(acc4_vec_ct, missing_acc4, missing_acc8);
+    *vidx_rem15_ptr = 15;
+    if (!(--(*vidx_rem255d15_ptr))) {
+      Vcount0Incr8To32(acc8_vec_ct, missing_acc8, missing_acc32);
+      *vidx_rem255d15_ptr = 17;
+    }
+  }
+}
 
 THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
@@ -2101,11 +2289,30 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
       }
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {
-        // todo: multiallelic cases
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base != 2) {
-          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
-          goto ExportBgen13Thread_err;
+        const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        if (cur_allele_ct > 2) {
+          PgenVariant* multi_pgvp = &(ctx->multi_pgvs[tidx]);
+          PglErr reterr = PgrGetMDp(sample_include, pssi, sample_ct, variant_uidx, pgrp, multi_pgvp);
+          if (unlikely(reterr)) {
+            new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+            goto ExportBgen13Thread_err;
+          }
+          if (!multi_pgvp->dosage_ct) {
+            multi_pgvp->dphase_ct = 0;
+          }
+          ZeroTrailingNyps(sample_ct, multi_pgvp->genovec);
+          uint32_t* scratch = ctx->multi_scratch_bufs[tidx];
+          // out_to_in[] goes after the FillBgen13MultiallelicBlock() scratch
+          uint32_t* out_to_in = &(scratch[5 * cur_allele_ct]);
+          Bgen13OutputAlleleOrder(allele_permute? (&(allele_permute[allele_idx_offset_base])) : nullptr, cur_allele_ct, ref_allele_last, out_to_in);
+          unsigned char* block_end = FillBgen13MultiallelicBlock(multi_pgvp, out_to_in, sex_male_collapsed, sex_female_collapsed, sample_ct, cur_allele_ct, is_haploid, is_x, is_y, bit_precision, ctx->multi_u_bufs[tidx], ctx->multi_d_bufs[tidx], scratch, uncompressed_bgen_geno_buf);
+          if (unlikely(!block_end)) {
+            new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto ExportBgen13Thread_err;
+          }
+          Bgen13FinishVariant(uncompressed_bgen_geno_buf, block_end - uncompressed_bgen_geno_buf, compressor, zst_level, bgen_compressed_buf_max, multi_pgvp->genovec, multi_pgvp->dosage_present, multi_pgvp->dosage_ct, is_y? sex_female_collapsed : nullptr, sample_ct, acc1_vec_ct, missing_acc1, missing_acc4, missing_acc8, missing_acc32, &vidx_rem15, &vidx_rem255d15, &writebuf_iter, &variant_bytect_iter);
+          continue;
         }
       }
       if (allele_permute) {
@@ -2770,33 +2977,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
         CopyToUnalignedW(bgen_geno_buf_iter, &cur_write_bits);
         bgen_geno_buf_iter = &(bgen_geno_buf_iter[DivUp(cur_write_bit_idx, CHAR_BIT)]);
       }
-      const uint32_t uncompressed_bytect = bgen_geno_buf_iter - uncompressed_bgen_geno_buf;
-      uintptr_t compressed_bytect;
-      if (compressor) {
-        compressed_bytect = libdeflate_zlib_compress(compressor, uncompressed_bgen_geno_buf, uncompressed_bytect, writebuf_iter, bgen_compressed_buf_max);
-      } else {
-        compressed_bytect = ZSTD_compress(writebuf_iter, bgen_compressed_buf_max, uncompressed_bgen_geno_buf, uncompressed_bytect, zst_level);
-      }
-      assert(compressed_bytect);
-      *variant_bytect_iter++ = 4 + compressed_bytect;
-      *variant_bytect_iter++ = uncompressed_bytect;
-      writebuf_iter = &(writebuf_iter[bgen_compressed_buf_max]);
-      GenoarrToMissingnessUnsafe(pgv.genovec, sample_ct, missing_acc1);
-      if (pgv.dosage_ct) {
-        BitvecInvmask(pgv.dosage_present, sample_ctl, missing_acc1);
-      }
-      if (is_y) {
-        BitvecInvmask(sex_female_collapsed, sample_ctl, missing_acc1);
-      }
-      VcountIncr1To4(missing_acc1, acc1_vec_ct, missing_acc4);
-      if (!(--vidx_rem15)) {
-        Vcount0Incr4To8(acc4_vec_ct, missing_acc4, missing_acc8);
-        vidx_rem15 = 15;
-        if (!(--vidx_rem255d15)) {
-          Vcount0Incr8To32(acc8_vec_ct, missing_acc8, missing_acc32);
-          vidx_rem255d15 = 17;
-        }
-      }
+      Bgen13FinishVariant(uncompressed_bgen_geno_buf, bgen_geno_buf_iter - uncompressed_bgen_geno_buf, compressor, zst_level, bgen_compressed_buf_max, pgv.genovec, pgv.dosage_present, pgv.dosage_ct, is_y? sex_female_collapsed : nullptr, sample_ct, acc1_vec_ct, missing_acc1, missing_acc4, missing_acc8, missing_acc32, &vidx_rem15, &vidx_rem255d15, &writebuf_iter, &variant_bytect_iter);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -2941,8 +3122,22 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     const uint32_t max_chr_slen = GetMaxChrSlen(cip);
     uintptr_t bgen_geno_cacheline_ct;
     uintptr_t bgen_compressed_buf_max;
+    // Largest allele count among exported variants; a multiallelic variant
+    // takes 2 * (allele_ct - 1) probabilities per sample.
+    uint32_t max_allele_ct = 2;
+    if (allele_idx_offsets) {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+        if (cur_allele_ct > max_allele_ct) {
+          max_allele_ct = cur_allele_ct;
+        }
+      }
+    }
     {
-      const uint64_t tot_prob_bit_ct = S_CAST(uint64_t, sample_ct) * 2 * exportf_bits;
+      const uint64_t tot_prob_bit_ct = S_CAST(uint64_t, sample_ct) * 2 * (max_allele_ct - 1) * exportf_bits;
       uint64_t bgen_geno_buf_size = 10 + sample_ct + DivUp(tot_prob_bit_ct, 8);
       if (unlikely(bgen_geno_buf_size > 0xffffffffU - 4)) {
         // could return VarRecordTooLarge error instead
@@ -3082,6 +3277,34 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
 
     const uint32_t acc1_vec_ct = BitCtToVecCt(sample_ct);
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
+    ctx.multi_pgvs = nullptr;
+    ctx.multi_u_bufs = nullptr;
+    ctx.multi_d_bufs = nullptr;
+    ctx.multi_scratch_bufs = nullptr;
+    if (max_allele_ct > 2) {
+      // Allocated before PgenMtLoadInit() claims most of the workspace, for
+      // the largest possible thread count.
+      const uint32_t md_allele_ct = dosage_is_present? MultiallelicDosageMaxAlleleCt(variant_include, allele_idx_offsets, pgfip->vrtypes, variant_ct) : 0;
+      const PgenGlobalFlags read_gflags = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
+      if (unlikely(BIGSTACK_ALLOC_X(PgenVariant, calc_thread_ct, &ctx.multi_pgvs) ||
+                   bigstack_alloc_u32p(calc_thread_ct, &ctx.multi_u_bufs) ||
+                   bigstack_alloc_i32p(calc_thread_ct, &ctx.multi_d_bufs) ||
+                   bigstack_alloc_u32p(calc_thread_ct, &ctx.multi_scratch_bufs))) {
+        goto ExportBgen13_ret_NOMEM;
+      }
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        PgenVariant* cur_pgvp = &(ctx.multi_pgvs[tidx]);
+        uint32_t* md_u;
+        int32_t* md_d;
+        if (unlikely(BigstackAllocPgv(sample_ct, 1, read_gflags, cur_pgvp) ||
+                     BigstackAllocMultidosage(sample_ct, md_allele_ct, (read_gflags / kfPgenGlobalDosagePhasePresent) & 1, cur_pgvp, &md_u, &md_d) ||
+                     bigstack_alloc_u32(max_allele_ct - 1, &ctx.multi_u_bufs[tidx]) ||
+                     bigstack_alloc_i32(max_allele_ct - 1, &ctx.multi_d_bufs[tidx]) ||
+                     bigstack_alloc_u32(6 * max_allele_ct, &ctx.multi_scratch_bufs[tidx]))) {
+          goto ExportBgen13_ret_NOMEM;
+        }
+      }
+    }
     const uintptr_t track_missing_cacheline_ct = VecCtToCachelineCt(acc1_vec_ct * 45);
     const uintptr_t thread_xalloc_cacheline_ct = track_missing_cacheline_ct + bgen_geno_cacheline_ct;
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
@@ -3157,8 +3380,6 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     logprintfww5("Writing %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
-    uint32_t ref_allele_idx = 0;
-    uint32_t alt1_allele_idx = 1;
     uint32_t allele_ct = 2;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
@@ -3169,13 +3390,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         JoinThreads(&tg);
         reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
-          if (reterr == kPglRetInconsistentInput) {
-            // temporary
-            logputs("\n");
-            logerrputs("Error: --export bgen-1.2/1.3 multiallelic variant support is under development.\n");
-          } else {
-            PgenErrPrintNV(reterr, ctx.err_info >> 32);
-          }
+          PgenErrPrintNV(reterr, ctx.err_info >> 32);
           goto ExportBgen13_ret_1;
         }
       }
@@ -3220,47 +3435,17 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
             allele_ct = allele_idx_offsets[write_variant_uidx + 1] - allele_idx_offset_base;
           }
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-          if (allele_permute) {
-            ref_allele_idx = allele_permute[allele_idx_offset_base];
-            alt1_allele_idx = allele_permute[allele_idx_offset_base + 1];
-          }
           AppendU16(allele_ct, &write_iter);
-          const char* ref_allele = cur_alleles[ref_allele_idx];
-          const uint32_t ref_allele_slen = strlen(ref_allele);
-          if (!ref_allele_last) {
+          uint32_t out_to_in[kPglMaxAlleleCt];
+          Bgen13OutputAlleleOrder(allele_permute? (&(allele_permute[allele_idx_offset_base])) : nullptr, allele_ct, ref_allele_last, out_to_in);
+          for (uint32_t out_idx = 0; out_idx != allele_ct; ++out_idx) {
             if (unlikely(fwrite_uflush2(writebuf_flush, outfile, &write_iter))) {
               goto ExportBgen13_ret_WRITE_FAIL;
             }
-            AppendU32(ref_allele_slen, &write_iter);
-            write_iter = memcpyua(write_iter, ref_allele, ref_allele_slen);
-          }
-          if (unlikely(fwrite_uflush2(writebuf_flush, outfile, &write_iter))) {
-            goto ExportBgen13_ret_WRITE_FAIL;
-          }
-          const char* cur_alt_allele = cur_alleles[alt1_allele_idx];
-          uint32_t alt_allele_slen = strlen(cur_alt_allele);
-          AppendU32(alt_allele_slen, &write_iter);
-          write_iter = memcpyua(write_iter, cur_alt_allele, alt_allele_slen);
-          if (allele_ct > 2) {
-            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-              if ((allele_idx == ref_allele_idx) || (allele_idx == alt1_allele_idx)) {
-                continue;
-              }
-              if (unlikely(fwrite_uflush2(writebuf_flush, outfile, &write_iter))) {
-                goto ExportBgen13_ret_WRITE_FAIL;
-              }
-              cur_alt_allele = cur_alleles[allele_idx];
-              alt_allele_slen = strlen(cur_alt_allele);
-              AppendU32(alt_allele_slen, &write_iter);
-              write_iter = memcpyua(write_iter, cur_alt_allele, alt_allele_slen);
-            }
-          }
-          if (ref_allele_last) {
-            if (unlikely(fwrite_uflush2(writebuf_flush, outfile, &write_iter))) {
-              goto ExportBgen13_ret_WRITE_FAIL;
-            }
-            AppendU32(ref_allele_slen, &write_iter);
-            write_iter = memcpyua(write_iter, ref_allele, ref_allele_slen);
+            const char* cur_allele = cur_alleles[out_to_in[out_idx]];
+            const uint32_t cur_allele_slen = strlen(cur_allele);
+            AppendU32(cur_allele_slen, &write_iter);
+            write_iter = memcpyua(write_iter, cur_allele, cur_allele_slen);
           }
           // compressed data length, then uncompressed data length
           write_iter = memcpyua(write_iter, variant_bytect_iter, 8);
