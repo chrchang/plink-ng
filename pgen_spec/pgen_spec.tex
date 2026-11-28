@@ -146,10 +146,10 @@ currently defined:
 \item \texttt{0x02} is the simplest PLINK 2 fixed-width format.  All variant
   records are of type \texttt{0}.  (Variant record types are discussed in
   section \ref{sec:vr}.)
-\item \texttt{0x03} is the fixed-width unphased-dosage format.  All variant
-  records are of type \texttt{0x40}.
-\item \texttt{0x04} is the fixed-width phased-dosage format.  All variant
-  records are of type \texttt{0xc0}.
+\item \texttt{0x03} is the fixed-width biallelic unphased-dosage format.  All
+  variant records are of type \texttt{0x40}.
+\item \texttt{0x04} is the fixed-width biallelic phased-dosage format.  All
+  variant records are of type \texttt{0xc0}.
 \item \texttt{0x10} is the standard PLINK 2 format, with variable-width variant
   records.
 \item \texttt{0x11} is \texttt{0x10} with ignorable extensions.  It adds a few bytes to the end of the header, possibly a few bytes to the end of the .pgen file, and can in principle introduce references to other files.
@@ -466,6 +466,32 @@ also stored in the difflist, and the sample IDs in the list are 5000, 10000,
   0x27 0x88 0x27 \ldots}, since 5000's varint encoding is \texttt{0x88 0x27}.
 \end{itemize}
 
+\subsubsection{64-bit deltalists}
+
+The multiallelic dosage tracks (\#5 and \#9, described later) list (sample ID,
+rare ALT allele) pairs, which can require more than 32 bits to index.  They use
+a ``64-bit deltalist'', which represents a possibly empty strictly increasing
+sequence of nonnegative integer indexes, all less than a given bound $E$.  Its
+layout parallels that of a difflist without genotype category values:
+
+\begin{enumerate}
+\item A base-128 varint indicating how many indexes are in the list; call this
+  value $L$.  $L$ must be less than $2^{31}$.  If $L=0$, that's the end of the
+  list.
+\item Otherwise, the indexes are divided into groups of 64 (the last group may
+  be smaller); let $G:=\lceil L/64\rceil $.  Next come indexes \#0, \#64,
+  \#128, \ldots (the first index in each group), each stored as an unsigned
+  little-endian integer whose width is the number of bytes needed to represent
+  $E$ itself (so e.g. $E=256$ requires 2-byte integers).
+\item $G-1$ \texttt{uint16}s, where entry $j$ is the byte size of group \#$j$
+  in the final component.  (Unlike the difflist case, this is a plain size;
+  nothing is subtracted.)  The byte size of the last group is not stored.
+\item The final component is a sequence of $L-G$ base-128 varints encoding
+  (\textless index \#$k$\textgreater $\>-$ \textless index
+  \#$(k-1)$\textgreater) for all positive $k<L$ which aren't multiples of 64.
+  Since the indexes are strictly increasing, these values are positive.
+\end{enumerate}
+
 \subsubsection{Main data track}
 
 The main data track distinguishes between homozygous-REF, heterozygous REF-ALT,
@@ -642,7 +668,9 @@ must be either missing, or satisfy $|16384c - v|\leq 8192$, where $c$ is its
 main data track genotype category (0, 1, or 2; i.e. its number of ALT alleles)
 and $v$ is the sample's stored total-ALT dosage value in track \#4 below.  (On
 a 0..2 scale, the hard-call must be within 0.5 of the dosage.)  Phase is not
-taken into account.
+taken into account.  For variants with more than two alleles, the more general
+rule described under ``Multiallelic dosages'' below applies instead; it
+reduces to this one when there are only two alleles.
 
 Note that maximum-likelihood variant calling can be expected to produce a few
 hard-calls which violate this consistency criterion.  If an analyst is unwilling to part with these marginal hard-calls,
@@ -681,14 +709,54 @@ followed by 239188 more instances of \texttt{0x00 0x30}.
 
 \subsubsection{Multiallelic dosages}
 
-When dosage data is present and the variant has multiple ALT alleles, auxiliary
-data tracks \#5-6 indicate how the total-ALT-allele-dosages stored in track \#4
-are divided between the ALT alleles.
+Let $A$ be the variant's allele count, and call ALT alleles \#2, \#3, \ldots,
+\#$(A-1)$ (i.e. all ALT alleles other than the first) its ``rare ALT
+alleles''.  When dosage data is present (bits 5 and 6 of the variant record
+type are not both zero), the storage mode is variable-width, and $A>2$,
+auxiliary data tracks \#5-6 are always present; they indicate how the
+total-ALT-allele dosages stored in track \#4 are divided between the ALT
+alleles.  They never exist for biallelic variants.
 
-The planned format of these data tracks is described in
-\texttt{pgenlib} comments.  This will not be considered finalized
-until the \texttt{pgenlib} implementation is complete and has undergone some
-testing.
+Let $b:=\lceil \log_2 (A-2)\rceil $ (so $b=0$ when $A=3$, $b=1$ when $A=4$, and
+$b=2$ when $A\in \{5,6\}$).  Each (sample ID $s$, rare ALT allele \#$a$) pair is
+represented by the index $k = s\cdot 2^b + (a-2)$.
+
+\begin{itemize}
+\item Auxiliary data track \#5 is a 64-bit deltalist with bound $E=N\cdot 2^b$,
+  listing the indexes of the pairs whose rare ALT dosage is nonzero.  (When
+  there are none, track \#5 is a single zero byte.)  The low $b$ bits of each
+  index, $a-2$, must be less than $A-2$.  A pair may only reference a sample
+  with a (non-missing) dosage in track \#4, and no sample may appear in more
+  than 255 pairs.
+\item Auxiliary data track \#6 contains the corresponding rare ALT dosages, in
+  the same order, as \texttt{uint16}s in [1, $2^{15}$], with the same units as
+  track \#4.  (Zeros are omitted, since they are implied by the pair not being
+  listed.)
+\end{itemize}
+
+For each sample with a track \#4 dosage $v$, let $u_a$ be its rare ALT allele
+\#$a$ dosage (zero if not listed).  The sum of the $u_a$ values must not exceed
+$v$; the first ALT allele's dosage is then $u_1 = v - \sum_{a\geq 2} u_a$, and
+the REF allele's dosage is $u_0 = 2^{15} - v$.
+
+The dosage/hard-call consistency requirement generalizes to all alleles: for
+each sample with a dosage and a non-missing hard-call,
+\[
+\sum_{i=0}^{A-1} |16384 h_i - u_i| \leq 16384,
+\]
+where $h_i$ is the number of copies of allele $i$ in the hard-call.  (With two
+alleles, $|16384h_0-u_0| = |16384h_1-u_1| = |16384c-v|$, so this reduces to
+$|16384c - v|\leq 8192$.)
+
+For example, suppose $N=1000$ and $A=4$ (so $b=1$ and $E=2000$), sample \#5 has
+an ALT allele \#2 dosage of 0.25 (on a 0..2 scale), sample \#7 has an ALT
+allele \#3 dosage of 0.5, and no other sample has a nonzero rare ALT dosage.
+The two indexes are $5\cdot 2 + 0 = 10$ and $7\cdot 2 + 1 = 15$.  Track \#5
+then consists of \texttt{0x02} ($L=2$), \texttt{0x0a 0x00} (the first index,
+as a 2-byte integer since 2 bytes are needed to represent 2000), and
+\texttt{0x05} (the delta $15-10$); there are no group byte sizes since $G=1$.
+Track \#6 consists of \texttt{0x00 0x10 0x00 0x20}, the \texttt{uint16}
+encodings of $(0.25/2)\cdot 2^{15}=4096$ and $(0.5/2)\cdot 2^{15}=8192$.
 
 \subsubsection{Phased dosages}
 
@@ -740,11 +808,34 @@ As for auxiliary data track \#7:
 
 \subsubsection{Phased multiallelic dosages}
 
-When phased dosage data is present and the variant has multiple ALT alleles,
-auxiliary data tracks \#9-10 store the additional information needed to resolve
-all per-haplotype allele dosages.  This part of the specification will not be
-filled in until the \texttt{pgenlib} implementation is complete and has
-undergone some testing.
+When bit 7 of the variant record type is set, the storage mode is
+variable-width, and $A>2$, auxiliary data tracks \#9-10 are always present after
+track \#8; they indicate how each rare ALT allele's dosage is divided between
+the two haplotypes.  They never exist for biallelic variants.
+
+\begin{itemize}
+\item Auxiliary data track \#9 is a 64-bit deltalist, with the same index
+  encoding and bound as track \#5, listing the (sample ID, rare ALT allele)
+  pairs with a nonzero dosage-phase value.  It must be a subset of the track
+  \#5 pairs, restricted to samples with an explicit, non-missing track \#8
+  value.  (When there are none, track \#9 is a single zero byte.)
+\item Auxiliary data track \#10 contains the corresponding dosage-phase values,
+  in the same order, as nonzero \texttt{int16}s in the same units as track \#8:
+  $2^{14}$ multiplied by (\textless left-haplotype dosage\textgreater $\>-$
+  \textless right-haplotype dosage\textgreater ) of that rare ALT allele.
+  Pairs which appear in track \#5 but not track \#9 have dosage-phase value 0.
+\end{itemize}
+
+For each sample with an explicit track \#8 value $\delta$, let $v$ be its track
+\#4 value, and for each rare ALT allele \#$a$, let $u_a$ be its dosage (from
+track \#6) and $\delta_a$ be its dosage-phase value (from track \#10, zero if
+not listed).  Each haplotype's share of each rare ALT allele must be
+nonnegative, i.e. $|\delta_a|\leq u_a$, and so must each haplotype's share of
+the first ALT allele:
+\[
+\sum_{a\geq 2} (u_a + \delta_a) \leq v + \delta \quad\textrm{and}\quad
+\sum_{a\geq 2} (u_a - \delta_a) \leq v - \delta .
+\]
 
 \subsection{Footer}
 
